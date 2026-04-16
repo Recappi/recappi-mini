@@ -16,11 +16,7 @@ struct RecordingPanel: View {
         }
         .frame(width: 300)
         .fixedSize(horizontal: false, vertical: true)
-        .background {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.background)
-                .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
-        }
+        .modifier(GlassBackgroundModifier())
         .onChange(of: showSettings) {
             resizeWindow()
         }
@@ -29,7 +25,7 @@ struct RecordingPanel: View {
     private func resizeWindow() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             guard let window = NSApp.windows.first(where: { $0 is FloatingPanel }) as? FloatingPanel else { return }
-            let targetHeight: CGFloat = showSettings ? 180 : 80
+            let targetHeight: CGFloat = showSettings ? 200 : 80
             FloatingPanelController.resize(window, height: targetHeight)
         }
     }
@@ -55,9 +51,9 @@ struct RecordingPanel: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
 
-            // App selector (only in idle state)
-            if case .idle = recorder.state, !recorder.detectedApps.isEmpty {
-                Divider().padding(.horizontal, 10)
+            // App selector (idle state)
+            if case .idle = recorder.state {
+                Divider().padding(.horizontal, 10).opacity(0.5)
                 appSelectorRow
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -115,6 +111,10 @@ struct RecordingPanel: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                } else {
+                    Text("All audio")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -188,31 +188,43 @@ struct RecordingPanel: View {
 
     private var appSelectorRow: some View {
         HStack(spacing: 8) {
-            Image(systemName: "app.badge.checkmark")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-
-            if recorder.detectedApps.count == 1, let app = recorder.detectedApps.first {
-                Text(app.name)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.primary)
+            // Show selected app icon or generic icon
+            if let app = recorder.selectedApp, let icon = app.icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 16, height: 16)
             } else {
-                Picker("", selection: Binding(
-                    get: { recorder.selectedApp?.id ?? "" },
-                    set: { id in
-                        recorder.selectedApp = recorder.detectedApps.first { $0.id == id }
-                    }
-                )) {
-                    Text("All system audio").tag("")
-                    ForEach(recorder.detectedApps) { app in
-                        Text(app.name).tag(app.id)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "speaker.wave.2")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
             }
 
-            Spacer()
+            Picker("", selection: Binding(
+                get: { recorder.selectedApp?.id ?? "__all__" },
+                set: { id in
+                    if id == "__all__" {
+                        recorder.selectedApp = nil
+                    } else {
+                        recorder.selectedApp = recorder.runningApps.first { $0.id == id }
+                    }
+                }
+            )) {
+                Text("All system audio").tag("__all__")
+                Divider()
+                ForEach(recorder.runningApps) { app in
+                    Label {
+                        Text(app.name)
+                    } icon: {
+                        if let icon = app.icon {
+                            Image(nsImage: icon)
+                        }
+                    }
+                    .tag(app.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: {
                 Task { await recorder.refreshApps() }
@@ -239,11 +251,8 @@ struct RecordingPanel: View {
     private func startRecording() {
         Task {
             do {
-                // print("[RecappiMini] Starting recording...")
                 try await recorder.startRecording()
-                // print("[RecappiMini] Recording started successfully")
             } catch {
-                // print("[RecappiMini] Start recording error: \(error)")
                 await MainActor.run {
                     recorder.state = .error(message: error.localizedDescription)
                 }
@@ -256,20 +265,15 @@ struct RecordingPanel: View {
     private func stopRecording() {
         Task {
             do {
-                // print("[RecappiMini] Stopping recording...")
                 let sessionDir = try await recorder.stopRecording()
-                // print("[RecappiMini] Recording saved to: \(sessionDir.path)")
-
                 let config = AppConfig.shared
                 let transcriber = createTranscriber(config: config)
 
-                // Transcribe
                 await MainActor.run { recorder.state = .transcribing }
                 let audioURL = RecordingStore.audioFileURL(in: sessionDir)
                 let transcript = try await transcriber.transcribe(audioURL: audioURL)
                 try RecordingStore.saveTranscript(transcript, in: sessionDir)
 
-                // Summarize (only if LLM configured)
                 if config.selectedProvider != .none {
                     await MainActor.run { recorder.state = .summarizing }
                     let summarizer = createSummarizer(config: config)
@@ -282,12 +286,10 @@ struct RecordingPanel: View {
                 await MainActor.run {
                     recorder.state = .done(folderURL: sessionDir)
                 }
-
                 try? await Task.sleep(for: .seconds(10))
                 await MainActor.run { recorder.reset() }
 
             } catch {
-                // print("[RecappiMini] Stop/transcribe error: \(error)")
                 await MainActor.run {
                     recorder.state = .error(message: error.localizedDescription)
                 }
@@ -305,6 +307,18 @@ struct RecordingPanel: View {
             return String(format: "%d:%02d:%02d", h, m, s)
         }
         return String(format: "%02d:%02d", m, s)
+    }
+}
+
+struct GlassBackgroundModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
+        } else {
+            content
+                .background(.background, in: RoundedRectangle(cornerRadius: 14))
+                .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+        }
     }
 }
 

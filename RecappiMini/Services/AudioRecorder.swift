@@ -1,29 +1,12 @@
 import AVFoundation
+import AppKit
 import CoreMedia
 import ScreenCaptureKit
-
-// Known meeting app bundle IDs
-let meetingAppBundleIDs: Set<String> = [
-    "us.zoom.xos",                          // Zoom
-    "com.microsoft.teams",                   // Microsoft Teams
-    "com.microsoft.teams2",                  // Microsoft Teams (new)
-    "com.cisco.webexmeetingsapp",            // Webex
-    "com.google.Chrome",                     // Chrome (for Google Meet)
-    "com.apple.Safari",                      // Safari (for Google Meet)
-    "org.mozilla.firefox",                   // Firefox
-    "com.microsoft.edgemac",                 // Edge
-    "com.brave.Browser",                     // Brave
-    "com.slack.Slack",                       // Slack huddles
-    "com.tinyspeck.slackmacgap",             // Slack (older)
-    "com.discord.Discord",                   // Discord
-    "com.skype.skype",                       // Skype
-    "com.facetime",                          // FaceTime
-    "com.apple.FaceTime",                    // FaceTime
-]
 
 struct AudioApp: Identifiable, Hashable {
     let id: String  // bundle ID
     let name: String
+    let icon: NSImage?
     let scApp: SCRunningApplication
 
     func hash(into hasher: inout Hasher) {
@@ -39,7 +22,7 @@ struct AudioApp: Identifiable, Hashable {
 final class AudioRecorder: NSObject, ObservableObject {
     @Published var state: RecorderState = .idle
     @Published var elapsedSeconds: Int = 0
-    @Published var detectedApps: [AudioApp] = []
+    @Published var runningApps: [AudioApp] = []
     @Published var selectedApp: AudioApp?
     @Published var recordingAppName: String?
 
@@ -52,18 +35,24 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     var currentSessionDir: URL? { sessionDir }
 
-    /// Scan for running meeting/audio apps
+    /// Scan all running GUI apps
     func refreshApps() async {
         do {
             let content = try await SCShareableContent.current
-            let apps = content.applications.compactMap { app -> AudioApp? in
-                let bundleID = app.bundleIdentifier
-                guard meetingAppBundleIDs.contains(bundleID) else { return nil }
-                return AudioApp(id: bundleID, name: app.applicationName, scApp: app)
+            let apps = content.applications.compactMap { scApp -> AudioApp? in
+                let bid = scApp.bundleIdentifier
+                guard !bid.isEmpty else { return nil }
+                // Skip system/background processes
+                guard !bid.hasPrefix("com.apple.") || isNotableAppleApp(bid) else { return nil }
+                // Get app icon
+                let icon = NSWorkspace.shared.icon(forFile:
+                    NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)?.path ?? "")
+                return AudioApp(id: bid, name: scApp.applicationName, icon: icon, scApp: scApp)
             }
-            self.detectedApps = apps
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            self.runningApps = apps
         } catch {
-            self.detectedApps = []
+            self.runningApps = []
         }
     }
 
@@ -101,15 +90,11 @@ final class AudioRecorder: NSObject, ObservableObject {
         let filter: SCContentFilter
         if let app = selectedApp,
            let liveApp = content.applications.first(where: { $0.bundleIdentifier == app.id }) {
-            // Record only this app's audio
             filter = SCContentFilter(display: display, including: [liveApp], exceptingWindows: [])
             recordingAppName = app.name
-            print("[RecappiMini] Recording audio from: \(app.name) (\(app.id))")
         } else {
-            // Fallback: record all system audio
             filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
             recordingAppName = nil
-            print("[RecappiMini] Recording all system audio")
         }
 
         let config = SCStreamConfiguration()
@@ -167,9 +152,18 @@ final class AudioRecorder: NSObject, ObservableObject {
         streamOutput = nil
         recordingAppName = nil
     }
+
+    /// Notable Apple apps that users might want to record
+    private func isNotableAppleApp(_ bid: String) -> Bool {
+        let notable: Set<String> = [
+            "com.apple.Safari",
+            "com.apple.FaceTime",
+            "com.apple.Music",
+        ]
+        return notable.contains(bid)
+    }
 }
 
-// Separate class for SCStreamOutput to avoid Sendable issues
 final class AudioStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
