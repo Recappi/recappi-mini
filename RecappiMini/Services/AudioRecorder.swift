@@ -49,10 +49,11 @@ final class AudioRecorder: NSObject, ObservableObject {
                 // Skip helper/agent processes (often show as sub-processes)
                 let name = scApp.applicationName
                 guard !name.isEmpty, !name.contains("Agent"), !name.contains("Helper") else { return nil }
-                // Get app icon
-                let icon = NSWorkspace.shared.icon(forFile:
+                // Get app icon, pre-scale to 16px for menu use
+                let rawIcon = NSWorkspace.shared.icon(forFile:
                     NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)?.path ?? "")
-                return AudioApp(id: bid, name: name, icon: icon, scApp: scApp)
+                rawIcon.size = NSSize(width: 16, height: 16)
+                return AudioApp(id: bid, name: name, icon: rawIcon, scApp: scApp)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             self.runningApps = apps

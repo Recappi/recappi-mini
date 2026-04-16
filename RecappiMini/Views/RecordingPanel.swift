@@ -106,17 +106,13 @@ struct RecordingPanel: View {
                         Label("Refresh Apps", systemImage: "arrow.clockwise")
                     }
                 } label: {
-                    HStack(spacing: 3) {
-                        Text(recorder.selectedApp?.name ?? "All system audio")
-                            .font(.system(size: 12))
-                            .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .foregroundStyle(.primary)
+                    Text(recorder.selectedApp?.name ?? "All system audio")
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                        .foregroundStyle(.primary)
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
 
                 Spacer()
 
