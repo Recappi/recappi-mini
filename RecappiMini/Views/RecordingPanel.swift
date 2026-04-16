@@ -16,7 +16,11 @@ struct RecordingPanel: View {
         }
         .frame(width: 300)
         .fixedSize(horizontal: false, vertical: true)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .background {
+            RoundedRectangle(cornerRadius: 14)
+                .fill(.background)
+                .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+        }
         .onChange(of: showSettings) {
             resizeWindow()
         }
