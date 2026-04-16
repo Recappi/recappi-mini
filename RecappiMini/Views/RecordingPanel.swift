@@ -90,10 +90,14 @@ struct RecordingPanel: View {
                     Divider()
                     ForEach(recorder.runningApps) { app in
                         Button(action: { recorder.selectedApp = app }) {
-                            if recorder.selectedApp?.id == app.id {
-                                Label(app.name, systemImage: "checkmark")
-                            } else {
+                            Label {
                                 Text(app.name)
+                            } icon: {
+                                if recorder.selectedApp?.id == app.id {
+                                    Image(systemName: "checkmark")
+                                } else if let icon = app.icon {
+                                    Image(nsImage: icon)
+                                }
                             }
                         }
                     }
@@ -102,12 +106,12 @@ struct RecordingPanel: View {
                         Label("Refresh Apps", systemImage: "arrow.clockwise")
                     }
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 3) {
                         Text(recorder.selectedApp?.name ?? "All system audio")
                             .font(.system(size: 12))
                             .lineLimit(1)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 7, weight: .bold))
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(.tertiary)
                     }
                     .foregroundStyle(.primary)
