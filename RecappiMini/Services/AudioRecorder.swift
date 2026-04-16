@@ -39,15 +39,20 @@ final class AudioRecorder: NSObject, ObservableObject {
     func refreshApps() async {
         do {
             let content = try await SCShareableContent.current
+            let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.mini"
             let apps = content.applications.compactMap { scApp -> AudioApp? in
                 let bid = scApp.bundleIdentifier
                 guard !bid.isEmpty else { return nil }
+                guard bid != selfBundleID else { return nil }
                 // Skip system/background processes
                 guard !bid.hasPrefix("com.apple.") || isNotableAppleApp(bid) else { return nil }
+                // Skip helper/agent processes (often show as sub-processes)
+                let name = scApp.applicationName
+                guard !name.isEmpty, !name.contains("Agent"), !name.contains("Helper") else { return nil }
                 // Get app icon
                 let icon = NSWorkspace.shared.icon(forFile:
                     NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)?.path ?? "")
-                return AudioApp(id: bid, name: scApp.applicationName, icon: icon, scApp: scApp)
+                return AudioApp(id: bid, name: name, icon: icon, scApp: scApp)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             self.runningApps = apps

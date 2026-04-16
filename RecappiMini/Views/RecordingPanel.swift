@@ -11,10 +11,10 @@ struct RecordingPanel: View {
             if showSettings {
                 SettingsView(isPresented: $showSettings)
             } else {
-                recordingView
+                mainView
             }
         }
-        .frame(width: 300)
+        .frame(width: 280)
         .fixedSize(horizontal: false, vertical: true)
         .modifier(GlassBackgroundModifier())
         .onChange(of: showSettings) {
@@ -30,208 +30,194 @@ struct RecordingPanel: View {
         }
     }
 
+    // MARK: - Main View
+
     @ViewBuilder
-    private var recordingView: some View {
+    private var mainView: some View {
         VStack(spacing: 0) {
-            // Top bar
-            HStack(spacing: 10) {
-                switch recorder.state {
-                case .idle:
-                    idleView
-                case .recording:
-                    recordingStateView
-                case .stopping, .transcribing, .summarizing:
-                    processingView
-                case .done(let folderURL):
-                    doneView(folderURL: folderURL)
-                case .error(let message):
-                    errorView(message: message)
-                }
+            switch recorder.state {
+            case .idle:
+                idleContent
+            case .recording:
+                recordingContent
+            case .stopping, .transcribing, .summarizing:
+                processingContent
+            case .done(let result):
+                doneContent(result: result)
+            case .error(let message):
+                errorContent(message: message)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+        }
+        .padding(12)
+    }
 
-            // App selector (idle state)
-            if case .idle = recorder.state {
-                Divider().padding(.horizontal, 10).opacity(0.5)
-                appSelectorRow
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+    // MARK: - Idle
+
+    private var idleContent: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("Recappi Mini")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Button(action: { showSettings = true }) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack(spacing: 8) {
+                // App icon
+                if let app = recorder.selectedApp, let icon = app.icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 16, height: 16)
+                } else {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, height: 16)
+                }
+
+                Picker("", selection: Binding(
+                    get: { recorder.selectedApp?.id ?? "__all__" },
+                    set: { id in
+                        recorder.selectedApp = id == "__all__" ? nil : recorder.runningApps.first { $0.id == id }
+                    }
+                )) {
+                    Text("All system audio").tag("__all__")
+                    Divider()
+                    ForEach(recorder.runningApps) { app in
+                        Label {
+                            Text(app.name)
+                        } icon: {
+                            if let icon = app.icon {
+                                Image(nsImage: icon)
+                            }
+                        }
+                        .tag(app.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+
+                Spacer()
+
+                Button(action: { Task { await recorder.refreshApps() } }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: { startRecording() }) {
+                    Image(systemName: "record.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
 
-    // MARK: - State Views
+    // MARK: - Recording
 
-    private var idleView: some View {
-        Group {
-            Text("Recappi Mini")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
-            Spacer()
-            Button(action: { showSettings = true }) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            Button(action: { startRecording() }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "record.circle")
-                    Text("Start")
-                }
-                .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.red.opacity(0.15))
-                .foregroundStyle(.red)
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private var recordingStateView: some View {
-        Group {
+    private var recordingContent: some View {
+        HStack(spacing: 10) {
             Circle()
                 .fill(.red)
                 .frame(width: 8, height: 8)
                 .modifier(PulsingModifier())
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text("REC")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.red)
-                    Text(formatTime(recorder.elapsedSeconds))
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.primary)
-                }
-                if let appName = recorder.recordingAppName {
-                    Text(appName)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else {
-                    Text("All audio")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(formatTime(recorder.elapsedSeconds))
+                    .font(.system(size: 15, weight: .medium, design: .monospaced))
+                Text(recorder.recordingAppName ?? "All audio")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
+
             Spacer()
+
             Button(action: { stopRecording() }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "stop.fill")
-                    Text("Stop")
-                }
-                .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.secondary.opacity(0.15))
-                .foregroundStyle(.primary)
-                .clipShape(Capsule())
+                Image(systemName: "stop.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.primary)
             }
             .buttonStyle(.plain)
         }
     }
 
-    private var processingView: some View {
-        Group {
+    // MARK: - Processing
+
+    private var processingContent: some View {
+        HStack(spacing: 10) {
             ProgressView()
-                .scaleEffect(0.7)
+                .scaleEffect(0.8)
                 .frame(width: 16, height: 16)
             Text(processingLabel)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
             Spacer()
         }
     }
 
-    private func doneView(folderURL: URL) -> some View {
-        Group {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-                .font(.system(size: 16))
-            Text("Done")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
-            Spacer()
-            Button(action: { onOpenFolder(folderURL) }) {
-                HStack(spacing: 4) {
+    // MARK: - Done
+
+    private func doneContent(result: RecordingResult) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.system(size: 14))
+                Text("Recording saved")
+                    .font(.system(size: 12, weight: .medium))
+                Text("(\(formatTime(result.duration)))")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(action: { onOpenFolder(result.folderURL) }) {
                     Image(systemName: "folder")
-                    Text("Open")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.blue)
                 }
-                .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.blue.opacity(0.15))
-                .foregroundStyle(.blue)
-                .clipShape(Capsule())
+                .buttonStyle(.plain)
+                Button(action: { recorder.reset() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+
+            if let transcript = result.transcript, !transcript.isEmpty {
+                Text(transcript)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
-    private func errorView(message: String) -> some View {
-        Group {
+    // MARK: - Error
+
+    private func errorContent(message: String) -> some View {
+        HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
-                .font(.system(size: 16))
+                .font(.system(size: 14))
             Text(message)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
             Spacer()
-        }
-    }
-
-    // MARK: - App Selector
-
-    private var appSelectorRow: some View {
-        HStack(spacing: 8) {
-            // Show selected app icon or generic icon
-            if let app = recorder.selectedApp, let icon = app.icon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: 16, height: 16)
-            } else {
-                Image(systemName: "speaker.wave.2")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
-            }
-
-            Picker("", selection: Binding(
-                get: { recorder.selectedApp?.id ?? "__all__" },
-                set: { id in
-                    if id == "__all__" {
-                        recorder.selectedApp = nil
-                    } else {
-                        recorder.selectedApp = recorder.runningApps.first { $0.id == id }
-                    }
-                }
-            )) {
-                Text("All system audio").tag("__all__")
-                Divider()
-                ForEach(recorder.runningApps) { app in
-                    Label {
-                        Text(app.name)
-                    } icon: {
-                        if let icon = app.icon {
-                            Image(nsImage: icon)
-                        }
-                    }
-                    .tag(app.id)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button(action: {
-                Task { await recorder.refreshApps() }
-            }) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+            Button(action: { recorder.reset() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
             }
             .buttonStyle(.plain)
         }
@@ -253,11 +239,7 @@ struct RecordingPanel: View {
             do {
                 try await recorder.startRecording()
             } catch {
-                await MainActor.run {
-                    recorder.state = .error(message: error.localizedDescription)
-                }
-                try? await Task.sleep(for: .seconds(5))
-                await MainActor.run { recorder.reset() }
+                recorder.state = .error(message: error.localizedDescription)
             }
         }
     }
@@ -265,17 +247,18 @@ struct RecordingPanel: View {
     private func stopRecording() {
         Task {
             do {
+                let duration = recorder.elapsedSeconds
                 let sessionDir = try await recorder.stopRecording()
                 let config = AppConfig.shared
                 let transcriber = createTranscriber(config: config)
 
-                await MainActor.run { recorder.state = .transcribing }
+                recorder.state = .transcribing
                 let audioURL = RecordingStore.audioFileURL(in: sessionDir)
                 let transcript = try await transcriber.transcribe(audioURL: audioURL)
                 try RecordingStore.saveTranscript(transcript, in: sessionDir)
 
                 if config.selectedProvider != .none {
-                    await MainActor.run { recorder.state = .summarizing }
+                    recorder.state = .summarizing
                     let summarizer = createSummarizer(config: config)
                     let summary = try await summarizer.summarize(transcript: transcript)
                     if !summary.isEmpty {
@@ -283,18 +266,13 @@ struct RecordingPanel: View {
                     }
                 }
 
-                await MainActor.run {
-                    recorder.state = .done(folderURL: sessionDir)
-                }
-                try? await Task.sleep(for: .seconds(10))
-                await MainActor.run { recorder.reset() }
-
+                recorder.state = .done(result: RecordingResult(
+                    folderURL: sessionDir,
+                    transcript: transcript,
+                    duration: duration
+                ))
             } catch {
-                await MainActor.run {
-                    recorder.state = .error(message: error.localizedDescription)
-                }
-                try? await Task.sleep(for: .seconds(5))
-                await MainActor.run { recorder.reset() }
+                recorder.state = .error(message: error.localizedDescription)
             }
         }
     }

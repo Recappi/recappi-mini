@@ -5,8 +5,17 @@ struct RecappiMiniApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        Settings {
-            EmptyView()
+        // MenuBar icon for show/hide and quit
+        MenuBarExtra("Recappi Mini", systemImage: "waveform.circle.fill") {
+            Button("Show Panel") {
+                appDelegate.showPanel()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            Divider()
+            Button("Quit") {
+                NSApp.terminate(nil)
+            }
+            .keyboardShortcut("q")
         }
     }
 }
@@ -19,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        let panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 80))
+        let panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 280, height: 80))
 
         let contentView = RecordingPanel(recorder: recorder) { folderURL in
             NSWorkspace.shared.open(folderURL)
@@ -28,14 +37,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingView = NSHostingView(rootView: contentView)
         hostingView.sizingOptions = [.intrinsicContentSize]
         panel.contentView = hostingView
-        FloatingPanelController.positionAtTopRight(panel, width: 300, height: 80)
+        FloatingPanelController.positionAtTopRight(panel, width: 280, height: 80)
         panel.orderFrontRegardless()
 
         self.panel = panel
 
-        // Scan for meeting apps
         Task {
             await recorder.refreshApps()
         }
+    }
+
+    func showPanel() {
+        panel?.orderFrontRegardless()
     }
 }

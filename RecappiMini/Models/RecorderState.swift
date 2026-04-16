@@ -1,12 +1,18 @@
 import Foundation
 
+struct RecordingResult: Equatable {
+    let folderURL: URL
+    let transcript: String?
+    let duration: Int
+}
+
 enum RecorderState: Equatable {
     case idle
     case recording
     case stopping
     case transcribing
     case summarizing
-    case done(folderURL: URL)
+    case done(result: RecordingResult)
     case error(message: String)
 
     var isRecording: Bool {
