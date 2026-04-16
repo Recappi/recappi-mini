@@ -1,0 +1,22 @@
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "RecappiMini",
+    platforms: [
+        .macOS(.v15),
+    ],
+    targets: [
+        .executableTarget(
+            name: "RecappiMini",
+            path: "RecappiMini",
+            exclude: ["Info.plist"],
+            linkerSettings: [
+                .linkedFramework("ScreenCaptureKit"),
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("CoreMedia"),
+                .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", "RecappiMini/Info.plist"]),
+            ]
+        ),
+    ]
+)
