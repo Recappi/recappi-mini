@@ -20,7 +20,22 @@ struct SettingsView: View {
 
             Divider()
 
-            // LLM provider (used for transcription + summary)
+            // Speech language (for local ASR)
+            HStack {
+                Text("Language")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Picker("", selection: $config.speechLanguage) {
+                    Text("English").tag("en-US")
+                    Text("中文").tag("zh-CN")
+                    Text("日本語").tag("ja-JP")
+                }
+                .pickerStyle(.menu)
+                .frame(width: 100)
+            }
+
+            // LLM provider (for summary, or override transcription)
             HStack {
                 Text("LLM")
                     .font(.system(size: 11))

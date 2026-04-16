@@ -62,9 +62,6 @@ final class AudioRecorder: NSObject, ObservableObject {
                 return AudioApp(id: bundleID, name: app.applicationName, scApp: app)
             }
             self.detectedApps = apps
-            if selectedApp == nil, let first = apps.first {
-                selectedApp = first
-            }
         } catch {
             self.detectedApps = []
         }

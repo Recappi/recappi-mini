@@ -16,7 +16,7 @@ struct RecordingPanel: View {
         }
         .frame(width: 300)
         .fixedSize(horizontal: false, vertical: true)
-        .modifier(GlassBackgroundModifier())
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
         .onChange(of: showSettings) {
             resizeWindow()
         }
@@ -257,29 +257,22 @@ struct RecordingPanel: View {
                 // print("[RecappiMini] Recording saved to: \(sessionDir.path)")
 
                 let config = AppConfig.shared
-                guard let transcriber = createTranscriber(config: config) else {
-                    // print("[RecappiMini] No transcriber configured, skipping")
-                    await MainActor.run {
-                        recorder.state = .done(folderURL: sessionDir)
-                    }
-                    try? await Task.sleep(for: .seconds(10))
-                    await MainActor.run { recorder.reset() }
-                    return
-                }
+                let transcriber = createTranscriber(config: config)
 
+                // Transcribe
                 await MainActor.run { recorder.state = .transcribing }
                 let audioURL = RecordingStore.audioFileURL(in: sessionDir)
-                // print("[RecappiMini] Starting transcription...")
                 let transcript = try await transcriber.transcribe(audioURL: audioURL)
-                // print("[RecappiMini] Transcription done: \(transcript.prefix(200))...")
                 try RecordingStore.saveTranscript(transcript, in: sessionDir)
 
-                await MainActor.run { recorder.state = .summarizing }
-                let summarizer = createSummarizer(config: config)
-                let summary = try await summarizer.summarize(transcript: transcript)
-                if !summary.isEmpty {
-                    try RecordingStore.saveSummary(summary, in: sessionDir)
-                    // print("[RecappiMini] Summary saved")
+                // Summarize (only if LLM configured)
+                if config.selectedProvider != .none {
+                    await MainActor.run { recorder.state = .summarizing }
+                    let summarizer = createSummarizer(config: config)
+                    let summary = try await summarizer.summarize(transcript: transcript)
+                    if !summary.isEmpty {
+                        try RecordingStore.saveSummary(summary, in: sessionDir)
+                    }
                 }
 
                 await MainActor.run {
@@ -308,16 +301,6 @@ struct RecordingPanel: View {
             return String(format: "%d:%02d:%02d", h, m, s)
         }
         return String(format: "%02d:%02d", m, s)
-    }
-}
-
-struct GlassBackgroundModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content.glassEffect(.regular.interactive())
-        } else {
-            content.background(.ultraThinMaterial)
-        }
     }
 }
 

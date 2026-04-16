@@ -1,10 +1,61 @@
 import Foundation
+import Speech
 
 protocol AudioTranscriber: Sendable {
     func transcribe(audioURL: URL) async throws -> String
 }
 
-// Gemini-based audio transcription (directly from audio file)
+// Apple Speech local ASR (on-device, no API key needed)
+struct AppleSpeechTranscriber: AudioTranscriber {
+    let language: String
+
+    func transcribe(audioURL: URL) async throws -> String {
+        let locale = Locale(identifier: language)
+        guard let recognizer = SFSpeechRecognizer(locale: locale) else {
+            throw TranscriberError.speechLanguageNotSupported(language)
+        }
+        guard recognizer.isAvailable else {
+            throw TranscriberError.speechUnavailable
+        }
+
+        let authStatus = await withCheckedContinuation { (cont: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
+            SFSpeechRecognizer.requestAuthorization { status in
+                cont.resume(returning: status)
+            }
+        }
+        guard authStatus == .authorized else {
+            throw TranscriberError.speechNotAuthorized
+        }
+
+        let request = SFSpeechURLRecognitionRequest(url: audioURL)
+        request.shouldReportPartialResults = false
+        request.addsPunctuation = true
+
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
+            var hasResumed = false
+            let task = recognizer.recognitionTask(with: request) { result, error in
+                guard !hasResumed else { return }
+                if let error = error {
+                    hasResumed = true
+                    cont.resume(throwing: error)
+                    return
+                }
+                guard let result = result, result.isFinal else { return }
+                hasResumed = true
+                cont.resume(returning: result.bestTranscription.formattedString)
+            }
+            // Timeout after 2 minutes
+            DispatchQueue.global().asyncAfter(deadline: .now() + 120) {
+                guard !hasResumed else { return }
+                hasResumed = true
+                task.cancel()
+                cont.resume(throwing: TranscriberError.speechTimedOut)
+            }
+        }
+    }
+}
+
+// Gemini-based audio transcription
 struct GeminiTranscriber: AudioTranscriber {
     let apiKey: String
 
@@ -42,8 +93,6 @@ struct GeminiTranscriber: AudioTranscriber {
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            let responseBody = String(data: data, encoding: .utf8) ?? ""
-            print("[RecappiMini] Gemini transcription error: status=\(statusCode) body=\(responseBody.prefix(500))")
             throw TranscriberError.apiError(statusCode: statusCode)
         }
 
@@ -70,12 +119,10 @@ struct OpenAITranscriber: AudioTranscriber {
         let boundary = UUID().uuidString
         var body = Data()
 
-        // Add model field
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
         body.append("whisper-1\r\n".data(using: .utf8)!)
 
-        // Add file field
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"file\"; filename=\"recording.m4a\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
@@ -107,11 +154,12 @@ struct OpenAITranscriber: AudioTranscriber {
     }
 }
 
+// Always returns a transcriber: Apple Speech locally, or LLM-based if configured
 @MainActor
-func createTranscriber(config: AppConfig) -> AudioTranscriber? {
+func createTranscriber(config: AppConfig) -> AudioTranscriber {
     switch config.selectedProvider {
     case .none:
-        return nil
+        return AppleSpeechTranscriber(language: config.speechLanguage)
     case .gemini:
         return GeminiTranscriber(apiKey: config.geminiApiKey)
     case .openai:
@@ -122,13 +170,19 @@ func createTranscriber(config: AppConfig) -> AudioTranscriber? {
 enum TranscriberError: LocalizedError {
     case apiError(statusCode: Int)
     case invalidResponse
-    case noTranscriberConfigured
+    case speechLanguageNotSupported(String)
+    case speechUnavailable
+    case speechNotAuthorized
+    case speechTimedOut
 
     var errorDescription: String? {
         switch self {
         case .apiError(let code): return "Transcription API error (status \(code))"
         case .invalidResponse: return "Invalid response from transcription API"
-        case .noTranscriberConfigured: return "No LLM provider configured. Set one in Settings to enable transcription."
+        case .speechLanguageNotSupported(let lang): return "Speech language not supported: \(lang)"
+        case .speechUnavailable: return "Speech recognizer unavailable"
+        case .speechNotAuthorized: return "Speech recognition not authorized. Enable in System Settings > Privacy & Security > Speech Recognition"
+        case .speechTimedOut: return "Speech recognition timed out"
         }
     }
 }
