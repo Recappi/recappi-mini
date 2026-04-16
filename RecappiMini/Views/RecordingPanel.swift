@@ -76,45 +76,34 @@ struct RecordingPanel: View {
                 // App icon
                 if let app = recorder.selectedApp, let icon = app.icon {
                     Image(nsImage: icon)
-                        .resizable()
                         .interpolation(.high)
-                        .frame(width: 18, height: 18)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
 
-                // Menu-style app selector
-                Menu {
-                    Button(action: { recorder.selectedApp = nil }) {
-                        Label("All system audio", systemImage: recorder.selectedApp == nil ? "checkmark" : "speaker.wave.2")
+                Picker(selection: Binding(
+                    get: { recorder.selectedApp?.id ?? "__all__" },
+                    set: { id in
+                        recorder.selectedApp = id == "__all__" ? nil : recorder.runningApps.first { $0.id == id }
                     }
+                )) {
+                    Text("All system audio").tag("__all__")
                     Divider()
                     ForEach(recorder.runningApps) { app in
-                        Button(action: { recorder.selectedApp = app }) {
-                            Label {
-                                Text(app.name)
-                            } icon: {
-                                if recorder.selectedApp?.id == app.id {
-                                    Image(systemName: "checkmark")
-                                } else if let icon = app.icon {
-                                    Image(nsImage: icon)
-                                }
-                            }
-                        }
-                    }
-                    Divider()
-                    Button(action: { Task { await recorder.refreshApps() } }) {
-                        Label("Refresh Apps", systemImage: "arrow.clockwise")
+                        Text(app.name).tag(app.id)
                     }
                 } label: {
-                    Text(recorder.selectedApp?.name ?? "All system audio")
-                        .font(.system(size: 12))
-                        .lineLimit(1)
-                        .foregroundStyle(.primary)
+                    EmptyView()
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
+                .pickerStyle(.menu)
+                .fixedSize()
 
                 Spacer()
+
+                Button(action: { Task { await recorder.refreshApps() } }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.quaternary)
+                }
+                .buttonStyle(.plain)
 
                 Button(action: { startRecording() }) {
                     Image(systemName: "record.circle.fill")
