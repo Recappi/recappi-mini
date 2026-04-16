@@ -56,18 +56,30 @@ struct RecordingPanel: View {
     private var idleContent: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Recappi Mini")
-                    .font(.system(size: 13, weight: .semibold))
+                Text("Recappi")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                + Text(" Mini")
+                    .font(.system(size: 13, weight: .regular, design: .rounded))
+                    .foregroundColor(.secondary)
                 Spacer()
                 Button(action: { showSettings = true }) {
                     Image(systemName: "gearshape")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                // Selected app icon (outside Picker for proper sizing)
+                if let app = recorder.selectedApp, let icon = app.icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 16, height: 16)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+
                 Picker("", selection: Binding(
                     get: { recorder.selectedApp?.id ?? "__all__" },
                     set: { id in
@@ -77,14 +89,7 @@ struct RecordingPanel: View {
                     Text("All system audio").tag("__all__")
                     Divider()
                     ForEach(recorder.runningApps) { app in
-                        Label {
-                            Text(app.name)
-                        } icon: {
-                            if let icon = app.icon {
-                                Image(nsImage: icon)
-                            }
-                        }
-                        .tag(app.id)
+                        Text(app.name).tag(app.id)
                     }
                 }
                 .pickerStyle(.menu)
@@ -95,7 +100,7 @@ struct RecordingPanel: View {
                 Button(action: { Task { await recorder.refreshApps() } }) {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.quaternary)
                 }
                 .buttonStyle(.plain)
 
