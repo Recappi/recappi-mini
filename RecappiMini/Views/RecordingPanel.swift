@@ -68,18 +68,6 @@ struct RecordingPanel: View {
             }
 
             HStack(spacing: 8) {
-                // App icon
-                if let app = recorder.selectedApp, let icon = app.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 16, height: 16)
-                } else {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, height: 16)
-                }
-
                 Picker("", selection: Binding(
                     get: { recorder.selectedApp?.id ?? "__all__" },
                     set: { id in
@@ -124,26 +112,31 @@ struct RecordingPanel: View {
     // MARK: - Recording
 
     private var recordingContent: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Circle()
                 .fill(.red)
-                .frame(width: 8, height: 8)
+                .frame(width: 6, height: 6)
                 .modifier(PulsingModifier())
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(formatTime(recorder.elapsedSeconds))
-                    .font(.system(size: 15, weight: .medium, design: .monospaced))
-                Text(recorder.recordingAppName ?? "All audio")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            if let app = recorder.selectedApp, let icon = app.icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 14, height: 14)
             }
+
+            Text(recorder.recordingAppName ?? "All audio")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
 
             Spacer()
 
+            Text(formatTime(recorder.elapsedSeconds))
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+
             Button(action: { stopRecording() }) {
                 Image(systemName: "stop.circle.fill")
-                    .font(.system(size: 24))
+                    .font(.system(size: 18))
                     .foregroundStyle(.primary)
             }
             .buttonStyle(.plain)
