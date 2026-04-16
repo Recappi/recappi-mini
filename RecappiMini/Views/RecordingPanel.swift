@@ -55,6 +55,7 @@ struct RecordingPanel: View {
 
     private var idleContent: some View {
         VStack(spacing: 8) {
+            // Title row
             HStack {
                 Text("Recappi")
                     .font(.system(size: 13, weight: .bold, design: .rounded))
@@ -70,39 +71,50 @@ struct RecordingPanel: View {
                 .buttonStyle(.plain)
             }
 
-            HStack(spacing: 6) {
-                // Selected app icon (outside Picker for proper sizing)
+            // App selector + record
+            HStack(spacing: 8) {
+                // App icon
                 if let app = recorder.selectedApp, let icon = app.icon {
                     Image(nsImage: icon)
                         .resizable()
                         .interpolation(.high)
-                        .frame(width: 16, height: 16)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .frame(width: 18, height: 18)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
 
-                Picker("", selection: Binding(
-                    get: { recorder.selectedApp?.id ?? "__all__" },
-                    set: { id in
-                        recorder.selectedApp = id == "__all__" ? nil : recorder.runningApps.first { $0.id == id }
+                // Menu-style app selector
+                Menu {
+                    Button(action: { recorder.selectedApp = nil }) {
+                        Label("All system audio", systemImage: recorder.selectedApp == nil ? "checkmark" : "speaker.wave.2")
                     }
-                )) {
-                    Text("All system audio").tag("__all__")
                     Divider()
                     ForEach(recorder.runningApps) { app in
-                        Text(app.name).tag(app.id)
+                        Button(action: { recorder.selectedApp = app }) {
+                            if recorder.selectedApp?.id == app.id {
+                                Label(app.name, systemImage: "checkmark")
+                            } else {
+                                Text(app.name)
+                            }
+                        }
                     }
+                    Divider()
+                    Button(action: { Task { await recorder.refreshApps() } }) {
+                        Label("Refresh Apps", systemImage: "arrow.clockwise")
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(recorder.selectedApp?.name ?? "All system audio")
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .foregroundStyle(.primary)
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
+                .menuStyle(.borderlessButton)
 
                 Spacer()
-
-                Button(action: { Task { await recorder.refreshApps() } }) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.quaternary)
-                }
-                .buttonStyle(.plain)
 
                 Button(action: { startRecording() }) {
                     Image(systemName: "record.circle.fill")
