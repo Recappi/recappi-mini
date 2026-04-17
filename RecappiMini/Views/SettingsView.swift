@@ -12,10 +12,11 @@ struct SettingsView: View {
                 Spacer()
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(IconButtonStyle())
+                .help("Close")
             }
 
             Divider()

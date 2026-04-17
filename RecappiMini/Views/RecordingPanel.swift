@@ -42,6 +42,75 @@ struct RecordingPanel: View {
         }
     }
 
+    // MARK: - Design tokens / reusable pieces
+
+    private enum PrimaryActionKind { case record, stop }
+
+    /// Unified 18×18 slot for the state-leading glyph (speaker, level meter,
+    /// spinner, checkmark, warning). Keeps every row's left column visually
+    /// aligned regardless of what the state is showing.
+    @ViewBuilder
+    private func statusGlyph<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content().frame(width: 18, height: 18)
+    }
+
+    /// Standard chrome icon button (12pt .secondary default, rounded hover fill).
+    /// Used for settings, trash, folder, copy — the "row actions" that sit
+    /// between the state info and the primary action.
+    @ViewBuilder
+    private func chromeIconButton(
+        _ systemImage: String,
+        color: Color = .secondary,
+        action: @escaping () -> Void,
+        help: String
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12))
+                .foregroundStyle(color)
+        }
+        .buttonStyle(IconButtonStyle())
+        .help(help)
+    }
+
+    /// Dismiss ✕ — deliberately smaller/dimmer than other chrome buttons so
+    /// it reads as "quiet close" and doesn't compete with primary actions.
+    @ViewBuilder
+    private func dismissButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+        }
+        .buttonStyle(IconButtonStyle())
+        .help("Dismiss")
+    }
+
+    /// Record / Stop share one visual system — 24pt red circle with a white
+    /// indicator. Same size so the primary action doesn't jump between
+    /// idle→recording.
+    @ViewBuilder
+    private func primaryActionButton(kind: PrimaryActionKind, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 24, height: 24)
+                switch kind {
+                case .record:
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 9, height: 9)
+                case .stop:
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(.white)
+                        .frame(width: 9, height: 9)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Main content switch
 
     @ViewBuilder
@@ -68,16 +137,15 @@ struct RecordingPanel: View {
 
     private var idleContent: some View {
         HStack(spacing: 8) {
-            // App selector with inline icon
             HStack(spacing: 6) {
-                if let app = recorder.selectedApp, let icon = app.icon {
-                    Image(nsImage: icon)
-                        .interpolation(.high)
-                } else {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, height: 16)
+                statusGlyph {
+                    if let app = recorder.selectedApp, let icon = app.icon {
+                        Image(nsImage: icon).interpolation(.high)
+                    } else {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Picker(selection: Binding(
@@ -98,27 +166,11 @@ struct RecordingPanel: View {
 
             Spacer(minLength: 0)
 
-            Button(action: { showSettings = true }) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-            }
-            .buttonStyle(IconButtonStyle())
-            .help("Settings")
+            chromeIconButton("gearshape", action: { showSettings = true }, help: "Settings")
 
-            Button(action: { recorder.startFlow() }) {
-                ZStack {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 22, height: 22)
-                    Circle()
-                        .fill(.white)
-                        .frame(width: 8, height: 8)
-                }
-            }
-            .buttonStyle(.plain)
-            .help("Start recording")
-            .keyboardShortcut(.return, modifiers: [])
+            primaryActionButton(kind: .record, action: { recorder.startFlow() })
+                .help("Start recording")
+                .keyboardShortcut(.return, modifiers: [])
         }
         .task {
             await recorder.refreshApps()
@@ -129,10 +181,12 @@ struct RecordingPanel: View {
 
     private var recordingContent: some View {
         HStack(spacing: 10) {
-            AudioLevelMeter(level: recorder.audioLevel)
-                .frame(width: 14, height: 16)
+            statusGlyph {
+                AudioLevelMeter(level: recorder.audioLevel)
+                    .frame(width: 14, height: 16)
+            }
 
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(formatTime(recorder.elapsedSeconds))
                     .font(.system(size: 18, weight: .semibold, design: .monospaced))
                     .monospacedDigit()
@@ -142,10 +196,10 @@ struct RecordingPanel: View {
                     if let app = recorder.selectedApp, let icon = app.icon {
                         Image(nsImage: icon)
                             .resizable()
-                            .frame(width: 10, height: 10)
+                            .frame(width: 12, height: 12)
                     }
                     Text(recorder.recordingAppName ?? "All system audio")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -153,27 +207,11 @@ struct RecordingPanel: View {
 
             Spacer(minLength: 0)
 
-            Button(action: { recorder.cancelFlow() }) {
-                Image(systemName: "trash")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(IconButtonStyle())
-            .help("Discard recording — deletes the session folder")
+            chromeIconButton("trash", action: { recorder.cancelFlow() }, help: "Discard recording — deletes the session folder")
 
-            Button(action: { recorder.stopFlow() }) {
-                ZStack {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 26, height: 26)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(.white)
-                        .frame(width: 10, height: 10)
-                }
-            }
-            .buttonStyle(.plain)
-            .help("Stop recording")
-            .keyboardShortcut(.return, modifiers: [])
+            primaryActionButton(kind: .stop, action: { recorder.stopFlow() })
+                .help("Stop recording")
+                .keyboardShortcut(.return, modifiers: [])
         }
     }
 
@@ -181,9 +219,9 @@ struct RecordingPanel: View {
 
     private var processingContent: some View {
         HStack(spacing: 10) {
-            ProgressView()
-                .scaleEffect(0.55)
-                .frame(width: 16, height: 16)
+            statusGlyph {
+                ProgressView().scaleEffect(0.6)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -230,11 +268,14 @@ struct RecordingPanel: View {
         let preview = donePreview(result: result)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .font(.system(size: 14))
+                statusGlyph {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.system(size: 16))
+                }
                 Text("Recording saved")
                     .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
                 Text(formatTime(result.duration))
                     .font(.system(size: 11, design: .monospaced))
                     .monospacedDigit()
@@ -243,26 +284,14 @@ struct RecordingPanel: View {
                 if let text = copyableText(result: result) {
                     Button(action: { copyToClipboard(text) }) {
                         Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
                             .foregroundStyle(justCopied ? .green : .secondary)
                     }
                     .buttonStyle(IconButtonStyle())
                     .help(justCopied ? "Copied" : "Copy \(result.summary?.isEmpty == false ? "summary" : "transcript") to clipboard")
                 }
-                Button(action: { onOpenFolder(result.folderURL) }) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.blue)
-                }
-                .buttonStyle(IconButtonStyle())
-                .help("Open folder")
-                Button(action: { recorder.reset() }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(IconButtonStyle())
-                .help("Dismiss")
+                chromeIconButton("folder", color: .blue, action: { onOpenFolder(result.folderURL) }, help: "Open folder")
+                dismissButton { recorder.reset() }
             }
 
             if let preview {
@@ -274,8 +303,8 @@ struct RecordingPanel: View {
                             .textCase(.uppercase)
                         Spacer()
                         Image(systemName: previewExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
                     }
 
                     if previewExpanded {
@@ -340,55 +369,59 @@ struct RecordingPanel: View {
     private func errorContent(message: String) -> some View {
         let recoverable = recorder.lastSessionDir != nil
         let configIssue = isConfigRelated(message)
+        let title = recoverable ? "Processing failed" : "Recording failed"
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .font(.system(size: 14))
-                Text(message)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Button(action: { recorder.reset() }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.tertiary)
+                statusGlyph {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.system(size: 16))
                 }
-                .buttonStyle(IconButtonStyle())
-                .help("Dismiss")
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+                dismissButton { recorder.reset() }
             }
 
-            HStack(spacing: 8) {
-                if recoverable {
-                    Button(action: { recorder.retryFlow() }) {
-                        Label("Retry", systemImage: "arrow.clockwise")
-                            .font(.system(size: 11))
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Re-run transcription on the saved audio")
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if let dir = recorder.lastSessionDir {
-                        Button(action: { onOpenFolder(dir) }) {
-                            Label("Open folder", systemImage: "folder")
+            if recoverable || configIssue {
+                HStack(spacing: 8) {
+                    if recoverable {
+                        Button(action: { recorder.retryFlow() }) {
+                            Label("Retry", systemImage: "arrow.clockwise")
                                 .font(.system(size: 11))
                         }
                         .buttonStyle(.borderless)
-                        .foregroundStyle(.blue)
-                    }
-                }
+                        .help("Re-run transcription on the saved audio")
 
-                if configIssue {
-                    Button(action: { showSettings = true }) {
-                        Label("Settings", systemImage: "gearshape")
-                            .font(.system(size: 11))
+                        if let dir = recorder.lastSessionDir {
+                            Button(action: { onOpenFolder(dir) }) {
+                                Label("Open folder", systemImage: "folder")
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.blue)
+                        }
                     }
-                    .buttonStyle(.borderless)
-                    .help("Open settings — check API key or language")
-                }
 
-                Spacer(minLength: 0)
+                    if configIssue {
+                        Button(action: { showSettings = true }) {
+                            Label("Settings", systemImage: "gearshape")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Open settings — check API key or language")
+                    }
+
+                    Spacer(minLength: 0)
+                }
             }
         }
     }
@@ -433,7 +466,7 @@ struct RecordingPanel: View {
             if previewExpanded && hasPreview { return 300 }
             if let s = r.summary, !s.isEmpty { return 140 }
             return (r.transcript ?? "").isEmpty ? 52 : 110
-        case .error(let msg): return errorHasActions(msg) ? 96 : 56
+        case .error(let msg): return errorHasActions(msg) ? 112 : 78
         }
     }
 
