@@ -233,6 +233,32 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
+    /// Abort recording and delete the partial session folder. No transcription,
+    /// no summary, nothing left on disk. Safe to call only from .recording.
+    func cancelFlow() {
+        Task { [weak self] in
+            await self?.cancelRecording()
+        }
+    }
+
+    private func cancelRecording() async {
+        guard state == .recording else { return }
+
+        audioLevel = 0
+        timer?.invalidate()
+        timer = nil
+
+        try? await stream?.stopCapture()
+        audioInput?.markAsFinished()
+        await assetWriter?.finishWriting()
+
+        if let dir = sessionDir {
+            try? FileManager.default.removeItem(at: dir)
+        }
+
+        reset()
+    }
+
     /// idle → start, recording → stop, otherwise no-op. Used by the global hotkey.
     func toggleRecording() {
         switch state {

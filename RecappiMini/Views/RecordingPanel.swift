@@ -147,6 +147,14 @@ struct RecordingPanel: View {
 
             Spacer(minLength: 0)
 
+            Button(action: { recorder.cancelFlow() }) {
+                Image(systemName: "trash")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(IconButtonStyle())
+            .help("Discard recording — deletes the session folder")
+
             Button(action: { recorder.stopFlow() }) {
                 ZStack {
                     Circle()
