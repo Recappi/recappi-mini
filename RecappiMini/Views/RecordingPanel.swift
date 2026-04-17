@@ -273,13 +273,15 @@ struct RecordingPanel: View {
                         .foregroundStyle(.green)
                         .font(.system(size: 16))
                 }
-                Text("Recording saved")
+                Text("Saved")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.primary)
+                    .fixedSize()
                 Text(formatTime(result.duration))
                     .font(.system(size: 11, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .fixedSize()
                 Spacer(minLength: 0)
                 if let text = copyableText(result: result) {
                     Button(action: { copyToClipboard(text) }) {
@@ -301,10 +303,10 @@ struct RecordingPanel: View {
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.tertiary)
                             .textCase(.uppercase)
-                        Spacer()
                         Image(systemName: previewExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                        Spacer()
                     }
 
                     if previewExpanded {
@@ -381,6 +383,7 @@ struct RecordingPanel: View {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.primary)
+                    .fixedSize()
                 Spacer(minLength: 0)
                 dismissButton { recorder.reset() }
             }
