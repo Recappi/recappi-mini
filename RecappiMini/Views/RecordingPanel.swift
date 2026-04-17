@@ -507,10 +507,12 @@ struct RecordingPanel: View {
 struct GlassBackgroundModifier: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
-            // Liquid Glass owns its own blur, refraction, and shadow.
-            // Don't wrap it with extra SwiftUI .shadow — that flattens the
-            // refraction and produces the "solid card" look.
-            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
+            // Liquid Glass. Shadow rides on top so the panel reads as elevated
+            // regardless of what's behind it — on near-white desktops the
+            // unadorned glass is too subtle to tell from the wallpaper.
+            content
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
+                .shadow(color: .black.opacity(0.22), radius: 16, y: 4)
         } else {
             content
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
