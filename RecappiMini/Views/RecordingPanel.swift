@@ -176,7 +176,8 @@ struct RecordingPanel: View {
     // MARK: - Done
 
     private func doneContent(result: RecordingResult) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let preview = donePreview(result: result)
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
@@ -206,14 +207,36 @@ struct RecordingPanel: View {
                 .help("Dismiss")
             }
 
-            if let transcript = result.transcript, !transcript.isEmpty {
-                Text(transcript)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if let preview {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(preview.label)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                        .textCase(.uppercase)
+                    Text(preview.body)
+                        .font(.system(size: 11))
+                        .foregroundStyle(preview.isSummary ? .primary : .secondary)
+                        .lineLimit(preview.isSummary ? 5 : 3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
+    }
+
+    private struct DonePreview {
+        let label: String
+        let body: String
+        let isSummary: Bool
+    }
+
+    private func donePreview(result: RecordingResult) -> DonePreview? {
+        if let s = result.summary, !s.isEmpty {
+            return DonePreview(label: "Summary", body: s, isSummary: true)
+        }
+        if let t = result.transcript, !t.isEmpty {
+            return DonePreview(label: "Transcript", body: t, isSummary: false)
+        }
+        return nil
     }
 
     // MARK: - Error
@@ -291,7 +314,9 @@ struct RecordingPanel: View {
         case .idle: return "idle"
         case .recording: return "recording"
         case .stopping, .transcribing, .summarizing: return "processing"
-        case .done(let r): return "done-\((r.transcript ?? "").isEmpty ? "short" : "long")"
+        case .done(let r):
+            if let s = r.summary, !s.isEmpty { return "done-summary" }
+            return (r.transcript ?? "").isEmpty ? "done-short" : "done-transcript"
         case .error(let msg): return errorHasActions(msg) ? "error-actions" : "error-short"
         }
     }
@@ -302,7 +327,9 @@ struct RecordingPanel: View {
         case .idle: return 56
         case .recording: return 72
         case .stopping, .transcribing, .summarizing: return 52
-        case .done(let r): return (r.transcript ?? "").isEmpty ? 52 : 110
+        case .done(let r):
+            if let s = r.summary, !s.isEmpty { return 140 }
+            return (r.transcript ?? "").isEmpty ? 52 : 110
         case .error(let msg): return errorHasActions(msg) ? 96 : 56
         }
     }
@@ -365,18 +392,21 @@ struct RecordingPanel: View {
             let transcript = try await transcriber.transcribe(audioURL: audioURL)
             try RecordingStore.saveTranscript(transcript, in: sessionDir)
 
+            var summary: String? = nil
             if config.selectedProvider != .none {
                 recorder.state = .summarizing
                 let summarizer = createSummarizer(config: config)
-                let summary = try await summarizer.summarize(transcript: transcript)
-                if !summary.isEmpty {
-                    try RecordingStore.saveSummary(summary, in: sessionDir)
+                let s = try await summarizer.summarize(transcript: transcript)
+                if !s.isEmpty {
+                    try RecordingStore.saveSummary(s, in: sessionDir)
+                    summary = s
                 }
             }
 
             recorder.state = .done(result: RecordingResult(
                 folderURL: sessionDir,
                 transcript: transcript,
+                summary: summary,
                 duration: duration
             ))
         } catch {
