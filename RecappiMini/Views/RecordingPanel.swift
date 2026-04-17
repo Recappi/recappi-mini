@@ -115,10 +115,8 @@ struct RecordingPanel: View {
 
     private var recordingContent: some View {
         HStack(spacing: 10) {
-            Circle()
-                .fill(.red)
-                .frame(width: 7, height: 7)
-                .modifier(PulsingModifier())
+            AudioLevelMeter(level: recorder.audioLevel)
+                .frame(width: 14, height: 16)
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(formatTime(recorder.elapsedSeconds))
@@ -418,5 +416,43 @@ struct PulsingModifier: ViewModifier {
             .opacity(isPulsing ? 0.3 : 1.0)
             .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
             .onAppear { isPulsing = true }
+    }
+}
+
+/// Four vertical bars (short → tall) that light up progressively with the
+/// normalized audio level. Reads as "signal strength" — steady faint when
+/// silent (so user sees "recording, waiting for sound") and ramps to full
+/// red when the mic/system audio is hot.
+struct AudioLevelMeter: View {
+    let level: Float  // 0…1
+
+    private let barCount = 4
+    private let heights: [CGFloat] = [4, 7, 11, 15]
+    private let barWidth: CGFloat = 2
+    private let spacing: CGFloat = 1.5
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: spacing) {
+            ForEach(0..<barCount, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(.red.opacity(opacity(for: i)))
+                    .frame(width: barWidth, height: heights[i])
+            }
+        }
+        .animation(.easeOut(duration: 0.08), value: level)
+    }
+
+    /// Bar i lights when level crosses (i+1)/barCount. Inactive bars keep a
+    /// dim glow so the meter still reads as an audio indicator at silence.
+    private func opacity(for index: Int) -> Double {
+        let threshold = Float(index + 1) / Float(barCount + 1)
+        if level >= threshold { return 1.0 }
+        // Soft ramp near threshold for visual smoothness
+        let prevThreshold = Float(index) / Float(barCount + 1)
+        if level > prevThreshold {
+            let t = (level - prevThreshold) / (threshold - prevThreshold)
+            return 0.25 + Double(t) * 0.75
+        }
+        return 0.25
     }
 }

@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import AppKit
 import CoreMedia
@@ -27,6 +28,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         didSet { persistSelectedApp() }
     }
     @Published var recordingAppName: String?
+    /// Normalized 0…1 audio level, updated ~20Hz while recording. 0 when idle.
+    @Published var audioLevel: Float = 0
 
     private static let selectedAppKey = "RecappiMini.selectedApp"
 
@@ -113,7 +116,11 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.assetWriter = writer
         self.audioInput = input
 
-        let output = AudioStreamOutput(writer: writer, input: input)
+        let output = AudioStreamOutput(writer: writer, input: input) { [weak self] level in
+            Task { @MainActor in
+                self?.audioLevel = min(1.0, sqrtf(max(0, level)) * 1.4)
+            }
+        }
         self.streamOutput = output
 
         // Build filter: single app or whole display
@@ -155,6 +162,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         self.state = .stopping
+        self.audioLevel = 0
         self.timer?.invalidate()
         self.timer = nil
 
@@ -177,6 +185,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     func reset() {
         state = .idle
         elapsedSeconds = 0
+        audioLevel = 0
         sessionDir = nil
         stream = nil
         assetWriter = nil
@@ -279,11 +288,15 @@ final class AudioRecorder: NSObject, ObservableObject {
 final class AudioStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
+    private let onLevel: @Sendable (Float) -> Void
     private var isWriterStarted = false
+    private var lastLevelEmit: CFAbsoluteTime = 0
+    private static let levelEmitInterval: CFAbsoluteTime = 0.05  // ~20Hz
 
-    init(writer: AVAssetWriter, input: AVAssetWriterInput) {
+    init(writer: AVAssetWriter, input: AVAssetWriterInput, onLevel: @escaping @Sendable (Float) -> Void) {
         self.writer = writer
         self.input = input
+        self.onLevel = onLevel
     }
 
     func stream(
@@ -304,6 +317,39 @@ final class AudioStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
         if input.isReadyForMoreMediaData {
             input.append(sampleBuffer)
         }
+
+        // Sample peak for UI, throttled to avoid spamming the main queue.
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastLevelEmit > Self.levelEmitInterval {
+            lastLevelEmit = now
+            if let peak = Self.peakLevel(from: sampleBuffer) {
+                onLevel(peak)
+            }
+        }
+    }
+
+    /// Returns the absolute-max Float32 sample in the buffer, or nil if the
+    /// buffer isn't in the expected 32-bit float LPCM format SCStream delivers.
+    private static func peakLevel(from sampleBuffer: CMSampleBuffer) -> Float? {
+        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return nil }
+        var totalLength = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        let status = CMBlockBufferGetDataPointer(
+            blockBuffer,
+            atOffset: 0,
+            lengthAtOffsetOut: nil,
+            totalLengthOut: &totalLength,
+            dataPointerOut: &dataPointer
+        )
+        guard status == kCMBlockBufferNoErr, let dataPointer, totalLength > 0 else { return nil }
+
+        let sampleCount = totalLength / MemoryLayout<Float32>.size
+        guard sampleCount > 0 else { return nil }
+
+        let floatPtr = UnsafeRawPointer(dataPointer).assumingMemoryBound(to: Float.self)
+        var peak: Float = 0
+        vDSP_maxmgv(floatPtr, 1, &peak, vDSP_Length(sampleCount))
+        return peak
     }
 }
 
