@@ -506,42 +506,22 @@ struct RecordingPanel: View {
 
 struct GlassBackgroundModifier: ViewModifier {
     func body(content: Content) -> some View {
-        content
-            .background(
-                VisualEffectBackground(
-                    material: .hudWindow,
-                    blendingMode: .behindWindow
+        if #available(macOS 26.0, *) {
+            // Liquid Glass. Shadow rides on top so the panel reads as elevated
+            // regardless of what's behind it — on near-white desktops the
+            // unadorned glass is too subtle to tell from the wallpaper.
+            content
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
+                .shadow(color: .black.opacity(0.22), radius: 16, y: 4)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
                 )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
-            )
-            .shadow(color: .black.opacity(0.22), radius: 16, y: 4)
-    }
-}
-
-/// Bridges AppKit's NSVisualEffectView so the panel actually samples what's
-/// behind the window (.behindWindow blending) and produces real frosted
-/// glass — SwiftUI's glassEffect on a borderless NSPanel rendered as a flat
-/// fill because there was nothing for it to refract against.
-struct VisualEffectBackground: NSViewRepresentable {
-    let material: NSVisualEffectView.Material
-    let blendingMode: NSVisualEffectView.BlendingMode
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = .active
-        view.isEmphasized = true
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blendingMode
+                .shadow(color: .black.opacity(0.18), radius: 12, y: 3)
+        }
     }
 }
 
