@@ -23,8 +23,21 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var state: RecorderState = .idle
     @Published var elapsedSeconds: Int = 0
     @Published var runningApps: [AudioApp] = []
-    @Published var selectedApp: AudioApp?
+    @Published var selectedApp: AudioApp? {
+        didSet { persistSelectedApp() }
+    }
     @Published var recordingAppName: String?
+
+    private static let selectedAppKey = "RecappiMini.selectedApp"
+
+    private func persistSelectedApp() {
+        let defaults = UserDefaults.standard
+        if let id = selectedApp?.id {
+            defaults.set(id, forKey: Self.selectedAppKey)
+        } else {
+            defaults.removeObject(forKey: Self.selectedAppKey)
+        }
+    }
     /// Last completed recording's folder — kept across error state so UI can offer Open Folder / Retry.
     @Published var lastSessionDir: URL?
     @Published var lastDuration: Int = 0
@@ -60,6 +73,14 @@ final class AudioRecorder: NSObject, ObservableObject {
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             self.runningApps = apps
+
+            // Restore last selection if the saved app is now visible in the list.
+            // Only applies when the user hasn't already chosen something this session.
+            if selectedApp == nil,
+               let savedId = UserDefaults.standard.string(forKey: Self.selectedAppKey),
+               let restored = apps.first(where: { $0.id == savedId }) {
+                selectedApp = restored
+            }
         } catch {
             self.runningApps = []
         }
