@@ -17,7 +17,9 @@ final class FloatingPanel: NSPanel {
         level = .floating
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        // Let the SwiftUI glass/material layer own the shadow so macOS's
+        // AppKit shadow doesn't flatten the Liquid Glass refraction.
+        hasShadow = false
         isMovableByWindowBackground = true
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         titlebarAppearsTransparent = true
