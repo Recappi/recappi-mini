@@ -6,6 +6,7 @@ struct RecordingPanel: View {
     @State private var showSettings = false
     @State private var processingStart: Date?
     @State private var justCopied = false
+    @State private var previewExpanded = false
 
     let onOpenFolder: (URL) -> Void
 
@@ -35,6 +36,9 @@ struct RecordingPanel: View {
             } else {
                 processingStart = nil
             }
+            // Any state change collapses the preview — a new recording shouldn't
+            // open pre-expanded, and a retry starts fresh.
+            previewExpanded = false
         }
     }
 
@@ -263,16 +267,37 @@ struct RecordingPanel: View {
 
             if let preview {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(preview.label)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                        .textCase(.uppercase)
-                    Text(preview.body)
-                        .font(.system(size: 11))
-                        .foregroundStyle(preview.isSummary ? .primary : .secondary)
-                        .lineLimit(preview.isSummary ? 5 : 3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 4) {
+                        Text(preview.label)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                            .textCase(.uppercase)
+                        Spacer()
+                        Image(systemName: previewExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    if previewExpanded {
+                        ScrollView {
+                            Text(preview.body)
+                                .font(.system(size: 11))
+                                .foregroundStyle(preview.isSummary ? .primary : .secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 220)
+                    } else {
+                        Text(preview.body)
+                            .font(.system(size: 11))
+                            .foregroundStyle(preview.isSummary ? .primary : .secondary)
+                            .lineLimit(preview.isSummary ? 5 : 3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { previewExpanded.toggle() }
+                .help(previewExpanded ? "Collapse" : "Expand to read full text")
             }
         }
     }
@@ -387,6 +412,8 @@ struct RecordingPanel: View {
         case .recording: return "recording"
         case .stopping, .transcribing, .summarizing: return "processing"
         case .done(let r):
+            let hasPreview = (r.summary?.isEmpty == false) || (r.transcript?.isEmpty == false)
+            if previewExpanded && hasPreview { return "done-expanded" }
             if let s = r.summary, !s.isEmpty { return "done-summary" }
             return (r.transcript ?? "").isEmpty ? "done-short" : "done-transcript"
         case .error(let msg): return errorHasActions(msg) ? "error-actions" : "error-short"
@@ -402,6 +429,8 @@ struct RecordingPanel: View {
         case .recording: return 72
         case .stopping, .transcribing, .summarizing: return 68
         case .done(let r):
+            let hasPreview = (r.summary?.isEmpty == false) || (r.transcript?.isEmpty == false)
+            if previewExpanded && hasPreview { return 300 }
             if let s = r.summary, !s.isEmpty { return 140 }
             return (r.transcript ?? "").isEmpty ? 52 : 110
         case .error(let msg): return errorHasActions(msg) ? 96 : 56
