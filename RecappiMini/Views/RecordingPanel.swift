@@ -7,34 +7,32 @@ struct RecordingPanel: View {
     let onOpenFolder: (URL) -> Void
 
     var body: some View {
-        Group {
+        ZStack {
             if showSettings {
                 SettingsView(isPresented: $showSettings)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity
+                    ))
             } else {
                 mainView
+                    .transition(.opacity)
             }
         }
         .frame(width: 280)
         .fixedSize(horizontal: false, vertical: true)
         .modifier(GlassBackgroundModifier())
-        .onChange(of: showSettings) {
-            resizeWindow()
-        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showSettings)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: stateKey)
+        .onChange(of: showSettings) { resizeToTarget() }
+        .onChange(of: stateKey) { resizeToTarget() }
     }
 
-    private func resizeWindow() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard let window = NSApp.windows.first(where: { $0 is FloatingPanel }) as? FloatingPanel else { return }
-            let targetHeight: CGFloat = showSettings ? 200 : 80
-            FloatingPanelController.resize(window, height: targetHeight)
-        }
-    }
-
-    // MARK: - Main View
+    // MARK: - Main content switch
 
     @ViewBuilder
     private var mainView: some View {
-        VStack(spacing: 0) {
+        Group {
             switch recorder.state {
             case .idle:
                 idleContent
@@ -48,35 +46,24 @@ struct RecordingPanel: View {
                 errorContent(message: message)
             }
         }
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 
     // MARK: - Idle
 
     private var idleContent: some View {
-        VStack(spacing: 8) {
-            // Title row
-            HStack {
-                Text("Recappi")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                + Text(" Mini")
-                    .font(.system(size: 13, weight: .regular, design: .rounded))
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button(action: { showSettings = true }) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-            }
-
-            // App selector + record
-            HStack(spacing: 8) {
-                // App icon
+        HStack(spacing: 8) {
+            // App selector with inline icon
+            HStack(spacing: 6) {
                 if let app = recorder.selectedApp, let icon = app.icon {
                     Image(nsImage: icon)
                         .interpolation(.high)
+                } else {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, height: 16)
                 }
 
                 Picker(selection: Binding(
@@ -90,62 +77,85 @@ struct RecordingPanel: View {
                     ForEach(recorder.runningApps) { app in
                         Text(app.name).tag(app.id)
                     }
-                } label: {
-                    EmptyView()
-                }
+                } label: { EmptyView() }
                 .pickerStyle(.menu)
                 .fixedSize()
-
-                Spacer()
-
-                Button(action: { Task { await recorder.refreshApps() } }) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.quaternary)
-                }
-                .buttonStyle(.plain)
-
-                Button(action: { startRecording() }) {
-                    Image(systemName: "record.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.red)
-                }
-                .buttonStyle(.plain)
             }
+
+            Spacer(minLength: 0)
+
+            Button(action: { showSettings = true }) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .contentShape(Rectangle())
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help("Settings")
+
+            Button(action: { startRecording() }) {
+                ZStack {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 22, height: 22)
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 8, height: 8)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Start recording")
+            .keyboardShortcut(.return, modifiers: [])
+        }
+        .task {
+            await recorder.refreshApps()
         }
     }
 
     // MARK: - Recording
 
     private var recordingContent: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Circle()
                 .fill(.red)
-                .frame(width: 6, height: 6)
+                .frame(width: 7, height: 7)
                 .modifier(PulsingModifier())
 
-            if let app = recorder.selectedApp, let icon = app.icon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: 14, height: 14)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(formatTime(recorder.elapsedSeconds))
+                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+
+                HStack(spacing: 4) {
+                    if let app = recorder.selectedApp, let icon = app.icon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .frame(width: 10, height: 10)
+                    }
+                    Text(recorder.recordingAppName ?? "All system audio")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
-            Text(recorder.recordingAppName ?? "All audio")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Spacer()
-
-            Text(formatTime(recorder.elapsedSeconds))
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+            Spacer(minLength: 0)
 
             Button(action: { stopRecording() }) {
-                Image(systemName: "stop.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(.primary)
+                ZStack {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 26, height: 26)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(.white)
+                        .frame(width: 10, height: 10)
+                }
             }
             .buttonStyle(.plain)
+            .help("Stop recording")
+            .keyboardShortcut(.return, modifiers: [])
         }
     }
 
@@ -154,12 +164,12 @@ struct RecordingPanel: View {
     private var processingContent: some View {
         HStack(spacing: 10) {
             ProgressView()
-                .scaleEffect(0.8)
+                .scaleEffect(0.6)
                 .frame(width: 16, height: 16)
             Text(processingLabel)
-                .font(.system(size: 13))
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-            Spacer()
+            Spacer(minLength: 0)
         }
     }
 
@@ -173,22 +183,27 @@ struct RecordingPanel: View {
                     .font(.system(size: 14))
                 Text("Recording saved")
                     .font(.system(size: 12, weight: .medium))
-                Text("(\(formatTime(result.duration)))")
+                Text(formatTime(result.duration))
                     .font(.system(size: 11, design: .monospaced))
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
-                Spacer()
+                Spacer(minLength: 0)
                 Button(action: { onOpenFolder(result.folderURL) }) {
                     Image(systemName: "folder")
                         .font(.system(size: 12))
                         .foregroundStyle(.blue)
+                        .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.plain)
+                .help("Open folder")
                 Button(action: { recorder.reset() }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.tertiary)
+                        .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.plain)
+                .help("Dismiss")
             }
 
             if let transcript = result.transcript, !transcript.isEmpty {
@@ -212,14 +227,44 @@ struct RecordingPanel: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
-            Spacer()
+            Spacer(minLength: 0)
             Button(action: { recorder.reset() }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.tertiary)
+                    .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
         }
+    }
+
+    // MARK: - Height / resize
+
+    private var stateKey: String {
+        if showSettings { return "settings" }
+        switch recorder.state {
+        case .idle: return "idle"
+        case .recording: return "recording"
+        case .stopping, .transcribing, .summarizing: return "processing"
+        case .done(let r): return "done-\((r.transcript ?? "").isEmpty ? "short" : "long")"
+        case .error: return "error"
+        }
+    }
+
+    private var targetHeight: CGFloat {
+        if showSettings { return 200 }
+        switch recorder.state {
+        case .idle: return 56
+        case .recording: return 72
+        case .stopping, .transcribing, .summarizing: return 52
+        case .done(let r): return (r.transcript ?? "").isEmpty ? 52 : 110
+        case .error: return 52
+        }
+    }
+
+    private func resizeToTarget() {
+        guard let window = NSApp.windows.first(where: { $0 is FloatingPanel }) as? FloatingPanel else { return }
+        FloatingPanelController.resize(window, height: targetHeight)
     }
 
     // MARK: - Helpers

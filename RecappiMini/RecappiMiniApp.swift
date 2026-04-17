@@ -28,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        let panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 280, height: 80))
+        let panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 280, height: 56))
 
         let contentView = RecordingPanel(recorder: recorder) { folderURL in
             NSWorkspace.shared.open(folderURL)
@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingView = NSHostingView(rootView: contentView)
         hostingView.sizingOptions = [.intrinsicContentSize]
         panel.contentView = hostingView
-        FloatingPanelController.positionAtTopRight(panel, width: 280, height: 80)
+        FloatingPanelController.positionAtTopRight(panel, width: 280, height: 56)
         panel.orderFrontRegardless()
 
         self.panel = panel
