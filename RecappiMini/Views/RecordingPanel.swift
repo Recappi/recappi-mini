@@ -94,7 +94,7 @@ struct RecordingPanel: View {
             .buttonStyle(.plain)
             .help("Settings")
 
-            Button(action: { startRecording() }) {
+            Button(action: { recorder.startFlow() }) {
                 ZStack {
                     Circle()
                         .fill(.red)
@@ -143,7 +143,7 @@ struct RecordingPanel: View {
 
             Spacer(minLength: 0)
 
-            Button(action: { stopRecording() }) {
+            Button(action: { recorder.stopFlow() }) {
                 ZStack {
                     Circle()
                         .fill(.red)
@@ -267,7 +267,7 @@ struct RecordingPanel: View {
 
             HStack(spacing: 8) {
                 if recoverable {
-                    Button(action: { retryProcessing() }) {
+                    Button(action: { recorder.retryFlow() }) {
                         Label("Retry", systemImage: "arrow.clockwise")
                             .font(.system(size: 11))
                     }
@@ -351,66 +351,6 @@ struct RecordingPanel: View {
         case .transcribing: return "Transcribing..."
         case .summarizing: return "Summarizing..."
         default: return "Processing..."
-        }
-    }
-
-    private func startRecording() {
-        Task {
-            do {
-                try await recorder.startRecording()
-            } catch {
-                recorder.state = .error(message: error.localizedDescription)
-            }
-        }
-    }
-
-    private func stopRecording() {
-        Task {
-            do {
-                let duration = recorder.elapsedSeconds
-                let sessionDir = try await recorder.stopRecording()
-                await processAudio(sessionDir: sessionDir, duration: duration)
-            } catch {
-                recorder.state = .error(message: error.localizedDescription)
-            }
-        }
-    }
-
-    private func retryProcessing() {
-        guard let dir = recorder.lastSessionDir else { return }
-        let duration = recorder.lastDuration
-        Task { await processAudio(sessionDir: dir, duration: duration) }
-    }
-
-    private func processAudio(sessionDir: URL, duration: Int) async {
-        do {
-            let config = AppConfig.shared
-            let transcriber = createTranscriber(config: config)
-
-            recorder.state = .transcribing
-            let audioURL = RecordingStore.audioFileURL(in: sessionDir)
-            let transcript = try await transcriber.transcribe(audioURL: audioURL)
-            try RecordingStore.saveTranscript(transcript, in: sessionDir)
-
-            var summary: String? = nil
-            if config.selectedProvider != .none {
-                recorder.state = .summarizing
-                let summarizer = createSummarizer(config: config)
-                let s = try await summarizer.summarize(transcript: transcript)
-                if !s.isEmpty {
-                    try RecordingStore.saveSummary(s, in: sessionDir)
-                    summary = s
-                }
-            }
-
-            recorder.state = .done(result: RecordingResult(
-                folderURL: sessionDir,
-                transcript: transcript,
-                summary: summary,
-                duration: duration
-            ))
-        } catch {
-            recorder.state = .error(message: error.localizedDescription)
         }
     }
 

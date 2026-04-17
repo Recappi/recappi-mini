@@ -166,6 +166,84 @@ final class AudioRecorder: NSObject, ObservableObject {
         lastDuration = 0
     }
 
+    // MARK: - High-level flow (shared by UI buttons and global hotkey)
+
+    /// Start recording and route errors into `.error`.
+    func startFlow() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.startRecording()
+            } catch {
+                self.state = .error(message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Stop, then transcribe + optionally summarize.
+    func stopFlow() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let duration = self.elapsedSeconds
+                let sessionDir = try await self.stopRecording()
+                await self.processAudio(sessionDir: sessionDir, duration: duration)
+            } catch {
+                self.state = .error(message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Re-run transcribe+summarize on the last saved session.
+    func retryFlow() {
+        guard let dir = lastSessionDir else { return }
+        let duration = lastDuration
+        Task { [weak self] in
+            await self?.processAudio(sessionDir: dir, duration: duration)
+        }
+    }
+
+    /// idle → start, recording → stop, otherwise no-op. Used by the global hotkey.
+    func toggleRecording() {
+        switch state {
+        case .idle: startFlow()
+        case .recording: stopFlow()
+        default: break
+        }
+    }
+
+    private func processAudio(sessionDir: URL, duration: Int) async {
+        do {
+            let config = AppConfig.shared
+            let transcriber = createTranscriber(config: config)
+
+            state = .transcribing
+            let audioURL = RecordingStore.audioFileURL(in: sessionDir)
+            let transcript = try await transcriber.transcribe(audioURL: audioURL)
+            try RecordingStore.saveTranscript(transcript, in: sessionDir)
+
+            var summary: String? = nil
+            if config.selectedProvider != .none {
+                state = .summarizing
+                let summarizer = createSummarizer(config: config)
+                let s = try await summarizer.summarize(transcript: transcript)
+                if !s.isEmpty {
+                    try RecordingStore.saveSummary(s, in: sessionDir)
+                    summary = s
+                }
+            }
+
+            state = .done(result: RecordingResult(
+                folderURL: sessionDir,
+                transcript: transcript,
+                summary: summary,
+                duration: duration
+            ))
+        } catch {
+            state = .error(message: error.localizedDescription)
+        }
+    }
+
     /// Notable Apple apps that users might want to record
     private func isNotableAppleApp(_ bid: String) -> Bool {
         let notable: Set<String> = [
