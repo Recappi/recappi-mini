@@ -5,6 +5,7 @@ struct RecordingPanel: View {
     @ObservedObject private var config = AppConfig.shared
     @State private var showSettings = false
     @State private var processingStart: Date?
+    @State private var justCopied = false
 
     let onOpenFolder: (URL) -> Void
 
@@ -235,6 +236,15 @@ struct RecordingPanel: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
+                if let text = copyableText(result: result) {
+                    Button(action: { copyToClipboard(text) }) {
+                        Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 11))
+                            .foregroundStyle(justCopied ? .green : .secondary)
+                    }
+                    .buttonStyle(IconButtonStyle())
+                    .help(justCopied ? "Copied" : "Copy \(result.summary?.isEmpty == false ? "summary" : "transcript") to clipboard")
+                }
                 Button(action: { onOpenFolder(result.folderURL) }) {
                     Image(systemName: "folder")
                         .font(.system(size: 12))
@@ -271,6 +281,23 @@ struct RecordingPanel: View {
         let label: String
         let body: String
         let isSummary: Bool
+    }
+
+    private func copyableText(result: RecordingResult) -> String? {
+        if let s = result.summary, !s.isEmpty { return s }
+        if let t = result.transcript, !t.isEmpty { return t }
+        return nil
+    }
+
+    private func copyToClipboard(_ text: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        justCopied = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            justCopied = false
+        }
     }
 
     private func donePreview(result: RecordingResult) -> DonePreview? {
