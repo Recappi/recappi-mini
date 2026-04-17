@@ -88,10 +88,8 @@ struct RecordingPanel: View {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
-                    .contentShape(Rectangle())
-                    .frame(width: 22, height: 22)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(IconButtonStyle())
             .help("Settings")
 
             Button(action: { recorder.startFlow() }) {
@@ -193,17 +191,15 @@ struct RecordingPanel: View {
                     Image(systemName: "folder")
                         .font(.system(size: 12))
                         .foregroundStyle(.blue)
-                        .frame(width: 22, height: 22)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(IconButtonStyle())
                 .help("Open folder")
                 Button(action: { recorder.reset() }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.tertiary)
-                        .frame(width: 22, height: 22)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(IconButtonStyle())
                 .help("Dismiss")
             }
 
@@ -259,9 +255,8 @@ struct RecordingPanel: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.tertiary)
-                        .frame(width: 22, height: 22)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(IconButtonStyle())
                 .help("Dismiss")
             }
 
@@ -374,6 +369,44 @@ struct GlassBackgroundModifier: ViewModifier {
                 .background(.background, in: RoundedRectangle(cornerRadius: 14))
                 .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
         }
+    }
+}
+
+/// Small icon button with a subtle rounded hover/pressed background.
+/// Intended for panel chrome (gear, folder, dismiss) — not the big record/stop buttons.
+struct IconButtonStyle: ButtonStyle {
+    var size: CGFloat = 22
+
+    func makeBody(configuration: Configuration) -> some View {
+        IconButtonBackground(isPressed: configuration.isPressed, size: size) {
+            configuration.label
+        }
+    }
+}
+
+private struct IconButtonBackground<Content: View>: View {
+    let isPressed: Bool
+    let size: CGFloat
+    @ViewBuilder let content: () -> Content
+    @State private var isHovered = false
+
+    var body: some View {
+        content()
+            .frame(width: size, height: size)
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .background {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(fillOpacity))
+            }
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .animation(.easeOut(duration: 0.08), value: isPressed)
+    }
+
+    private var fillOpacity: Double {
+        if isPressed { return 0.18 }
+        if isHovered { return 0.10 }
+        return 0
     }
 }
 

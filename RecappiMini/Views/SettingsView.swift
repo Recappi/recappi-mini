@@ -15,7 +15,7 @@ struct SettingsView: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(IconButtonStyle())
             }
 
             Divider()
