@@ -3,7 +3,6 @@ import Foundation
 struct RecordingResult: Equatable {
     let folderURL: URL
     let transcript: String?
-    let summary: String?
     let duration: Int
 }
 

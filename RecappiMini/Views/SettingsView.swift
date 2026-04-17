@@ -12,11 +12,10 @@ struct SettingsView: View {
                 Spacer()
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(IconButtonStyle())
-                .help("Close")
+                .buttonStyle(.plain)
             }
 
             Divider()
@@ -63,50 +62,17 @@ struct SettingsView: View {
                             .font(.system(size: 11))
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Summary prompt")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        if !isDefaultPrompt {
-                            Button("Reset") { config.summaryPrompt = AppConfig.defaultSummaryPrompt }
-                                .buttonStyle(.borderless)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.blue)
-                        }
-                    }
-                    TextEditor(text: $config.summaryPrompt)
-                        .font(.system(size: 10))
-                        .frame(height: 90)
-                        .scrollContentBackground(.hidden)
-                        .padding(6)
-                        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 5))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5)
-                                .strokeBorder(.separator, lineWidth: 0.5)
-                        )
-                }
             }
         }
         .padding(14)
         .frame(width: 280)
     }
 
-    private var isDefaultPrompt: Bool {
-        config.summaryPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            == AppConfig.defaultSummaryPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private var apiKeyBinding: Binding<String> {
         switch config.selectedProvider {
-        case .gemini:
-            return Binding(get: { config.geminiApiKey }, set: { config.setGeminiApiKey($0) })
-        case .openai:
-            return Binding(get: { config.openaiApiKey }, set: { config.setOpenaiApiKey($0) })
-        case .none:
-            return .constant("")
+        case .gemini: return $config.geminiApiKey
+        case .openai: return $config.openaiApiKey
+        case .none: return .constant("")
         }
     }
 }

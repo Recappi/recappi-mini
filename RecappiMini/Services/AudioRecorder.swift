@@ -1,8 +1,6 @@
-import Accelerate
 import AVFoundation
 import AppKit
 import CoreMedia
-import IOKit.pwr_mgt
 import ScreenCaptureKit
 
 struct AudioApp: Identifiable, Hashable {
@@ -25,26 +23,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var state: RecorderState = .idle
     @Published var elapsedSeconds: Int = 0
     @Published var runningApps: [AudioApp] = []
-    @Published var selectedApp: AudioApp? {
-        didSet { persistSelectedApp() }
-    }
+    @Published var selectedApp: AudioApp?
     @Published var recordingAppName: String?
-    /// Normalized 0…1 audio level, updated ~20Hz while recording. 0 when idle.
-    @Published var audioLevel: Float = 0
-
-    private static let selectedAppKey = "RecappiMini.selectedApp"
-
-    private func persistSelectedApp() {
-        let defaults = UserDefaults.standard
-        if let id = selectedApp?.id {
-            defaults.set(id, forKey: Self.selectedAppKey)
-        } else {
-            defaults.removeObject(forKey: Self.selectedAppKey)
-        }
-    }
-    /// Last completed recording's folder — kept across error state so UI can offer Open Folder / Retry.
-    @Published var lastSessionDir: URL?
-    @Published var lastDuration: Int = 0
 
     private var stream: SCStream?
     private var assetWriter: AVAssetWriter?
@@ -52,7 +32,6 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var sessionDir: URL?
     private var timer: Timer?
     private var streamOutput: AudioStreamOutput?
-    private var sleepAssertionID: IOPMAssertionID = 0
 
     var currentSessionDir: URL? { sessionDir }
 
@@ -78,14 +57,6 @@ final class AudioRecorder: NSObject, ObservableObject {
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             self.runningApps = apps
-
-            // Restore last selection if the saved app is now visible in the list.
-            // Only applies when the user hasn't already chosen something this session.
-            if selectedApp == nil,
-               let savedId = UserDefaults.standard.string(forKey: Self.selectedAppKey),
-               let restored = apps.first(where: { $0.id == savedId }) {
-                selectedApp = restored
-            }
         } catch {
             self.runningApps = []
         }
@@ -118,11 +89,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.assetWriter = writer
         self.audioInput = input
 
-        let output = AudioStreamOutput(writer: writer, input: input) { [weak self] level in
-            Task { @MainActor in
-                self?.audioLevel = min(1.0, sqrtf(max(0, level)) * 1.4)
-            }
-        }
+        let output = AudioStreamOutput(writer: writer, input: input)
         self.streamOutput = output
 
         // Build filter: single app or whole display
@@ -149,8 +116,6 @@ final class AudioRecorder: NSObject, ObservableObject {
         try await stream.startCapture()
         writer.startWriting()
 
-        acquireSleepAssertion()
-
         self.state = .recording
         self.elapsedSeconds = 0
         self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -166,10 +131,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         self.state = .stopping
-        self.audioLevel = 0
         self.timer?.invalidate()
         self.timer = nil
-        releaseSleepAssertion()
 
         try await stream?.stopCapture()
         stream = nil
@@ -182,151 +145,18 @@ final class AudioRecorder: NSObject, ObservableObject {
             throw RecorderError.noSessionDir
         }
 
-        self.lastSessionDir = sessionDir
-        self.lastDuration = elapsedSeconds
         return sessionDir
     }
 
     func reset() {
         state = .idle
         elapsedSeconds = 0
-        audioLevel = 0
         sessionDir = nil
         stream = nil
         assetWriter = nil
         audioInput = nil
         streamOutput = nil
         recordingAppName = nil
-        lastSessionDir = nil
-        lastDuration = 0
-    }
-
-    // MARK: - High-level flow (shared by UI buttons and global hotkey)
-
-    /// Start recording and route errors into `.error`.
-    func startFlow() {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.startRecording()
-            } catch {
-                self.state = .error(message: error.localizedDescription)
-            }
-        }
-    }
-
-    /// Stop, then transcribe + optionally summarize.
-    func stopFlow() {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let duration = self.elapsedSeconds
-                let sessionDir = try await self.stopRecording()
-                await self.processAudio(sessionDir: sessionDir, duration: duration)
-            } catch {
-                self.state = .error(message: error.localizedDescription)
-            }
-        }
-    }
-
-    /// Re-run transcribe+summarize on the last saved session.
-    func retryFlow() {
-        guard let dir = lastSessionDir else { return }
-        let duration = lastDuration
-        Task { [weak self] in
-            await self?.processAudio(sessionDir: dir, duration: duration)
-        }
-    }
-
-    /// Abort recording and delete the partial session folder. No transcription,
-    /// no summary, nothing left on disk. Safe to call only from .recording.
-    func cancelFlow() {
-        Task { [weak self] in
-            await self?.cancelRecording()
-        }
-    }
-
-    private func cancelRecording() async {
-        guard state == .recording else { return }
-
-        audioLevel = 0
-        timer?.invalidate()
-        timer = nil
-        releaseSleepAssertion()
-
-        try? await stream?.stopCapture()
-        audioInput?.markAsFinished()
-        await assetWriter?.finishWriting()
-
-        if let dir = sessionDir {
-            try? FileManager.default.removeItem(at: dir)
-        }
-
-        reset()
-    }
-
-    /// idle → start, recording → stop. In done/error states, treat the hotkey
-    /// as "start a new recording" — reset cleanup first, then start. Processing
-    /// states are left alone (user shouldn't interrupt transcription).
-    func toggleRecording() {
-        switch state {
-        case .idle: startFlow()
-        case .recording: stopFlow()
-        case .done, .error:
-            reset()
-            startFlow()
-        case .stopping, .transcribing, .summarizing:
-            break
-        }
-    }
-
-    private func acquireSleepAssertion() {
-        guard sleepAssertionID == 0 else { return }
-        let reason = "Recappi Mini is recording" as CFString
-        IOPMAssertionCreateWithName(
-            kIOPMAssertPreventUserIdleSystemSleep as CFString,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            reason,
-            &sleepAssertionID
-        )
-    }
-
-    private func releaseSleepAssertion() {
-        guard sleepAssertionID != 0 else { return }
-        IOPMAssertionRelease(sleepAssertionID)
-        sleepAssertionID = 0
-    }
-
-    private func processAudio(sessionDir: URL, duration: Int) async {
-        do {
-            let config = AppConfig.shared
-            let transcriber = createTranscriber(config: config)
-
-            state = .transcribing
-            let audioURL = RecordingStore.audioFileURL(in: sessionDir)
-            let transcript = try await transcriber.transcribe(audioURL: audioURL)
-            try RecordingStore.saveTranscript(transcript, in: sessionDir)
-
-            var summary: String? = nil
-            if config.selectedProvider != .none {
-                state = .summarizing
-                let summarizer = createSummarizer(config: config)
-                let s = try await summarizer.summarize(transcript: transcript)
-                if !s.isEmpty {
-                    try RecordingStore.saveSummary(s, in: sessionDir)
-                    summary = s
-                }
-            }
-
-            state = .done(result: RecordingResult(
-                folderURL: sessionDir,
-                transcript: transcript,
-                summary: summary,
-                duration: duration
-            ))
-        } catch {
-            state = .error(message: error.localizedDescription)
-        }
     }
 
     /// Notable Apple apps that users might want to record
@@ -343,15 +173,11 @@ final class AudioRecorder: NSObject, ObservableObject {
 final class AudioStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
-    private let onLevel: @Sendable (Float) -> Void
     private var isWriterStarted = false
-    private var lastLevelEmit: CFAbsoluteTime = 0
-    private static let levelEmitInterval: CFAbsoluteTime = 0.05  // ~20Hz
 
-    init(writer: AVAssetWriter, input: AVAssetWriterInput, onLevel: @escaping @Sendable (Float) -> Void) {
+    init(writer: AVAssetWriter, input: AVAssetWriterInput) {
         self.writer = writer
         self.input = input
-        self.onLevel = onLevel
     }
 
     func stream(
@@ -372,39 +198,6 @@ final class AudioStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
         if input.isReadyForMoreMediaData {
             input.append(sampleBuffer)
         }
-
-        // Sample peak for UI, throttled to avoid spamming the main queue.
-        let now = CFAbsoluteTimeGetCurrent()
-        if now - lastLevelEmit > Self.levelEmitInterval {
-            lastLevelEmit = now
-            if let peak = Self.peakLevel(from: sampleBuffer) {
-                onLevel(peak)
-            }
-        }
-    }
-
-    /// Returns the absolute-max Float32 sample in the buffer, or nil if the
-    /// buffer isn't in the expected 32-bit float LPCM format SCStream delivers.
-    private static func peakLevel(from sampleBuffer: CMSampleBuffer) -> Float? {
-        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return nil }
-        var totalLength = 0
-        var dataPointer: UnsafeMutablePointer<Int8>?
-        let status = CMBlockBufferGetDataPointer(
-            blockBuffer,
-            atOffset: 0,
-            lengthAtOffsetOut: nil,
-            totalLengthOut: &totalLength,
-            dataPointerOut: &dataPointer
-        )
-        guard status == kCMBlockBufferNoErr, let dataPointer, totalLength > 0 else { return nil }
-
-        let sampleCount = totalLength / MemoryLayout<Float32>.size
-        guard sampleCount > 0 else { return nil }
-
-        let floatPtr = UnsafeRawPointer(dataPointer).assumingMemoryBound(to: Float.self)
-        var peak: Float = 0
-        vDSP_maxmgv(floatPtr, 1, &peak, vDSP_Length(sampleCount))
-        return peak
     }
 }
 

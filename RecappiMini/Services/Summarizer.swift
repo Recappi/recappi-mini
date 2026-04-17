@@ -12,13 +12,17 @@ struct NoSummarizer: SummaryProvider {
 
 struct GeminiSummarizer: SummaryProvider {
     let apiKey: String
-    let systemPrompt: String
 
     func summarize(transcript: String) async throws -> String {
         let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(apiKey)")!
 
-        let fullPrompt = """
-        \(systemPrompt)
+        let prompt = """
+        Given this meeting transcript, produce a concise meeting summary in markdown format with:
+        ## Key Points
+        ## Action Items
+        ## Decisions Made
+
+        Keep it brief and actionable.
 
         Transcript:
         \(transcript)
@@ -26,7 +30,7 @@ struct GeminiSummarizer: SummaryProvider {
 
         let body: [String: Any] = [
             "contents": [
-                ["parts": [["text": fullPrompt]]]
+                ["parts": [["text": prompt]]]
             ]
         ]
 
@@ -56,15 +60,23 @@ struct GeminiSummarizer: SummaryProvider {
 
 struct OpenAISummarizer: SummaryProvider {
     let apiKey: String
-    let systemPrompt: String
 
     func summarize(transcript: String) async throws -> String {
         let url = URL(string: "https://api.openai.com/v1/chat/completions")!
 
+        let prompt = """
+        Given this meeting transcript, produce a concise meeting summary in markdown format with:
+        ## Key Points
+        ## Action Items
+        ## Decisions Made
+
+        Keep it brief and actionable.
+        """
+
         let body: [String: Any] = [
             "model": "gpt-4o-mini",
             "messages": [
-                ["role": "system", "content": systemPrompt],
+                ["role": "system", "content": prompt],
                 ["role": "user", "content": transcript],
             ],
         ]
@@ -95,16 +107,13 @@ struct OpenAISummarizer: SummaryProvider {
 
 @MainActor
 func createSummarizer(config: AppConfig) -> SummaryProvider {
-    let prompt = config.summaryPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        ? AppConfig.defaultSummaryPrompt
-        : config.summaryPrompt
     switch config.selectedProvider {
     case .none:
         return NoSummarizer()
     case .gemini:
-        return GeminiSummarizer(apiKey: config.geminiApiKey, systemPrompt: prompt)
+        return GeminiSummarizer(apiKey: config.geminiApiKey)
     case .openai:
-        return OpenAISummarizer(apiKey: config.openaiApiKey, systemPrompt: prompt)
+        return OpenAISummarizer(apiKey: config.openaiApiKey)
     }
 }
 
