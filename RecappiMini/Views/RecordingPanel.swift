@@ -10,20 +10,17 @@ struct RecordingPanel: View {
         ZStack {
             if showSettings {
                 SettingsView(isPresented: $showSettings)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .top)),
-                        removal: .opacity
-                    ))
+                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
             } else {
                 mainView
-                    .transition(.opacity)
+                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
             }
         }
         .frame(width: 280)
         .fixedSize(horizontal: false, vertical: true)
         .modifier(GlassBackgroundModifier())
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showSettings)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: stateKey)
+        .animation(.easeInOut(duration: 0.22), value: showSettings)
+        .animation(.easeInOut(duration: 0.22), value: stateKey)
         .onChange(of: showSettings) { resizeToTarget() }
         .onChange(of: stateKey) { resizeToTarget() }
     }

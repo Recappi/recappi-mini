@@ -51,6 +51,12 @@ struct FloatingPanelController {
         let dy = frame.height - height
         frame.origin.y += dy
         frame.size.height = height
-        panel.animator().setFrame(frame, display: true)
+        // Match the SwiftUI easeInOut(0.22) content transition so window
+        // resize and view cross-fade finish together.
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.22
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(frame, display: true)
+        }
     }
 }
