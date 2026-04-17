@@ -25,6 +25,9 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var runningApps: [AudioApp] = []
     @Published var selectedApp: AudioApp?
     @Published var recordingAppName: String?
+    /// Last completed recording's folder — kept across error state so UI can offer Open Folder / Retry.
+    @Published var lastSessionDir: URL?
+    @Published var lastDuration: Int = 0
 
     private var stream: SCStream?
     private var assetWriter: AVAssetWriter?
@@ -145,6 +148,8 @@ final class AudioRecorder: NSObject, ObservableObject {
             throw RecorderError.noSessionDir
         }
 
+        self.lastSessionDir = sessionDir
+        self.lastDuration = elapsedSeconds
         return sessionDir
     }
 
@@ -157,6 +162,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         audioInput = nil
         streamOutput = nil
         recordingAppName = nil
+        lastSessionDir = nil
+        lastDuration = 0
     }
 
     /// Notable Apple apps that users might want to record

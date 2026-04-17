@@ -219,23 +219,68 @@ struct RecordingPanel: View {
     // MARK: - Error
 
     private func errorContent(message: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .font(.system(size: 14))
-            Text(message)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-            Spacer(minLength: 0)
-            Button(action: { recorder.reset() }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 22, height: 22)
+        let recoverable = recorder.lastSessionDir != nil
+        let configIssue = isConfigRelated(message)
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.system(size: 14))
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(action: { recorder.reset() }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .help("Dismiss")
             }
-            .buttonStyle(.plain)
+
+            HStack(spacing: 8) {
+                if recoverable {
+                    Button(action: { retryProcessing() }) {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Re-run transcription on the saved audio")
+
+                    if let dir = recorder.lastSessionDir {
+                        Button(action: { onOpenFolder(dir) }) {
+                            Label("Open folder", systemImage: "folder")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.blue)
+                    }
+                }
+
+                if configIssue {
+                    Button(action: { showSettings = true }) {
+                        Label("Settings", systemImage: "gearshape")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open settings — check API key or language")
+                }
+
+                Spacer(minLength: 0)
+            }
         }
+    }
+
+    private func isConfigRelated(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        return lower.contains("api")
+            || lower.contains("key")
+            || lower.contains("author")
+            || lower.contains("language not supported")
     }
 
     // MARK: - Height / resize
@@ -247,7 +292,7 @@ struct RecordingPanel: View {
         case .recording: return "recording"
         case .stopping, .transcribing, .summarizing: return "processing"
         case .done(let r): return "done-\((r.transcript ?? "").isEmpty ? "short" : "long")"
-        case .error: return "error"
+        case .error(let msg): return errorHasActions(msg) ? "error-actions" : "error-short"
         }
     }
 
@@ -258,8 +303,12 @@ struct RecordingPanel: View {
         case .recording: return 72
         case .stopping, .transcribing, .summarizing: return 52
         case .done(let r): return (r.transcript ?? "").isEmpty ? 52 : 110
-        case .error: return 52
+        case .error(let msg): return errorHasActions(msg) ? 96 : 56
         }
+    }
+
+    private func errorHasActions(_ message: String) -> Bool {
+        recorder.lastSessionDir != nil || isConfigRelated(message)
     }
 
     private func resizeToTarget() {
@@ -293,31 +342,45 @@ struct RecordingPanel: View {
             do {
                 let duration = recorder.elapsedSeconds
                 let sessionDir = try await recorder.stopRecording()
-                let config = AppConfig.shared
-                let transcriber = createTranscriber(config: config)
-
-                recorder.state = .transcribing
-                let audioURL = RecordingStore.audioFileURL(in: sessionDir)
-                let transcript = try await transcriber.transcribe(audioURL: audioURL)
-                try RecordingStore.saveTranscript(transcript, in: sessionDir)
-
-                if config.selectedProvider != .none {
-                    recorder.state = .summarizing
-                    let summarizer = createSummarizer(config: config)
-                    let summary = try await summarizer.summarize(transcript: transcript)
-                    if !summary.isEmpty {
-                        try RecordingStore.saveSummary(summary, in: sessionDir)
-                    }
-                }
-
-                recorder.state = .done(result: RecordingResult(
-                    folderURL: sessionDir,
-                    transcript: transcript,
-                    duration: duration
-                ))
+                await processAudio(sessionDir: sessionDir, duration: duration)
             } catch {
                 recorder.state = .error(message: error.localizedDescription)
             }
+        }
+    }
+
+    private func retryProcessing() {
+        guard let dir = recorder.lastSessionDir else { return }
+        let duration = recorder.lastDuration
+        Task { await processAudio(sessionDir: dir, duration: duration) }
+    }
+
+    private func processAudio(sessionDir: URL, duration: Int) async {
+        do {
+            let config = AppConfig.shared
+            let transcriber = createTranscriber(config: config)
+
+            recorder.state = .transcribing
+            let audioURL = RecordingStore.audioFileURL(in: sessionDir)
+            let transcript = try await transcriber.transcribe(audioURL: audioURL)
+            try RecordingStore.saveTranscript(transcript, in: sessionDir)
+
+            if config.selectedProvider != .none {
+                recorder.state = .summarizing
+                let summarizer = createSummarizer(config: config)
+                let summary = try await summarizer.summarize(transcript: transcript)
+                if !summary.isEmpty {
+                    try RecordingStore.saveSummary(summary, in: sessionDir)
+                }
+            }
+
+            recorder.state = .done(result: RecordingResult(
+                folderURL: sessionDir,
+                transcript: transcript,
+                duration: duration
+            ))
+        } catch {
+            recorder.state = .error(message: error.localizedDescription)
         }
     }
 
