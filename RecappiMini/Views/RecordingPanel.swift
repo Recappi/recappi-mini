@@ -507,11 +507,19 @@ struct RecordingPanel: View {
 struct GlassBackgroundModifier: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
-            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
-        } else {
             content
-                .background(.background, in: RoundedRectangle(cornerRadius: 14))
-                .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
+                .shadow(color: .black.opacity(0.18), radius: 12, y: 3)
+        } else {
+            // NSVisualEffectView-backed frosted material — reliable on macOS 13+,
+            // regardless of whether Liquid Glass is available.
+            content
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.18), radius: 12, y: 3)
         }
     }
 }
