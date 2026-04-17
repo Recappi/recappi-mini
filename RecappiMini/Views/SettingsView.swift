@@ -70,9 +70,12 @@ struct SettingsView: View {
 
     private var apiKeyBinding: Binding<String> {
         switch config.selectedProvider {
-        case .gemini: return $config.geminiApiKey
-        case .openai: return $config.openaiApiKey
-        case .none: return .constant("")
+        case .gemini:
+            return Binding(get: { config.geminiApiKey }, set: { config.setGeminiApiKey($0) })
+        case .openai:
+            return Binding(get: { config.openaiApiKey }, set: { config.setOpenaiApiKey($0) })
+        case .none:
+            return .constant("")
         }
     }
 }
