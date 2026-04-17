@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingView = NSHostingView(rootView: contentView)
         hostingView.sizingOptions = [.intrinsicContentSize]
         panel.contentView = hostingView
-        FloatingPanelController.positionAtTopRight(panel, width: 280, height: 56)
+        FloatingPanelController.restoreOrTopRight(panel, width: 280, height: 56)
         panel.orderFrontRegardless()
 
         self.panel = panel
