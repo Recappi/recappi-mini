@@ -21,6 +21,16 @@ final class AppConfig: ObservableObject {
 
     @AppStorage("llmProvider") var llmProvider: String = LLMProvider.none.rawValue
     @AppStorage("speechLanguage") var speechLanguage: String = "en-US"
+    @AppStorage("summaryPrompt") var summaryPrompt: String = AppConfig.defaultSummaryPrompt
+
+    static let defaultSummaryPrompt = """
+    Given this meeting transcript, produce a concise meeting summary in markdown format with:
+    ## Key Points
+    ## Action Items
+    ## Decisions Made
+
+    Keep it brief and actionable.
+    """
 
     // API keys live in the Keychain. Views bind to these published mirrors so
     // SettingsView can still use a simple Binding<String>; every write is

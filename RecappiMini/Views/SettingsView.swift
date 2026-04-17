@@ -62,10 +62,40 @@ struct SettingsView: View {
                             .font(.system(size: 11))
                     }
                 }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Summary prompt")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if !isDefaultPrompt {
+                            Button("Reset") { config.summaryPrompt = AppConfig.defaultSummaryPrompt }
+                                .buttonStyle(.borderless)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    TextEditor(text: $config.summaryPrompt)
+                        .font(.system(size: 10))
+                        .frame(height: 90)
+                        .scrollContentBackground(.hidden)
+                        .padding(6)
+                        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 5))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5)
+                                .strokeBorder(.separator, lineWidth: 0.5)
+                        )
+                }
             }
         }
         .padding(14)
         .frame(width: 280)
+    }
+
+    private var isDefaultPrompt: Bool {
+        config.summaryPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            == AppConfig.defaultSummaryPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var apiKeyBinding: Binding<String> {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RecordingPanel: View {
     @ObservedObject var recorder: AudioRecorder
+    @ObservedObject private var config = AppConfig.shared
     @State private var showSettings = false
     @State private var processingStart: Date?
 
@@ -351,7 +352,9 @@ struct RecordingPanel: View {
     // MARK: - Height / resize
 
     private var stateKey: String {
-        if showSettings { return "settings" }
+        if showSettings {
+            return AppConfig.shared.selectedProvider == .none ? "settings-none" : "settings-llm"
+        }
         switch recorder.state {
         case .idle: return "idle"
         case .recording: return "recording"
@@ -364,7 +367,9 @@ struct RecordingPanel: View {
     }
 
     private var targetHeight: CGFloat {
-        if showSettings { return 200 }
+        if showSettings {
+            return AppConfig.shared.selectedProvider == .none ? 160 : 340
+        }
         switch recorder.state {
         case .idle: return 56
         case .recording: return 72
