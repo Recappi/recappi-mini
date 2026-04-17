@@ -5,8 +5,7 @@ struct RecappiMiniApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // MenuBar icon for show/hide and quit
-        MenuBarExtra("Recappi Mini", systemImage: "waveform.circle.fill") {
+        MenuBarExtra {
             // Same shortcut as the global hotkey — informational; Carbon catches the keypress first.
             Button("Toggle Recording") {
                 appDelegate.toggleRecordingFromMenu()
@@ -20,6 +19,28 @@ struct RecappiMiniApp: App {
                 NSApp.terminate(nil)
             }
             .keyboardShortcut("q")
+        } label: {
+            MenuBarIcon(recorder: appDelegate.recorder)
+        }
+    }
+}
+
+/// Menubar glyph that reacts to recorder state. Lives in its own view so
+/// `@ObservedObject` can re-render the MenuBarExtra label when state changes.
+private struct MenuBarIcon: View {
+    @ObservedObject var recorder: AudioRecorder
+
+    var body: some View {
+        Image(systemName: iconName)
+    }
+
+    private var iconName: String {
+        switch recorder.state {
+        case .idle: return "waveform.circle"
+        case .recording: return "record.circle.fill"
+        case .stopping, .transcribing, .summarizing: return "arrow.triangle.2.circlepath.circle"
+        case .done: return "checkmark.circle.fill"
+        case .error: return "exclamationmark.triangle.fill"
         }
     }
 }
