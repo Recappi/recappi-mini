@@ -3,6 +3,7 @@ import SwiftUI
 struct RecordingPanel: View {
     @ObservedObject var recorder: AudioRecorder
     @State private var showSettings = false
+    @State private var processingStart: Date?
 
     let onOpenFolder: (URL) -> Void
 
@@ -26,6 +27,13 @@ struct RecordingPanel: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: stateKey)
         .onChange(of: showSettings) { resizeToTarget() }
         .onChange(of: stateKey) { resizeToTarget() }
+        .onChange(of: recorder.state) { _, newState in
+            if newState.isProcessing {
+                if processingStart == nil { processingStart = Date() }
+            } else {
+                processingStart = nil
+            }
+        }
     }
 
     // MARK: - Main content switch
@@ -160,13 +168,46 @@ struct RecordingPanel: View {
     private var processingContent: some View {
         HStack(spacing: 10) {
             ProgressView()
-                .scaleEffect(0.6)
+                .scaleEffect(0.55)
                 .frame(width: 16, height: 16)
-            Text(processingLabel)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(processingLabel)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+
+                    Spacer(minLength: 0)
+
+                    if let start = processingStart {
+                        TimelineView(.periodic(from: start, by: 1)) { context in
+                            Text(formatTime(Int(context.date.timeIntervalSince(start))))
+                                .font(.system(size: 11, design: .monospaced))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                ProcessingStepsIndicator(
+                    current: currentProcessingStep,
+                    total: processingStepsTotal
+                )
+            }
         }
+    }
+
+    private var currentProcessingStep: Int {
+        switch recorder.state {
+        case .stopping: return 1
+        case .transcribing: return 2
+        case .summarizing: return 3
+        default: return 0
+        }
+    }
+
+    private var processingStepsTotal: Int {
+        AppConfig.shared.selectedProvider == .none ? 2 : 3
     }
 
     // MARK: - Done
@@ -319,7 +360,7 @@ struct RecordingPanel: View {
         switch recorder.state {
         case .idle: return 56
         case .recording: return 72
-        case .stopping, .transcribing, .summarizing: return 52
+        case .stopping, .transcribing, .summarizing: return 68
         case .done(let r):
             if let s = r.summary, !s.isEmpty { return 140 }
             return (r.transcript ?? "").isEmpty ? 52 : 110
@@ -416,6 +457,48 @@ struct PulsingModifier: ViewModifier {
             .opacity(isPulsing ? 0.3 : 1.0)
             .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
             .onAppear { isPulsing = true }
+    }
+}
+
+/// Three dots with connecting lines: done dots are filled, the current dot
+/// pulses, future dots are outlined. Skips the third dot when summarizing
+/// is disabled (LLM provider = none).
+struct ProcessingStepsIndicator: View {
+    let current: Int   // 1-based step index; 0 means none active
+    let total: Int     // 2 or 3
+    @State private var pulse = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(1...total, id: \.self) { step in
+                dot(for: step)
+                if step < total {
+                    Capsule()
+                        .fill(step < current ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.3))
+                        .frame(width: 12, height: 1.5)
+                }
+            }
+        }
+        .onAppear { pulse = true }
+    }
+
+    @ViewBuilder
+    private func dot(for step: Int) -> some View {
+        if step < current {
+            Circle()
+                .fill(Color.accentColor.opacity(0.8))
+                .frame(width: 6, height: 6)
+        } else if step == current {
+            Circle()
+                .fill(Color.accentColor)
+                .frame(width: 6, height: 6)
+                .scaleEffect(pulse ? 1.3 : 1.0)
+                .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulse)
+        } else {
+            Circle()
+                .strokeBorder(Color.secondary.opacity(0.4), lineWidth: 1)
+                .frame(width: 6, height: 6)
+        }
     }
 }
 
