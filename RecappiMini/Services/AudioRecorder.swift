@@ -2,6 +2,7 @@ import Accelerate
 import AVFoundation
 import AppKit
 import CoreMedia
+import IOKit.pwr_mgt
 import ScreenCaptureKit
 
 struct AudioApp: Identifiable, Hashable {
@@ -51,6 +52,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var sessionDir: URL?
     private var timer: Timer?
     private var streamOutput: AudioStreamOutput?
+    private var sleepAssertionID: IOPMAssertionID = 0
 
     var currentSessionDir: URL? { sessionDir }
 
@@ -147,6 +149,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         try await stream.startCapture()
         writer.startWriting()
 
+        acquireSleepAssertion()
+
         self.state = .recording
         self.elapsedSeconds = 0
         self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -165,6 +169,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.audioLevel = 0
         self.timer?.invalidate()
         self.timer = nil
+        releaseSleepAssertion()
 
         try await stream?.stopCapture()
         stream = nil
@@ -247,6 +252,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         audioLevel = 0
         timer?.invalidate()
         timer = nil
+        releaseSleepAssertion()
 
         try? await stream?.stopCapture()
         audioInput?.markAsFinished()
@@ -259,13 +265,36 @@ final class AudioRecorder: NSObject, ObservableObject {
         reset()
     }
 
-    /// idle → start, recording → stop, otherwise no-op. Used by the global hotkey.
+    /// idle → start, recording → stop. In done/error states, treat the hotkey
+    /// as "start a new recording" — reset cleanup first, then start. Processing
+    /// states are left alone (user shouldn't interrupt transcription).
     func toggleRecording() {
         switch state {
         case .idle: startFlow()
         case .recording: stopFlow()
-        default: break
+        case .done, .error:
+            reset()
+            startFlow()
+        case .stopping, .transcribing, .summarizing:
+            break
         }
+    }
+
+    private func acquireSleepAssertion() {
+        guard sleepAssertionID == 0 else { return }
+        let reason = "Recappi Mini is recording" as CFString
+        IOPMAssertionCreateWithName(
+            kIOPMAssertPreventUserIdleSystemSleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            reason,
+            &sleepAssertionID
+        )
+    }
+
+    private func releaseSleepAssertion() {
+        guard sleepAssertionID != 0 else { return }
+        IOPMAssertionRelease(sleepAssertionID)
+        sleepAssertionID = 0
     }
 
     private func processAudio(sessionDir: URL, duration: Int) async {
