@@ -7,20 +7,20 @@ struct RecordingPanel: View {
     let onOpenFolder: (URL) -> Void
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             if showSettings {
                 SettingsView(isPresented: $showSettings)
-                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
+                    .transition(.opacity)
             } else {
                 mainView
-                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
+                    .transition(.opacity)
             }
         }
         .frame(width: 280)
         .fixedSize(horizontal: false, vertical: true)
         .modifier(GlassBackgroundModifier())
-        .animation(.easeInOut(duration: 0.22), value: showSettings)
-        .animation(.easeInOut(duration: 0.22), value: stateKey)
+        .animation(.easeOut(duration: 0.2), value: showSettings)
+        .animation(.easeOut(duration: 0.2), value: stateKey)
         .onChange(of: showSettings) { resizeToTarget() }
         .onChange(of: stateKey) { resizeToTarget() }
     }

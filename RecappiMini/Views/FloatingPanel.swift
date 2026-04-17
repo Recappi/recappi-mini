@@ -51,11 +51,12 @@ struct FloatingPanelController {
         let dy = frame.height - height
         frame.origin.y += dy
         frame.size.height = height
-        // Match the SwiftUI easeInOut(0.22) content transition so window
-        // resize and view cross-fade finish together.
+        // Match the SwiftUI easeOut(0.2) content transition. easeOut avoids
+        // the mid-point acceleration that reads as a "bounce" when combined
+        // with NSHostingView's intrinsicContentSize updates.
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.22
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            ctx.duration = 0.2
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(frame, display: true)
         }
     }
