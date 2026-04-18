@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 @main
@@ -32,6 +33,7 @@ struct RecappiMiniApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: FloatingPanel?
     private let recorder = AudioRecorder()
+    private var activityObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -53,6 +55,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await recorder.refreshApps()
         }
+
+        // Hot-audio detection: start the CoreAudio poll and re-sort the
+        // picker each time the active set changes so apps currently making
+        // sound float to the top.
+        recorder.activityMonitor.start()
+        activityObserver = recorder.activityMonitor
+            .$activeBundleIDs
+            .sink { [weak self] active in
+                Task { @MainActor in
+                    self?.recorder.applyActivity(active)
+                }
+            }
     }
 
     func showPanel() {

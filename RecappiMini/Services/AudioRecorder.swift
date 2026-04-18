@@ -16,6 +16,9 @@ struct AudioApp: Identifiable, Hashable {
     let icon: NSImage?
     let scApp: SCRunningApplication
     let bucket: Bucket
+    /// True when AudioActivityMonitor sees this bundle currently producing
+    /// output audio. Active apps float to the top of the picker.
+    var isActive: Bool
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
@@ -63,6 +66,28 @@ private enum AudioAppCategories {
     }
 }
 
+/// Collapses child bundle IDs onto their parent. Chrome-style multi-process
+/// apps emit audio from `.helper(.Renderer)` / `.Agent` subprocesses; the
+/// user recognises the app by its parent bundle, so both the selector and
+/// the activity monitor need the same canonicalisation.
+enum BundleCollapser {
+    private static let markers: [String] = [
+        ".helper", ".Helper",
+        ".renderer", ".Renderer",
+        ".agent", ".Agent",
+        ".plugin_host",
+    ]
+
+    static func parent(of bundleID: String) -> String {
+        for marker in markers {
+            if let range = bundleID.range(of: marker) {
+                return String(bundleID[..<range.lowerBound])
+            }
+        }
+        return bundleID
+    }
+}
+
 @MainActor
 final class AudioRecorder: NSObject, ObservableObject {
     @Published var state: RecorderState = .idle
@@ -72,6 +97,10 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var recordingAppName: String?
 
     // --- System audio (ScreenCaptureKit) pipeline ---
+    /// Hot-audio signal surfaced to the picker. Owned here so the UI
+    /// observes the same refresh clock as runningApps updates.
+    let activityMonitor = AudioActivityMonitor()
+
     private var stream: SCStream?
     private var systemWriter: AVAssetWriter?
     private var systemInput: AVAssetWriterInput?
@@ -115,6 +144,7 @@ final class AudioRecorder: NSObject, ObservableObject {
                 }
             }
 
+            let active = activityMonitor.activeBundleIDs
             let apps = byParent.compactMap { (parentBid, scApp) -> AudioApp? in
                 let name = Self.displayName(for: parentBid, fallback: scApp.applicationName)
                 guard !name.isEmpty else { return nil }
@@ -126,13 +156,11 @@ final class AudioRecorder: NSObject, ObservableObject {
                     name: name,
                     icon: rawIcon,
                     scApp: scApp,
-                    bucket: AudioAppCategories.bucket(for: parentBid)
+                    bucket: AudioAppCategories.bucket(for: parentBid),
+                    isActive: active.contains(parentBid)
                 )
             }
-            .sorted { lhs, rhs in
-                if lhs.bucket != rhs.bucket { return lhs.bucket < rhs.bucket }
-                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-            }
+            .sorted(by: Self.sortOrder)
 
             self.runningApps = apps
         } catch {
@@ -140,23 +168,35 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
-    /// Collapses child bundle IDs onto their parent. A helper is anything
-    /// suffixed after the parent with ".helper", ".Helper", ".renderer",
-    /// ".Agent", etc. We trim the first known suffix rather than splitting
-    /// aggressively so non-helper apps with `.` in their bundle stay intact.
-    private static func parentBundle(of bundleID: String) -> String {
-        let markers = [
-            ".helper", ".Helper",
-            ".renderer", ".Renderer",
-            ".agent", ".Agent",
-            ".plugin_host",
-        ]
-        for marker in markers {
-            if let range = bundleID.range(of: marker) {
-                return String(bundleID[..<range.lowerBound])
+    /// Active apps float above inactive; within each active/inactive group
+    /// sort by the static bucket (meeting → browser → other) then name.
+    static func sortOrder(_ lhs: AudioApp, _ rhs: AudioApp) -> Bool {
+        if lhs.isActive != rhs.isActive { return lhs.isActive && !rhs.isActive }
+        if lhs.bucket != rhs.bucket { return lhs.bucket < rhs.bucket }
+        return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+    }
+
+    /// Re-apply the latest activity snapshot without a full SCShareableContent
+    /// round-trip. Called when AudioActivityMonitor publishes a change.
+    func applyActivity(_ active: Set<String>) {
+        var mutated = runningApps
+        var anyChanged = false
+        for i in mutated.indices {
+            let shouldBeActive = active.contains(mutated[i].id)
+            if mutated[i].isActive != shouldBeActive {
+                mutated[i].isActive = shouldBeActive
+                anyChanged = true
             }
         }
-        return bundleID
+        if anyChanged {
+            runningApps = mutated.sorted(by: Self.sortOrder)
+        }
+    }
+
+    /// Shared wrapper so other services (AudioActivityMonitor) can collapse
+    /// helper bundle ids the same way.
+    static func parentBundle(of bundleID: String) -> String {
+        BundleCollapser.parent(of: bundleID)
     }
 
     /// Prefer the real display name from the application bundle so e.g.

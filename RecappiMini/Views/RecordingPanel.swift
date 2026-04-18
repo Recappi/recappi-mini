@@ -275,11 +275,10 @@ struct RecordingPanel: View {
 
                 if config.selectedProvider != .none {
                     recorder.state = .summarizing
-                    let summarizer = createSummarizer(config: config)
-                    let summary = try await summarizer.summarize(transcript: transcript)
-                    if !summary.isEmpty {
-                        try RecordingStore.saveSummary(summary, in: sessionDir)
-                    }
+                    let provider = createInsightsProvider(config: config)
+                    let insights = try await provider.extract(transcript: transcript)
+                    try RecordingStore.saveSummary(insights, in: sessionDir)
+                    try RecordingStore.saveActionItems(insights.actionItems, in: sessionDir)
                 }
 
                 recorder.state = .done(result: RecordingResult(
@@ -335,25 +334,23 @@ struct AudioSourceMenu: View {
                 }
             }
 
-            let grouped = Dictionary(grouping: recorder.runningApps, by: \.bucket)
+            let activeApps = recorder.runningApps.filter { $0.isActive }
+            if !activeApps.isEmpty {
+                Divider()
+                Section(header: Text("Now Playing")) {
+                    ForEach(activeApps) { app in
+                        appMenuItem(app)
+                    }
+                }
+            }
+
+            let grouped = Dictionary(grouping: recorder.runningApps.filter { !$0.isActive }, by: \.bucket)
             ForEach([AudioApp.Bucket.meeting, .browser, .other], id: \.self) { bucket in
                 if let apps = grouped[bucket], !apps.isEmpty {
                     Divider()
                     Section(header: Text(bucketLabel(bucket))) {
                         ForEach(apps) { app in
-                            Button {
-                                recorder.selectedApp = app
-                            } label: {
-                                Label {
-                                    Text(app.name)
-                                } icon: {
-                                    if let icon = app.icon {
-                                        Image(nsImage: icon)
-                                    } else {
-                                        Image(systemName: "app")
-                                    }
-                                }
-                            }
+                            appMenuItem(app)
                         }
                     }
                 }
@@ -374,6 +371,23 @@ struct AudioSourceMenu: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+    }
+
+    @ViewBuilder
+    private func appMenuItem(_ app: AudioApp) -> some View {
+        Button {
+            recorder.selectedApp = app
+        } label: {
+            Label {
+                Text(app.name)
+            } icon: {
+                if let icon = app.icon {
+                    Image(nsImage: icon)
+                } else {
+                    Image(systemName: "app")
+                }
+            }
+        }
     }
 
     @ViewBuilder
