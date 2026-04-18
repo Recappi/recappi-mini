@@ -99,6 +99,8 @@ struct AppleSpeechTranscriber: AudioTranscriber {
 
 struct GeminiTranscriber: AudioTranscriber {
     let apiKey: String
+    let baseUrl: String
+    let model: String
 
     /// Gemini inline upload limit is 20MB. Stay well under so the base64
     /// overhead and JSON framing don't push us over. ~15MB at 32kbps is ~65
@@ -137,7 +139,10 @@ struct GeminiTranscriber: AudioTranscriber {
         let audioData = try Data(contentsOf: url)
         let base64Audio = audioData.base64EncodedString()
 
-        let endpoint = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(apiKey)")!
+        let trimmedBase = baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard let endpoint = URL(string: "\(trimmedBase)/models/\(model):generateContent?key=\(apiKey)") else {
+            throw TranscriberError.invalidResponse
+        }
 
         let body: [String: Any] = [
             "contents": [
@@ -186,6 +191,8 @@ struct GeminiTranscriber: AudioTranscriber {
 
 struct OpenAITranscriber: AudioTranscriber {
     let apiKey: String
+    let baseUrl: String
+    let model: String
 
     /// Whisper caps at 25MB per request. Keep margin.
     private static let uploadByteLimit: Int = 24 * 1024 * 1024
@@ -217,7 +224,10 @@ struct OpenAITranscriber: AudioTranscriber {
     }
 
     private func transcribeOne(url: URL) async throws -> String {
-        let endpoint = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+        let trimmedBase = baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard let endpoint = URL(string: "\(trimmedBase)/audio/transcriptions") else {
+            throw TranscriberError.invalidResponse
+        }
         let audioData = try Data(contentsOf: url)
 
         let boundary = UUID().uuidString
@@ -225,7 +235,7 @@ struct OpenAITranscriber: AudioTranscriber {
 
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-        body.append("whisper-1\r\n".data(using: .utf8)!)
+        body.append("\(model)\r\n".data(using: .utf8)!)
 
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(url.lastPathComponent)\"\r\n".data(using: .utf8)!)
@@ -272,9 +282,20 @@ func createTranscriber(config: AppConfig) -> AudioTranscriber {
     case .none, .apple:
         return AppleSpeechTranscriber(language: config.speechLanguage)
     case .gemini:
-        return GeminiTranscriber(apiKey: config.geminiApiKey)
+        return GeminiTranscriber(
+            apiKey: config.geminiApiKey,
+            baseUrl: config.effectiveGeminiBaseUrl,
+            model: config.effectiveGeminiModel
+        )
     case .openai:
-        return OpenAITranscriber(apiKey: config.openaiApiKey)
+        return OpenAITranscriber(
+            apiKey: config.openaiApiKey,
+            baseUrl: config.effectiveOpenaiBaseUrl,
+            // Whisper is the only transcription model OpenAI ships; don't
+            // overload the chat-model setting. Most OpenAI-compatible
+            // backends that do ASR also use "whisper-1" as the id.
+            model: AppConfig.defaultOpenaiTranscribeModel
+        )
     }
 }
 

@@ -78,6 +78,20 @@ private struct ProvidersSettingsTab: View {
                 if config.selectedProvider.needsApiKey {
                     SecureField("API Key", text: apiKeyBinding)
                         .textFieldStyle(.roundedBorder)
+
+                    TextField(
+                        "Base URL",
+                        text: baseUrlBinding,
+                        prompt: Text(baseUrlPlaceholder)
+                    )
+                    .textFieldStyle(.roundedBorder)
+
+                    TextField(
+                        "Model",
+                        text: modelBinding,
+                        prompt: Text(modelPlaceholder)
+                    )
+                    .textFieldStyle(.roundedBorder)
                 }
 
                 if config.selectedProvider != .none {
@@ -163,6 +177,38 @@ private struct ProvidersSettingsTab: View {
         }
     }
 
+    private var baseUrlBinding: Binding<String> {
+        switch config.selectedProvider {
+        case .gemini: return $config.geminiBaseUrl
+        case .openai: return $config.openaiBaseUrl
+        case .none, .apple: return .constant("")
+        }
+    }
+
+    private var modelBinding: Binding<String> {
+        switch config.selectedProvider {
+        case .gemini: return $config.geminiModel
+        case .openai: return $config.openaiModel
+        case .none, .apple: return .constant("")
+        }
+    }
+
+    private var baseUrlPlaceholder: String {
+        switch config.selectedProvider {
+        case .gemini: return AppConfig.defaultGeminiBaseUrl
+        case .openai: return AppConfig.defaultOpenaiBaseUrl
+        case .none, .apple: return ""
+        }
+    }
+
+    private var modelPlaceholder: String {
+        switch config.selectedProvider {
+        case .gemini: return AppConfig.defaultGeminiModel
+        case .openai: return AppConfig.defaultOpenaiChatModel
+        case .none, .apple: return ""
+        }
+    }
+
     private var providerFooterText: String {
         switch config.selectedProvider {
         case .none:
@@ -170,9 +216,9 @@ private struct ProvidersSettingsTab: View {
         case .apple:
             return "Runs on-device with Apple Intelligence. Free, private, no API key. Requires Apple Intelligence enabled in System Settings."
         case .gemini:
-            return "Key stored in your app preferences. Get one at aistudio.google.com."
+            return "Leave Base URL / Model blank for defaults (gemini-2.0-flash via Google). Custom Base URL supports Gemini-compatible proxies."
         case .openai:
-            return "Key stored in your app preferences. Get one at platform.openai.com."
+            return "Leave Base URL / Model blank for defaults (gpt-4o-mini via OpenAI). Custom Base URL supports any OpenAI-compatible endpoint — Ollama, LM Studio, OpenRouter, Groq, Together, DeepSeek, Azure, etc."
         }
     }
 }

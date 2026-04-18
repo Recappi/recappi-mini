@@ -99,9 +99,14 @@ private enum InsightsPrompt {
 
 struct GeminiInsightsProvider: InsightsProvider {
     let apiKey: String
+    let baseUrl: String
+    let model: String
 
     func extract(transcript: String) async throws -> MeetingInsights {
-        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(apiKey)")!
+        let trimmedBase = baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard let url = URL(string: "\(trimmedBase)/models/\(model):generateContent?key=\(apiKey)") else {
+            throw SummarizerError.invalidResponse
+        }
 
         let fullPrompt = "\(InsightsPrompt.instruction)\n\nTranscript:\n\(transcript)"
 
@@ -142,12 +147,17 @@ struct GeminiInsightsProvider: InsightsProvider {
 
 struct OpenAIInsightsProvider: InsightsProvider {
     let apiKey: String
+    let baseUrl: String
+    let model: String
 
     func extract(transcript: String) async throws -> MeetingInsights {
-        let url = URL(string: "https://api.openai.com/v1/chat/completions")!
+        let trimmedBase = baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard let url = URL(string: "\(trimmedBase)/chat/completions") else {
+            throw SummarizerError.invalidResponse
+        }
 
         let body: [String: Any] = [
-            "model": "gpt-4o-mini",
+            "model": model,
             "messages": [
                 ["role": "system", "content": InsightsPrompt.instruction],
                 ["role": "user", "content": transcript],
@@ -188,9 +198,17 @@ func createInsightsProvider(config: AppConfig) -> InsightsProvider {
     case .apple:
         return AppleInsightsProvider()
     case .gemini:
-        return GeminiInsightsProvider(apiKey: config.geminiApiKey)
+        return GeminiInsightsProvider(
+            apiKey: config.geminiApiKey,
+            baseUrl: config.effectiveGeminiBaseUrl,
+            model: config.effectiveGeminiModel
+        )
     case .openai:
-        return OpenAIInsightsProvider(apiKey: config.openaiApiKey)
+        return OpenAIInsightsProvider(
+            apiKey: config.openaiApiKey,
+            baseUrl: config.effectiveOpenaiBaseUrl,
+            model: config.effectiveOpenaiChatModel
+        )
     }
 }
 
