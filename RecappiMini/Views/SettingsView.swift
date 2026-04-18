@@ -18,7 +18,11 @@ struct SettingsView: View {
                 }
         }
         .scenePadding()
-        .frame(width: 480, height: 280)
+        // Width fixed to match Apple's Preferences sizing; height follows
+        // the active tab's Form so a longer tab (OpenAI with API Key + Base
+        // URL + Model + Test button) doesn't get internal scrolling.
+        .frame(width: 480)
+        .fixedSize(horizontal: false, vertical: true)
         // Settings panel temporarily flips the app to .regular activation so
         // the window can come to the foreground (see RecordingPanel.presentSettings).
         // When it's dismissed we drop back to .accessory so we're a menu-bar
