@@ -4,10 +4,18 @@ import CoreMedia
 import ScreenCaptureKit
 
 struct AudioApp: Identifiable, Hashable {
+    enum Bucket: Int, Sendable, Comparable {
+        case meeting = 0
+        case browser = 1
+        case other = 2
+        static func < (lhs: Bucket, rhs: Bucket) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
     let id: String  // bundle ID
     let name: String
     let icon: NSImage?
     let scApp: SCRunningApplication
+    let bucket: Bucket
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
@@ -15,6 +23,43 @@ struct AudioApp: Identifiable, Hashable {
 
     static func == (lhs: AudioApp, rhs: AudioApp) -> Bool {
         lhs.id == rhs.id
+    }
+}
+
+/// Bundle-ID whitelists for smart sorting. Helpers / renderers are filtered
+/// out at the refresh step, so we classify by the user-visible parent bundle.
+private enum AudioAppCategories {
+    static let meetingBundles: Set<String> = [
+        "us.zoom.xos",
+        "us.zoom.Zoom",
+        "com.microsoft.teams",
+        "com.microsoft.teams2",
+        "com.tinyspeck.slackmacgap",         // Slack (huddles)
+        "com.hnc.Discord",
+        "com.cisco.webexmeetingsapp",
+        "com.cisco.webexmeetingsapp.WebexApp",
+        "com.apple.FaceTime",
+        "com.loom.desktop",
+    ]
+
+    static let browserBundles: Set<String> = [
+        "com.apple.Safari",
+        "com.google.Chrome",
+        "com.google.Chrome.canary",
+        "com.google.Chrome.beta",
+        "com.brave.Browser",
+        "org.mozilla.firefox",
+        "org.mozilla.firefoxdeveloperedition",
+        "company.thebrowser.Browser",        // Arc
+        "com.microsoft.edgemac",
+        "com.vivaldi.Vivaldi",
+        "com.operasoftware.Opera",
+    ]
+
+    static func bucket(for bundleID: String) -> AudioApp.Bucket {
+        if meetingBundles.contains(bundleID) { return .meeting }
+        if browserBundles.contains(bundleID) { return .browser }
+        return .other
     }
 }
 
@@ -49,23 +94,82 @@ final class AudioRecorder: NSObject, ObservableObject {
         do {
             let content = try await SCShareableContent.current
             let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.mini"
-            let apps = content.applications.compactMap { scApp -> AudioApp? in
+
+            // Group SCRunningApplications by their "owning" bundle — Chrome
+            // and similar emit audio from child helpers like
+            // com.google.Chrome.helper(.Renderer). We collapse those onto the
+            // parent bundle id so the list and selection stay at the app
+            // level the user recognises.
+            var byParent: [String: SCRunningApplication] = [:]
+            for scApp in content.applications {
                 let bid = scApp.bundleIdentifier
-                guard !bid.isEmpty else { return nil }
-                guard bid != selfBundleID else { return nil }
-                guard !bid.hasPrefix("com.apple.") || isNotableAppleApp(bid) else { return nil }
-                let name = scApp.applicationName
-                guard !name.isEmpty, !name.contains("Agent"), !name.contains("Helper") else { return nil }
-                let rawIcon = NSWorkspace.shared.icon(forFile:
-                    NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)?.path ?? "")
-                rawIcon.size = NSSize(width: 16, height: 16)
-                return AudioApp(id: bid, name: name, icon: rawIcon, scApp: scApp)
+                guard !bid.isEmpty else { continue }
+                let parent = Self.parentBundle(of: bid)
+                guard parent != selfBundleID else { continue }
+                guard !parent.hasPrefix("com.apple.") || isNotableAppleApp(parent) else { continue }
+                // Prefer the parent-bundle instance if we see it; otherwise
+                // keep the first helper we found so we at least have an
+                // SCRunningApplication to stream through.
+                if byParent[parent] == nil || scApp.bundleIdentifier == parent {
+                    byParent[parent] = scApp
+                }
             }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+            let apps = byParent.compactMap { (parentBid, scApp) -> AudioApp? in
+                let name = Self.displayName(for: parentBid, fallback: scApp.applicationName)
+                guard !name.isEmpty else { return nil }
+                let rawIcon = NSWorkspace.shared.icon(forFile:
+                    NSWorkspace.shared.urlForApplication(withBundleIdentifier: parentBid)?.path ?? "")
+                rawIcon.size = NSSize(width: 16, height: 16)
+                return AudioApp(
+                    id: parentBid,
+                    name: name,
+                    icon: rawIcon,
+                    scApp: scApp,
+                    bucket: AudioAppCategories.bucket(for: parentBid)
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.bucket != rhs.bucket { return lhs.bucket < rhs.bucket }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+
             self.runningApps = apps
         } catch {
             self.runningApps = []
         }
+    }
+
+    /// Collapses child bundle IDs onto their parent. A helper is anything
+    /// suffixed after the parent with ".helper", ".Helper", ".renderer",
+    /// ".Agent", etc. We trim the first known suffix rather than splitting
+    /// aggressively so non-helper apps with `.` in their bundle stay intact.
+    private static func parentBundle(of bundleID: String) -> String {
+        let markers = [
+            ".helper", ".Helper",
+            ".renderer", ".Renderer",
+            ".agent", ".Agent",
+            ".plugin_host",
+        ]
+        for marker in markers {
+            if let range = bundleID.range(of: marker) {
+                return String(bundleID[..<range.lowerBound])
+            }
+        }
+        return bundleID
+    }
+
+    /// Prefer the real display name from the application bundle so e.g.
+    /// "Google Chrome Helper (Renderer)" collapses to "Google Chrome".
+    private static func displayName(for bundleID: String, fallback: String) -> String {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
+           let bundle = Bundle(url: url),
+           let name = (bundle.localizedInfoDictionary?["CFBundleDisplayName"] as? String)
+               ?? (bundle.infoDictionary?["CFBundleDisplayName"] as? String)
+               ?? (bundle.infoDictionary?["CFBundleName"] as? String) {
+            return name
+        }
+        return fallback
     }
 
     // MARK: - Start / Stop

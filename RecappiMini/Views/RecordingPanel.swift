@@ -41,33 +41,7 @@ struct RecordingPanel: View {
 
     private var idleContent: some View {
         HStack(spacing: 8) {
-            // App selector with inline icon
-            HStack(spacing: 6) {
-                if let app = recorder.selectedApp, let icon = app.icon {
-                    Image(nsImage: icon)
-                        .interpolation(.high)
-                } else {
-                    Image(systemName: "speaker.wave.2.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, height: 16)
-                }
-
-                Picker(selection: Binding(
-                    get: { recorder.selectedApp?.id ?? "__all__" },
-                    set: { id in
-                        recorder.selectedApp = id == "__all__" ? nil : recorder.runningApps.first { $0.id == id }
-                    }
-                )) {
-                    Text("All system audio").tag("__all__")
-                    Divider()
-                    ForEach(recorder.runningApps) { app in
-                        Text(app.name).tag(app.id)
-                    }
-                } label: { EmptyView() }
-                .pickerStyle(.menu)
-                .fixedSize()
-            }
+            AudioSourceMenu(recorder: recorder)
 
             Spacer(minLength: 0)
 
@@ -325,6 +299,93 @@ struct GlassBackgroundModifier: ViewModifier {
             content
                 .background(.background, in: RoundedRectangle(cornerRadius: 14))
                 .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+        }
+    }
+}
+
+/// Audio source dropdown. Renders as a compact "label + chevron" affordance
+/// that pops open a macOS menu with each app's icon inline, grouped by
+/// "Meeting apps → Browsers → Other". The native Picker(.menu) style only
+/// supports Text labels, so we hand-roll a Menu to get per-item icons.
+struct AudioSourceMenu: View {
+    @ObservedObject var recorder: AudioRecorder
+
+    var body: some View {
+        Menu {
+            Button {
+                recorder.selectedApp = nil
+            } label: {
+                Label {
+                    Text("All system audio")
+                } icon: {
+                    Image(systemName: "speaker.wave.2.fill")
+                }
+            }
+
+            let grouped = Dictionary(grouping: recorder.runningApps, by: \.bucket)
+            ForEach([AudioApp.Bucket.meeting, .browser, .other], id: \.self) { bucket in
+                if let apps = grouped[bucket], !apps.isEmpty {
+                    Divider()
+                    Section(header: Text(bucketLabel(bucket))) {
+                        ForEach(apps) { app in
+                            Button {
+                                recorder.selectedApp = app
+                            } label: {
+                                Label {
+                                    Text(app.name)
+                                } icon: {
+                                    if let icon = app.icon {
+                                        Image(nsImage: icon)
+                                    } else {
+                                        Image(systemName: "app")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                leadingGlyph
+                Text(currentLabel)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var leadingGlyph: some View {
+        if let app = recorder.selectedApp, let icon = app.icon {
+            Image(nsImage: icon)
+                .resizable()
+                .frame(width: 14, height: 14)
+        } else {
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(width: 14, height: 14)
+        }
+    }
+
+    private var currentLabel: String {
+        recorder.selectedApp?.name ?? "All system audio"
+    }
+
+    private func bucketLabel(_ bucket: AudioApp.Bucket) -> String {
+        switch bucket {
+        case .meeting: return "Meeting Apps"
+        case .browser: return "Browsers"
+        case .other: return "Other Apps"
         }
     }
 }
