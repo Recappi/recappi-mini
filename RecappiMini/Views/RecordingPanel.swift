@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct RecordingPanel: View {
@@ -5,6 +6,18 @@ struct RecordingPanel: View {
     @Environment(\.openSettings) private var openSettings
 
     let onOpenFolder: (URL) -> Void
+
+    /// The app is LSUIElement + .accessory + nonactivatingPanel, so nothing
+    /// in the panel's click chain promotes RecappiMini to the foreground.
+    /// Without that, openSettings() opens behind whatever was frontmost and
+    /// reads to the user as "the button did nothing." Switching activation
+    /// policy temporarily makes the Settings window come to front like a
+    /// regular app window.
+    private func presentSettings() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        openSettings()
+    }
 
     var body: some View {
         mainView
@@ -45,7 +58,7 @@ struct RecordingPanel: View {
 
             Spacer(minLength: 0)
 
-            Button(action: { openSettings() }) {
+            Button(action: { presentSettings() }) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)

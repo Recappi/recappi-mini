@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Top-level settings scene. Uses the standard macOS Preferences layout —
@@ -18,6 +19,13 @@ struct SettingsView: View {
         }
         .scenePadding()
         .frame(width: 480, height: 280)
+        // Settings panel temporarily flips the app to .regular activation so
+        // the window can come to the foreground (see RecordingPanel.presentSettings).
+        // When it's dismissed we drop back to .accessory so we're a menu-bar
+        // utility again and don't linger in the Dock.
+        .onDisappear {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 }
 
