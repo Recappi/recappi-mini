@@ -2,27 +2,17 @@ import SwiftUI
 
 struct RecordingPanel: View {
     @ObservedObject var recorder: AudioRecorder
-    @State private var showSettings = false
+    @Environment(\.openSettings) private var openSettings
 
     let onOpenFolder: (URL) -> Void
 
     var body: some View {
-        ZStack(alignment: .top) {
-            if showSettings {
-                SettingsView(isPresented: $showSettings)
-                    .transition(.opacity)
-            } else {
-                mainView
-                    .transition(.opacity)
-            }
-        }
-        .frame(width: 280)
-        .fixedSize(horizontal: false, vertical: true)
-        .modifier(GlassBackgroundModifier())
-        .animation(.easeOut(duration: 0.2), value: showSettings)
-        .animation(.easeOut(duration: 0.2), value: stateKey)
-        .onChange(of: showSettings) { resizeToTarget() }
-        .onChange(of: stateKey) { resizeToTarget() }
+        mainView
+            .frame(width: 280)
+            .fixedSize(horizontal: false, vertical: true)
+            .modifier(GlassBackgroundModifier())
+            .animation(.easeOut(duration: 0.2), value: stateKey)
+            .onChange(of: stateKey) { resizeToTarget() }
     }
 
     // MARK: - Main content switch
@@ -81,7 +71,7 @@ struct RecordingPanel: View {
 
             Spacer(minLength: 0)
 
-            Button(action: { showSettings = true }) {
+            Button(action: { openSettings() }) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
@@ -89,7 +79,7 @@ struct RecordingPanel: View {
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
-            .help("Settings")
+            .help("Settings (⌘,)")
 
             Button(action: { startRecording() }) {
                 ZStack {
@@ -238,7 +228,6 @@ struct RecordingPanel: View {
     // MARK: - Height / resize
 
     private var stateKey: String {
-        if showSettings { return "settings" }
         switch recorder.state {
         case .idle: return "idle"
         case .recording: return "recording"
@@ -249,7 +238,6 @@ struct RecordingPanel: View {
     }
 
     private var targetHeight: CGFloat {
-        if showSettings { return 200 }
         switch recorder.state {
         case .idle: return 56
         case .recording: return 72

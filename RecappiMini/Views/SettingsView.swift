@@ -1,71 +1,78 @@
 import SwiftUI
 
+/// Top-level settings scene. Uses the standard macOS Preferences layout —
+/// tab bar with Apple-style icons across the top, Form-based detail view
+/// for each tab. Fixed width matches Apple's system Preferences sizing.
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            GeneralSettingsTab()
+                .tabItem {
+                    Label("General", systemImage: "gearshape")
+                }
+
+            ProvidersSettingsTab()
+                .tabItem {
+                    Label("AI Providers", systemImage: "cpu")
+                }
+        }
+        .scenePadding()
+        .frame(width: 480, height: 280)
+    }
+}
+
+// MARK: - General
+
+private struct GeneralSettingsTab: View {
     @ObservedObject private var config = AppConfig.shared
-    @Binding var isPresented: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Settings")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer()
-                Button(action: { isPresented = false }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-
-            Divider()
-
-            // Speech language (for local ASR)
-            HStack {
-                Text("Language")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Picker("", selection: $config.speechLanguage) {
-                    Text("English").tag("en-US")
-                    Text("中文").tag("zh-CN")
+        Form {
+            Section {
+                Picker("Language", selection: $config.speechLanguage) {
+                    Text("English (US)").tag("en-US")
+                    Text("中文 (简体)").tag("zh-CN")
                     Text("日本語").tag("ja-JP")
                 }
-                .pickerStyle(.menu)
-                .frame(width: 100)
-            }
-
-            // LLM provider (for summary, or override transcription)
-            HStack {
-                Text("LLM")
-                    .font(.system(size: 11))
+            } header: {
+                Text("Transcription")
+            } footer: {
+                Text("Used by the on-device Apple Speech recognizer. Remote providers detect language automatically.")
                     .foregroundStyle(.secondary)
-                Spacer()
-                Picker("", selection: $config.llmProvider) {
+                    .font(.footnote)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: - AI Providers (BYOK)
+
+private struct ProvidersSettingsTab: View {
+    @ObservedObject private var config = AppConfig.shared
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Provider", selection: $config.llmProvider) {
                     ForEach(LLMProvider.allCases) { provider in
                         Text(provider.displayName).tag(provider.rawValue)
                     }
                 }
-                .pickerStyle(.menu)
-                .frame(width: 100)
-            }
 
-            // API key input
-            if config.selectedProvider.needsApiKey {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(config.selectedProvider.displayName) API Key")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 6) {
-                        SecureField("Enter API key...", text: apiKeyBinding)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11))
-                    }
+                if config.selectedProvider.needsApiKey {
+                    SecureField("API Key", text: apiKeyBinding)
+                        .textFieldStyle(.roundedBorder)
                 }
+            } header: {
+                Text("Transcription & Summary")
+            } footer: {
+                Text(providerFooterText)
+                    .foregroundStyle(.secondary)
+                    .font(.footnote)
             }
         }
-        .padding(14)
-        .frame(width: 280)
+        .formStyle(.grouped)
     }
 
     private var apiKeyBinding: Binding<String> {
@@ -73,6 +80,17 @@ struct SettingsView: View {
         case .gemini: return $config.geminiApiKey
         case .openai: return $config.openaiApiKey
         case .none: return .constant("")
+        }
+    }
+
+    private var providerFooterText: String {
+        switch config.selectedProvider {
+        case .none:
+            return "No key needed — Apple Speech runs on-device. Add a remote provider for higher-quality transcripts and meeting summaries."
+        case .gemini:
+            return "Key stored in your app preferences. Get one at aistudio.google.com."
+        case .openai:
+            return "Key stored in your app preferences. Get one at platform.openai.com."
         }
     }
 }

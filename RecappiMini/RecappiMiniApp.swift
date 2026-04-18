@@ -5,17 +5,25 @@ struct RecappiMiniApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // MenuBar icon for show/hide and quit
         MenuBarExtra("Recappi Mini", systemImage: "waveform.circle.fill") {
             Button("Show Panel") {
                 appDelegate.showPanel()
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
+            SettingsLink {
+                Text("Settings…")
+            }
+            .keyboardShortcut(",", modifiers: [.command])
             Divider()
             Button("Quit") {
                 NSApp.terminate(nil)
             }
             .keyboardShortcut("q")
+        }
+
+        // Standalone Settings window — opened via ⌘, or the gear in the panel.
+        Settings {
+            SettingsView()
         }
     }
 }
