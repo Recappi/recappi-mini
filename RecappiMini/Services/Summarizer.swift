@@ -185,6 +185,8 @@ func createInsightsProvider(config: AppConfig) -> InsightsProvider {
     switch config.selectedProvider {
     case .none:
         return NoInsightsProvider()
+    case .apple:
+        return AppleInsightsProvider()
     case .gemini:
         return GeminiInsightsProvider(apiKey: config.geminiApiKey)
     case .openai:
@@ -197,11 +199,14 @@ func createInsightsProvider(config: AppConfig) -> InsightsProvider {
 enum SummarizerError: LocalizedError {
     case apiError(statusCode: Int)
     case invalidResponse
+    case appleIntelligenceUnavailable
 
     var errorDescription: String? {
         switch self {
         case .apiError(let code): return "Summary API error (status \(code))"
         case .invalidResponse: return "Couldn't parse summary response as JSON"
+        case .appleIntelligenceUnavailable:
+            return "Apple Intelligence isn't available. Enable it in System Settings > Apple Intelligence, or pick a different provider in Settings."
         }
     }
 }

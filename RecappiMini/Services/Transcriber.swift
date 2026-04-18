@@ -262,10 +262,14 @@ struct OpenAITranscriber: AudioTranscriber {
 
 /// Default path is local Apple Speech. Remote providers are only used when
 /// explicitly configured — keeps us free-by-default and offline-capable.
+/// Apple Intelligence handles summary/action items well but does not ship
+/// as a standalone ASR API — the Foundation Models framework doesn't take
+/// audio directly. When the user picks `.apple` for insights we still run
+/// the local SFSpeechRecognizer for transcription.
 @MainActor
 func createTranscriber(config: AppConfig) -> AudioTranscriber {
     switch config.selectedProvider {
-    case .none:
+    case .none, .apple:
         return AppleSpeechTranscriber(language: config.speechLanguage)
     case .gemini:
         return GeminiTranscriber(apiKey: config.geminiApiKey)

@@ -1,10 +1,10 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "RecappiMini",
     platforms: [
-        .macOS(.v15),
+        .macOS(.v26),
     ],
     targets: [
         .executableTarget(

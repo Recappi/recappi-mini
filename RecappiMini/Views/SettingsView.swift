@@ -58,6 +58,13 @@ private struct GeneralSettingsTab: View {
 
 private struct ProvidersSettingsTab: View {
     @ObservedObject private var config = AppConfig.shared
+    @State private var testing = false
+    @State private var testResult: TestResult?
+
+    enum TestResult: Equatable {
+        case success(String)
+        case failure(String)
+    }
 
     var body: some View {
         Form {
@@ -72,6 +79,29 @@ private struct ProvidersSettingsTab: View {
                     SecureField("API Key", text: apiKeyBinding)
                         .textFieldStyle(.roundedBorder)
                 }
+
+                if config.selectedProvider != .none {
+                    HStack {
+                        Button {
+                            runTest()
+                        } label: {
+                            if testing {
+                                HStack(spacing: 6) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Testing…")
+                                }
+                            } else {
+                                Text("Test Provider")
+                            }
+                        }
+                        .disabled(testing || !canTest)
+
+                        if let result = testResult {
+                            Spacer(minLength: 6)
+                            testResultLabel(result)
+                        }
+                    }
+                }
             } header: {
                 Text("Transcription & Summary")
             } footer: {
@@ -81,20 +111,64 @@ private struct ProvidersSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .onChange(of: config.selectedProvider) { _, _ in testResult = nil }
+    }
+
+    @ViewBuilder
+    private func testResultLabel(_ result: TestResult) -> some View {
+        switch result {
+        case .success(let message):
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Text(message).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+            }
+        case .failure(let message):
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text(message).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+    }
+
+    private var canTest: Bool {
+        if config.selectedProvider.needsApiKey {
+            return !config.currentApiKey.isEmpty
+        }
+        return true
+    }
+
+    private func runTest() {
+        testing = true
+        testResult = nil
+        let provider = createInsightsProvider(config: config)
+        Task { @MainActor in
+            defer { testing = false }
+            do {
+                // Short synthetic transcript so the round-trip is cheap.
+                let probe = "Alice and Bob agreed to ship the pipeline by Friday. Bob will own rollout."
+                let insights = try await provider.extract(transcript: probe)
+                let actionCount = insights.actionItems.count
+                testResult = .success("OK. Got \(insights.summary.count) chars of summary, \(insights.keyDecisions.count) decisions, \(actionCount) action items.")
+            } catch {
+                testResult = .failure(error.localizedDescription)
+            }
+        }
     }
 
     private var apiKeyBinding: Binding<String> {
         switch config.selectedProvider {
         case .gemini: return $config.geminiApiKey
         case .openai: return $config.openaiApiKey
-        case .none: return .constant("")
+        case .none, .apple: return .constant("")
         }
     }
 
     private var providerFooterText: String {
         switch config.selectedProvider {
         case .none:
-            return "No key needed — Apple Speech runs on-device. Add a remote provider for higher-quality transcripts and meeting summaries."
+            return "Saves the audio + transcript only. No summary or action items. Pick a provider to get them."
+        case .apple:
+            return "Runs on-device with Apple Intelligence. Free, private, no API key. Requires Apple Intelligence enabled in System Settings."
         case .gemini:
             return "Key stored in your app preferences. Get one at aistudio.google.com."
         case .openai:
