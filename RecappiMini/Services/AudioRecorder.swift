@@ -26,16 +26,25 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var selectedApp: AudioApp?
     @Published var recordingAppName: String?
 
+    // --- System audio (ScreenCaptureKit) pipeline ---
     private var stream: SCStream?
-    private var assetWriter: AVAssetWriter?
-    private var audioInput: AVAssetWriterInput?
+    private var systemWriter: AVAssetWriter?
+    private var systemInput: AVAssetWriterInput?
+    private var systemOutput: SystemAudioOutput?
+
+    // --- Microphone (AVCaptureSession) pipeline ---
+    private var micSession: AVCaptureSession?
+    private var micWriter: AVAssetWriter?
+    private var micInput: AVAssetWriterInput?
+    private var micOutput: MicAudioOutput?
+
     private var sessionDir: URL?
     private var timer: Timer?
-    private var streamOutput: AudioStreamOutput?
 
     var currentSessionDir: URL? { sessionDir }
 
-    /// Scan all running GUI apps
+    // MARK: - App discovery
+
     func refreshApps() async {
         do {
             let content = try await SCShareableContent.current
@@ -44,12 +53,9 @@ final class AudioRecorder: NSObject, ObservableObject {
                 let bid = scApp.bundleIdentifier
                 guard !bid.isEmpty else { return nil }
                 guard bid != selfBundleID else { return nil }
-                // Skip system/background processes
                 guard !bid.hasPrefix("com.apple.") || isNotableAppleApp(bid) else { return nil }
-                // Skip helper/agent processes (often show as sub-processes)
                 let name = scApp.applicationName
                 guard !name.isEmpty, !name.contains("Agent"), !name.contains("Helper") else { return nil }
-                // Get app icon, pre-scale to 16px for menu use
                 let rawIcon = NSWorkspace.shared.icon(forFile:
                     NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)?.path ?? "")
                 rawIcon.size = NSSize(width: 16, height: 16)
@@ -62,8 +68,12 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Start / Stop
+
     func startRecording() async throws {
         guard state == .idle else { return }
+
+        try await requestMicrophoneAccessIfNeeded()
 
         let content = try await SCShareableContent.current
         guard let display = content.displays.first else {
@@ -73,26 +83,31 @@ final class AudioRecorder: NSObject, ObservableObject {
         let sessionDir = try RecordingStore.createSessionDirectory()
         self.sessionDir = sessionDir
 
-        let audioURL = RecordingStore.audioFileURL(in: sessionDir)
-        let writer = try AVAssetWriter(url: audioURL, fileType: .m4a)
+        // Intermediate files; merged into recording.m4a at stop.
+        let systemURL = sessionDir.appendingPathComponent("system.m4a")
+        let micURL = sessionDir.appendingPathComponent("mic.m4a")
 
-        let audioSettings: [String: Any] = [
+        // Both sources write at native 48kHz stereo 128kbps AAC.
+        // Recompression to 16kHz mono 32kbps happens during the merge step so
+        // we keep raw quality in case the merge fails and the user needs the
+        // intermediates.
+        let sourceSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: 48000,
             AVNumberOfChannelsKey: 2,
             AVEncoderBitRateKey: 128000,
         ]
-        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-        input.expectsMediaDataInRealTime = true
-        writer.add(input)
 
-        self.assetWriter = writer
-        self.audioInput = input
+        // --- System audio pipeline ---
+        let sysWriter = try AVAssetWriter(url: systemURL, fileType: .m4a)
+        let sysInput = AVAssetWriterInput(mediaType: .audio, outputSettings: sourceSettings)
+        sysInput.expectsMediaDataInRealTime = true
+        sysWriter.add(sysInput)
+        self.systemWriter = sysWriter
+        self.systemInput = sysInput
+        let sysOut = SystemAudioOutput(writer: sysWriter, input: sysInput)
+        self.systemOutput = sysOut
 
-        let output = AudioStreamOutput(writer: writer, input: input)
-        self.streamOutput = output
-
-        // Build filter: single app or whole display
         let filter: SCContentFilter
         if let app = selectedApp,
            let liveApp = content.applications.first(where: { $0.bundleIdentifier == app.id }) {
@@ -109,12 +124,43 @@ final class AudioRecorder: NSObject, ObservableObject {
         config.channelCount = 2
         config.excludesCurrentProcessAudio = true
 
-        let stream = SCStream(filter: filter, configuration: config, delegate: nil)
-        try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: .global(qos: .userInitiated))
-        self.stream = stream
+        let scStream = SCStream(filter: filter, configuration: config, delegate: nil)
+        try scStream.addStreamOutput(sysOut, type: .audio, sampleHandlerQueue: .global(qos: .userInitiated))
+        self.stream = scStream
 
-        try await stream.startCapture()
-        writer.startWriting()
+        // --- Microphone pipeline ---
+        let mcWriter = try AVAssetWriter(url: micURL, fileType: .m4a)
+        let mcInput = AVAssetWriterInput(mediaType: .audio, outputSettings: sourceSettings)
+        mcInput.expectsMediaDataInRealTime = true
+        mcWriter.add(mcInput)
+        self.micWriter = mcWriter
+        self.micInput = mcInput
+
+        let captureSession = AVCaptureSession()
+        guard let micDevice = AVCaptureDevice.default(for: .audio) else {
+            throw RecorderError.noMicrophone
+        }
+        let deviceInput = try AVCaptureDeviceInput(device: micDevice)
+        guard captureSession.canAddInput(deviceInput) else {
+            throw RecorderError.micSetupFailed
+        }
+        captureSession.addInput(deviceInput)
+
+        let mcOut = MicAudioOutput(writer: mcWriter, input: mcInput)
+        let captureOutput = AVCaptureAudioDataOutput()
+        captureOutput.setSampleBufferDelegate(mcOut, queue: DispatchQueue(label: "mic.capture"))
+        guard captureSession.canAddOutput(captureOutput) else {
+            throw RecorderError.micSetupFailed
+        }
+        captureSession.addOutput(captureOutput)
+        self.micSession = captureSession
+        self.micOutput = mcOut
+
+        // --- Start both pipelines ---
+        try await scStream.startCapture()
+        sysWriter.startWriting()
+        mcWriter.startWriting()
+        captureSession.startRunning()
 
         self.state = .recording
         self.elapsedSeconds = 0
@@ -134,15 +180,43 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.timer?.invalidate()
         self.timer = nil
 
+        // Stop system audio stream
         try await stream?.stopCapture()
         stream = nil
-        streamOutput = nil
+        systemOutput = nil
+        systemInput?.markAsFinished()
+        await systemWriter?.finishWriting()
 
-        audioInput?.markAsFinished()
-        await assetWriter?.finishWriting()
+        // Stop microphone capture
+        micSession?.stopRunning()
+        micSession = nil
+        micOutput = nil
+        micInput?.markAsFinished()
+        await micWriter?.finishWriting()
 
         guard let sessionDir = self.sessionDir else {
             throw RecorderError.noSessionDir
+        }
+
+        // Merge system + mic into a single compressed recording.m4a.
+        let systemURL = sessionDir.appendingPathComponent("system.m4a")
+        let micURL = sessionDir.appendingPathComponent("mic.m4a")
+        let mergedURL = RecordingStore.audioFileURL(in: sessionDir)
+
+        do {
+            try await AudioMixer.mix(
+                sources: [systemURL, micURL],
+                to: mergedURL
+            )
+            // Only delete intermediates on success; on failure the caller
+            // (stop/retry flow) can still inspect the two raw files.
+            try? FileManager.default.removeItem(at: systemURL)
+            try? FileManager.default.removeItem(at: micURL)
+        } catch {
+            // Merge failed — leave intermediates for debugging and surface the
+            // error to the caller. Transcription downstream needs recording.m4a
+            // to exist, so rethrow.
+            throw error
         }
 
         return sessionDir
@@ -153,13 +227,32 @@ final class AudioRecorder: NSObject, ObservableObject {
         elapsedSeconds = 0
         sessionDir = nil
         stream = nil
-        assetWriter = nil
-        audioInput = nil
-        streamOutput = nil
+        systemWriter = nil
+        systemInput = nil
+        systemOutput = nil
+        micSession = nil
+        micWriter = nil
+        micInput = nil
+        micOutput = nil
         recordingAppName = nil
     }
 
-    /// Notable Apple apps that users might want to record
+    // MARK: - Permissions
+
+    private func requestMicrophoneAccessIfNeeded() async throws {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return
+        case .notDetermined:
+            let granted = await AVCaptureDevice.requestAccess(for: .audio)
+            if !granted { throw RecorderError.micDenied }
+        case .denied, .restricted:
+            throw RecorderError.micDenied
+        @unknown default:
+            throw RecorderError.micDenied
+        }
+    }
+
     private func isNotableAppleApp(_ bid: String) -> Bool {
         let notable: Set<String> = [
             "com.apple.Safari",
@@ -170,7 +263,9 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 }
 
-final class AudioStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
+// MARK: - System audio receiver
+
+final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private var isWriterStarted = false
@@ -201,16 +296,58 @@ final class AudioStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     }
 }
 
+// MARK: - Microphone receiver
+
+final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
+    private let writer: AVAssetWriter
+    private let input: AVAssetWriterInput
+    private var isWriterStarted = false
+
+    init(writer: AVAssetWriter, input: AVAssetWriterInput) {
+        self.writer = writer
+        self.input = input
+    }
+
+    func captureOutput(
+        _ output: AVCaptureOutput,
+        didOutput sampleBuffer: CMSampleBuffer,
+        from connection: AVCaptureConnection
+    ) {
+        guard sampleBuffer.isValid else { return }
+        guard writer.status == .writing else { return }
+
+        if !isWriterStarted {
+            let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            writer.startSession(atSourceTime: timestamp)
+            isWriterStarted = true
+        }
+
+        if input.isReadyForMoreMediaData {
+            input.append(sampleBuffer)
+        }
+    }
+}
+
+// MARK: - Errors
+
 enum RecorderError: LocalizedError {
     case noDisplay
+    case noMicrophone
+    case micDenied
+    case micSetupFailed
     case notRecording
     case noSessionDir
+    case exportFailed
 
     var errorDescription: String? {
         switch self {
         case .noDisplay: return "No display found for audio capture"
+        case .noMicrophone: return "No microphone found"
+        case .micDenied: return "Microphone access denied. Enable in System Settings > Privacy & Security > Microphone"
+        case .micSetupFailed: return "Couldn't set up microphone capture"
         case .notRecording: return "Not currently recording"
         case .noSessionDir: return "No session directory"
+        case .exportFailed: return "Failed to merge audio sources"
         }
     }
 }
