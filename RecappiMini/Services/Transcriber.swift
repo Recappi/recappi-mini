@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Speech
 
@@ -5,13 +6,19 @@ protocol AudioTranscriber: Sendable {
     func transcribe(audioURL: URL) async throws -> String
 }
 
-// Apple Speech local ASR (on-device, no API key needed)
+// MARK: - Apple Speech (local, free, default)
+
+/// On-device Apple Speech. Transparently chunks long recordings since
+/// SFSpeechRecognizer effectively caps around a minute per call.
 struct AppleSpeechTranscriber: AudioTranscriber {
     let language: String
 
+    /// Chunk size kept under the ~60s SFSpeechRecognizer effective cap with
+    /// headroom. At 32kbps AAC each 50s chunk is ~200KB — negligible to split.
+    private static let chunkSeconds: Double = 50
+
     func transcribe(audioURL: URL) async throws -> String {
-        let locale = Locale(identifier: language)
-        guard let recognizer = SFSpeechRecognizer(locale: locale) else {
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)) else {
             throw TranscriberError.speechLanguageNotSupported(language)
         }
         guard recognizer.isAvailable else {
@@ -19,51 +26,118 @@ struct AppleSpeechTranscriber: AudioTranscriber {
         }
 
         let authStatus = await withCheckedContinuation { (cont: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
-            SFSpeechRecognizer.requestAuthorization { status in
-                cont.resume(returning: status)
-            }
+            SFSpeechRecognizer.requestAuthorization { cont.resume(returning: $0) }
         }
         guard authStatus == .authorized else {
             throw TranscriberError.speechNotAuthorized
         }
 
-        let request = SFSpeechURLRecognitionRequest(url: audioURL)
+        let workingDir = audioURL.deletingLastPathComponent().appendingPathComponent(".chunks", isDirectory: true)
+        let chunks = try await AudioChunker.split(
+            source: audioURL,
+            chunkSeconds: Self.chunkSeconds,
+            into: workingDir
+        )
+        defer {
+            AudioChunker.cleanup(chunks, keepingOriginal: audioURL)
+            try? FileManager.default.removeItem(at: workingDir)
+        }
+
+        var pieces: [String] = []
+        for chunk in chunks {
+            let text = try await Self.recognize(url: chunk.url, using: recognizer)
+            if !text.isEmpty { pieces.append(text) }
+        }
+        return pieces.joined(separator: " ")
+    }
+
+    private static func recognize(
+        url: URL,
+        using recognizer: SFSpeechRecognizer
+    ) async throws -> String {
+        let request = SFSpeechURLRecognitionRequest(url: url)
         request.shouldReportPartialResults = false
         request.addsPunctuation = true
 
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
-            var hasResumed = false
+        return try await withCheckedThrowingContinuation { cont in
+            // Guard resume via a box so the timeout closure can see the final state.
+            final class ResumeGate: @unchecked Sendable {
+                var done = false
+                let lock = NSLock()
+                func tryResume() -> Bool {
+                    lock.lock(); defer { lock.unlock() }
+                    if done { return false }
+                    done = true
+                    return true
+                }
+            }
+            let gate = ResumeGate()
+
             let task = recognizer.recognitionTask(with: request) { result, error in
-                guard !hasResumed else { return }
-                if let error = error {
-                    hasResumed = true
-                    cont.resume(throwing: error)
+                if let error {
+                    if gate.tryResume() { cont.resume(throwing: error) }
                     return
                 }
-                guard let result = result, result.isFinal else { return }
-                hasResumed = true
-                cont.resume(returning: result.bestTranscription.formattedString)
+                guard let result, result.isFinal else { return }
+                if gate.tryResume() {
+                    cont.resume(returning: result.bestTranscription.formattedString)
+                }
             }
-            // Timeout after 2 minutes
-            DispatchQueue.global().asyncAfter(deadline: .now() + 120) {
-                guard !hasResumed else { return }
-                hasResumed = true
-                task.cancel()
-                cont.resume(throwing: TranscriberError.speechTimedOut)
+
+            // Per-chunk timeout: 90s is generous given chunks are <= 50s audio.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 90) { [gate] in
+                if gate.tryResume() {
+                    task.cancel()
+                    cont.resume(throwing: TranscriberError.speechTimedOut)
+                }
             }
         }
     }
 }
 
-// Gemini-based audio transcription
+// MARK: - Gemini (remote, chunks only if file exceeds inline limit)
+
 struct GeminiTranscriber: AudioTranscriber {
     let apiKey: String
 
+    /// Gemini inline upload limit is 20MB. Stay well under so the base64
+    /// overhead and JSON framing don't push us over. ~15MB at 32kbps is ~65
+    /// minutes, which fits most meetings in a single call.
+    private static let inlineByteLimit: Int = 15 * 1024 * 1024
+
+    /// Fallback chunk length when a single recording exceeds the inline cap.
+    private static let chunkSeconds: Double = 30 * 60
+
     func transcribe(audioURL: URL) async throws -> String {
-        let audioData = try Data(contentsOf: audioURL)
+        let size = (try? FileManager.default.attributesOfItem(atPath: audioURL.path)[.size] as? Int) ?? 0
+        if size <= Self.inlineByteLimit {
+            return try await transcribeOne(url: audioURL)
+        }
+
+        let workingDir = audioURL.deletingLastPathComponent().appendingPathComponent(".chunks", isDirectory: true)
+        let chunks = try await AudioChunker.split(
+            source: audioURL,
+            chunkSeconds: Self.chunkSeconds,
+            into: workingDir
+        )
+        defer {
+            AudioChunker.cleanup(chunks, keepingOriginal: audioURL)
+            try? FileManager.default.removeItem(at: workingDir)
+        }
+
+        var pieces: [String] = []
+        for chunk in chunks {
+            let text = try await transcribeOne(url: chunk.url)
+            if !text.isEmpty { pieces.append(text) }
+        }
+        return pieces.joined(separator: "\n\n")
+    }
+
+    private func transcribeOne(url: URL) async throws -> String {
+        let audioData = try Data(contentsOf: url)
         let base64Audio = audioData.base64EncodedString()
 
-        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(apiKey)")!
+        let endpoint = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(apiKey)")!
 
         let body: [String: Any] = [
             "contents": [
@@ -83,11 +157,11 @@ struct GeminiTranscriber: AudioTranscriber {
             ]
         ]
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        request.timeoutInterval = 120
+        request.timeoutInterval = 180
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -108,13 +182,43 @@ struct GeminiTranscriber: AudioTranscriber {
     }
 }
 
-// OpenAI Whisper-based transcription
+// MARK: - OpenAI Whisper (remote, also chunked when over the 25MB upload cap)
+
 struct OpenAITranscriber: AudioTranscriber {
     let apiKey: String
 
+    /// Whisper caps at 25MB per request. Keep margin.
+    private static let uploadByteLimit: Int = 24 * 1024 * 1024
+    private static let chunkSeconds: Double = 30 * 60
+
     func transcribe(audioURL: URL) async throws -> String {
-        let url = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
-        let audioData = try Data(contentsOf: audioURL)
+        let size = (try? FileManager.default.attributesOfItem(atPath: audioURL.path)[.size] as? Int) ?? 0
+        if size <= Self.uploadByteLimit {
+            return try await transcribeOne(url: audioURL)
+        }
+
+        let workingDir = audioURL.deletingLastPathComponent().appendingPathComponent(".chunks", isDirectory: true)
+        let chunks = try await AudioChunker.split(
+            source: audioURL,
+            chunkSeconds: Self.chunkSeconds,
+            into: workingDir
+        )
+        defer {
+            AudioChunker.cleanup(chunks, keepingOriginal: audioURL)
+            try? FileManager.default.removeItem(at: workingDir)
+        }
+
+        var pieces: [String] = []
+        for chunk in chunks {
+            let text = try await transcribeOne(url: chunk.url)
+            if !text.isEmpty { pieces.append(text) }
+        }
+        return pieces.joined(separator: "\n\n")
+    }
+
+    private func transcribeOne(url: URL) async throws -> String {
+        let endpoint = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+        let audioData = try Data(contentsOf: url)
 
         let boundary = UUID().uuidString
         var body = Data()
@@ -124,19 +228,19 @@ struct OpenAITranscriber: AudioTranscriber {
         body.append("whisper-1\r\n".data(using: .utf8)!)
 
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"recording.m4a\"\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(url.lastPathComponent)\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
         body.append(audioData)
         body.append("\r\n".data(using: .utf8)!)
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.httpBody = body
-        request.timeoutInterval = 120
+        request.timeoutInterval = 180
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -154,7 +258,10 @@ struct OpenAITranscriber: AudioTranscriber {
     }
 }
 
-// Always returns a transcriber: Apple Speech locally, or LLM-based if configured
+// MARK: - Factory
+
+/// Default path is local Apple Speech. Remote providers are only used when
+/// explicitly configured — keeps us free-by-default and offline-capable.
 @MainActor
 func createTranscriber(config: AppConfig) -> AudioTranscriber {
     switch config.selectedProvider {
@@ -166,6 +273,8 @@ func createTranscriber(config: AppConfig) -> AudioTranscriber {
         return OpenAITranscriber(apiKey: config.openaiApiKey)
     }
 }
+
+// MARK: - Errors
 
 enum TranscriberError: LocalizedError {
     case apiError(statusCode: Int)
