@@ -46,6 +46,13 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'EOF'
     <string>Recappi Mini needs microphone access to record meetings</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Recappi Mini uses speech recognition to transcribe meeting recordings</string>
+    <!-- Allow HTTP for internal LMHub / Ollama / LM Studio / localhost
+         endpoints. OpenAI and Gemini still enforce HTTPS naturally. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
 </dict>
 </plist>
 EOF
