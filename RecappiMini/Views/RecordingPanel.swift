@@ -202,7 +202,11 @@ private struct IdleState: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // Design: `flex: 1 1 auto` on .source-pill. SwiftUI's Menu sizes
+            // to its label's content by default, so we have to opt-in to
+            // filling the HStack's remaining width at the call site.
             AudioSourcePill(recorder: recorder)
+                .frame(maxWidth: .infinity)
 
             Button(action: onGear) {
                 Image(systemName: "gearshape")
@@ -215,6 +219,7 @@ private struct IdleState: View {
                 .keyboardShortcut(.return, modifiers: [])
                 .help("Record")
         }
+        .frame(height: 28)  // lock the row's vertical baseline so children align
         .task { await recorder.refreshApps() }
     }
 }
@@ -573,13 +578,17 @@ struct AudioSourcePill: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .medium))
+                // Design uses a thick double chevron (up+down) at the far
+                // right of the pill — same glyph NSPopUpButton draws. Stronger
+                // opacity than .secondary so it actually reads against the
+                // white pill.
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(Color.dtLabelSecondary)
             }
             .padding(.leading, 9)
             .padding(.trailing, 8)
-            .frame(height: 28)
+            .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
             .background(
                 RoundedRectangle(cornerRadius: DT.R.control)
                     .fill(Color.white.opacity(hovered ? 0.96 : 0.82))
@@ -589,6 +598,9 @@ struct AudioSourcePill: View {
                     .stroke(Color.black.opacity(0.09), lineWidth: 0.5)
             )
             .shadow(color: Color.black.opacity(0.04), radius: 0.5, y: 0.5)
+            // contentShape makes the entire pill area clickable, not just
+            // the text + chevron glyphs.
+            .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
