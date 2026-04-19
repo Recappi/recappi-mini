@@ -550,172 +550,155 @@ private struct ErrorState: View {
 
 // MARK: - Audio source pill
 
-/// Source picker. Rendered as a flat Button + Popover rather than Menu —
-/// SwiftUI's Menu with `.borderlessButton` style wraps the label in its
-/// own NSPopUpButton-shaped padding that we can't turn off, which pushed
-/// the pill content ~20pt to the right of where layout said it should be.
-/// Popover restores pixel control over the trigger's bounds and still
-/// gives us NSMenu-style item behaviour for the options.
-struct AudioSourcePill: View {
+/// Source picker. Shows a native NSMenu on click — this is the standard
+/// macOS dropdown look (hover blue, sections, dividers, checkmark) that
+/// users already recognise. SwiftUI's own Menu and .popover both add
+/// either label-chrome padding or a popover arrow which reads wrong for
+/// a flat pill trigger, so we skip them and drive NSMenu ourselves.
+struct AudioSourcePill: NSViewRepresentable {
+    @ObservedObject var recorder: AudioRecorder
+
+    func makeCoordinator() -> Coordinator { Coordinator(recorder: recorder) }
+
+    func makeNSView(context: Context) -> NSView {
+        let host = NSHostingView(rootView: PillLabel(recorder: recorder))
+        host.translatesAutoresizingMaskIntoConstraints = false
+        host.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        host.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let click = NSClickGestureRecognizer(target: context.coordinator,
+                                             action: #selector(Coordinator.didClick(_:)))
+        host.addGestureRecognizer(click)
+        context.coordinator.hostView = host
+        return host
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let hosting = nsView as? NSHostingView<PillLabel> {
+            hosting.rootView = PillLabel(recorder: recorder)
+        }
+        context.coordinator.recorder = recorder
+    }
+
+    // MARK: - Coordinator drives the NSMenu
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var recorder: AudioRecorder
+        weak var hostView: NSView?
+
+        init(recorder: AudioRecorder) { self.recorder = recorder }
+
+        @objc func didClick(_ gesture: NSClickGestureRecognizer) {
+            guard let host = hostView else { return }
+            let menu = buildMenu()
+            // Anchor the menu just below the pill's bottom-left corner so it
+            // feels like a real dropdown, not a popover spawned under the
+            // cursor.
+            let origin = NSPoint(x: 0, y: host.bounds.maxY + 4)
+            menu.popUp(positioning: nil, at: origin, in: host)
+        }
+
+        private func buildMenu() -> NSMenu {
+            let menu = NSMenu()
+            menu.addItem(makeItem(title: "All system audio",
+                                  image: NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil),
+                                  app: nil))
+
+            let activeApps = recorder.runningApps.filter { $0.isActive }
+            if !activeApps.isEmpty {
+                menu.addItem(NSMenuItem.separator())
+                menu.addItem(sectionHeader("Now Playing"))
+                for app in activeApps { menu.addItem(makeItem(title: app.name, image: app.icon, app: app)) }
+            }
+
+            let grouped = Dictionary(grouping: recorder.runningApps.filter { !$0.isActive }, by: \.bucket)
+            let order: [(AudioApp.Bucket, String)] = [
+                (.meeting, "Meeting apps"), (.browser, "Browsers"), (.other, "Other apps"),
+            ]
+            for (bucket, label) in order {
+                guard let apps = grouped[bucket], !apps.isEmpty else { continue }
+                menu.addItem(NSMenuItem.separator())
+                menu.addItem(sectionHeader(label))
+                for app in apps { menu.addItem(makeItem(title: app.name, image: app.icon, app: app)) }
+            }
+            return menu
+        }
+
+        private func makeItem(title: String, image: NSImage?, app: AudioApp?) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: #selector(pick(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = app  // nil = "All system audio"
+            if let image {
+                image.size = NSSize(width: 16, height: 16)
+                item.image = image
+            }
+            item.state = (app?.id == recorder.selectedApp?.id) ? .on : .off
+            return item
+        }
+
+        private func sectionHeader(_ text: String) -> NSMenuItem {
+            // NSMenu doesn't have true section headers; fake one with a
+            // disabled styled item using small-caps. Matches Finder / system.
+            let item = NSMenuItem(title: text.uppercased(), action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: NSColor.tertiaryLabelColor,
+                .kern: 0.6,
+            ]
+            item.attributedTitle = NSAttributedString(string: text.uppercased(), attributes: attrs)
+            return item
+        }
+
+        @objc private func pick(_ sender: NSMenuItem) {
+            recorder.selectedApp = sender.representedObject as? AudioApp
+        }
+    }
+}
+
+/// Just the pill's visual — driven separately so the NSViewRepresentable
+/// can redraw on state changes without rebuilding its gesture recognizer.
+struct PillLabel: View {
     @ObservedObject var recorder: AudioRecorder
     @State private var hovered = false
-    @State private var isOpen = false
 
     var body: some View {
-        Button { isOpen.toggle() } label: {
-            HStack(spacing: 6) {
-                if let app = recorder.selectedApp, let icon = app.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 14, height: 14)
-                }
-                Text(currentLabel)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Color.dtLabel)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Color.dtLabelSecondary)
+        HStack(spacing: 6) {
+            if let app = recorder.selectedApp, let icon = app.icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 14, height: 14)
             }
-            .padding(.leading, 9)
-            .padding(.trailing, 7)
-            .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
-            .background(
-                RoundedRectangle(cornerRadius: DT.R.control)
-                    .fill(Color.white.opacity(hovered ? 0.96 : 0.82))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DT.R.control)
-                    .stroke(Color.black.opacity(0.09), lineWidth: 0.5)
-            )
-            .shadow(color: Color.black.opacity(0.04), radius: 0.5, y: 0.5)
-            .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
+            Text(currentLabel)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Color.dtLabel)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color.dtLabelSecondary)
         }
-        .buttonStyle(.plain)
+        .padding(.leading, 9)
+        .padding(.trailing, 7)
+        .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
+        .background(
+            RoundedRectangle(cornerRadius: DT.R.control)
+                .fill(Color.white.opacity(hovered ? 0.96 : 0.82))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DT.R.control)
+                .stroke(Color.black.opacity(0.09), lineWidth: 0.5)
+        )
+        .shadow(color: Color.black.opacity(0.04), radius: 0.5, y: 0.5)
+        .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
         .onHover { hovered = $0 }
         .animation(DT.ease(0.12), value: hovered)
-        .popover(isPresented: $isOpen, arrowEdge: .top) {
-            AudioSourceList(
-                recorder: recorder,
-                onPick: { isOpen = false }
-            )
-        }
     }
 
     private var currentLabel: String {
         recorder.selectedApp?.name ?? "All system audio"
-    }
-}
-
-/// The popover content for the source picker — matches the design's menu
-/// (grouped sections with tinted hover, app icon on each row, checkmark
-/// for the current selection).
-private struct AudioSourceList: View {
-    @ObservedObject var recorder: AudioRecorder
-    let onPick: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            row(nil, label: "All system audio", icon: .systemName("speaker.wave.2.fill"))
-            Divider().padding(.vertical, 4)
-
-            let activeApps = recorder.runningApps.filter { $0.isActive }
-            if !activeApps.isEmpty {
-                sectionHeader("Now Playing")
-                ForEach(activeApps) { row($0, label: $0.name, icon: .app($0.icon)) }
-                Divider().padding(.vertical, 4)
-            }
-
-            let grouped = Dictionary(grouping: recorder.runningApps.filter { !$0.isActive }, by: \.bucket)
-            let order: [AudioApp.Bucket] = [.meeting, .browser, .other]
-            ForEach(Array(order.enumerated()), id: \.offset) { idx, bucket in
-                if let apps = grouped[bucket], !apps.isEmpty {
-                    sectionHeader(bucketLabel(bucket))
-                    ForEach(apps) { row($0, label: $0.name, icon: .app($0.icon)) }
-                    if idx < order.count - 1 {
-                        Divider().padding(.vertical, 4)
-                    }
-                }
-            }
-        }
-        .padding(4)
-        .frame(width: 260)
-        .frame(maxHeight: 420)
-    }
-
-    private enum IconKind {
-        case systemName(String)
-        case app(NSImage?)
-    }
-
-    @ViewBuilder
-    private func row(_ app: AudioApp?, label: String, icon: IconKind) -> some View {
-        let selected = (app?.id ?? nil) == recorder.selectedApp?.id
-        Button {
-            recorder.selectedApp = app
-            onPick()
-        } label: {
-            HStack(spacing: 8) {
-                switch icon {
-                case .systemName(let name):
-                    Image(systemName: name)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.dtLabelSecondary)
-                        .frame(width: 16, height: 16)
-                case .app(let ns):
-                    if let ns { Image(nsImage: ns).resizable().frame(width: 16, height: 16) }
-                    else { Image(systemName: "app").frame(width: 16, height: 16) }
-                }
-                Text(label)
-                    .font(.system(size: 12.5))
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if selected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-            }
-            .padding(.horizontal, 6)
-            .frame(height: 22)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(HoverRowButtonStyle())
-    }
-
-    @ViewBuilder
-    private func sectionHeader(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(0.06 * 10)
-            .textCase(.uppercase)
-            .foregroundStyle(Color.dtLabelTertiary)
-            .padding(.horizontal, 8)
-            .padding(.top, 3)
-            .padding(.bottom, 2)
-    }
-
-    private func bucketLabel(_ bucket: AudioApp.Bucket) -> String {
-        switch bucket {
-        case .meeting: return "Meeting apps"
-        case .browser: return "Browsers"
-        case .other: return "Other apps"
-        }
-    }
-}
-
-private struct HoverRowButtonStyle: ButtonStyle {
-    @State private var hovered = false
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(hovered ? Color.white : Color.dtLabel)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(hovered ? DT.systemBlue : Color.clear)
-            )
-            .onHover { hovered = $0 }
-            .animation(.linear(duration: 0.06), value: hovered)
     }
 }
 
