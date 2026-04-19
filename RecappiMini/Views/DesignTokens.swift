@@ -24,6 +24,26 @@ enum DT {
     static let systemGreen = Color(red: 52/255, green: 199/255, blue: 89/255)
     static let systemOrange = Color(red: 255/255, green: 159/255, blue: 10/255)
 
+    /// Mint green used in the recording-state logo tile. Matches the tint
+    /// in the Figma design's dark-pill mockup — bright enough to pop on
+    /// our light Liquid Glass shell, not so saturated it clashes with the
+    /// record button's red.
+    static let accentGreenLight = Color(red: 72/255, green: 230/255, blue: 178/255)
+    static let accentGreenDeep = Color(red: 18/255, green: 184/255, blue: 130/255)
+
+    /// Charcoal shell for the recording-state pill (from image #39's
+    /// iOS copy: UIColor(red: 0.179, green: 0.179, blue: 0.179)).
+    static let recordingShell = Color(red: 0.179, green: 0.179, blue: 0.179)
+    /// Slightly lighter charcoal for inset controls (stop/share buttons)
+    /// so they read as chips on the recording pill.
+    static let recordingChip = Color(red: 0.26, green: 0.26, blue: 0.26)
+
+    /// Waveform dot colors from the Figma spec (node 94:32916).
+    /// Lit: `#1DF8B3`. Unlit: `#000000` — pure black against the
+    /// charcoal shell reads as dim "off" dots.
+    static let waveformLit = Color(red: 29/255, green: 248/255, blue: 179/255)
+    static let waveformUnlit = Color.black
+
     // MARK: - Radii (pt)
 
     enum R {
@@ -34,7 +54,7 @@ enum DT {
 
     // MARK: - Panel geometry
 
-    static let panelWidth: CGFloat = 280
+    static let panelWidth: CGFloat = 320
     /// Outer panel padding. Design spec is 8pt but at that value the
     /// speaker icon sits 17pt from the glass edge which reads as too much
     /// inset on the left; 6pt brings it to 15pt — still inside the panel's
@@ -72,15 +92,14 @@ enum DT {
 
 // MARK: - Color helpers
 
+/// Dark-mode text tokens — the panel is always on DT.recordingShell so
+/// every label tier is white with tuned opacity. Kept behind the `dtLabel*`
+/// names so existing call sites don't need to change.
 extension Color {
-    /// Black with the design's tiered opacity scale — use instead of
-    /// SwiftUI's .primary/.secondary/.tertiary when we need to match the
-    /// exact opacity the design establishes (and stay light-mode-only for
-    /// now, since the panel is on a glass material with its own contrast).
-    static let dtLabel = Color.black.opacity(DT.Label.primary)
-    static let dtLabelSecondary = Color.black.opacity(DT.Label.secondary)
-    static let dtLabelTertiary = Color.black.opacity(DT.Label.tertiary)
-    static let dtLabelQuaternary = Color.black.opacity(DT.Label.quaternary)
+    static let dtLabel = Color.white.opacity(0.92)
+    static let dtLabelSecondary = Color.white.opacity(0.62)
+    static let dtLabelTertiary = Color.white.opacity(0.38)
+    static let dtLabelQuaternary = Color.white.opacity(0.16)
 }
 
 // MARK: - Shared shapes / controls
@@ -108,7 +127,7 @@ struct PanelIconButtonStyle: ButtonStyle {
                 .foregroundStyle(hovered || isPressed ? Color.dtLabel : Color.dtLabelSecondary)
                 .background(
                     RoundedRectangle(cornerRadius: DT.R.control)
-                        .fill(Color.black.opacity(isPressed ? 0.10 : (hovered ? 0.06 : 0)))
+                        .fill(Color.white.opacity(isPressed ? 0.12 : (hovered ? 0.08 : 0)))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
                 .onHover { hovered = $0 }
@@ -118,12 +137,13 @@ struct PanelIconButtonStyle: ButtonStyle {
     }
 }
 
-/// Radial-gradient red button used for Record/Stop. 28pt circle with a
-/// white inner core; swap shape (circle vs rounded-square) for record vs stop.
+/// Flat red Record/Stop button. Solid fill + thin rim + inner mark —
+/// no gradients or glow so it sits flush on the charcoal pill.
 struct PrimaryRecordButton: View {
     enum Kind { case record, stop }
 
     let kind: Kind
+    var size: CGFloat = 28
     let action: () -> Void
 
     @State private var hovered = false
@@ -133,40 +153,137 @@ struct PrimaryRecordButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [DT.systemRedLight, DT.systemRed, DT.systemRedDeep],
-                            center: UnitPoint(x: 0.35, y: 0.30),
-                            startRadius: 0,
-                            endRadius: 20
-                        )
-                    )
+                    .fill(hovered ? DT.systemRedLight : DT.systemRed)
                     .overlay(
-                        Circle().stroke(Color.black.opacity(0.10), lineWidth: 0.5)
+                        Circle().stroke(Color.black.opacity(0.18), lineWidth: 0.5)
                     )
-                    .overlay(alignment: .top) {
-                        // Inset top highlight — the "liquid" giveaway for the button
-                        Circle()
-                            .trim(from: 0, to: 0.5)
-                            .stroke(Color.white.opacity(0.55), lineWidth: 0.5)
-                            .rotationEffect(.degrees(-90))
-                            .padding(0.5)
-                    }
-                    .shadow(color: Color.black.opacity(0.15), radius: 1, y: 1)
-                    .shadow(color: DT.systemRed.opacity(0.45), radius: 4, y: 2)
 
                 switch kind {
                 case .record:
                     Circle()
-                        .fill(Color.white.opacity(0.96))
-                        .frame(width: 10, height: 10)
+                        .fill(Color.white)
+                        .frame(width: size * 0.36, height: size * 0.36)
                 case .stop:
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(Color.white.opacity(0.96))
-                        .frame(width: 8, height: 8)
+                    RoundedRectangle(cornerRadius: size * 0.08)
+                        .fill(Color.white)
+                        .frame(width: size * 0.30, height: size * 0.30)
                 }
             }
-            .frame(width: 28, height: 28)
+            .frame(width: size, height: size)
+            .scaleEffect(pressed ? 0.96 : 1.0)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in pressed = true }
+                .onEnded { _ in pressed = false }
+        )
+        .animation(DT.ease(0.12), value: hovered)
+        .animation(DT.ease(0.08), value: pressed)
+    }
+}
+
+/// Green-gradient tile with the headset logo — brand chip shared by
+/// the recording pill (48pt) and the Settings header (56pt). Size scales
+/// padding + corner radius proportionally. Logo PNG loaded from
+/// Bundle.main (copied to Contents/Resources by scripts/build-app.sh).
+struct LogoTile: View {
+    var size: CGFloat = 48
+
+    var body: some View {
+        let radius = size * 0.25
+        Image(nsImage: logoImage)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .foregroundStyle(.black.opacity(0.85))
+            .padding(size * 0.083)
+            .frame(width: size, height: size)
+            .background(
+                // Figma: linear-gradient 0→20% white overlay on #1DF8B3
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(DT.waveformLit)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: radius, style: .continuous)
+                            .fill(LinearGradient(
+                                colors: [Color.white.opacity(0), Color.white.opacity(0.2)],
+                                startPoint: .top, endPoint: .bottom))
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
+            )
+            // Figma: box-shadow: 0px 1px 2px rgba(0,0,0,0.25), 0px 4px 18.8px #4CB191
+            .shadow(color: Color(red: 76/255, green: 177/255, blue: 145/255).opacity(0.65), radius: 9, y: 4)
+            .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
+    }
+
+    private var logoImage: NSImage {
+        let img = NSImage(named: "Logo") ?? NSImage()
+        img.isTemplate = true
+        return img
+    }
+}
+
+/// Dark circle action button used on the recording pill (stop, and
+/// eventually share). Matches Figma CSS 1:1:
+///   - bg: #1D1D1D with a 180° linear-gradient rgba(0,0,0,0.02)→rgba(0,0,0,0.2)
+///   - inset shadows: 0.5px 1px 1px rgba(255,255,255,0.25) (top highlight)
+///                    0px 2px 2px rgba(0,0,0,0.25)           (bottom shade)
+///   - outer drop: 0px 1px 2px rgba(0,0,0,0.25)
+struct DarkCircleButton: View {
+    enum Kind { case stop, record }
+
+    let kind: Kind
+    var size: CGFloat = 40
+    let action: () -> Void
+
+    @State private var hovered = false
+    @State private var pressed = false
+
+    private var base: Color { Color(red: 29/255, green: 29/255, blue: 29/255) }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(base)
+                    .overlay(
+                        Circle().fill(LinearGradient(
+                            colors: [.black.opacity(0.02), .black.opacity(0.2)],
+                            startPoint: .top, endPoint: .bottom))
+                    )
+                    // Inset top highlight (fake inner-shadow via arc stroke).
+                    .overlay(alignment: .top) {
+                        Circle()
+                            .trim(from: 0, to: 0.5)
+                            .stroke(Color.white.opacity(0.28), lineWidth: 1)
+                            .rotationEffect(.degrees(-90))
+                            .padding(0.5)
+                    }
+                    // Inset bottom shade.
+                    .overlay(alignment: .bottom) {
+                        Circle()
+                            .trim(from: 0, to: 0.5)
+                            .stroke(Color.black.opacity(0.35), lineWidth: 1)
+                            .rotationEffect(.degrees(90))
+                            .padding(0.5)
+                    }
+                    .shadow(color: .black.opacity(0.30), radius: 2, y: 1)
+
+                switch kind {
+                case .stop:
+                    RoundedRectangle(cornerRadius: size * 0.08, style: .continuous)
+                        .fill(Color.white)
+                        .frame(width: size * 0.32, height: size * 0.32)
+                case .record:
+                    Circle()
+                        .fill(DT.systemRed)
+                        .frame(width: size * 0.38, height: size * 0.38)
+                }
+            }
+            .frame(width: size, height: size)
             .scaleEffect(pressed ? 0.96 : (hovered ? 1.04 : 1.0))
         }
         .buttonStyle(.plain)
@@ -181,36 +298,75 @@ struct PrimaryRecordButton: View {
     }
 }
 
-/// macOS-style push button (bordered gradient). Matches `.btn` + `.btn.primary`
-/// from the design.
+/// Dark-theme icon chip used in the recording pill (trash + any future
+/// share/action icons). Matches image #39: lighter-charcoal rounded square
+/// with a subtle bright-on-hover highlight.
+struct DarkChipButtonStyle: ButtonStyle {
+    var size: CGFloat = 28
+
+    func makeBody(configuration: Configuration) -> some View {
+        Chrome(isPressed: configuration.isPressed, size: size) {
+            configuration.label
+        }
+    }
+
+    private struct Chrome<Content: View>: View {
+        let isPressed: Bool
+        let size: CGFloat
+        @ViewBuilder let content: () -> Content
+        @State private var hovered = false
+
+        var body: some View {
+            content()
+                .frame(width: size, height: size)
+                .foregroundStyle(Color.white.opacity(hovered || isPressed ? 0.95 : 0.72))
+                .background(
+                    RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                        .fill(DT.recordingChip.opacity(isPressed ? 1.0 : (hovered ? 0.9 : 0.7)))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
+                .onHover { hovered = $0 }
+                .animation(DT.ease(0.12), value: hovered)
+                .animation(DT.ease(0.08), value: isPressed)
+        }
+    }
+}
+
+/// Dark-theme push button. Primary uses the app accent (#1DF8B3) on a
+/// dark chip so it reads as the affirmative action without leaving the
+/// charcoal palette; secondary is a flat dark chip matching the rest of
+/// the panel.
 struct PanelPushButtonStyle: ButtonStyle {
     var primary: Bool = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: primary ? .regular : .regular))
-            .foregroundStyle(primary ? Color.white : Color.dtLabel)
+            .font(.system(size: 12))
+            .foregroundStyle(primary ? Color.black.opacity(0.88) : Color.dtLabel)
             .frame(maxWidth: .infinity)
             .frame(height: 22)
             .background(
-                RoundedRectangle(cornerRadius: DT.R.control)
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
                     .fill(
                         primary
                         ? LinearGradient(
-                            colors: [Color(red: 60/255, green: 140/255, blue: 255/255), DT.systemBlue],
+                            colors: [DT.waveformLit, Color(red: 14/255, green: 210/255, blue: 152/255)],
                             startPoint: .top, endPoint: .bottom
                         )
                         : LinearGradient(
-                            colors: [Color.white.opacity(0.95), Color(red: 248/255, green: 248/255, blue: 252/255).opacity(0.9)],
+                            colors: [DT.recordingChip.opacity(0.9), DT.recordingChip],
                             startPoint: .top, endPoint: .bottom
                         )
                     )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: DT.R.control)
-                    .stroke(primary ? Color(red: 0, green: 0.35, blue: 0.78).opacity(0.55) : Color.black.opacity(0.12), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .stroke(primary ? Color.white.opacity(0.18) : Color.white.opacity(0.08), lineWidth: 0.5)
             )
-            .shadow(color: Color.black.opacity(0.06), radius: 0.5, y: 0.5)
-            .opacity(configuration.isPressed ? 0.88 : 1.0)
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
     }
 }

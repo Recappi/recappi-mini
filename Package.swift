@@ -10,7 +10,7 @@ let package = Package(
         .executableTarget(
             name: "RecappiMini",
             path: "RecappiMini",
-            exclude: ["Info.plist"],
+            exclude: ["Info.plist", "Resources"],
             linkerSettings: [
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("AVFoundation"),

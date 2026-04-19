@@ -45,10 +45,27 @@ struct AppleSpeechTranscriber: AudioTranscriber {
 
         var pieces: [String] = []
         for chunk in chunks {
-            let text = try await Self.recognize(url: chunk.url, using: recognizer)
-            if !text.isEmpty { pieces.append(text) }
+            do {
+                let text = try await Self.recognize(url: chunk.url, using: recognizer)
+                if !text.isEmpty { pieces.append(text) }
+            } catch let error as NSError where Self.isNoSpeechError(error) {
+                // Silence in a single chunk is not a fatal error — a
+                // meeting often has long pauses between speakers, so we
+                // just skip this chunk and keep going.
+                continue
+            }
         }
         return pieces.joined(separator: " ")
+    }
+
+    /// Apple Speech surfaces "no speech detected" through a few different
+    /// error domains/codes depending on OS version. Match on both the
+    /// Speech-framework code and the legacy `kAFAssistantErrorDomain` code
+    /// so we reliably skip silent chunks.
+    private static func isNoSpeechError(_ error: NSError) -> Bool {
+        if error.code == 1110 { return true }  // kAFAssistantErrorDomain / SFSpeechErrorCode.noSpeechDetected
+        if error.code == 203 { return true }   // legacy Speech no-match
+        return error.localizedDescription.localizedCaseInsensitiveContains("no speech")
     }
 
     private static func recognize(
@@ -272,31 +289,16 @@ struct OpenAITranscriber: AudioTranscriber {
 
 /// Default path is local Apple Speech. Remote providers are only used when
 /// explicitly configured — keeps us free-by-default and offline-capable.
-/// Apple Intelligence handles summary/action items well but does not ship
-/// as a standalone ASR API — the Foundation Models framework doesn't take
-/// audio directly. When the user picks `.apple` for insights we still run
-/// the local SFSpeechRecognizer for transcription.
+/// Transcription always runs locally via Apple Speech — the provider
+/// setting only governs insights (summary / action items). Keeping ASR
+/// local means we never send audio to the cloud and stay compatible with
+/// OpenAI-shaped backends that don't implement `/audio/transcriptions`
+/// (notably Gemini's openai-compat endpoint). `GeminiTranscriber` and
+/// `OpenAITranscriber` above remain available for callers that want cloud
+/// ASR, but the factory no longer wires them up by default.
 @MainActor
 func createTranscriber(config: AppConfig) -> AudioTranscriber {
-    switch config.selectedProvider {
-    case .none, .apple:
-        return AppleSpeechTranscriber(language: config.speechLanguage)
-    case .gemini:
-        return GeminiTranscriber(
-            apiKey: config.geminiApiKey,
-            baseUrl: config.effectiveGeminiBaseUrl,
-            model: config.effectiveGeminiModel
-        )
-    case .openai:
-        return OpenAITranscriber(
-            apiKey: config.openaiApiKey,
-            baseUrl: config.effectiveOpenaiBaseUrl,
-            // Whisper is the only transcription model OpenAI ships; don't
-            // overload the chat-model setting. Most OpenAI-compatible
-            // backends that do ASR also use "whisper-1" as the id.
-            model: AppConfig.defaultOpenaiTranscribeModel
-        )
-    }
+    AppleSpeechTranscriber(language: config.speechLanguage)
 }
 
 // MARK: - Errors

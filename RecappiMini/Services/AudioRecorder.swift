@@ -96,6 +96,12 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var selectedApp: AudioApp?
     @Published var recordingAppName: String?
     @Published var audioLevel: Float = 0
+    /// Rolling ring of recent peak amplitudes driving the recording-state
+    /// waveform. Owning this on the recorder (not inside the SwiftUI View)
+    /// means re-renders don't trash the history or the capture subscription.
+    @Published var audioLevelHistory: [Float] = Array(repeating: 0, count: AudioRecorder.historySize)
+
+    static let historySize = 40
     /// Session directory of the most-recent (or in-progress) recording.
     /// Populated on stop and kept through processing + error states so the
     /// UI can offer Retry / Show without stashing state at the view layer.
@@ -119,6 +125,9 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private var sessionDir: URL?
     private var timer: Timer?
+    /// Timestamp of the last `audioLevel` publish; capped at 30 Hz so
+    /// SwiftUI doesn't burn a re-render per ScreenCaptureKit buffer.
+    private var lastLevelPublish: CFTimeInterval = 0
 
     var currentSessionDir: URL? { sessionDir }
 
@@ -255,6 +264,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.systemWriter = sysWriter
         self.systemInput = sysInput
         let sysOut = SystemAudioOutput(writer: sysWriter, input: sysInput)
+        sysOut.onLevel = { [weak self] level in
+            self?.ingestLevel(level)
+        }
         self.systemOutput = sysOut
 
         let filter: SCContentFilter
@@ -296,6 +308,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         captureSession.addInput(deviceInput)
 
         let mcOut = MicAudioOutput(writer: mcWriter, input: mcInput)
+        mcOut.onLevel = { [weak self] level in
+            self?.ingestLevel(level)
+        }
         let captureOutput = AVCaptureAudioDataOutput()
         captureOutput.setSampleBufferDelegate(mcOut, queue: DispatchQueue(label: "mic.capture"))
         guard captureSession.canAddOutput(captureOutput) else {
@@ -372,10 +387,35 @@ final class AudioRecorder: NSObject, ObservableObject {
         return sessionDir
     }
 
+    /// Merge the latest peak from either audio source into `audioLevel`.
+    /// Called from the capture queues — we hop to the main actor, take the
+    /// max of system + mic so either source can drive the meter, and cap
+    /// publish rate to 30 Hz.
+    nonisolated func ingestLevel(_ level: Float) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let now = CACurrentMediaTime()
+            guard now - self.lastLevelPublish >= 1.0 / 30.0 else { return }
+            self.lastLevelPublish = now
+
+            // Hold peak with light decay so a single-buffer spike still reads
+            // visually over the ~33ms publish window.
+            let smoothed = max(self.audioLevel * 0.82, level)
+            self.audioLevel = smoothed
+
+            var next = self.audioLevelHistory
+            next.removeFirst()
+            next.append(smoothed)
+            self.audioLevelHistory = next
+        }
+    }
+
     func reset() {
         state = .idle
         elapsedSeconds = 0
         audioLevel = 0
+        audioLevelHistory = Array(repeating: 0, count: Self.historySize)
+        lastLevelPublish = 0
         sessionDir = nil
         lastSessionDir = nil
         stream = nil
@@ -415,12 +455,74 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 }
 
+// MARK: - Audio level extraction
+
+/// Peak amplitude of a PCM `CMSampleBuffer`, normalised to 0…1. Handles
+/// the two formats ScreenCaptureKit + AVCaptureSession actually deliver
+/// on current macOS: 32-bit float interleaved (SCStream default) and
+/// 16-bit signed integer (AVCaptureSession microphones). Anything else
+/// returns 0 — we don't try to be clever about exotic encodings.
+enum AudioLevelExtractor {
+    static func peak(_ sampleBuffer: CMSampleBuffer) -> Float {
+        guard
+            let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
+            let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
+            let asbdPtr = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
+        else { return 0 }
+
+        var totalLength = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        let status = CMBlockBufferGetDataPointer(
+            blockBuffer,
+            atOffset: 0,
+            lengthAtOffsetOut: nil,
+            totalLengthOut: &totalLength,
+            dataPointerOut: &dataPointer
+        )
+        guard status == kCMBlockBufferNoErr, let raw = dataPointer else { return 0 }
+
+        let asbd = asbdPtr.pointee
+        let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+
+        if isFloat, asbd.mBitsPerChannel == 32 {
+            let count = totalLength / MemoryLayout<Float>.size
+            return raw.withMemoryRebound(to: Float.self, capacity: count) { ptr in
+                var peak: Float = 0
+                for i in 0..<count {
+                    let v = abs(ptr[i])
+                    if v > peak { peak = v }
+                }
+                return min(peak, 1)
+            }
+        }
+
+        if asbd.mBitsPerChannel == 16 {
+            let count = totalLength / MemoryLayout<Int16>.size
+            return raw.withMemoryRebound(to: Int16.self, capacity: count) { ptr in
+                var peak: Float = 0
+                for i in 0..<count {
+                    let v = Float(abs(Int32(ptr[i]))) / 32768
+                    if v > peak { peak = v }
+                }
+                return min(peak, 1)
+            }
+        }
+
+        return 0
+    }
+}
+
 // MARK: - System audio receiver
 
 final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private var isWriterStarted = false
+
+    /// Called on the capture queue for each buffer with the peak amplitude.
+    /// AudioRecorder hops this to the main actor + throttles to ~30 Hz for
+    /// the waveform view.
+    var onLevel: ((Float) -> Void)?
 
     init(writer: AVAssetWriter, input: AVAssetWriterInput) {
         self.writer = writer
@@ -445,6 +547,8 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
         if input.isReadyForMoreMediaData {
             input.append(sampleBuffer)
         }
+
+        onLevel?(AudioLevelExtractor.peak(sampleBuffer))
     }
 }
 
@@ -454,6 +558,8 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private var isWriterStarted = false
+
+    var onLevel: ((Float) -> Void)?
 
     init(writer: AVAssetWriter, input: AVAssetWriterInput) {
         self.writer = writer
@@ -477,6 +583,8 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         if input.isReadyForMoreMediaData {
             input.append(sampleBuffer)
         }
+
+        onLevel?(AudioLevelExtractor.peak(sampleBuffer))
     }
 }
 

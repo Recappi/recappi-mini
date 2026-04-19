@@ -8,21 +8,36 @@ struct RecordingPanel: View {
     @Environment(\.openSettings) private var openSettings
 
     let onOpenFolder: (URL) -> Void
+    let onClosePanel: () -> Void
 
     var body: some View {
         mainView
-            .padding(DT.panelPadding)
+            .id(stateKey)
+            .padding(panelPadding)
             .frame(width: DT.panelWidth)
             .fixedSize(horizontal: false, vertical: true)
-            .modifier(GlassBackgroundModifier())
-            .animation(DT.ease(0.22), value: stateKey)
-            .onChange(of: stateKey) { resizeToTarget() }
+            // Pill chrome (rounded bg + border + shadow) is painted by
+            // the AppKit `PillShellView` wrapping this NSHostingView.
+            // The window auto-resizes to SwiftUI `fittingSize` via a
+            // frame observer on PillShellView — no per-state height
+            // switch, no clipped/padded mismatches.
+    }
+
+    private var panelPadding: EdgeInsets {
+        let p = DT.panelPadding
+        return EdgeInsets(top: p, leading: p, bottom: p, trailing: p)
     }
 
     @ViewBuilder
     private var mainView: some View {
         switch recorder.state {
-        case .idle: IdleState(recorder: recorder, onGear: presentSettings, onRecord: startRecording)
+        case .idle:
+            IdleState(
+                recorder: recorder,
+                onGear: presentSettings,
+                onRecord: startRecording,
+                onClose: onClosePanel
+            )
         case .recording: RecordingState(recorder: recorder, onDiscard: discardRecording, onStop: stopRecording)
         case .stopping, .transcribing, .summarizing: ProcessingState(recorder: recorder)
         case .done(let r):
@@ -57,25 +72,41 @@ struct RecordingPanel: View {
     private func startRecording() {
         Task {
             do {
+                NSLog("[Recappi] startRecording() calling AudioRecorder.startRecording()")
                 try await recorder.startRecording()
+                NSLog("[Recappi] startRecording() returned, state now = \(recorder.state)")
             } catch {
+                NSLog("[Recappi] startRecording() error: \(error)")
                 recorder.state = .error(message: error.localizedDescription)
             }
         }
     }
 
     private func stopRecording() {
-        Task { await runProcessing() }
+        Task {
+            do {
+                let duration = recorder.elapsedSeconds
+                let sessionDir = try await recorder.stopRecording()
+                await processSession(sessionDir, duration: duration)
+            } catch {
+                recorder.state = .error(message: error.localizedDescription)
+            }
+        }
     }
 
+    /// Retry picks up from `lastSessionDir` so we don't call stopRecording
+    /// again (which would throw "Not currently recording"). Only transcribe
+    /// + summarize get replayed — the capture is already on disk.
     private func retryProcessing(_ message: String) {
-        Task { await runProcessing() }
+        guard let sessionDir = recorder.lastSessionDir else {
+            recorder.state = .error(message: "No session to retry")
+            return
+        }
+        Task { await processSession(sessionDir, duration: recorder.elapsedSeconds) }
     }
 
-    private func runProcessing() async {
+    private func processSession(_ sessionDir: URL, duration: Int) async {
         do {
-            let duration = recorder.elapsedSeconds
-            let sessionDir = try await recorder.stopRecording()
             let config = AppConfig.shared
             let transcriber = createTranscriber(config: config)
 
@@ -152,46 +183,6 @@ struct RecordingPanel: View {
         }
     }
 
-    private var targetHeight: CGFloat {
-        switch recorder.state {
-        case .idle: return 48
-        case .recording: return 64
-        case .stopping, .transcribing, .summarizing: return 68
-        case .done(let r):
-            if r.insights?.summary.isEmpty == false { return 210 }
-            if (r.transcript ?? "").isEmpty == false { return 140 }
-            return 60
-        case .error:
-            return recorder.lastSessionDir != nil ? 108 : 72
-        }
-    }
-
-    private func resizeToTarget() {
-        guard let window = NSApp.windows.first(where: { $0 is FloatingPanel }) as? FloatingPanel else { return }
-        FloatingPanelController.resize(window, height: targetHeight + DT.panelPadding * 2)
-    }
-}
-
-// MARK: - Glass background
-
-struct GlassBackgroundModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: DT.R.panel))
-        } else {
-            content
-                .background(
-                    .ultraThinMaterial,
-                    in: RoundedRectangle(cornerRadius: DT.R.panel)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: DT.R.panel)
-                        .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
-                )
-                .shadow(color: .black.opacity(0.28), radius: 14, y: 8)
-                .shadow(color: .black.opacity(0.20), radius: 6, y: 3)
-        }
-    }
 }
 
 // MARK: - Idle
@@ -200,12 +191,12 @@ private struct IdleState: View {
     @ObservedObject var recorder: AudioRecorder
     var onGear: () -> Void
     var onRecord: () -> Void
+    var onClose: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
-            // Design: `flex: 1 1 auto` on .source-pill. SwiftUI's Menu sizes
-            // to its label's content by default, so we have to opt-in to
-            // filling the HStack's remaining width at the call site.
+            LogoTile(size: 28)
+
             AudioSourcePill(recorder: recorder)
                 .frame(maxWidth: .infinity)
 
@@ -216,11 +207,19 @@ private struct IdleState: View {
             .buttonStyle(PanelIconButtonStyle())
             .help("Settings (⌘,)")
 
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(PanelIconButtonStyle())
+            .keyboardShortcut("w", modifiers: [.command])
+            .help("Hide panel (⌘W)")
+
             PrimaryRecordButton(kind: .record, action: onRecord)
                 .keyboardShortcut(.return, modifiers: [])
                 .help("Record")
         }
-        .frame(height: 28)  // lock the row's vertical baseline so children align
+        .frame(height: 28)
         .task { await recorder.refreshApps() }
     }
 }
@@ -233,42 +232,49 @@ private struct RecordingState: View {
     var onStop: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        // Caption (red dot + timer + source) sits above the main control row.
+        // Same glass shell wraps the whole thing, but the caption is styled
+        // as a subtle header so the pill row can carry the main visual
+        // weight (logo tile + dot-matrix waveform + controls).
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(DT.systemRed)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: DT.systemRed.opacity(0.6), radius: 2)
+                    .modifier(PulsingModifier())
                 Text(formatTime(recorder.elapsedSeconds))
-                    .font(.system(size: 18, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundStyle(Color.dtLabel)
+                    .foregroundStyle(Color.white.opacity(0.92))
+                Text("·")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.white.opacity(0.35))
+                Text(recordingSourceLabel)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.white.opacity(0.62))
                     .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 2)
 
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(DT.systemRed)
-                        .frame(width: 6, height: 6)
-                        .shadow(color: DT.systemRed.opacity(0.6), radius: 2)
-                        .modifier(PulsingModifier())
-                    Text(recordingSourceLabel)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.dtLabelSecondary)
-                        .lineLimit(1)
+            HStack(spacing: 6) {
+                DotMatrixWaveform(history: recorder.audioLevelHistory)
+                    .frame(maxWidth: .infinity, maxHeight: 28)
+                    .padding(.leading, 4)
+
+                Button(action: onDiscard) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12))
                 }
+                .buttonStyle(PanelIconButtonStyle())
+                .help("Discard")
+
+                PrimaryRecordButton(kind: .stop, action: onStop)
+                    .keyboardShortcut(.return, modifiers: [])
+                    .help("Stop")
             }
-
-            Spacer(minLength: 4)
-
-            AudioMeter(level: recorder.audioLevel)
-                .frame(width: 44, height: 16)
-
-            Button(action: onDiscard) {
-                Image(systemName: "trash")
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(PanelIconButtonStyle())
-            .help("Discard")
-
-            PrimaryRecordButton(kind: .stop, action: onStop)
-                .keyboardShortcut(.return, modifiers: [])
-                .help("Stop")
+            .frame(height: 28)
         }
     }
 
@@ -291,8 +297,8 @@ private struct ProcessingState: View {
     @State private var barPhase = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
                 Circle()
                     .trim(from: 0, to: 0.75)
                     .stroke(Color.dtLabel, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
@@ -318,11 +324,11 @@ private struct ProcessingState: View {
             GeometryReader { geo in
                 let width = geo.size.width
                 Capsule()
-                    .fill(Color.black.opacity(0.08))
+                    .fill(Color.white.opacity(0.08))
                     .frame(height: 2)
                     .overlay(alignment: .leading) {
                         Capsule()
-                            .fill(Color.dtLabel)
+                            .fill(DT.waveformLit)
                             .frame(width: width * (barPhase ? 0.92 : 0.18), height: 2)
                             .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 1.8).repeatForever(autoreverses: true), value: barPhase)
                     }
@@ -330,6 +336,8 @@ private struct ProcessingState: View {
             .frame(height: 2)
             .onAppear { barPhase = true }
         }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
     }
 
     private var title: String {
@@ -367,10 +375,10 @@ private struct DoneState: View {
             HStack(spacing: 7) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.black.opacity(0.9))
                     .frame(width: 16, height: 16)
-                    .background(Circle().fill(DT.systemGreen))
-                    .overlay(Circle().stroke(Color.black.opacity(0.08), lineWidth: 0.5))
+                    .background(Circle().fill(DT.waveformLit))
+                    .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
 
                 Text("Meeting saved")
                     .font(.system(size: 12.5, weight: .semibold))
@@ -391,7 +399,7 @@ private struct DoneState: View {
             HStack(spacing: 6) {
                 Button("Show", action: onShow).buttonStyle(PanelPushButtonStyle())
                 Button("Copy", action: onCopy).buttonStyle(PanelPushButtonStyle())
-                Button("New", action: onNew).buttonStyle(PanelPushButtonStyle(primary: true))
+                Button("Done", action: onNew).buttonStyle(PanelPushButtonStyle(primary: true))
             }
         }
     }
@@ -435,12 +443,12 @@ private struct DoneState: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: DT.R.card)
-                .fill(Color.white.opacity(0.55))
+            RoundedRectangle(cornerRadius: DT.R.card, style: .continuous)
+                .fill(Color.white.opacity(0.04))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: DT.R.card)
-                .stroke(Color.black.opacity(0.06), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: DT.R.card, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
         )
     }
 
@@ -550,13 +558,10 @@ private struct ErrorState: View {
 
 // MARK: - Audio source pill
 
-/// Source picker. Pure SwiftUI Button with an invisible NSView anchor
-/// in its .background — on click we build an NSMenu and popUp it at
-/// the button's bottom-left corner in screen coordinates. That's the
-/// same pattern the cueboard chat header uses for its more-button and
-/// gives us a full native macOS menu (hover blue, checkmark, icons,
-/// section headers) with pixel-precise positioning and no SwiftUI
-/// Menu/popover chrome getting in the way.
+/// Source picker — SwiftUI pill trigger, native NSMenu for the dropdown.
+/// Building our own popup never matched the system menu's chrome; using
+/// `NSMenu.popUp()` gives real macOS styling (material, hover, keyboard
+/// nav) without fighting AppKit.
 struct AudioSourcePill: View {
     @ObservedObject var recorder: AudioRecorder
     @State private var anchor: NSView?
@@ -584,22 +589,24 @@ struct AudioSourcePill: View {
             .padding(.trailing, 7)
             .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
             .background(
-                RoundedRectangle(cornerRadius: DT.R.control)
-                    .fill(Color.white.opacity(hovered ? 0.96 : 0.82))
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .fill(DT.recordingChip.opacity(hovered ? 1.0 : 0.8))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: DT.R.control)
-                    .stroke(Color.black.opacity(0.09), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
             )
-            .shadow(color: Color.black.opacity(0.04), radius: 0.5, y: 0.5)
             .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .animation(DT.ease(0.12), value: hovered)
         .background {
+            // No explicit frame — the anchor NSView fills the pill so
+            // anchor.convert(bounds, to: nil) returns the pill's real
+            // window-space frame. A 0×0 frame would collapse to the
+            // center and we'd pop the menu 90pt to the right.
             MenuAnchorView { anchor = $0 }
-                .frame(width: 0, height: 0)
         }
     }
 
@@ -619,9 +626,11 @@ struct AudioSourcePill: View {
         menu.appearance = anchor?.window?.effectiveAppearance
         menu.autoenablesItems = true
 
-        menu.addItem(menuItem(title: "All system audio",
-                              image: NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil),
-                              app: nil))
+        menu.addItem(menuItem(
+            title: "All system audio",
+            image: NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil),
+            app: nil
+        ))
 
         let activeApps = recorder.runningApps.filter { $0.isActive }
         if !activeApps.isEmpty {
@@ -646,9 +655,7 @@ struct AudioSourcePill: View {
 
     private func menuItem(title: String, image: NSImage?, app: AudioApp?) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        let sleeve = MenuClosure { [recorder] in
-            recorder.selectedApp = app
-        }
+        let sleeve = MenuClosure { [recorder] in recorder.selectedApp = app }
         item.representedObject = sleeve
         item.target = sleeve
         item.action = #selector(MenuClosure.invoke)
@@ -674,9 +681,6 @@ struct AudioSourcePill: View {
         return item
     }
 
-    /// Position the menu just below the pill's bottom-left corner in
-    /// screen coordinates, clamped to the visible frame. Same helper
-    /// cueboard's header menu uses.
     private func menuPopUpLocation(for menu: NSMenu, anchor: NSView, window: NSWindow) -> CGPoint {
         let anchorBoundsInWindow = anchor.convert(anchor.bounds, to: nil)
         let anchorFrameOnScreen = window.convertToScreen(anchorBoundsInWindow)
@@ -701,8 +705,6 @@ struct AudioSourcePill: View {
     }
 }
 
-/// Invisible NSView used only to locate the pill in screen coordinates
-/// so `NSMenu.popUp` can drop below the right spot.
 private struct MenuAnchorView: NSViewRepresentable {
     let onUpdate: (NSView) -> Void
 
@@ -717,48 +719,51 @@ private struct MenuAnchorView: NSViewRepresentable {
     }
 }
 
-/// Bridge @objc menu-action selectors to arbitrary Swift closures — same
-/// trick cueboard uses for `ClosureSleeve`.
 private final class MenuClosure: NSObject {
     private let action: () -> Void
     init(_ action: @escaping () -> Void) { self.action = action }
     @objc func invoke() { action() }
 }
 
-// MARK: - Audio meter (7 bars)
+// MARK: - Dot-matrix waveform
 
-/// Mirrors design's `.meter` — 7 vertical bars with staggered heights.
-/// Real audio level drives overall amplitude; bars still pulse asymmetrically
-/// via per-bar phase offsets so the control reads as "live mic" rather
-/// than a static indicator.
-struct AudioMeter: View {
-    let level: Float  // 0…1
+/// Rolling LED-matrix waveform. Each column is one `audioLevelHistory`
+/// sample; as new samples arrive, the history advances so the matrix
+/// scrolls right-to-left, newest on the right. Fills the full Canvas
+/// width — `colStep` / `rowStep` scale with size, dots sized to 60% of
+/// the smaller cell axis so they stay round regardless of aspect.
+struct DotMatrixWaveform: View {
+    let history: [Float]
 
-    private static let heights: [CGFloat] = [0.45, 0.75, 1.00, 0.60, 0.85, 0.50, 0.70]
-    @State private var phase: [Double] = [0.1, 0.3, 0.5, 0.2, 0.6, 0.4, 0.1]
-    @State private var tick = false
+    private let rows: Int = 5
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(0..<7, id: \.self) { i in
-                Capsule()
-                    .fill(Color.dtLabelSecondary)
-                    .frame(width: 2, height: barHeight(for: i))
+        Canvas { ctx, size in
+            let cols = history.count
+            guard cols > 0 else { return }
+            let colStep = size.width / CGFloat(cols)
+            let rowStep = size.height / CGFloat(rows)
+            let dotSize = min(colStep, rowStep) * 0.6
+
+            for c in 0..<cols {
+                // sqrt compresses: voice peaks hover 0.1-0.3 linear; this
+                // maps that range into the visible middle of the bar.
+                let amp = sqrt(max(0, min(1, CGFloat(history[c]))))
+                let lit = Int((amp * CGFloat(rows)).rounded())
+                // Bottom-aligned: rows grow from the baseline upward.
+                let firstLit = rows - lit
+                for r in 0..<rows {
+                    let x = CGFloat(c) * colStep + (colStep - dotSize) / 2
+                    let y = CGFloat(r) * rowStep + (rowStep - dotSize) / 2
+                    let rect = CGRect(x: x, y: y, width: dotSize, height: dotSize)
+                    let color: Color = r >= firstLit
+                        ? DT.waveformLit
+                        : DT.waveformUnlit
+                    ctx.fill(Path(ellipseIn: rect), with: .color(color))
+                }
             }
         }
-        .frame(width: 44, height: 16)
-        .onAppear { tick.toggle() }
-        .animation(
-            .easeInOut(duration: 0.45).repeatForever(autoreverses: true),
-            value: tick
-        )
-    }
-
-    private func barHeight(for index: Int) -> CGFloat {
-        let full = 16 * Self.heights[index]
-        let amp = max(0.35, CGFloat(level) * 1.4 + CGFloat(0.35))
-        let scaled = full * amp
-        return tick ? scaled : max(full * 0.35, 4)
+        .animation(.linear(duration: 0.05), value: history)
     }
 }
 
