@@ -95,6 +95,11 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var runningApps: [AudioApp] = []
     @Published var selectedApp: AudioApp?
     @Published var recordingAppName: String?
+    @Published var audioLevel: Float = 0
+    /// Session directory of the most-recent (or in-progress) recording.
+    /// Populated on stop and kept through processing + error states so the
+    /// UI can offer Retry / Show without stashing state at the view layer.
+    @Published var lastSessionDir: URL?
 
     // --- System audio (ScreenCaptureKit) pipeline ---
     /// Hot-audio signal surfaced to the picker. Owned here so the UI
@@ -341,6 +346,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         guard let sessionDir = self.sessionDir else {
             throw RecorderError.noSessionDir
         }
+        self.lastSessionDir = sessionDir
 
         // Merge system + mic into a single compressed recording.m4a.
         let systemURL = sessionDir.appendingPathComponent("system.m4a")
@@ -369,7 +375,9 @@ final class AudioRecorder: NSObject, ObservableObject {
     func reset() {
         state = .idle
         elapsedSeconds = 0
+        audioLevel = 0
         sessionDir = nil
+        lastSessionDir = nil
         stream = nil
         systemWriter = nil
         systemInput = nil
