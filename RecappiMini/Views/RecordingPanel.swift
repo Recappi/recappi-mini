@@ -550,156 +550,179 @@ private struct ErrorState: View {
 
 // MARK: - Audio source pill
 
-/// Source picker. Shows a native NSMenu on click — this is the standard
-/// macOS dropdown look (hover blue, sections, dividers, checkmark) that
-/// users already recognise. SwiftUI's own Menu and .popover both add
-/// either label-chrome padding or a popover arrow which reads wrong for
-/// a flat pill trigger, so we skip them and drive NSMenu ourselves.
-struct AudioSourcePill: NSViewRepresentable {
+/// Source picker. Pure SwiftUI Button with an invisible NSView anchor
+/// in its .background — on click we build an NSMenu and popUp it at
+/// the button's bottom-left corner in screen coordinates. That's the
+/// same pattern the cueboard chat header uses for its more-button and
+/// gives us a full native macOS menu (hover blue, checkmark, icons,
+/// section headers) with pixel-precise positioning and no SwiftUI
+/// Menu/popover chrome getting in the way.
+struct AudioSourcePill: View {
     @ObservedObject var recorder: AudioRecorder
-
-    func makeCoordinator() -> Coordinator { Coordinator(recorder: recorder) }
-
-    func makeNSView(context: Context) -> NSView {
-        let host = NSHostingView(rootView: PillLabel(recorder: recorder))
-        host.translatesAutoresizingMaskIntoConstraints = false
-        host.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        host.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        let click = NSClickGestureRecognizer(target: context.coordinator,
-                                             action: #selector(Coordinator.didClick(_:)))
-        host.addGestureRecognizer(click)
-        context.coordinator.hostView = host
-        return host
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        if let hosting = nsView as? NSHostingView<PillLabel> {
-            hosting.rootView = PillLabel(recorder: recorder)
-        }
-        context.coordinator.recorder = recorder
-    }
-
-    // MARK: - Coordinator drives the NSMenu
-
-    @MainActor
-    final class Coordinator: NSObject {
-        var recorder: AudioRecorder
-        weak var hostView: NSView?
-
-        init(recorder: AudioRecorder) { self.recorder = recorder }
-
-        @objc func didClick(_ gesture: NSClickGestureRecognizer) {
-            guard let host = hostView else { return }
-            let menu = buildMenu()
-            // Anchor the menu just below the pill's bottom-left corner so it
-            // feels like a real dropdown, not a popover spawned under the
-            // cursor.
-            let origin = NSPoint(x: 0, y: host.bounds.maxY + 4)
-            menu.popUp(positioning: nil, at: origin, in: host)
-        }
-
-        private func buildMenu() -> NSMenu {
-            let menu = NSMenu()
-            menu.addItem(makeItem(title: "All system audio",
-                                  image: NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil),
-                                  app: nil))
-
-            let activeApps = recorder.runningApps.filter { $0.isActive }
-            if !activeApps.isEmpty {
-                menu.addItem(NSMenuItem.separator())
-                menu.addItem(sectionHeader("Now Playing"))
-                for app in activeApps { menu.addItem(makeItem(title: app.name, image: app.icon, app: app)) }
-            }
-
-            let grouped = Dictionary(grouping: recorder.runningApps.filter { !$0.isActive }, by: \.bucket)
-            let order: [(AudioApp.Bucket, String)] = [
-                (.meeting, "Meeting apps"), (.browser, "Browsers"), (.other, "Other apps"),
-            ]
-            for (bucket, label) in order {
-                guard let apps = grouped[bucket], !apps.isEmpty else { continue }
-                menu.addItem(NSMenuItem.separator())
-                menu.addItem(sectionHeader(label))
-                for app in apps { menu.addItem(makeItem(title: app.name, image: app.icon, app: app)) }
-            }
-            return menu
-        }
-
-        private func makeItem(title: String, image: NSImage?, app: AudioApp?) -> NSMenuItem {
-            let item = NSMenuItem(title: title, action: #selector(pick(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = app  // nil = "All system audio"
-            if let image {
-                image.size = NSSize(width: 16, height: 16)
-                item.image = image
-            }
-            item.state = (app?.id == recorder.selectedApp?.id) ? .on : .off
-            return item
-        }
-
-        private func sectionHeader(_ text: String) -> NSMenuItem {
-            // NSMenu doesn't have true section headers; fake one with a
-            // disabled styled item using small-caps. Matches Finder / system.
-            let item = NSMenuItem(title: text.uppercased(), action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-                .foregroundColor: NSColor.tertiaryLabelColor,
-                .kern: 0.6,
-            ]
-            item.attributedTitle = NSAttributedString(string: text.uppercased(), attributes: attrs)
-            return item
-        }
-
-        @objc private func pick(_ sender: NSMenuItem) {
-            recorder.selectedApp = sender.representedObject as? AudioApp
-        }
-    }
-}
-
-/// Just the pill's visual — driven separately so the NSViewRepresentable
-/// can redraw on state changes without rebuilding its gesture recognizer.
-struct PillLabel: View {
-    @ObservedObject var recorder: AudioRecorder
+    @State private var anchor: NSView?
     @State private var hovered = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            if let app = recorder.selectedApp, let icon = app.icon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: 14, height: 14)
+        Button(action: showMenu) {
+            HStack(spacing: 6) {
+                if let app = recorder.selectedApp, let icon = app.icon {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 14, height: 14)
+                }
+                Text(currentLabel)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Color.dtLabel)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Color.dtLabelSecondary)
             }
-            Text(currentLabel)
-                .font(.system(size: 12.5))
-                .foregroundStyle(Color.dtLabel)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 4)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(Color.dtLabelSecondary)
+            .padding(.leading, 9)
+            .padding(.trailing, 7)
+            .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
+            .background(
+                RoundedRectangle(cornerRadius: DT.R.control)
+                    .fill(Color.white.opacity(hovered ? 0.96 : 0.82))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DT.R.control)
+                    .stroke(Color.black.opacity(0.09), lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(0.04), radius: 0.5, y: 0.5)
+            .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
         }
-        .padding(.leading, 9)
-        .padding(.trailing, 7)
-        .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
-        .background(
-            RoundedRectangle(cornerRadius: DT.R.control)
-                .fill(Color.white.opacity(hovered ? 0.96 : 0.82))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DT.R.control)
-                .stroke(Color.black.opacity(0.09), lineWidth: 0.5)
-        )
-        .shadow(color: Color.black.opacity(0.04), radius: 0.5, y: 0.5)
-        .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
+        .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .animation(DT.ease(0.12), value: hovered)
+        .background {
+            MenuAnchorView { anchor = $0 }
+                .frame(width: 0, height: 0)
+        }
     }
 
     private var currentLabel: String {
         recorder.selectedApp?.name ?? "All system audio"
     }
+
+    private func showMenu() {
+        guard let anchor, let window = anchor.window else { return }
+        let menu = buildMenu()
+        let origin = menuPopUpLocation(for: menu, anchor: anchor, window: window)
+        menu.popUp(positioning: nil, at: origin, in: nil)
+    }
+
+    private func buildMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.appearance = anchor?.window?.effectiveAppearance
+        menu.autoenablesItems = true
+
+        menu.addItem(menuItem(title: "All system audio",
+                              image: NSImage(systemSymbolName: "speaker.wave.2.fill", accessibilityDescription: nil),
+                              app: nil))
+
+        let activeApps = recorder.runningApps.filter { $0.isActive }
+        if !activeApps.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(sectionHeader("Now Playing"))
+            for app in activeApps { menu.addItem(menuItem(title: app.name, image: app.icon, app: app)) }
+        }
+
+        let grouped = Dictionary(grouping: recorder.runningApps.filter { !$0.isActive }, by: \.bucket)
+        for (bucket, label) in [
+            (AudioApp.Bucket.meeting, "Meeting apps"),
+            (.browser, "Browsers"),
+            (.other, "Other apps"),
+        ] {
+            guard let apps = grouped[bucket], !apps.isEmpty else { continue }
+            menu.addItem(.separator())
+            menu.addItem(sectionHeader(label))
+            for app in apps { menu.addItem(menuItem(title: app.name, image: app.icon, app: app)) }
+        }
+        return menu
+    }
+
+    private func menuItem(title: String, image: NSImage?, app: AudioApp?) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let sleeve = MenuClosure { [recorder] in
+            recorder.selectedApp = app
+        }
+        item.representedObject = sleeve
+        item.target = sleeve
+        item.action = #selector(MenuClosure.invoke)
+        if let image {
+            image.size = NSSize(width: 16, height: 16)
+            item.image = image
+        }
+        item.state = (app?.id == recorder.selectedApp?.id) ? .on : .off
+        return item
+    }
+
+    private func sectionHeader(_ text: String) -> NSMenuItem {
+        let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.attributedTitle = NSAttributedString(
+            string: text.uppercased(),
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: NSColor.tertiaryLabelColor,
+                .kern: 0.6,
+            ]
+        )
+        return item
+    }
+
+    /// Position the menu just below the pill's bottom-left corner in
+    /// screen coordinates, clamped to the visible frame. Same helper
+    /// cueboard's header menu uses.
+    private func menuPopUpLocation(for menu: NSMenu, anchor: NSView, window: NSWindow) -> CGPoint {
+        let anchorBoundsInWindow = anchor.convert(anchor.bounds, to: nil)
+        let anchorFrameOnScreen = window.convertToScreen(anchorBoundsInWindow)
+        let screen = window.screen ?? NSScreen.main
+        let visibleFrame = screen?.visibleFrame ?? .zero
+        let menuSize = menu.size
+        let inset: CGFloat = 8
+
+        var location = CGPoint(
+            x: anchorFrameOnScreen.minX,
+            y: anchorFrameOnScreen.minY - 4
+        )
+        location.x = min(
+            max(location.x, visibleFrame.minX + inset),
+            max(visibleFrame.minX + inset, visibleFrame.maxX - menuSize.width - inset)
+        )
+        location.y = min(
+            max(location.y, visibleFrame.minY + menuSize.height + inset),
+            visibleFrame.maxY - inset
+        )
+        return location
+    }
+}
+
+/// Invisible NSView used only to locate the pill in screen coordinates
+/// so `NSMenu.popUp` can drop below the right spot.
+private struct MenuAnchorView: NSViewRepresentable {
+    let onUpdate: (NSView) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { onUpdate(view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onUpdate(nsView) }
+    }
+}
+
+/// Bridge @objc menu-action selectors to arbitrary Swift closures — same
+/// trick cueboard uses for `ClosureSleeve`.
+private final class MenuClosure: NSObject {
+    private let action: () -> Void
+    init(_ action: @escaping () -> Void) { self.action = action }
+    @objc func invoke() { action() }
 }
 
 // MARK: - Audio meter (7 bars)

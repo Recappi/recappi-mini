@@ -9,13 +9,16 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
+                .navigationSplitViewColumnWidth(min: 160, ideal: 170, max: 190)
         } detail: {
             detail
         }
-        .frame(minWidth: 680, minHeight: 460)
+        // 580pt window matches System Settings' default width and keeps the
+        // horizontal gap between label and control tight. .contentSize in
+        // the App's Settings scene lets height track the active pane so
+        // short panes (General / Shortcuts / Storage) don't get padded.
+        .frame(minWidth: 580, idealWidth: 580, maxWidth: 640)
         .onDisappear {
-            // Drop back to menubar-only mode when settings closes.
             NSApp.setActivationPolicy(.accessory)
         }
     }
