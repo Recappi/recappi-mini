@@ -48,7 +48,6 @@ enum ProcessingPhase: Equatable {
     case startingTranscription
     case polling(jobStatus: String)
     case fetchingTranscript
-    case summarizing
 
     var title: String {
         switch self {
@@ -61,7 +60,6 @@ enum ProcessingPhase: Equatable {
         case .startingTranscription: return "Starting transcription…"
         case .polling: return "Transcribing…"
         case .fetchingTranscript: return "Fetching transcript…"
-        case .summarizing: return "Summarizing…"
         }
     }
 
@@ -86,8 +84,6 @@ enum ProcessingPhase: Equatable {
             return "Job: \(jobStatus) · waiting on backend"
         case .fetchingTranscript:
             return "Downloading text"
-        case .summarizing:
-            return "Generating notes locally"
         }
     }
 
@@ -116,9 +112,7 @@ enum ProcessingPhase: Equatable {
         case .polling:
             return .indeterminate(base: 0.82)
         case .fetchingTranscript:
-            return .determinate(0.94)
-        case .summarizing:
-            return .determinate(0.98)
+            return .determinate(0.96)
         }
     }
 }

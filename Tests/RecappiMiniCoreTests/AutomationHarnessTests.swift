@@ -39,6 +39,6 @@ final class AutomationHarnessTests: XCTestCase {
         )
         XCTAssertTrue(readme.contains("RECAPPI_UI_TEST"))
         XCTAssertTrue(readme.contains("accessibility identifiers"))
-        XCTAssertTrue(readme.contains("RECAPPI_TEST_SUMMARY_STUB"))
+        XCTAssertTrue(readme.contains("RECAPPI_TEST_AUTH_TOKEN"))
     }
 }

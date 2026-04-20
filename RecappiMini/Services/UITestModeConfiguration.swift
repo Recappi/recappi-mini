@@ -8,8 +8,6 @@ struct UITestModeConfiguration {
     let cookieValue: String?
     let backendURL: String?
     let audioFixturePath: String?
-    let disableSummary: Bool
-    let summaryStubEnabled: Bool
     let manualAuthEnabled: Bool
 
     private init(processInfo: ProcessInfo = .processInfo) {
@@ -21,8 +19,6 @@ struct UITestModeConfiguration {
         cookieValue = env["RECAPPI_TEST_COOKIE"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         backendURL = env["RECAPPI_TEST_BACKEND_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         audioFixturePath = env["RECAPPI_TEST_AUDIO_FIXTURE"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        disableSummary = env["RECAPPI_TEST_DISABLE_SUMMARY"] == "1"
-        summaryStubEnabled = env["RECAPPI_TEST_SUMMARY_STUB"] == "1"
         manualAuthEnabled = env["RECAPPI_ENABLE_MANUAL_AUTH"] == "1"
     }
 }

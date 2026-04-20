@@ -40,11 +40,6 @@ real cloud processing flow without depending on live microphone capture:
    Overrides the backend base URL when needed.
 4. `RECAPPI_TEST_AUDIO_FIXTURE=<path>`
    Replaces live recording capture with a bundled `recording.m4a` fixture.
-5. `RECAPPI_TEST_DISABLE_SUMMARY=1`
-   Forces transcript-only E2E.
-6. `RECAPPI_TEST_SUMMARY_STUB=1`
-   Exercises the summary/action-items UI path using a deterministic stub after
-   transcript fetch, so automation does not depend on external LLM credentials.
 
 The runtime also exposes stable accessibility identifiers for the Settings
 auth flow, recording controls, processing labels, retry button, and result
@@ -73,10 +68,6 @@ seeding.
 - `RECAPPI_TEST_APP`
   Optional override for the built app bundle path. Defaults to
   `build/RecappiMini.app`.
-- `RECAPPI_TEST_DISABLE_SUMMARY`
-  Optional switch to keep automation on transcript-only coverage.
-- `RECAPPI_TEST_SUMMARY_STUB`
-  Optional switch to generate deterministic summary files during UI automation.
 
 ## Known caveat
 

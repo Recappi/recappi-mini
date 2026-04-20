@@ -80,12 +80,4 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(audioFile.fileFormat.channelCount, 1)
     }
 
-    func testUITestSummaryStubUsesFixtureText() {
-        let transcript = "Recappi automation transcript body."
-        let insights = SessionProcessor.makeUITestStubInsights(from: transcript)
-
-        XCTAssertTrue(insights.summary.contains("Automation Summary"))
-        XCTAssertTrue(insights.summary.contains("Recappi automation transcript body"))
-        XCTAssertEqual(insights.actionItems.count, 2)
-    }
 }

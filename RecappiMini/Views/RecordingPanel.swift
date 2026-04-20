@@ -44,7 +44,7 @@ struct RecordingPanel: View {
             DoneState(
                 result: r,
                 onShow: { onOpenFolder(r.folderURL) },
-                onCopy: { copyInsights(r) },
+                onCopy: { copyTranscript(r) },
                 onNew: { recorder.reset() }
             )
         case .error(let message):
@@ -120,25 +120,9 @@ struct RecordingPanel: View {
         }
     }
 
-    /// "Copy" in the done state copies summary + action items if we have
-    /// them; otherwise falls back to the raw transcript.
-    private func copyInsights(_ r: RecordingResult) {
-        var body = ""
-        if let s = r.insights?.summary, !s.isEmpty {
-            body += s.trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
-            if let items = r.insights?.actionItems, !items.isEmpty {
-                body += "\nAction items:\n"
-                for item in items {
-                    body += "- "
-                    if let owner = item.owner, !owner.isEmpty { body += "\(owner): " }
-                    body += item.text
-                    if let due = item.due, !due.isEmpty { body += " (due \(due))" }
-                    body += "\n"
-                }
-            }
-        } else if let t = r.transcript, !t.isEmpty {
-            body = t
-        }
+    /// "Copy" in the done state copies the transcript text when available.
+    private func copyTranscript(_ r: RecordingResult) {
+        let body = r.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !body.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(body, forType: .string)
@@ -152,9 +136,8 @@ struct RecordingPanel: View {
         case .recording: return "recording"
         case .processing: return "processing"
         case .done(let r):
-            let hasSummary = r.insights?.summary.isEmpty == false
             let hasTranscript = (r.transcript ?? "").isEmpty == false
-            return "done-\(hasSummary ? "full" : (hasTranscript ? "transcript" : "bare"))"
+            return "done-\(hasTranscript ? "transcript" : "bare")"
         case .error(let m):
             return "error-\(recorder.lastSessionDir != nil ? "recoverable" : "plain")-\(m.count)"
         }
@@ -385,8 +368,8 @@ private struct DoneState: View {
                     .foregroundStyle(Color.dtLabelSecondary)
             }
 
-            if hasSummary || hasTranscript {
-                summaryCard
+            if hasTranscript {
+                transcriptCard
             }
 
             HStack(spacing: 6) {
@@ -399,40 +382,21 @@ private struct DoneState: View {
     }
 
     @ViewBuilder
-    private var summaryCard: some View {
+    private var transcriptCard: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Summary")
+            Text("Transcript")
                 .font(.system(size: 10.5, weight: .semibold))
                 .tracking(0.05 * 10.5)
                 .textCase(.uppercase)
                 .foregroundStyle(Color.dtLabelSecondary)
 
-            Text(summaryBody)
+            Text(transcriptBody)
                 .font(.system(size: 11.5))
                 .foregroundStyle(Color.dtLabel)
                 .lineLimit(3)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
-
-            if !actionItemsToShow.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(actionItemsToShow.indices, id: \.self) { i in
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Circle()
-                                .fill(Color.dtLabelSecondary)
-                                .frame(width: 3, height: 3)
-                                .padding(.top, 5)
-                            Text(actionItemsToShow[i])
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(Color.dtLabel)
-                                .lineLimit(2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-                .padding(.top, 2)
-            }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -446,23 +410,10 @@ private struct DoneState: View {
         )
     }
 
-    private var hasSummary: Bool { !(result.insights?.summary.isEmpty ?? true) }
     private var hasTranscript: Bool { !(result.transcript ?? "").isEmpty }
 
-    private var summaryBody: String {
-        if let s = result.insights?.summary, !s.isEmpty { return s }
+    private var transcriptBody: String {
         return result.transcript ?? ""
-    }
-
-    /// First 3 action items formatted as "Owner: text" or just text.
-    private var actionItemsToShow: [String] {
-        guard let items = result.insights?.actionItems else { return [] }
-        return items.prefix(3).map { item in
-            if let owner = item.owner, !owner.isEmpty {
-                return "\(owner): \(item.text)"
-            }
-            return item.text
-        }
     }
 
     private func formatTime(_ seconds: Int) -> String {
@@ -557,7 +508,6 @@ private struct ErrorState: View {
             || lower.contains("session")
             || lower.contains("sign in")
             || lower.contains("language not supported")
-            || lower.contains("apple intelligence")
     }
 }
 

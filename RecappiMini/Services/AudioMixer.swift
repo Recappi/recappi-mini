@@ -7,10 +7,11 @@ import Foundation
 ///
 /// Why not AVAssetExportSession: AppleM4A preset outputs as many audio
 /// tracks as the composition has. We need a single mixed track so downstream
-/// ASR (Apple Speech / Gemini inline) treats it as one continuous signal.
+/// downstream processing treats it as one continuous signal.
 enum AudioMixer {
-    /// Output file settings — voice-grade AAC. ~14MB / hour of audio, well
-    /// under Gemini's inline request limit. Built on demand so we don't need
+    /// Output file settings — voice-grade AAC. ~14MB / hour of audio while
+    /// staying compact enough for routine local storage. Built on demand so
+    /// we don't need
     /// to wrestle with Swift 6 concurrency for a mutable-type global.
     private static func outputSettings() -> [String: Any] {
         [

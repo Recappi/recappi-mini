@@ -12,7 +12,7 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         }
 
         let baseline = UITestArtifacts.sessionNames()
-        let app = launchRecappiApp(authToken: authToken, disableSummary: true)
+        let app = launchRecappiApp(authToken: authToken)
 
         openSettings(from: app)
         waitForSignedInStatus(in: app)
@@ -30,31 +30,14 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("upload.wav").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("transcript.md").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("summary.md").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("action-items.md").path))
     }
 
     func testInvalidBearerFlow() throws {
-        let app = launchRecappiApp(authToken: "definitely-invalid-auth-token", disableSummary: true)
+        let app = launchRecappiApp(authToken: "definitely-invalid-auth-token")
 
         openSettings(from: app)
         waitForFailedStatus(in: app, timeout: 15)
-    }
-
-    func testBearerDrivenTranscriptionFlowWithSummaryStub() throws {
-        guard let authToken = UITestPaths.liveAuthTokenValue, !authToken.isEmpty else {
-            throw XCTSkip("Set RECAPPI_TEST_AUTH_TOKEN to run the live backend summary UI test.")
-        }
-
-        let baseline = UITestArtifacts.sessionNames()
-        let app = launchRecappiApp(authToken: authToken, enableSummaryStub: true)
-
-        startAndStopFixtureRecording(in: app)
-        waitForCompletion(in: app)
-
-        let sessionDir = try UITestArtifacts.newestSession(excluding: baseline)
-        attachArtifacts(for: sessionDir, named: "summary-stub-session")
-
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("summary.md").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("action-items.md").path))
     }
 
     func testSignOutReturnsToSignedOutState() throws {
@@ -62,7 +45,7 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
             throw XCTSkip("Set RECAPPI_TEST_AUTH_TOKEN to run the sign-out UI test.")
         }
 
-        let app = launchRecappiApp(authToken: authToken, disableSummary: true)
+        let app = launchRecappiApp(authToken: authToken)
 
         openSettings(from: app)
         waitForSignedInStatus(in: app)

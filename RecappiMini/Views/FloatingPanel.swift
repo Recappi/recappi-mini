@@ -28,7 +28,7 @@ final class FloatingPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
     }
 
-    // Only become key when a text field needs input (settings API key)
+    // Only become key when a text field in settings needs input.
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 

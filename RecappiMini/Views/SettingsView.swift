@@ -16,7 +16,6 @@ struct SettingsView: View {
                     manualAuthSection
                 }
                 transcriptionSection
-                summaryProviderSection
                 storageSection
             }
             .formStyle(.grouped)
@@ -142,10 +141,6 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder private var summaryProviderSection: some View {
-        SummaryProviderSection()
-    }
-
     @ViewBuilder private var storageSection: some View {
         Section {
             LabeledContent("Recordings folder") {
@@ -156,7 +151,7 @@ struct SettingsView: View {
         } header: {
             Text("Storage")
         } footer: {
-            Text("Each session keeps recording.m4a, upload.wav, transcript.md, and any summary files side by side in ~/Documents/Recappi Mini.")
+            Text("Each session keeps recording.m4a, upload.wav, transcript.md, and remote-session.json side by side in ~/Documents/Recappi Mini.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
@@ -308,157 +303,5 @@ private struct SettingsHeader: View {
         .padding(.horizontal, 20)
         .padding(.top, 20)
         .padding(.bottom, 14)
-    }
-}
-
-private struct SummaryProviderSection: View {
-    @ObservedObject private var config = AppConfig.shared
-    @State private var testing = false
-    @State private var testResult: TestResult?
-
-    enum TestResult: Equatable {
-        case success(String)
-        case failure(String)
-    }
-
-    var body: some View {
-        Section {
-            Picker("Provider", selection: $config.llmProvider) {
-                ForEach(LLMProvider.allCases) { provider in
-                    Text(provider.displayName).tag(provider.rawValue)
-                }
-            }
-
-            if config.selectedProvider.needsApiKey {
-                SecureField("API Key", text: apiKeyBinding, prompt: Text(apiKeyPlaceholder))
-                TextField("Base URL", text: baseUrlBinding, prompt: Text(baseUrlPlaceholder))
-                TextField("Model", text: modelBinding, prompt: Text(modelPlaceholder))
-            }
-
-            if config.selectedProvider != .none {
-                HStack(spacing: 10) {
-                    Button(action: runTest) {
-                        if testing {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text("Testing…")
-                            }
-                        } else {
-                            Text("Test summary provider")
-                        }
-                    }
-                    .disabled(testing || !canTest)
-
-                    if let result = testResult { testResultLabel(result) }
-
-                    Spacer(minLength: 0)
-                }
-            }
-        } header: {
-            Text("Summary Provider")
-        } footer: {
-            Text(footerText)
-                .foregroundStyle(Color.dtLabelSecondary)
-                .font(.footnote)
-        }
-        .onChange(of: config.selectedProvider) { _, _ in testResult = nil }
-    }
-
-    private var apiKeyBinding: Binding<String> {
-        switch config.selectedProvider {
-        case .gemini: return $config.geminiApiKey
-        case .openai: return $config.openaiApiKey
-        case .none, .apple: return .constant("")
-        }
-    }
-
-    private var baseUrlBinding: Binding<String> {
-        switch config.selectedProvider {
-        case .gemini: return $config.geminiBaseUrl
-        case .openai: return $config.openaiBaseUrl
-        case .none, .apple: return .constant("")
-        }
-    }
-
-    private var modelBinding: Binding<String> {
-        switch config.selectedProvider {
-        case .gemini: return $config.geminiModel
-        case .openai: return $config.openaiModel
-        case .none, .apple: return .constant("")
-        }
-    }
-
-    private var apiKeyPlaceholder: String {
-        switch config.selectedProvider {
-        case .gemini: return "AIza…"
-        case .openai: return "sk-…"
-        default: return ""
-        }
-    }
-
-    private var baseUrlPlaceholder: String {
-        switch config.selectedProvider {
-        case .gemini: return AppConfig.defaultGeminiBaseUrl
-        case .openai: return AppConfig.defaultOpenaiBaseUrl
-        default: return ""
-        }
-    }
-
-    private var modelPlaceholder: String {
-        switch config.selectedProvider {
-        case .gemini: return AppConfig.defaultGeminiModel
-        case .openai: return AppConfig.defaultOpenaiChatModel
-        default: return ""
-        }
-    }
-
-    private var footerText: String {
-        switch config.selectedProvider {
-        case .none:
-            return "Skip summary and action items. Transcript generation still runs through Recappi Cloud."
-        case .apple:
-            return "Runs on-device with Apple Intelligence after the transcript comes back from Recappi Cloud."
-        case .gemini:
-            return "Leave Base URL / Model blank for defaults. Custom Base URL supports Gemini-compatible proxies."
-        case .openai:
-            return "Leave Base URL / Model blank for defaults. Custom Base URL supports OpenAI-compatible endpoints."
-        }
-    }
-
-    @ViewBuilder
-    private func testResultLabel(_ result: TestResult) -> some View {
-        HStack(spacing: 5) {
-            switch result {
-            case .success(let message):
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(DT.systemGreen)
-                Text(message).font(.footnote).foregroundStyle(Color.dtLabelSecondary).lineLimit(2)
-            case .failure(let message):
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(DT.systemOrange)
-                Text(message).font(.footnote).foregroundStyle(Color.dtLabelSecondary).lineLimit(2)
-            }
-        }
-    }
-
-    private var canTest: Bool {
-        if config.selectedProvider.needsApiKey {
-            return !config.currentApiKey.isEmpty
-        }
-        return true
-    }
-
-    private func runTest() {
-        testing = true
-        testResult = nil
-        let provider = createInsightsProvider(config: config)
-        Task { @MainActor in
-            defer { testing = false }
-            do {
-                let probe = "Alice and Bob agreed to ship the pipeline by Friday. Bob will own rollout."
-                let insights = try await provider.extract(transcript: probe)
-                testResult = .success("OK — \(insights.summary.count) chars, \(insights.keyDecisions.count) decisions, \(insights.actionItems.count) action items.")
-            } catch {
-                testResult = .failure(error.localizedDescription)
-            }
-        }
     }
 }

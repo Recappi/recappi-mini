@@ -65,17 +65,13 @@ enum UITestArtifacts {
 extension XCTestCase {
     func launchRecappiApp(
         authToken: String? = nil,
-        cookie: String? = nil,
-        disableSummary: Bool = false,
-        enableSummaryStub: Bool = false
+        cookie: String? = nil
     ) -> XCUIApplication {
         terminateExistingRecappiInstances()
 
         let app = XCUIApplication(url: UITestPaths.appBundle)
         app.launchEnvironment["RECAPPI_UI_TEST"] = "1"
         app.launchEnvironment["RECAPPI_TEST_AUDIO_FIXTURE"] = UITestPaths.recordingFixture.path
-        app.launchEnvironment["RECAPPI_TEST_DISABLE_SUMMARY"] = disableSummary ? "1" : "0"
-        app.launchEnvironment["RECAPPI_TEST_SUMMARY_STUB"] = enableSummaryStub ? "1" : "0"
 
         let effectiveAuthToken = authToken ?? UITestPaths.liveAuthTokenValue
         if let effectiveAuthToken, !effectiveAuthToken.isEmpty {

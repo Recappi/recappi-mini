@@ -19,8 +19,8 @@ struct RecappiMiniApp: App {
 
         // Standalone Settings window — opened via ⌘, or the gear in the panel.
         // .contentSize makes the window track the SwiftUI content's intrinsic
-        // size so switching tabs (or picking a provider that adds rows)
-        // resizes the window rather than forcing an internal scroll.
+        // size so settings sections can grow without forcing an internal
+        // scroll view.
         Settings {
             SettingsView()
         }
