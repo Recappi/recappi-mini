@@ -6,16 +6,16 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testCookieDrivenTranscriptionFlow() throws {
-        guard let cookie = UITestPaths.liveCookieValue, !cookie.isEmpty else {
-            throw XCTSkip("Set RECAPPI_TEST_COOKIE to run the live backend UI test.")
+    func testBearerDrivenTranscriptionFlow() throws {
+        guard let authToken = UITestPaths.liveAuthTokenValue, !authToken.isEmpty else {
+            throw XCTSkip("Set RECAPPI_TEST_AUTH_TOKEN to run the live backend UI test.")
         }
 
         let baseline = UITestArtifacts.sessionNames()
-        let app = launchRecappiApp(cookie: cookie, disableSummary: true)
+        let app = launchRecappiApp(authToken: authToken, disableSummary: true)
 
         openSettings(from: app)
-        verifySessionSucceeds(in: app)
+        waitForSignedInStatus(in: app)
         closeSettingsWindow(in: app)
         startAndStopFixtureRecording(in: app)
 
@@ -32,20 +32,20 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("summary.md").path))
     }
 
-    func testInvalidCookieFlow() throws {
-        let app = launchRecappiApp(cookie: "definitely-invalid-cookie", disableSummary: true)
+    func testInvalidBearerFlow() throws {
+        let app = launchRecappiApp(authToken: "definitely-invalid-auth-token", disableSummary: true)
 
         openSettings(from: app)
-        verifySessionFails(in: app, timeout: 15)
+        waitForFailedStatus(in: app, timeout: 15)
     }
 
-    func testCookieDrivenTranscriptionFlowWithSummaryStub() throws {
-        guard let cookie = UITestPaths.liveCookieValue, !cookie.isEmpty else {
-            throw XCTSkip("Set RECAPPI_TEST_COOKIE to run the live backend summary UI test.")
+    func testBearerDrivenTranscriptionFlowWithSummaryStub() throws {
+        guard let authToken = UITestPaths.liveAuthTokenValue, !authToken.isEmpty else {
+            throw XCTSkip("Set RECAPPI_TEST_AUTH_TOKEN to run the live backend summary UI test.")
         }
 
         let baseline = UITestArtifacts.sessionNames()
-        let app = launchRecappiApp(cookie: cookie, enableSummaryStub: true)
+        let app = launchRecappiApp(authToken: authToken, enableSummaryStub: true)
 
         startAndStopFixtureRecording(in: app)
         waitForCompletion(in: app)
@@ -55,5 +55,18 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("summary.md").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("action-items.md").path))
+    }
+
+    func testSignOutReturnsToSignedOutState() throws {
+        guard let authToken = UITestPaths.liveAuthTokenValue, !authToken.isEmpty else {
+            throw XCTSkip("Set RECAPPI_TEST_AUTH_TOKEN to run the sign-out UI test.")
+        }
+
+        let app = launchRecappiApp(authToken: authToken, disableSummary: true)
+
+        openSettings(from: app)
+        waitForSignedInStatus(in: app)
+        signOut(in: app)
+        waitForFailedStatus(in: app, timeout: 15)
     }
 }

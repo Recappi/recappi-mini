@@ -1,0 +1,405 @@
+import Foundation
+import Security
+
+@MainActor
+final class AuthSessionStore: ObservableObject {
+    static let shared = AuthSessionStore()
+
+    @Published private(set) var authStatus: AuthStatus
+
+    private let defaults = UserDefaults.standard
+    private let keychain = KeychainAuthStore()
+
+    private let cachedUserKey = "recappi.cachedUserSession"
+    private let backendOriginKey = "recappi.backendOrigin"
+    private let lastVerifiedKey = "recappi.lastVerifiedAt"
+    private let lastProviderKey = "recappi.lastOAuthProvider"
+
+    private init() {
+        if let data = defaults.data(forKey: cachedUserKey),
+           let session = try? JSONDecoder().decode(UserSession.self, from: data),
+           keychain.readBearerToken() != nil {
+            authStatus = .signedIn(session)
+        } else {
+            authStatus = .signedOut
+        }
+    }
+
+    var currentSession: UserSession? {
+        if case .signedIn(let session) = authStatus { return session }
+        return nil
+    }
+
+    var backendOrigin: String? {
+        defaults.string(forKey: backendOriginKey)
+    }
+
+    var lastOAuthProvider: OAuthProvider? {
+        defaults.string(forKey: lastProviderKey).flatMap(OAuthProvider.init(rawValue:))
+    }
+
+    func bootstrapForUITestsIfNeeded() async {
+        guard UITestModeConfiguration.shared.isEnabled else { return }
+
+        let origin = AppConfig.shared.effectiveBackendBaseURL
+        let hasInjectedAuth = UITestModeConfiguration.shared.authToken != nil || UITestModeConfiguration.shared.cookieValue != nil
+
+        if hasInjectedAuth {
+            _ = keychain.deleteBearerToken()
+            defaults.removeObject(forKey: cachedUserKey)
+            defaults.removeObject(forKey: lastVerifiedKey)
+            authStatus = .signedOut
+        }
+
+        if let authToken = UITestModeConfiguration.shared.authToken,
+           let normalized = Self.normalizeBearerToken(authToken) {
+            _ = keychain.saveBearerToken(normalized)
+        } else if let cookie = UITestModeConfiguration.shared.cookieValue {
+            do {
+                _ = try await exchangeCookieForBearer(cookie, origin: origin)
+            } catch {
+                authStatus = .failed
+            }
+        }
+
+        guard keychain.readBearerToken() != nil else { return }
+
+        do {
+            _ = try await ensureAuthorized(origin: origin)
+        } catch {
+            // Keep the seeded credential around so UI tests can intentionally
+            // cover invalid / expired token states without surprise mutation.
+        }
+    }
+
+    func startOAuth(provider: OAuthProvider, origin: String) async throws -> UserSession {
+        authStatus = .authenticating
+        let resolvedOrigin = Self.normalizeOrigin(origin)
+        do {
+            let bootstrap = try await NativeOAuthCoordinator().authenticate(provider: provider, origin: resolvedOrigin)
+            persist(
+                bearerToken: bootstrap.bearerToken,
+                session: bootstrap.session,
+                origin: resolvedOrigin,
+                provider: provider
+            )
+            authStatus = .signedIn(bootstrap.session)
+            return bootstrap.session
+        } catch {
+            if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
+                authStatus = .expired
+            } else {
+                authStatus = .failed
+            }
+            throw error
+        }
+    }
+
+    func completeOAuthSession(origin: String) async throws -> UserSession {
+        authStatus = .authenticating
+        let resolvedOrigin = Self.normalizeOrigin(origin)
+        do {
+            let bootstrap = try await RecappiAuthBootstrapClient(origin: resolvedOrigin).exchangeSharedBrowserSession()
+            persist(
+                bearerToken: bootstrap.bearerToken,
+                session: bootstrap.session,
+                origin: resolvedOrigin,
+                provider: lastOAuthProvider
+            )
+            authStatus = .signedIn(bootstrap.session)
+            return bootstrap.session
+        } catch {
+            authStatus = .failed
+            throw error
+        }
+    }
+
+    func exchangeCookieForBearer(_ raw: String, origin: String) async throws -> UserSession {
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let normalized = Self.normalizeCookieHeader(cleaned) else {
+            authStatus = .failed
+            throw RecappiSessionError.invalidCookieFormat
+        }
+
+        authStatus = .authenticating
+        let resolvedOrigin = Self.normalizeOrigin(origin)
+        do {
+            let bootstrap = try await RecappiAuthBootstrapClient(origin: resolvedOrigin)
+                .exchangeCookieForBearer(normalized.value)
+
+            persist(
+                bearerToken: bootstrap.bearerToken,
+                session: bootstrap.session,
+                origin: resolvedOrigin,
+                provider: lastOAuthProvider
+            )
+            authStatus = .signedIn(bootstrap.session)
+            return bootstrap.session
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            authStatus = .expired
+            throw error
+        } catch {
+            authStatus = .failed
+            throw error
+        }
+    }
+
+    func importBearerToken(_ raw: String, origin: String) async throws -> UserSession {
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let normalized = Self.normalizeBearerToken(cleaned) else {
+            authStatus = .failed
+            throw RecappiSessionError.invalidBearerFormat
+        }
+
+        authStatus = .authenticating
+        let resolvedOrigin = Self.normalizeOrigin(origin)
+        let client = RecappiAPIClient(origin: resolvedOrigin, bearerToken: normalized)
+
+        do {
+            let lookup = try await client.getSession()
+            guard let session = lookup.userSession else {
+                authStatus = .failed
+                throw RecappiSessionError.invalidSession
+            }
+
+            persist(
+                bearerToken: lookup.bearerToken ?? normalized,
+                session: session,
+                origin: resolvedOrigin,
+                provider: lastOAuthProvider
+            )
+            authStatus = .signedIn(session)
+            return session
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            authStatus = .expired
+            throw error
+        } catch {
+            authStatus = .failed
+            throw error
+        }
+    }
+
+    func reconnect(origin: String) async throws -> UserSession {
+        let provider = lastOAuthProvider ?? .google
+        return try await startOAuth(provider: provider, origin: origin)
+    }
+
+    func ensureAuthorized(origin: String) async throws -> UserSession {
+        guard let bearerToken = keychain.readBearerToken() else {
+            authStatus = .signedOut
+            throw RecappiSessionError.notSignedIn
+        }
+
+        let resolvedOrigin = Self.normalizeOrigin(origin)
+        let client = RecappiAPIClient(origin: resolvedOrigin, bearerToken: bearerToken)
+
+        do {
+            let lookup = try await client.getSession()
+            guard let session = lookup.userSession else {
+                authStatus = .failed
+                throw RecappiSessionError.invalidSession
+            }
+
+            persist(
+                bearerToken: lookup.bearerToken ?? bearerToken,
+                session: session,
+                origin: resolvedOrigin,
+                provider: lastOAuthProvider
+            )
+            authStatus = .signedIn(session)
+            return session
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            authStatus = .expired
+            throw error
+        } catch {
+            authStatus = .failed
+            throw error
+        }
+    }
+
+    func handleUnauthorized(origin: String) async throws -> UserSession {
+        authStatus = .expired
+        _ = keychain.deleteBearerToken()
+        defaults.removeObject(forKey: cachedUserKey)
+        defaults.removeObject(forKey: lastVerifiedKey)
+
+        if UITestModeConfiguration.shared.isEnabled {
+            throw RecappiSessionError.reauthenticationUnavailableInUITests
+        }
+
+        return try await reconnect(origin: origin)
+    }
+
+    func bearerToken() -> String? {
+        keychain.readBearerToken()
+    }
+
+    func clearSession() {
+        _ = keychain.deleteBearerToken()
+        defaults.removeObject(forKey: cachedUserKey)
+        defaults.removeObject(forKey: backendOriginKey)
+        defaults.removeObject(forKey: lastVerifiedKey)
+        authStatus = .signedOut
+    }
+
+    private func persist(
+        bearerToken: String,
+        session: UserSession,
+        origin: String,
+        provider: OAuthProvider?
+    ) {
+        _ = keychain.saveBearerToken(bearerToken)
+        defaults.set(origin, forKey: backendOriginKey)
+        defaults.set(Date().timeIntervalSince1970, forKey: lastVerifiedKey)
+        if let provider {
+            defaults.set(provider.rawValue, forKey: lastProviderKey)
+        }
+        if let data = try? JSONEncoder().encode(session) {
+            defaults.set(data, forKey: cachedUserKey)
+        }
+    }
+
+    nonisolated static func normalizeOrigin(_ raw: String) -> String {
+        raw.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+    }
+
+    nonisolated static func normalizeBearerToken(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.lowercased().hasPrefix("bearer ") {
+            let suffix = trimmed.dropFirst("Bearer ".count)
+            let value = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+
+        if trimmed.lowercased().hasPrefix("set-auth-token:") {
+            let suffix = trimmed.dropFirst("set-auth-token:".count)
+            let value = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+
+        return trimmed
+    }
+
+    nonisolated static func normalizeCookieHeader(_ raw: String) -> NormalizedCookieInput? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let direct = extractCookie(named: "__Secure-better-auth.session_token", from: trimmed) {
+            return NormalizedCookieInput(value: direct)
+        }
+
+        if let plain = extractCookie(named: "better-auth.session_token", from: trimmed) {
+            return NormalizedCookieInput(value: plain)
+        }
+
+        if trimmed.contains("=") {
+            return nil
+        }
+
+        return NormalizedCookieInput(value: trimmed)
+    }
+
+    private nonisolated static func extractCookie(named name: String, from header: String) -> String? {
+        let pieces = header.split(separator: ";")
+        for piece in pieces {
+            let part = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+            let prefix = "\(name)="
+            if part.hasPrefix(prefix) {
+                return String(part.dropFirst(prefix.count))
+            }
+        }
+        return nil
+    }
+
+    struct NormalizedCookieInput {
+        let value: String
+
+        var header: String {
+            "__Secure-better-auth.session_token=\(value)"
+        }
+    }
+}
+
+enum RecappiSessionError: LocalizedError {
+    case invalidBearerFormat
+    case invalidCookieFormat
+    case invalidSession
+    case notSignedIn
+    case oauthCancelled
+    case oauthCallbackMismatch
+    case oauthExchangeMissingToken
+    case oauthStartFailed
+    case reauthenticationUnavailableInUITests
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidBearerFormat:
+            return "Paste a bearer token or full Authorization header."
+        case .invalidCookieFormat:
+            return "Paste a Better Auth session cookie or raw cookie value."
+        case .invalidSession:
+            return "Recappi Cloud rejected this sign-in. Reconnect and try again."
+        case .notSignedIn:
+            return "Sign in to Recappi Cloud in Settings before processing this recording."
+        case .oauthCancelled:
+            return "Recappi Cloud sign-in was canceled."
+        case .oauthCallbackMismatch:
+            return "Recappi Cloud sign-in could not finish because the callback did not match this app."
+        case .oauthExchangeMissingToken:
+            return "Recappi Cloud sign-in finished, but the backend did not expose a reusable bearer token."
+        case .oauthStartFailed:
+            return "Recappi Cloud sign-in could not start."
+        case .reauthenticationUnavailableInUITests:
+            return "UI-test auth token expired. Seed a fresh bearer token and rerun the flow."
+        }
+    }
+}
+
+private struct KeychainAuthStore {
+    private let service = "com.recappi.mini"
+    private let account = "recappi.auth-token"
+
+    func readBearerToken() -> String? {
+        var query = baseQuery
+        query[kSecReturnData as String] = kCFBooleanTrue
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return string
+    }
+
+    func saveBearerToken(_ value: String) -> Bool {
+        let data = Data(value.utf8)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+
+        let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
+        if updateStatus == errSecSuccess { return true }
+
+        var addQuery = baseQuery
+        attributes.forEach { addQuery[$0.key] = $0.value }
+        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+    }
+
+    func deleteBearerToken() -> Bool {
+        SecItemDelete(baseQuery as CFDictionary) == errSecSuccess
+    }
+
+    private var baseQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+    }
+}

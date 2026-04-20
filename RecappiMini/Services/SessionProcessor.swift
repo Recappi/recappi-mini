@@ -11,14 +11,39 @@ final class SessionProcessor {
         duration: Int,
         updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void
     ) async throws -> RecordingResult {
+        let origin = AppConfig.shared.effectiveBackendBaseURL
+        var attemptedReauthentication = false
+
+        while true {
+            do {
+                return try await processOnce(
+                    sessionDir: sessionDir,
+                    duration: duration,
+                    updatePhase: updatePhase
+                )
+            } catch let error as RecappiAPIError where error == .unauthorized && !attemptedReauthentication {
+                attemptedReauthentication = true
+                updatePhase(.verifyingSession)
+                _ = try await AuthSessionStore.shared.handleUnauthorized(origin: origin)
+            } catch {
+                throw error
+            }
+        }
+    }
+
+    private func processOnce(
+        sessionDir: URL,
+        duration: Int,
+        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void
+    ) async throws -> RecordingResult {
         let config = AppConfig.shared
         guard config.cloudEnabled else {
             throw SessionProcessorError.cloudDisabled
         }
 
         updatePhase(.verifyingSession)
-        let session = try await CookieSessionStore.shared.ensureAuthorized(origin: config.effectiveBackendBaseURL)
-        let client = RecappiAPIClient(origin: session.backendOrigin, cookieValue: try cookieValue())
+        let session = try await AuthSessionStore.shared.ensureAuthorized(origin: config.effectiveBackendBaseURL)
+        let client = RecappiAPIClient(origin: session.backendOrigin, bearerToken: try bearerToken())
 
         updatePhase(.preparingUploadWav)
         let uploadURL = try await UploadAudioExporter.ensureUploadAudio(for: sessionDir)
@@ -80,7 +105,7 @@ final class SessionProcessor {
         try RecordingStore.saveTranscript(transcript.text, in: sessionDir)
 
         var insights: MeetingInsights?
-        if UITestModeConfiguration.shared.summaryStubEnabled && !UITestModeConfiguration.shared.disableSummary {
+        if UITestModeConfiguration.shared.isEnabled && !UITestModeConfiguration.shared.disableSummary {
             updatePhase(.summarizing)
             let extracted = Self.makeUITestStubInsights(from: transcript.text)
             try RecordingStore.saveSummary(extracted, in: sessionDir)
@@ -132,8 +157,8 @@ final class SessionProcessor {
         }
     }
 
-    private func cookieValue() throws -> String {
-        guard let value = CookieSessionStore.shared.cookieValue() else {
+    private func bearerToken() throws -> String {
+        guard let value = AuthSessionStore.shared.bearerToken() else {
             throw RecappiSessionError.notSignedIn
         }
         return value

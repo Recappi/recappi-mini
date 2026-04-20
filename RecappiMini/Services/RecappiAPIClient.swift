@@ -2,33 +2,20 @@ import Foundation
 
 struct RecappiAPIClient: Sendable {
     let origin: String
-    let cookieValue: String
+    let bearerToken: String
     let session: URLSession
 
-    init(origin: String, cookieValue: String, session: URLSession = .shared) {
+    init(origin: String, bearerToken: String, session: URLSession = .shared) {
         self.origin = origin.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-        self.cookieValue = cookieValue
+        self.bearerToken = bearerToken
         self.session = session
     }
 
-    func getSession() async throws -> UserSession? {
+    func getSession() async throws -> SessionLookup {
         let request = try makeRequest(path: "/api/auth/get-session")
         let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
-        if String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) == "null" {
-            return nil
-        }
-
-        let payload = try JSONDecoder().decode(SessionEnvelope.self, from: data)
-        guard let session = payload.session, let user = payload.user else { return nil }
-        return UserSession(
-            userId: user.id,
-            email: user.email,
-            name: user.name,
-            imageURL: user.image,
-            expiresAt: session.expiresAt,
-            backendOrigin: origin
-        )
+        try Self.validate(response: response, data: data)
+        return try Self.decodeSessionLookup(from: data, response: response, origin: origin)
     }
 
     func createRecording(title: String?) async throws -> CreateRecordingResponse {
@@ -36,7 +23,7 @@ struct RecappiAPIClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(CreateRecordingRequest(title: title))
         let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        try Self.validate(response: response, data: data)
         return try JSONDecoder().decode(CreateRecordingResponse.self, from: data)
     }
 
@@ -66,7 +53,7 @@ struct RecappiAPIClient: Sendable {
             request.httpBody = data
 
             let (responseData, response) = try await session.data(for: request)
-            try validate(response: response, data: responseData)
+            try Self.validate(response: response, data: responseData)
             let uploaded = try JSONDecoder().decode(UploadedPart.self, from: responseData)
             parts.append(UploadPartDescriptor(partNumber: uploaded.partNumber, etag: uploaded.etag))
 
@@ -83,7 +70,7 @@ struct RecappiAPIClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(CompleteRecordingRequest(parts: parts))
         let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        try Self.validate(response: response, data: data)
         return try JSONDecoder().decode(CompletedRecording.self, from: data)
     }
 
@@ -92,21 +79,21 @@ struct RecappiAPIClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(StartTranscriptionRequest(language: language))
         let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        try Self.validate(response: response, data: data)
         return try JSONDecoder().decode(StartTranscriptionResponse.self, from: data)
     }
 
     func getJob(jobId: String) async throws -> TranscriptionJob {
         let request = try makeRequest(path: "/api/jobs/\(jobId)")
         let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        try Self.validate(response: response, data: data)
         return try JSONDecoder().decode(TranscriptionJob.self, from: data)
     }
 
     func getTranscript(recordingId: String, jobId: String) async throws -> TranscriptResponse {
         let request = try makeRequest(path: "/api/recordings/\(recordingId)/transcript?jobId=\(jobId)")
         let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        try Self.validate(response: response, data: data)
         return try JSONDecoder().decode(TranscriptResponse.self, from: data)
     }
 
@@ -126,11 +113,52 @@ struct RecappiAPIClient: Sendable {
         request.httpMethod = method
         request.timeoutInterval = 180
         request.setValue(origin, forHTTPHeaderField: "Origin")
-        request.setValue("__Secure-better-auth.session_token=\(cookieValue)", forHTTPHeaderField: "Cookie")
+        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
         return request
     }
 
-    private func validate(response: URLResponse, data: Data) throws {
+    static func decodeSessionLookup(
+        from data: Data,
+        response: URLResponse,
+        origin: String
+    ) throws -> SessionLookup {
+        if String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) == "null" {
+            return SessionLookup(userSession: nil, bearerToken: nil)
+        }
+
+        let payload = try JSONDecoder().decode(SessionEnvelope.self, from: data)
+        let headerToken = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "set-auth-token")
+        let resolvedToken = resolveBearerToken(headerToken: headerToken, payloadToken: payload.session?.token)
+
+        guard let session = payload.session, let user = payload.user else {
+            return SessionLookup(userSession: nil, bearerToken: resolvedToken)
+        }
+
+        let userSession = UserSession(
+            userId: user.id,
+            email: user.email,
+            name: user.name,
+            imageURL: user.image,
+            expiresAt: session.expiresAt,
+            backendOrigin: origin
+        )
+
+        return SessionLookup(userSession: userSession, bearerToken: resolvedToken)
+    }
+
+    static func resolveBearerToken(headerToken: String?, payloadToken: String?) -> String? {
+        if let headerToken,
+           let normalized = AuthSessionStore.normalizeBearerToken(headerToken) {
+            return normalized
+        }
+        if let payloadToken,
+           let normalized = AuthSessionStore.normalizeBearerToken(payloadToken) {
+            return normalized
+        }
+        return nil
+    }
+
+    static func validate(response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else {
             throw RecappiAPIError.invalidResponse
         }
@@ -142,7 +170,7 @@ struct RecappiAPIClient: Sendable {
         }
     }
 
-    private static func extractErrorMessage(from data: Data) -> String {
+    static func extractErrorMessage(from data: Data) -> String {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let message = json["message"] as? String {
             return message
@@ -165,11 +193,16 @@ enum RecappiAPIError: LocalizedError, Equatable {
         case .invalidResponse:
             return "Invalid response from Recappi backend"
         case .unauthorized:
-            return "Session expired. Sign in again on recordmeet.ing and paste a fresh cookie."
+            return "Recappi Cloud session expired. Sign in again to continue."
         case .http(let statusCode, let message):
             return "Recappi API error (status \(statusCode)): \(message)"
         }
     }
+}
+
+struct SessionLookup: Equatable {
+    let userSession: UserSession?
+    let bearerToken: String?
 }
 
 private struct SessionEnvelope: Decodable {
@@ -179,6 +212,7 @@ private struct SessionEnvelope: Decodable {
 
 private struct SessionPayload: Decodable {
     let expiresAt: String
+    let token: String?
 }
 
 private struct UserPayload: Decodable {

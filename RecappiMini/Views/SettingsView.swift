@@ -3,14 +3,18 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject private var config = AppConfig.shared
-    @ObservedObject private var sessionStore = CookieSessionStore.shared
-    @State private var cookieInput = UITestModeConfiguration.shared.cookieValue ?? ""
+    @ObservedObject private var sessionStore = AuthSessionStore.shared
+    @State private var manualBearerInput = UITestModeConfiguration.shared.authToken ?? ""
+    @State private var manualCookieInput = UITestModeConfiguration.shared.cookieValue ?? ""
 
     var body: some View {
         VStack(spacing: 0) {
             SettingsHeader()
             Form {
                 accountSection
+                if shouldShowManualAuth {
+                    manualAuthSection
+                }
                 transcriptionSection
                 summaryProviderSection
                 storageSection
@@ -36,30 +40,31 @@ struct SettingsView: View {
             TextField("Backend URL", text: backendBinding, prompt: Text("https://recordmeet.ing"))
                 .accessibilityIdentifier(AccessibilityIDs.Settings.backendField)
 
-            TextField(
-                "Paste Better Auth cookie or raw value",
-                text: $cookieInput,
-                prompt: Text("__Secure-better-auth.session_token=…")
-            )
-            .accessibilityIdentifier(AccessibilityIDs.Settings.cookieField)
-
             HStack(spacing: 10) {
-                Button(action: verifyCookie) {
-                    if case .verifying = sessionStore.authStatus {
+                Button(action: { signIn(with: .google) }) {
+                    if case .authenticating = sessionStore.authStatus {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
-                            Text("Verifying…")
+                            Text("Connecting…")
                         }
                     } else {
-                        Text("Verify Session")
+                        Text("Sign in with Google")
                     }
                 }
-                .disabled(cookieInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !config.cloudEnabled)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.verifyButton)
+                .disabled(isAuthActionDisabled)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.signInGoogleButton)
 
-                Button("Clear Session", action: clearSession)
-                    .disabled(sessionStore.currentSession == nil && cookieInput.isEmpty)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.clearButton)
+                Button("Sign in with GitHub") { signIn(with: .github) }
+                    .disabled(isAuthActionDisabled)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.signInGitHubButton)
+
+                Button("Reconnect", action: reconnect)
+                    .disabled(isAuthActionDisabled)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.reconnectButton)
+
+                Button("Sign out", action: clearSession)
+                    .disabled(sessionStore.currentSession == nil && sessionStore.authStatus == .signedOut)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.signOutButton)
 
                 Spacer(minLength: 0)
             }
@@ -71,7 +76,47 @@ struct SettingsView: View {
         } header: {
             Text("Account / Recappi Cloud")
         } footer: {
-            Text("Sign in on recordmeet.ing, then paste the Better Auth session cookie here. The app normalizes the value and sends it as __Secure-better-auth.session_token on each request.")
+            Text("Use Google or GitHub to sign in to Recappi Cloud. The app stores a bearer token in Keychain and reauthenticates if the backend returns 401.")
+                .foregroundStyle(Color.dtLabelSecondary)
+                .font(.footnote)
+        }
+    }
+
+    @ViewBuilder private var manualAuthSection: some View {
+        Section {
+            TextField(
+                "Paste bearer token or Authorization header",
+                text: $manualBearerInput,
+                prompt: Text("Bearer …")
+            )
+            .accessibilityIdentifier(AccessibilityIDs.Settings.manualBearerField)
+
+            HStack(spacing: 10) {
+                Button("Import bearer", action: importManualBearer)
+                    .disabled(manualBearerInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthActionDisabled)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.importBearerButton)
+
+                Spacer(minLength: 0)
+            }
+
+            TextField(
+                "Paste Better Auth cookie or raw value",
+                text: $manualCookieInput,
+                prompt: Text("__Secure-better-auth.session_token=…")
+            )
+            .accessibilityIdentifier(AccessibilityIDs.Settings.manualCookieField)
+
+            HStack(spacing: 10) {
+                Button("Exchange cookie", action: exchangeManualCookie)
+                    .disabled(manualCookieInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthActionDisabled)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.exchangeCookieButton)
+
+                Spacer(minLength: 0)
+            }
+        } header: {
+            Text("Developer Auth Backdoor")
+        } footer: {
+            Text("Hidden in release builds. Useful for automation, backend probes, and auth debugging when native OAuth is unavailable on the current machine.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
@@ -121,14 +166,14 @@ struct SettingsView: View {
         switch sessionStore.authStatus {
         case .signedOut:
             statusLabel(icon: "person.crop.circle.badge.xmark", color: DT.systemOrange, text: "Signed out")
-        case .verifying:
-            statusLabel(icon: "arrow.triangle.2.circlepath", color: DT.waveformLit, text: "Verifying session…")
+        case .authenticating:
+            statusLabel(icon: "arrow.triangle.2.circlepath", color: DT.waveformLit, text: "Authenticating with Recappi Cloud…")
         case .signedIn(let session):
             statusLabel(icon: "checkmark.circle.fill", color: DT.systemGreen, text: "\(session.email) · expires \(session.expiresAt.prefix(10))")
         case .expired:
-            statusLabel(icon: "clock.arrow.circlepath", color: DT.systemOrange, text: "Session expired — paste a fresh cookie.")
-        case .invalidCookie:
-            statusLabel(icon: "xmark.circle.fill", color: DT.systemOrange, text: "Cookie invalid — paste a fresh Better Auth session cookie.")
+            statusLabel(icon: "clock.arrow.circlepath", color: DT.systemOrange, text: "Session expired — reconnect to continue.")
+        case .failed:
+            statusLabel(icon: "xmark.circle.fill", color: DT.systemOrange, text: "Authentication failed — try again or use the developer backdoor.")
         }
     }
 
@@ -136,14 +181,14 @@ struct SettingsView: View {
         switch sessionStore.authStatus {
         case .signedOut:
             return "Signed out"
-        case .verifying:
-            return "Verifying session"
+        case .authenticating:
+            return "Authenticating"
         case .signedIn(let session):
             return "\(session.email) expires \(session.expiresAt.prefix(10))"
         case .expired:
             return "Session expired"
-        case .invalidCookie:
-            return "Cookie invalid"
+        case .failed:
+            return "Authentication failed"
         }
     }
 
@@ -160,12 +205,58 @@ struct SettingsView: View {
         }
     }
 
-    private func verifyCookie() {
-        let raw = cookieInput
+    private var isAuthActionDisabled: Bool {
+        !config.cloudEnabled || sessionStore.authStatus == .authenticating
+    }
+
+    private var shouldShowManualAuth: Bool {
+#if DEBUG
+        return true
+#else
+        return UITestModeConfiguration.shared.manualAuthEnabled
+#endif
+    }
+
+    private func signIn(with provider: OAuthProvider) {
         let origin = config.effectiveBackendBaseURL
         Task { @MainActor in
             do {
-                _ = try await sessionStore.verifySession(using: raw, origin: origin)
+                _ = try await sessionStore.startOAuth(provider: provider, origin: origin)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func reconnect() {
+        let origin = config.effectiveBackendBaseURL
+        Task { @MainActor in
+            do {
+                _ = try await sessionStore.reconnect(origin: origin)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func importManualBearer() {
+        let raw = manualBearerInput
+        let origin = config.effectiveBackendBaseURL
+        Task { @MainActor in
+            do {
+                _ = try await sessionStore.importBearerToken(raw, origin: origin)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func exchangeManualCookie() {
+        let raw = manualCookieInput
+        let origin = config.effectiveBackendBaseURL
+        Task { @MainActor in
+            do {
+                _ = try await sessionStore.exchangeCookieForBearer(raw, origin: origin)
             } catch {
                 NSSound.beep()
             }
@@ -174,7 +265,8 @@ struct SettingsView: View {
 
     private func clearSession() {
         sessionStore.clearSession()
-        cookieInput = UITestModeConfiguration.shared.cookieValue ?? ""
+        manualBearerInput = UITestModeConfiguration.shared.authToken ?? ""
+        manualCookieInput = UITestModeConfiguration.shared.cookieValue ?? ""
     }
 
     private var languageBinding: Binding<String> {

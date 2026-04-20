@@ -11,10 +11,26 @@ struct UserSession: Equatable, Codable, Sendable {
 
 enum AuthStatus: Equatable {
     case signedOut
-    case verifying
+    case authenticating
     case signedIn(UserSession)
     case expired
-    case invalidCookie
+    case failed
+}
+
+enum OAuthProvider: String, CaseIterable, Identifiable, Sendable {
+    case google
+    case github
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .google:
+            return "Google"
+        case .github:
+            return "GitHub"
+        }
+    }
 }
 
 enum ProcessingProgressStyle: Equatable {

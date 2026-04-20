@@ -1,11 +1,19 @@
+import AppKit
 import XCTest
 
 enum UITestIDs {
     enum Settings {
-        static let cookieField = "recappi.settings.cookieField"
-        static let verifyButton = "recappi.settings.verifyButton"
         static let authStatus = "recappi.settings.authStatus"
         static let authStatusText = "recappi.settings.authStatusText"
+        static let backendField = "recappi.settings.backendField"
+        static let signInGoogleButton = "recappi.settings.signInGoogleButton"
+        static let signInGitHubButton = "recappi.settings.signInGitHubButton"
+        static let reconnectButton = "recappi.settings.reconnectButton"
+        static let signOutButton = "recappi.settings.signOutButton"
+        static let manualBearerField = "recappi.settings.manualBearerField"
+        static let manualCookieField = "recappi.settings.manualCookieField"
+        static let importBearerButton = "recappi.settings.importBearerButton"
+        static let exchangeCookieButton = "recappi.settings.exchangeCookieButton"
     }
 
     enum Panel {
@@ -56,15 +64,23 @@ enum UITestArtifacts {
 @MainActor
 extension XCTestCase {
     func launchRecappiApp(
+        authToken: String? = nil,
         cookie: String? = nil,
         disableSummary: Bool = false,
         enableSummaryStub: Bool = false
     ) -> XCUIApplication {
+        terminateExistingRecappiInstances()
+
         let app = XCUIApplication(url: UITestPaths.appBundle)
         app.launchEnvironment["RECAPPI_UI_TEST"] = "1"
         app.launchEnvironment["RECAPPI_TEST_AUDIO_FIXTURE"] = UITestPaths.recordingFixture.path
         app.launchEnvironment["RECAPPI_TEST_DISABLE_SUMMARY"] = disableSummary ? "1" : "0"
         app.launchEnvironment["RECAPPI_TEST_SUMMARY_STUB"] = enableSummaryStub ? "1" : "0"
+
+        let effectiveAuthToken = authToken ?? UITestPaths.liveAuthTokenValue
+        if let effectiveAuthToken, !effectiveAuthToken.isEmpty {
+            app.launchEnvironment["RECAPPI_TEST_AUTH_TOKEN"] = effectiveAuthToken
+        }
 
         let effectiveCookie = cookie ?? UITestPaths.liveCookieValue
         if let effectiveCookie, !effectiveCookie.isEmpty {
@@ -83,6 +99,21 @@ extension XCTestCase {
         return app
     }
 
+    func terminateExistingRecappiInstances() {
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.recappi.mini")
+        for app in running {
+            app.forceTerminate()
+        }
+
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if NSRunningApplication.runningApplications(withBundleIdentifier: "com.recappi.mini").isEmpty {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+    }
+
     func uiElement(_ app: XCUIApplication, id: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
@@ -91,26 +122,10 @@ extension XCTestCase {
         let button = app.buttons[UITestIDs.Panel.settingsButton]
         XCTAssertTrue(button.waitForExistence(timeout: 15), "Expected in-panel Settings button.")
         button.click()
-        XCTAssertTrue(uiElement(app, id: UITestIDs.Settings.cookieField).waitForExistence(timeout: 15), "Expected Settings cookie field.")
+        XCTAssertTrue(uiElement(app, id: UITestIDs.Settings.authStatus).waitForExistence(timeout: 15), "Expected Settings auth status.")
     }
 
-    func verifySession(in app: XCUIApplication, expecting text: String, timeout: TimeInterval = 25) {
-        let verifyButton = app.buttons[UITestIDs.Settings.verifyButton]
-        XCTAssertTrue(verifyButton.waitForExistence(timeout: 10), "Expected Verify Session button.")
-        verifyButton.click()
-
-        let status = uiElement(app, id: UITestIDs.Settings.authStatus)
-        XCTAssertTrue(status.waitForExistence(timeout: timeout), "Expected auth status element.")
-        let predicate = NSPredicate(format: "label CONTAINS[c] %@", text)
-        expectation(for: predicate, evaluatedWith: status)
-        waitForExpectations(timeout: timeout)
-    }
-
-    func verifySessionSucceeds(in app: XCUIApplication, timeout: TimeInterval = 25) {
-        let verifyButton = app.buttons[UITestIDs.Settings.verifyButton]
-        XCTAssertTrue(verifyButton.waitForExistence(timeout: 10), "Expected Verify Session button.")
-        verifyButton.click()
-
+    func waitForSignedInStatus(in app: XCUIApplication, timeout: TimeInterval = 25) {
         let status = uiElement(app, id: UITestIDs.Settings.authStatus)
         XCTAssertTrue(status.waitForExistence(timeout: timeout), "Expected auth status element.")
         let predicate = NSPredicate(format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", "expires", "expires")
@@ -118,25 +133,30 @@ extension XCTestCase {
         waitForExpectations(timeout: timeout)
     }
 
-    func verifySessionFails(in app: XCUIApplication, timeout: TimeInterval = 15) {
-        let verifyButton = app.buttons[UITestIDs.Settings.verifyButton]
-        XCTAssertTrue(verifyButton.waitForExistence(timeout: 10), "Expected Verify Session button.")
-        verifyButton.click()
-
+    func waitForFailedStatus(in app: XCUIApplication, timeout: TimeInterval = 15) {
         let status = uiElement(app, id: UITestIDs.Settings.authStatus)
         XCTAssertTrue(status.waitForExistence(timeout: timeout), "Expected auth status element.")
         let predicate = NSPredicate(
             format: """
             label CONTAINS[c] %@ OR value CONTAINS[c] %@ OR
+            label CONTAINS[c] %@ OR value CONTAINS[c] %@ OR
             label CONTAINS[c] %@ OR value CONTAINS[c] %@
             """,
-            "Cookie invalid",
-            "Cookie invalid",
+            "Authentication failed",
+            "Authentication failed",
             "Session expired",
-            "Session expired"
+            "Session expired",
+            "Signed out",
+            "Signed out"
         )
         expectation(for: predicate, evaluatedWith: status)
         waitForExpectations(timeout: timeout)
+    }
+
+    func signOut(in app: XCUIApplication) {
+        let button = app.buttons[UITestIDs.Settings.signOutButton]
+        XCTAssertTrue(button.waitForExistence(timeout: 10), "Expected Sign out button.")
+        button.click()
     }
 
     func closeSettingsWindow(in app: XCUIApplication) {

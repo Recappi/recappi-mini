@@ -33,8 +33,9 @@ real cloud processing flow without depending on live microphone capture:
 
 1. `RECAPPI_UI_TEST=1`
    Enables UI-test mode inside the app.
-2. `RECAPPI_TEST_COOKIE=<value>`
-   Seeds the Better Auth session cookie and pre-fills the Settings field.
+2. `RECAPPI_TEST_AUTH_TOKEN=<value>`
+   Seeds the Recappi Cloud bearer token and lets the app bootstrap directly
+   into a signed-in state.
 3. `RECAPPI_TEST_BACKEND_URL=<url>`
    Overrides the backend base URL when needed.
 4. `RECAPPI_TEST_AUDIO_FIXTURE=<path>`
@@ -46,8 +47,10 @@ real cloud processing flow without depending on live microphone capture:
    transcript fetch, so automation does not depend on external LLM credentials.
 
 The runtime also exposes stable accessibility identifiers for the Settings
-cookie flow, recording controls, processing labels, retry button, and result
-actions.
+auth flow, recording controls, processing labels, retry button, and result
+actions. `RECAPPI_TEST_COOKIE` still exists as a lower-level fallback for
+backend probes and token exchange, but UI automation now prefers bearer-token
+seeding.
 
 ## Typical local commands
 
@@ -60,8 +63,11 @@ actions.
 
 ## Expected environment variables
 
+- `RECAPPI_TEST_AUTH_TOKEN`
+  Bearer token used by live backend UI tests.
 - `RECAPPI_TEST_COOKIE`
-  Better Auth session cookie value used by live backend UI tests.
+  Optional Better Auth session cookie used only when the scripts need to
+  exchange a bearer token on the fly.
 - `RECAPPI_TEST_BACKEND_URL`
   Optional backend override for cloud-flow UI tests.
 - `RECAPPI_TEST_APP`

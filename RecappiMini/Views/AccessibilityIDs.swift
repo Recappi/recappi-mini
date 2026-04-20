@@ -2,13 +2,18 @@ import Foundation
 
 enum AccessibilityIDs {
     enum Settings {
-        static let cookieField = "recappi.settings.cookieField"
-        static let verifyButton = "recappi.settings.verifyButton"
-        static let clearButton = "recappi.settings.clearButton"
         static let authStatus = "recappi.settings.authStatus"
         static let authStatusText = "recappi.settings.authStatusText"
         static let backendField = "recappi.settings.backendField"
         static let cloudToggle = "recappi.settings.cloudToggle"
+        static let signInGoogleButton = "recappi.settings.signInGoogleButton"
+        static let signInGitHubButton = "recappi.settings.signInGitHubButton"
+        static let reconnectButton = "recappi.settings.reconnectButton"
+        static let signOutButton = "recappi.settings.signOutButton"
+        static let manualBearerField = "recappi.settings.manualBearerField"
+        static let manualCookieField = "recappi.settings.manualCookieField"
+        static let importBearerButton = "recappi.settings.importBearerButton"
+        static let exchangeCookieButton = "recappi.settings.exchangeCookieButton"
     }
 
     enum Panel {

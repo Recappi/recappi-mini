@@ -3,18 +3,35 @@ import XCTest
 @testable import RecappiMini
 
 final class RecappiMiniCoreTests: XCTestCase {
+    func testNormalizeBearerSupportsRawTokenAndHeader() throws {
+        XCTAssertEqual(AuthSessionStore.normalizeBearerToken("abc.123"), "abc.123")
+        XCTAssertEqual(AuthSessionStore.normalizeBearerToken("Bearer xyz.789"), "xyz.789")
+        XCTAssertEqual(AuthSessionStore.normalizeBearerToken("set-auth-token: qwe.456"), "qwe.456")
+    }
+
     func testNormalizeCookieSupportsRawValue() throws {
-        let normalized = try XCTUnwrap(CookieSessionStore.normalizeCookieHeader("abc.123"))
+        let normalized = try XCTUnwrap(AuthSessionStore.normalizeCookieHeader("abc.123"))
         XCTAssertEqual(normalized.value, "abc.123")
         XCTAssertEqual(normalized.header, "__Secure-better-auth.session_token=abc.123")
     }
 
     func testNormalizeCookieSupportsBothCookieNames() throws {
-        let secure = try XCTUnwrap(CookieSessionStore.normalizeCookieHeader("__Secure-better-auth.session_token=secure; foo=bar"))
+        let secure = try XCTUnwrap(AuthSessionStore.normalizeCookieHeader("__Secure-better-auth.session_token=secure; foo=bar"))
         XCTAssertEqual(secure.value, "secure")
 
-        let plain = try XCTUnwrap(CookieSessionStore.normalizeCookieHeader("better-auth.session_token=plain"))
+        let plain = try XCTUnwrap(AuthSessionStore.normalizeCookieHeader("better-auth.session_token=plain"))
         XCTAssertEqual(plain.value, "plain")
+    }
+
+    func testResolveBearerTokenFallsBackFromHeaderToPayload() {
+        XCTAssertEqual(
+            RecappiAPIClient.resolveBearerToken(headerToken: "set-auth-token: header.123", payloadToken: "body.456"),
+            "header.123"
+        )
+        XCTAssertEqual(
+            RecappiAPIClient.resolveBearerToken(headerToken: nil, payloadToken: "body.456"),
+            "body.456"
+        )
     }
 
     @MainActor

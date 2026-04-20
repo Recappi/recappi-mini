@@ -28,6 +28,10 @@ enum UITestPaths {
         repoRoot.appendingPathComponent("Tests/Fixtures/Audio/automation-upload.wav")
     }
 
+    static var authTokenOverrideFile: URL {
+        automationOverridesDirectory.appendingPathComponent("recappi_test_auth_token.txt")
+    }
+
     static var cookieOverrideFile: URL {
         automationOverridesDirectory.appendingPathComponent("recappi_test_cookie.txt")
     }
@@ -46,6 +50,13 @@ enum UITestPaths {
         }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static var liveAuthTokenValue: String? {
+        if let env = ProcessInfo.processInfo.environment["RECAPPI_TEST_AUTH_TOKEN"], !env.isEmpty {
+            return env
+        }
+        return readOverride(from: authTokenOverrideFile)
     }
 
     static var liveCookieValue: String? {

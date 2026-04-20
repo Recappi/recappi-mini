@@ -1,7 +1,7 @@
 import XCTest
 
 @MainActor
-final class RecappiMiniLaunchSmokeUITests: XCTestCase {
+final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -16,7 +16,10 @@ final class RecappiMiniLaunchSmokeUITests: XCTestCase {
         app.launchEnvironment["RECAPPI_UI_TEST"] = "1"
         app.launchEnvironment["RECAPPI_TEST_AUDIO_FIXTURE"] = UITestPaths.recordingFixture.path
         app.launchEnvironment["RECAPPI_TEST_UPLOAD_FIXTURE"] = UITestPaths.uploadFixture.path
-        if let cookie = ProcessInfo.processInfo.environment["RECAPPI_TEST_COOKIE"], !cookie.isEmpty {
+        if let authToken = UITestPaths.liveAuthTokenValue, !authToken.isEmpty {
+            app.launchEnvironment["RECAPPI_TEST_AUTH_TOKEN"] = authToken
+        }
+        if let cookie = UITestPaths.liveCookieValue, !cookie.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_COOKIE"] = cookie
         }
         if let backend = ProcessInfo.processInfo.environment["RECAPPI_TEST_BACKEND_URL"], !backend.isEmpty {
