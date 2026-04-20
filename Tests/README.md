@@ -43,9 +43,7 @@ real cloud processing flow without depending on live microphone capture:
 
 The runtime also exposes stable accessibility identifiers for the Settings
 auth flow, recording controls, processing labels, retry button, and result
-actions. `RECAPPI_TEST_COOKIE` still exists as a lower-level fallback for
-backend probes and token exchange, but UI automation now prefers bearer-token
-seeding.
+actions. UI automation now seeds bearer-token auth directly.
 
 ## Typical local commands
 
@@ -60,9 +58,6 @@ seeding.
 
 - `RECAPPI_TEST_AUTH_TOKEN`
   Bearer token used by live backend UI tests.
-- `RECAPPI_TEST_COOKIE`
-  Optional Better Auth session cookie used only when the scripts need to
-  exchange a bearer token on the fly.
 - `RECAPPI_TEST_BACKEND_URL`
   Optional backend override for cloud-flow UI tests.
 - `RECAPPI_TEST_APP`

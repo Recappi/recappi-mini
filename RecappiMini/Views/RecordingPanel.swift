@@ -504,7 +504,6 @@ private struct ErrorState: View {
             || lower.contains("oauth")
             || lower.contains("token")
             || lower.contains("bearer")
-            || lower.contains("cookie")
             || lower.contains("session")
             || lower.contains("sign in")
             || lower.contains("language not supported")

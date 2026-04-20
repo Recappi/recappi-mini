@@ -138,10 +138,6 @@ struct RecappiAuthBootstrapClient: Sendable {
         return url
     }
 
-    func exchangeCookieForBearer(_ cookieValue: String) async throws -> AuthBootstrap {
-        try await exchangeSession(using: .cookie(cookieValue))
-    }
-
     func exchangeSharedBrowserSession() async throws -> AuthBootstrap {
         let configuration = URLSessionConfiguration.default
         configuration.httpCookieAcceptPolicy = .always
@@ -149,10 +145,10 @@ struct RecappiAuthBootstrapClient: Sendable {
         configuration.httpShouldSetCookies = true
 
         let sharedSession = URLSession(configuration: configuration)
-        return try await exchangeSession(using: .browserCookies(sharedSession))
+        return try await exchangeSession(using: sharedSession)
     }
 
-    private func exchangeSession(using strategy: ExchangeStrategy) async throws -> AuthBootstrap {
+    private func exchangeSession(using sessionToUse: URLSession) async throws -> AuthBootstrap {
         guard let url = URL(string: origin + "/api/auth/get-session") else {
             throw RecappiAPIError.invalidURL
         }
@@ -161,15 +157,6 @@ struct RecappiAuthBootstrapClient: Sendable {
         request.httpMethod = "GET"
         request.timeoutInterval = 180
         request.setValue(origin, forHTTPHeaderField: "Origin")
-
-        let sessionToUse: URLSession
-        switch strategy {
-        case .cookie(let cookieValue):
-            request.setValue("__Secure-better-auth.session_token=\(cookieValue)", forHTTPHeaderField: "Cookie")
-            sessionToUse = session
-        case .browserCookies(let sharedSession):
-            sessionToUse = sharedSession
-        }
 
         let (data, response) = try await sessionToUse.data(for: request)
         try RecappiAPIClient.validate(response: response, data: data)
@@ -183,11 +170,6 @@ struct RecappiAuthBootstrapClient: Sendable {
         }
 
         return AuthBootstrap(session: session, bearerToken: bearerToken)
-    }
-
-    private enum ExchangeStrategy {
-        case cookie(String)
-        case browserCookies(URLSession)
     }
 }
 

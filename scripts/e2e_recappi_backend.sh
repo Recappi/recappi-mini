@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-if [[ -z "${RECAPPI_TEST_COOKIE:-}" && -z "${RECAPPI_TEST_AUTH_TOKEN:-}" ]]; then
-  echo "RECAPPI_TEST_COOKIE or RECAPPI_TEST_AUTH_TOKEN is required" >&2
+if [[ -z "${RECAPPI_TEST_AUTH_TOKEN:-}" ]]; then
+  echo "RECAPPI_TEST_AUTH_TOKEN is required" >&2
   exit 1
 fi
 
@@ -14,16 +14,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 say -o "$TMPDIR/test.aiff" "hello from recappi mini backend end to end test"
 afconvert -f WAVE -d LEI16@16000,1 "$TMPDIR/test.aiff" "$TMPDIR/test.wav" >/dev/null 2>&1
 
-AUTH_TOKEN="$("$ROOT_DIR/scripts/exchange-auth-token.sh")"
-
-if [[ -n "${RECAPPI_TEST_COOKIE:-}" ]]; then
-  COOKIE_HEADER="__Secure-better-auth.session_token=${RECAPPI_TEST_COOKIE}"
-  COOKIE_SESSION=$(curl -fsS "$ORIGIN/api/auth/get-session" \
-    -H "origin: $ORIGIN" \
-    -H "cookie: $COOKIE_HEADER")
-
-  echo "$COOKIE_SESSION" | ruby -rjson -e 'j=JSON.parse(STDIN.read); abort("missing user") unless j["user"] && j["session"]; abort("missing session token") unless j.dig("session", "token"); puts "cookie session ok"' >/dev/null
-fi
+AUTH_TOKEN="$RECAPPI_TEST_AUTH_TOKEN"
 
 BEARER_SESSION=$(curl -fsS "$ORIGIN/api/auth/get-session" \
   -H "origin: $ORIGIN" \

@@ -32,10 +32,6 @@ enum UITestPaths {
         automationOverridesDirectory.appendingPathComponent("recappi_test_auth_token.txt")
     }
 
-    static var cookieOverrideFile: URL {
-        automationOverridesDirectory.appendingPathComponent("recappi_test_cookie.txt")
-    }
-
     static var backendOverrideFile: URL {
         automationOverridesDirectory.appendingPathComponent("recappi_test_backend_url.txt")
     }
@@ -57,13 +53,6 @@ enum UITestPaths {
             return env
         }
         return readOverride(from: authTokenOverrideFile)
-    }
-
-    static var liveCookieValue: String? {
-        if let env = ProcessInfo.processInfo.environment["RECAPPI_TEST_COOKIE"], !env.isEmpty {
-            return env
-        }
-        return readOverride(from: cookieOverrideFile)
     }
 
     static var backendOverrideValue: String? {

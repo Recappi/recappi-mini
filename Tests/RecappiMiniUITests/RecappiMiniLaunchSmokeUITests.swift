@@ -19,9 +19,6 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         if let authToken = UITestPaths.liveAuthTokenValue, !authToken.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_AUTH_TOKEN"] = authToken
         }
-        if let cookie = UITestPaths.liveCookieValue, !cookie.isEmpty {
-            app.launchEnvironment["RECAPPI_TEST_COOKIE"] = cookie
-        }
         if let backend = ProcessInfo.processInfo.environment["RECAPPI_TEST_BACKEND_URL"], !backend.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_BACKEND_URL"] = backend
         }

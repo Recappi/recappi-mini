@@ -5,7 +5,6 @@ struct SettingsView: View {
     @ObservedObject private var config = AppConfig.shared
     @ObservedObject private var sessionStore = AuthSessionStore.shared
     @State private var manualBearerInput = UITestModeConfiguration.shared.authToken ?? ""
-    @State private var manualCookieInput = UITestModeConfiguration.shared.cookieValue ?? ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -94,21 +93,6 @@ struct SettingsView: View {
                 Button("Import bearer", action: importManualBearer)
                     .disabled(manualBearerInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthActionDisabled)
                     .accessibilityIdentifier(AccessibilityIDs.Settings.importBearerButton)
-
-                Spacer(minLength: 0)
-            }
-
-            TextField(
-                "Paste Better Auth cookie or raw value",
-                text: $manualCookieInput,
-                prompt: Text("__Secure-better-auth.session_token=…")
-            )
-            .accessibilityIdentifier(AccessibilityIDs.Settings.manualCookieField)
-
-            HStack(spacing: 10) {
-                Button("Exchange cookie", action: exchangeManualCookie)
-                    .disabled(manualCookieInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthActionDisabled)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.exchangeCookieButton)
 
                 Spacer(minLength: 0)
             }
@@ -246,22 +230,9 @@ struct SettingsView: View {
         }
     }
 
-    private func exchangeManualCookie() {
-        let raw = manualCookieInput
-        let origin = config.effectiveBackendBaseURL
-        Task { @MainActor in
-            do {
-                _ = try await sessionStore.exchangeCookieForBearer(raw, origin: origin)
-            } catch {
-                NSSound.beep()
-            }
-        }
-    }
-
     private func clearSession() {
         sessionStore.clearSession()
         manualBearerInput = UITestModeConfiguration.shared.authToken ?? ""
-        manualCookieInput = UITestModeConfiguration.shared.cookieValue ?? ""
     }
 
     private var languageBinding: Binding<String> {

@@ -5,7 +5,6 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DERIVED_DATA_DIR="$ROOT_DIR/.build/xcode/DerivedData"
 RESULT_BUNDLE="$ROOT_DIR/.build/xcode/RecappiMiniAutomation.xcresult"
 AUTH_TOKEN_OVERRIDE_FILE="$ROOT_DIR/.build/xcode/recappi_test_auth_token.txt"
-COOKIE_OVERRIDE_FILE="$ROOT_DIR/.build/xcode/recappi_test_cookie.txt"
 BACKEND_OVERRIDE_FILE="$ROOT_DIR/.build/xcode/recappi_test_backend_url.txt"
 RECORDINGS_ROOT_OVERRIDE_FILE="$ROOT_DIR/.build/xcode/recappi_test_recordings_root.txt"
 
@@ -17,16 +16,10 @@ export RECAPPI_TEST_AUDIO_FIXTURE="${RECAPPI_TEST_AUDIO_FIXTURE:-$ROOT_DIR/Tests
 export RECAPPI_TEST_UPLOAD_FIXTURE="${RECAPPI_TEST_UPLOAD_FIXTURE:-$ROOT_DIR/Tests/Fixtures/Audio/automation-upload.wav}"
 
 mkdir -p "$ROOT_DIR/.build/xcode"
-if [[ -n "${RECAPPI_TEST_AUTH_TOKEN:-}" || -n "${RECAPPI_TEST_COOKIE:-}" ]]; then
-  "$ROOT_DIR/scripts/exchange-auth-token.sh" > "$AUTH_TOKEN_OVERRIDE_FILE"
+if [[ -n "${RECAPPI_TEST_AUTH_TOKEN:-}" ]]; then
+  printf '%s' "$RECAPPI_TEST_AUTH_TOKEN" > "$AUTH_TOKEN_OVERRIDE_FILE"
 else
   rm -f "$AUTH_TOKEN_OVERRIDE_FILE"
-fi
-
-if [[ -n "${RECAPPI_TEST_COOKIE:-}" ]]; then
-  printf '%s' "$RECAPPI_TEST_COOKIE" > "$COOKIE_OVERRIDE_FILE"
-else
-  rm -f "$COOKIE_OVERRIDE_FILE"
 fi
 
 if [[ -n "${RECAPPI_TEST_BACKEND_URL:-}" ]]; then

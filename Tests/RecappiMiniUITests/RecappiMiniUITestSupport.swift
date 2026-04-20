@@ -11,9 +11,7 @@ enum UITestIDs {
         static let reconnectButton = "recappi.settings.reconnectButton"
         static let signOutButton = "recappi.settings.signOutButton"
         static let manualBearerField = "recappi.settings.manualBearerField"
-        static let manualCookieField = "recappi.settings.manualCookieField"
         static let importBearerButton = "recappi.settings.importBearerButton"
-        static let exchangeCookieButton = "recappi.settings.exchangeCookieButton"
     }
 
     enum Panel {
@@ -64,8 +62,7 @@ enum UITestArtifacts {
 @MainActor
 extension XCTestCase {
     func launchRecappiApp(
-        authToken: String? = nil,
-        cookie: String? = nil
+        authToken: String? = nil
     ) -> XCUIApplication {
         terminateExistingRecappiInstances()
 
@@ -76,11 +73,6 @@ extension XCTestCase {
         let effectiveAuthToken = authToken ?? UITestPaths.liveAuthTokenValue
         if let effectiveAuthToken, !effectiveAuthToken.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_AUTH_TOKEN"] = effectiveAuthToken
-        }
-
-        let effectiveCookie = cookie ?? UITestPaths.liveCookieValue
-        if let effectiveCookie, !effectiveCookie.isEmpty {
-            app.launchEnvironment["RECAPPI_TEST_COOKIE"] = effectiveCookie
         }
         if let backend = UITestPaths.backendOverrideValue, !backend.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_BACKEND_URL"] = backend

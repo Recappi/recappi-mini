@@ -11,9 +11,7 @@ enum AccessibilityIDs {
         static let reconnectButton = "recappi.settings.reconnectButton"
         static let signOutButton = "recappi.settings.signOutButton"
         static let manualBearerField = "recappi.settings.manualBearerField"
-        static let manualCookieField = "recappi.settings.manualCookieField"
         static let importBearerButton = "recappi.settings.importBearerButton"
-        static let exchangeCookieButton = "recappi.settings.exchangeCookieButton"
     }
 
     enum Panel {

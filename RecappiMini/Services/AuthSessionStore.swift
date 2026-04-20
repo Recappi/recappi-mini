@@ -42,7 +42,7 @@ final class AuthSessionStore: ObservableObject {
         guard UITestModeConfiguration.shared.isEnabled else { return }
 
         let origin = AppConfig.shared.effectiveBackendBaseURL
-        let hasInjectedAuth = UITestModeConfiguration.shared.authToken != nil || UITestModeConfiguration.shared.cookieValue != nil
+        let hasInjectedAuth = UITestModeConfiguration.shared.authToken != nil
 
         if hasInjectedAuth {
             _ = keychain.deleteBearerToken()
@@ -54,12 +54,6 @@ final class AuthSessionStore: ObservableObject {
         if let authToken = UITestModeConfiguration.shared.authToken,
            let normalized = Self.normalizeBearerToken(authToken) {
             _ = keychain.saveBearerToken(normalized)
-        } else if let cookie = UITestModeConfiguration.shared.cookieValue {
-            do {
-                _ = try await exchangeCookieForBearer(cookie, origin: origin)
-            } catch {
-                authStatus = .failed
-            }
         }
 
         guard keychain.readBearerToken() != nil else { return }
@@ -108,36 +102,6 @@ final class AuthSessionStore: ObservableObject {
             )
             authStatus = .signedIn(bootstrap.session)
             return bootstrap.session
-        } catch {
-            authStatus = .failed
-            throw error
-        }
-    }
-
-    func exchangeCookieForBearer(_ raw: String, origin: String) async throws -> UserSession {
-        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let normalized = Self.normalizeCookieHeader(cleaned) else {
-            authStatus = .failed
-            throw RecappiSessionError.invalidCookieFormat
-        }
-
-        authStatus = .authenticating
-        let resolvedOrigin = Self.normalizeOrigin(origin)
-        do {
-            let bootstrap = try await RecappiAuthBootstrapClient(origin: resolvedOrigin)
-                .exchangeCookieForBearer(normalized.value)
-
-            persist(
-                bearerToken: bootstrap.bearerToken,
-                session: bootstrap.session,
-                origin: resolvedOrigin,
-                provider: lastOAuthProvider
-            )
-            authStatus = .signedIn(bootstrap.session)
-            return bootstrap.session
-        } catch let error as RecappiAPIError where error == .unauthorized {
-            authStatus = .expired
-            throw error
         } catch {
             authStatus = .failed
             throw error
@@ -282,49 +246,10 @@ final class AuthSessionStore: ObservableObject {
         return trimmed
     }
 
-    nonisolated static func normalizeCookieHeader(_ raw: String) -> NormalizedCookieInput? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if let direct = extractCookie(named: "__Secure-better-auth.session_token", from: trimmed) {
-            return NormalizedCookieInput(value: direct)
-        }
-
-        if let plain = extractCookie(named: "better-auth.session_token", from: trimmed) {
-            return NormalizedCookieInput(value: plain)
-        }
-
-        if trimmed.contains("=") {
-            return nil
-        }
-
-        return NormalizedCookieInput(value: trimmed)
-    }
-
-    private nonisolated static func extractCookie(named name: String, from header: String) -> String? {
-        let pieces = header.split(separator: ";")
-        for piece in pieces {
-            let part = piece.trimmingCharacters(in: .whitespacesAndNewlines)
-            let prefix = "\(name)="
-            if part.hasPrefix(prefix) {
-                return String(part.dropFirst(prefix.count))
-            }
-        }
-        return nil
-    }
-
-    struct NormalizedCookieInput {
-        let value: String
-
-        var header: String {
-            "__Secure-better-auth.session_token=\(value)"
-        }
-    }
 }
 
 enum RecappiSessionError: LocalizedError {
     case invalidBearerFormat
-    case invalidCookieFormat
     case invalidSession
     case notSignedIn
     case oauthCancelled
@@ -337,8 +262,6 @@ enum RecappiSessionError: LocalizedError {
         switch self {
         case .invalidBearerFormat:
             return "Paste a bearer token or full Authorization header."
-        case .invalidCookieFormat:
-            return "Paste a Better Auth session cookie or raw cookie value."
         case .invalidSession:
             return "Recappi Cloud rejected this sign-in. Reconnect and try again."
         case .notSignedIn:
