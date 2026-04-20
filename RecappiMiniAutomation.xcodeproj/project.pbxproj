@@ -1,0 +1,465 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXContainerItemProxy section */
+		AAA000000000000000000018 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AAA00000000000000000000E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AAA00000000000000000000B;
+			remoteInfo = RecappiMiniAutomationHost;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		AAA000000000000000000003 /* RecappiMiniAutomationHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RecappiMiniAutomationHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AAA000000000000000000004 /* RecappiMiniCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RecappiMiniCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AAA000000000000000000005 /* RecappiMiniUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RecappiMiniUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AAA000000000000000000026 /* Exceptions for "RecappiMiniCoreTests" folder in "RecappiMiniCoreTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				RecappiMiniCoreTests.swift,
+			);
+			target = AAA00000000000000000000C /* RecappiMiniCoreTests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		AAA000000000000000000006 /* AutomationHost */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests/AutomationHost;
+			sourceTree = "<group>";
+		};
+		AAA000000000000000000007 /* RecappiMiniCoreTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AAA000000000000000000026 /* Exceptions for "RecappiMiniCoreTests" folder in "RecappiMiniCoreTests" target */,
+			);
+			path = Tests/RecappiMiniCoreTests;
+			sourceTree = "<group>";
+		};
+		AAA000000000000000000008 /* RecappiMiniUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests/RecappiMiniUITests;
+			sourceTree = "<group>";
+		};
+		AAA000000000000000000009 /* Fixtures */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests/Fixtures;
+			sourceTree = "<group>";
+		};
+		AAA00000000000000000000A /* scripts */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = scripts;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AAA000000000000000000010 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AAA000000000000000000013 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AAA000000000000000000016 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AAA000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				AAA000000000000000000006 /* AutomationHost */,
+				AAA000000000000000000007 /* RecappiMiniCoreTests */,
+				AAA000000000000000000008 /* RecappiMiniUITests */,
+				AAA000000000000000000009 /* Fixtures */,
+				AAA00000000000000000000A /* scripts */,
+				AAA000000000000000000002 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AAA000000000000000000002 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AAA000000000000000000003 /* RecappiMiniAutomationHost.app */,
+				AAA000000000000000000004 /* RecappiMiniCoreTests.xctest */,
+				AAA000000000000000000005 /* RecappiMiniUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AAA00000000000000000000B /* RecappiMiniAutomationHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AAA00000000000000000001B /* Build configuration list for PBXNativeTarget "RecappiMiniAutomationHost" */;
+			buildPhases = (
+				AAA00000000000000000000F /* Sources */,
+				AAA000000000000000000010 /* Frameworks */,
+				AAA000000000000000000011 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AAA000000000000000000006 /* AutomationHost */,
+			);
+			name = RecappiMiniAutomationHost;
+			packageProductDependencies = (
+			);
+			productName = RecappiMiniAutomationHost;
+			productReference = AAA000000000000000000003 /* RecappiMiniAutomationHost.app */;
+			productType = "com.apple.product-type.application";
+		};
+		AAA00000000000000000000C /* RecappiMiniCoreTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AAA00000000000000000001C /* Build configuration list for PBXNativeTarget "RecappiMiniCoreTests" */;
+			buildPhases = (
+				AAA000000000000000000012 /* Sources */,
+				AAA000000000000000000013 /* Frameworks */,
+				AAA000000000000000000014 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AAA000000000000000000007 /* RecappiMiniCoreTests */,
+			);
+			name = RecappiMiniCoreTests;
+			packageProductDependencies = (
+			);
+			productName = RecappiMiniCoreTests;
+			productReference = AAA000000000000000000004 /* RecappiMiniCoreTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		AAA00000000000000000000D /* RecappiMiniUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AAA00000000000000000001D /* Build configuration list for PBXNativeTarget "RecappiMiniUITests" */;
+			buildPhases = (
+				AAA000000000000000000015 /* Sources */,
+				AAA000000000000000000016 /* Frameworks */,
+				AAA000000000000000000017 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AAA000000000000000000019 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AAA000000000000000000008 /* RecappiMiniUITests */,
+			);
+			name = RecappiMiniUITests;
+			packageProductDependencies = (
+			);
+			productName = RecappiMiniUITests;
+			productReference = AAA000000000000000000005 /* RecappiMiniUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AAA00000000000000000000E /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 2640;
+				TargetAttributes = {
+					AAA00000000000000000000B = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
+					AAA00000000000000000000C = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
+					AAA00000000000000000000D = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = AAA00000000000000000000B;
+					};
+				};
+			};
+			buildConfigurationList = AAA00000000000000000001A /* Build configuration list for PBXProject "RecappiMiniAutomation" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AAA000000000000000000001;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = AAA000000000000000000002 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AAA00000000000000000000B /* RecappiMiniAutomationHost */,
+				AAA00000000000000000000C /* RecappiMiniCoreTests */,
+				AAA00000000000000000000D /* RecappiMiniUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AAA000000000000000000011 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AAA000000000000000000014 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AAA000000000000000000017 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AAA00000000000000000000F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AAA000000000000000000012 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AAA000000000000000000015 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AAA000000000000000000019 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AAA00000000000000000000B /* RecappiMiniAutomationHost */;
+			targetProxy = AAA000000000000000000018 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		AAA00000000000000000001E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		AAA00000000000000000001F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		AAA000000000000000000020 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Recappi Mini Automation Host";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.recappi.mini.automation.host;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		AAA000000000000000000021 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Recappi Mini Automation Host";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.recappi.mini.automation.host;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		AAA000000000000000000022 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "";
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.recappi.mini.tests.core;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "";
+			};
+			name = Debug;
+		};
+		AAA000000000000000000023 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "";
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.recappi.mini.tests.core;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "";
+			};
+			name = Release;
+		};
+		AAA000000000000000000024 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.recappi.mini.tests.ui;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = RecappiMiniAutomationHost;
+			};
+			name = Debug;
+		};
+		AAA000000000000000000025 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.recappi.mini.tests.ui;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = RecappiMiniAutomationHost;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AAA00000000000000000001A /* Build configuration list for PBXProject "RecappiMiniAutomation" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AAA00000000000000000001E /* Debug */,
+				AAA00000000000000000001F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AAA00000000000000000001B /* Build configuration list for PBXNativeTarget "RecappiMiniAutomationHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AAA000000000000000000020 /* Debug */,
+				AAA000000000000000000021 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AAA00000000000000000001C /* Build configuration list for PBXNativeTarget "RecappiMiniCoreTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AAA000000000000000000022 /* Debug */,
+				AAA000000000000000000023 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AAA00000000000000000001D /* Build configuration list for PBXNativeTarget "RecappiMiniUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AAA000000000000000000024 /* Debug */,
+				AAA000000000000000000025 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AAA00000000000000000000E /* Project object */;
+}

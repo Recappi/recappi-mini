@@ -128,6 +128,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// Timestamp of the last `audioLevel` publish; capped at 30 Hz so
     /// SwiftUI doesn't burn a re-render per ScreenCaptureKit buffer.
     private var lastLevelPublish: CFTimeInterval = 0
+    private let uiTestMode = UITestModeConfiguration.shared
 
     var currentSessionDir: URL? { sessionDir }
 
@@ -230,6 +231,11 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     func startRecording() async throws {
         guard state == .idle else { return }
+
+        if uiTestMode.isEnabled {
+            try startUITestRecording()
+            return
+        }
 
         try await requestMicrophoneAccessIfNeeded()
 
@@ -340,9 +346,13 @@ final class AudioRecorder: NSObject, ObservableObject {
             throw RecorderError.notRecording
         }
 
-        self.state = .stopping
+        self.state = .processing(.savingAudio)
         self.timer?.invalidate()
         self.timer = nil
+
+        if uiTestMode.isEnabled {
+            return try stopUITestRecording()
+        }
 
         // Stop system audio stream
         try await stream?.stopCapture()
@@ -443,6 +453,42 @@ final class AudioRecorder: NSObject, ObservableObject {
         @unknown default:
             throw RecorderError.micDenied
         }
+    }
+
+    private func startUITestRecording() throws {
+        guard let fixturePath = uiTestMode.audioFixturePath, !fixturePath.isEmpty else {
+            throw RecorderError.missingUITestFixture
+        }
+        guard FileManager.default.fileExists(atPath: fixturePath) else {
+            throw RecorderError.missingUITestFixture
+        }
+
+        let sessionDir = try RecordingStore.createSessionDirectory()
+        self.sessionDir = sessionDir
+        self.lastSessionDir = nil
+        self.state = .recording
+        self.elapsedSeconds = 0
+        self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.elapsedSeconds += 1
+            }
+        }
+    }
+
+    private func stopUITestRecording() throws -> URL {
+        guard let sessionDir else { throw RecorderError.noSessionDir }
+        guard let fixturePath = uiTestMode.audioFixturePath, !fixturePath.isEmpty else {
+            throw RecorderError.missingUITestFixture
+        }
+
+        let destination = RecordingStore.audioFileURL(in: sessionDir)
+        let fixtureURL = URL(fileURLWithPath: fixturePath)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try? FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.copyItem(at: fixtureURL, to: destination)
+        self.lastSessionDir = sessionDir
+        return sessionDir
     }
 
     private func isNotableAppleApp(_ bid: String) -> Bool {
@@ -598,6 +644,7 @@ enum RecorderError: LocalizedError {
     case notRecording
     case noSessionDir
     case exportFailed
+    case missingUITestFixture
 
     var errorDescription: String? {
         switch self {
@@ -608,6 +655,7 @@ enum RecorderError: LocalizedError {
         case .notRecording: return "Not currently recording"
         case .noSessionDir: return "No session directory"
         case .exportFailed: return "Failed to merge audio sources"
+        case .missingUITestFixture: return "UI test fixture audio is missing"
         }
     }
 }

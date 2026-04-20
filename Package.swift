@@ -14,10 +14,15 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("AVFoundation"),
-                .linkedFramework("Speech"),
                 .linkedFramework("CoreMedia"),
+                .linkedFramework("Security"),
                 .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", "RecappiMini/Info.plist"]),
             ]
+        ),
+        .testTarget(
+            name: "RecappiMiniCoreTests",
+            dependencies: ["RecappiMini"],
+            path: "Tests/RecappiMiniCoreTests"
         ),
     ]
 )

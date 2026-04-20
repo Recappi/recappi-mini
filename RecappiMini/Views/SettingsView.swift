@@ -1,36 +1,79 @@
 import AppKit
 import SwiftUI
 
-/// Single-pane Settings — only the controls that are actually wired to
-/// `AppConfig` / `RecordingStore`. Placeholder fake controls (appearance
-/// picker, fake mic list, fake storage stats, unimplemented global hotkeys)
-/// would lie to the user about what Recappi can do, so they're out.
 struct SettingsView: View {
+    @ObservedObject private var config = AppConfig.shared
+    @ObservedObject private var sessionStore = CookieSessionStore.shared
+    @State private var cookieInput = UITestModeConfiguration.shared.cookieValue ?? ""
+
     var body: some View {
         VStack(spacing: 0) {
             SettingsHeader()
             Form {
+                accountSection
                 transcriptionSection
-                aiProviderSection
+                summaryProviderSection
                 storageSection
             }
             .formStyle(.grouped)
-            // Hide Form's default grouped material so our charcoal bg paints
-            // edge-to-edge; without this the Form paints a lighter gray
-            // behind the sections.
             .scrollContentBackground(.hidden)
         }
         .background(DT.recordingShell)
-        // Force dark on every SwiftUI control (Picker, SecureField, TextField,
-        // Section header) so we don't have to restyle each one.
         .preferredColorScheme(.dark)
-        // Covers the title-bar area on macOS 26 — without this there's a
-        // strip of system-gray above the header.
         .containerBackground(DT.recordingShell, for: .window)
         .navigationTitle("Recappi Mini Settings")
-        .frame(minWidth: 520, idealWidth: 540, maxWidth: 600)
+        .frame(minWidth: 520, idealWidth: 560, maxWidth: 660)
         .onDisappear {
             NSApp.setActivationPolicy(.accessory)
+        }
+    }
+
+    @ViewBuilder private var accountSection: some View {
+        Section {
+            Toggle("Use Recappi Cloud for transcription", isOn: cloudEnabledBinding)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.cloudToggle)
+
+            TextField("Backend URL", text: backendBinding, prompt: Text("https://recordmeet.ing"))
+                .accessibilityIdentifier(AccessibilityIDs.Settings.backendField)
+
+            TextField(
+                "Paste Better Auth cookie or raw value",
+                text: $cookieInput,
+                prompt: Text("__Secure-better-auth.session_token=…")
+            )
+            .accessibilityIdentifier(AccessibilityIDs.Settings.cookieField)
+
+            HStack(spacing: 10) {
+                Button(action: verifyCookie) {
+                    if case .verifying = sessionStore.authStatus {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Verifying…")
+                        }
+                    } else {
+                        Text("Verify Session")
+                    }
+                }
+                .disabled(cookieInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !config.cloudEnabled)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.verifyButton)
+
+                Button("Clear Session", action: clearSession)
+                    .disabled(sessionStore.currentSession == nil && cookieInput.isEmpty)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.clearButton)
+
+                Spacer(minLength: 0)
+            }
+
+            statusView
+                .accessibilityLabel(authStatusText)
+                .accessibilityValue(authStatusText)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.authStatus)
+        } header: {
+            Text("Account / Recappi Cloud")
+        } footer: {
+            Text("Sign in on recordmeet.ing, then paste the Better Auth session cookie here. The app normalizes the value and sends it as __Secure-better-auth.session_token on each request.")
+                .foregroundStyle(Color.dtLabelSecondary)
+                .font(.footnote)
         }
     }
 
@@ -48,14 +91,14 @@ struct SettingsView: View {
         } header: {
             Text("Transcription")
         } footer: {
-            Text("Language Apple Speech uses when transcribing the recording.")
+            Text("Language hint sent to the Recappi backend for transcription. Regional variants are normalized before upload, for example en-US becomes en.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
     }
 
-    @ViewBuilder private var aiProviderSection: some View {
-        AIProviderSection()
+    @ViewBuilder private var summaryProviderSection: some View {
+        SummaryProviderSection()
     }
 
     @ViewBuilder private var storageSection: some View {
@@ -68,24 +111,94 @@ struct SettingsView: View {
         } header: {
             Text("Storage")
         } footer: {
-            Text("Recordings live at ~/Documents/Recappi Mini/. Each session has its own folder with the audio, transcript, and summary side by side.")
+            Text("Each session keeps recording.m4a, upload.wav, transcript.md, and any summary files side by side in ~/Documents/Recappi Mini.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
     }
 
+    @ViewBuilder private var statusView: some View {
+        switch sessionStore.authStatus {
+        case .signedOut:
+            statusLabel(icon: "person.crop.circle.badge.xmark", color: DT.systemOrange, text: "Signed out")
+        case .verifying:
+            statusLabel(icon: "arrow.triangle.2.circlepath", color: DT.waveformLit, text: "Verifying session…")
+        case .signedIn(let session):
+            statusLabel(icon: "checkmark.circle.fill", color: DT.systemGreen, text: "\(session.email) · expires \(session.expiresAt.prefix(10))")
+        case .expired:
+            statusLabel(icon: "clock.arrow.circlepath", color: DT.systemOrange, text: "Session expired — paste a fresh cookie.")
+        case .invalidCookie:
+            statusLabel(icon: "xmark.circle.fill", color: DT.systemOrange, text: "Cookie invalid — paste a fresh Better Auth session cookie.")
+        }
+    }
+
+    private var authStatusText: String {
+        switch sessionStore.authStatus {
+        case .signedOut:
+            return "Signed out"
+        case .verifying:
+            return "Verifying session"
+        case .signedIn(let session):
+            return "\(session.email) expires \(session.expiresAt.prefix(10))"
+        case .expired:
+            return "Session expired"
+        case .invalidCookie:
+            return "Cookie invalid"
+        }
+    }
+
+    @ViewBuilder
+    private func statusLabel(icon: String, color: Color, text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+            Text(text)
+                .font(.footnote)
+                .foregroundStyle(Color.dtLabelSecondary)
+                .lineLimit(2)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
+        }
+    }
+
+    private func verifyCookie() {
+        let raw = cookieInput
+        let origin = config.effectiveBackendBaseURL
+        Task { @MainActor in
+            do {
+                _ = try await sessionStore.verifySession(using: raw, origin: origin)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func clearSession() {
+        sessionStore.clearSession()
+        cookieInput = UITestModeConfiguration.shared.cookieValue ?? ""
+    }
+
     private var languageBinding: Binding<String> {
         Binding(
-            get: { AppConfig.shared.speechLanguage },
-            set: { AppConfig.shared.speechLanguage = $0 }
+            get: { AppConfig.shared.cloudLanguage },
+            set: { AppConfig.shared.cloudLanguage = $0 }
+        )
+    }
+
+    private var backendBinding: Binding<String> {
+        Binding(
+            get: { AppConfig.shared.backendBaseURL },
+            set: { AppConfig.shared.backendBaseURL = $0 }
+        )
+    }
+
+    private var cloudEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { AppConfig.shared.cloudEnabled },
+            set: { AppConfig.shared.cloudEnabled = $0 }
         )
     }
 }
 
-// MARK: - Brand header
-
-/// Logo tile + app name/tagline row that anchors the top of the Settings
-/// window so the app identity is visible beyond the menu-bar icon.
 private struct SettingsHeader: View {
     var body: some View {
         HStack(spacing: 14) {
@@ -106,11 +219,7 @@ private struct SettingsHeader: View {
     }
 }
 
-// MARK: - AI Provider section
-
-/// Split into its own view so the state (`testing`, `testResult`) lives
-/// close to the UI that drives it, keeping SettingsView itself flat.
-private struct AIProviderSection: View {
+private struct SummaryProviderSection: View {
     @ObservedObject private var config = AppConfig.shared
     @State private var testing = false
     @State private var testResult: TestResult?
@@ -123,8 +232,8 @@ private struct AIProviderSection: View {
     var body: some View {
         Section {
             Picker("Provider", selection: $config.llmProvider) {
-                ForEach(LLMProvider.allCases) { p in
-                    Text(p.displayName).tag(p.rawValue)
+                ForEach(LLMProvider.allCases) { provider in
+                    Text(provider.displayName).tag(provider.rawValue)
                 }
             }
 
@@ -143,18 +252,18 @@ private struct AIProviderSection: View {
                                 Text("Testing…")
                             }
                         } else {
-                            Text("Test provider")
+                            Text("Test summary provider")
                         }
                     }
                     .disabled(testing || !canTest)
 
-                    if let r = testResult { testResultLabel(r) }
+                    if let result = testResult { testResultLabel(result) }
 
                     Spacer(minLength: 0)
                 }
             }
         } header: {
-            Text("AI Provider")
+            Text("Summary Provider")
         } footer: {
             Text(footerText)
                 .foregroundStyle(Color.dtLabelSecondary)
@@ -214,26 +323,26 @@ private struct AIProviderSection: View {
     private var footerText: String {
         switch config.selectedProvider {
         case .none:
-            return "Saves audio + transcript only. No summary or action items."
+            return "Skip summary and action items. Transcript generation still runs through Recappi Cloud."
         case .apple:
-            return "Runs on-device with Apple Intelligence. Requires Apple Intelligence enabled in System Settings."
+            return "Runs on-device with Apple Intelligence after the transcript comes back from Recappi Cloud."
         case .gemini:
             return "Leave Base URL / Model blank for defaults. Custom Base URL supports Gemini-compatible proxies."
         case .openai:
-            return "Leave Base URL / Model blank for defaults. Custom Base URL supports any OpenAI-compatible endpoint — Ollama, LM Studio, OpenRouter, Groq, Together, DeepSeek, Azure, etc."
+            return "Leave Base URL / Model blank for defaults. Custom Base URL supports OpenAI-compatible endpoints."
         }
     }
 
     @ViewBuilder
-    private func testResultLabel(_ r: TestResult) -> some View {
+    private func testResultLabel(_ result: TestResult) -> some View {
         HStack(spacing: 5) {
-            switch r {
-            case .success(let msg):
+            switch result {
+            case .success(let message):
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(DT.systemGreen)
-                Text(msg).font(.footnote).foregroundStyle(Color.dtLabelSecondary).lineLimit(2)
-            case .failure(let msg):
+                Text(message).font(.footnote).foregroundStyle(Color.dtLabelSecondary).lineLimit(2)
+            case .failure(let message):
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(DT.systemOrange)
-                Text(msg).font(.footnote).foregroundStyle(Color.dtLabelSecondary).lineLimit(2)
+                Text(message).font(.footnote).foregroundStyle(Color.dtLabelSecondary).lineLimit(2)
             }
         }
     }

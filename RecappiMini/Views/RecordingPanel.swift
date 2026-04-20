@@ -39,7 +39,7 @@ struct RecordingPanel: View {
                 onClose: onClosePanel
             )
         case .recording: RecordingState(recorder: recorder, onDiscard: discardRecording, onStop: stopRecording)
-        case .stopping, .transcribing, .summarizing: ProcessingState(recorder: recorder)
+        case .processing(let phase): ProcessingState(phase: phase)
         case .done(let r):
             DoneState(
                 result: r,
@@ -94,9 +94,6 @@ struct RecordingPanel: View {
         }
     }
 
-    /// Retry picks up from `lastSessionDir` so we don't call stopRecording
-    /// again (which would throw "Not currently recording"). Only transcribe
-    /// + summarize get replayed — the capture is already on disk.
     private func retryProcessing(_ message: String) {
         guard let sessionDir = recorder.lastSessionDir else {
             recorder.state = .error(message: "No session to retry")
@@ -107,30 +104,10 @@ struct RecordingPanel: View {
 
     private func processSession(_ sessionDir: URL, duration: Int) async {
         do {
-            let config = AppConfig.shared
-            let transcriber = createTranscriber(config: config)
-
-            recorder.state = .transcribing
-            let audioURL = RecordingStore.audioFileURL(in: sessionDir)
-            let transcript = try await transcriber.transcribe(audioURL: audioURL)
-            try RecordingStore.saveTranscript(transcript, in: sessionDir)
-
-            var insights: MeetingInsights? = nil
-            if config.selectedProvider != .none {
-                recorder.state = .summarizing
-                let provider = createInsightsProvider(config: config)
-                let extracted = try await provider.extract(transcript: transcript)
-                try RecordingStore.saveSummary(extracted, in: sessionDir)
-                try RecordingStore.saveActionItems(extracted.actionItems, in: sessionDir)
-                insights = extracted
+            let result = try await SessionProcessor.shared.process(sessionDir: sessionDir, duration: duration) { phase in
+                recorder.state = .processing(phase)
             }
-
-            recorder.state = .done(result: RecordingResult(
-                folderURL: sessionDir,
-                transcript: transcript,
-                duration: duration,
-                insights: insights
-            ))
+            recorder.state = .done(result: result)
         } catch {
             recorder.state = .error(message: error.localizedDescription)
         }
@@ -138,7 +115,7 @@ struct RecordingPanel: View {
 
     private func discardRecording() {
         Task {
-            try? await recorder.stopRecording()
+            _ = try? await recorder.stopRecording()
             recorder.reset()
         }
     }
@@ -173,7 +150,7 @@ struct RecordingPanel: View {
         switch recorder.state {
         case .idle: return "idle"
         case .recording: return "recording"
-        case .stopping, .transcribing, .summarizing: return "processing"
+        case .processing: return "processing"
         case .done(let r):
             let hasSummary = r.insights?.summary.isEmpty == false
             let hasTranscript = (r.transcript ?? "").isEmpty == false
@@ -206,6 +183,7 @@ private struct IdleState: View {
             }
             .buttonStyle(PanelIconButtonStyle())
             .help("Settings (⌘,)")
+            .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
@@ -218,6 +196,7 @@ private struct IdleState: View {
             PrimaryRecordButton(kind: .record, action: onRecord)
                 .keyboardShortcut(.return, modifiers: [])
                 .help("Record")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.recordButton)
         }
         .frame(height: 28)
         .task { await recorder.refreshApps() }
@@ -269,10 +248,12 @@ private struct RecordingState: View {
                 }
                 .buttonStyle(PanelIconButtonStyle())
                 .help("Discard")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
 
                 PrimaryRecordButton(kind: .stop, action: onStop)
                     .keyboardShortcut(.return, modifiers: [])
                     .help("Stop")
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
             }
             .frame(height: 28)
         }
@@ -292,9 +273,9 @@ private struct RecordingState: View {
 // MARK: - Processing
 
 private struct ProcessingState: View {
-    @ObservedObject var recorder: AudioRecorder
+    let phase: ProcessingPhase
     @State private var spin = false
-    @State private var barPhase = false
+    @State private var shimmerPhase = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -311,54 +292,65 @@ private struct ProcessingState: View {
                     Text(title)
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(Color.dtLabel)
+                        .accessibilityIdentifier(AccessibilityIDs.Panel.processingTitle)
                     Text(step)
                         .font(.system(size: 11, design: .monospaced))
                         .monospacedDigit()
                         .foregroundStyle(Color.dtLabelSecondary)
+                        .accessibilityIdentifier(AccessibilityIDs.Panel.processingDetail)
                 }
 
                 Spacer(minLength: 0)
             }
 
-            // Animated progress bar: grows 18% → 92% and back
             GeometryReader { geo in
                 let width = geo.size.width
-                Capsule()
-                    .fill(Color.white.opacity(0.08))
-                    .frame(height: 2)
-                    .overlay(alignment: .leading) {
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(height: 3)
+
+                    switch phase.progressStyle {
+                    case .determinate(let progress):
                         Capsule()
                             .fill(DT.waveformLit)
-                            .frame(width: width * (barPhase ? 0.92 : 0.18), height: 2)
-                            .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 1.8).repeatForever(autoreverses: true), value: barPhase)
+                            .frame(width: width * max(0, min(1, progress)), height: 3)
+                            .animation(.easeOut(duration: 0.25), value: progress)
+
+                    case .indeterminate(let base):
+                        let clampedBase = max(0, min(1, base))
+                        let baseWidth = width * clampedBase
+                        let remainingWidth = max(width - baseWidth, 0)
+                        let segmentWidth = min(max(remainingWidth * 0.45, 26), max(remainingWidth, 26))
+
+                        Capsule()
+                            .fill(DT.waveformLit.opacity(0.85))
+                            .frame(width: baseWidth, height: 3)
+                            .animation(.easeOut(duration: 0.25), value: base)
+
+                        if remainingWidth > 0 {
+                            Capsule()
+                                .fill(DT.waveformLit)
+                                .frame(width: min(segmentWidth, remainingWidth), height: 3)
+                                .offset(x: baseWidth + ((remainingWidth - min(segmentWidth, remainingWidth)) * (shimmerPhase ? 1 : 0)))
+                                .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 1.1).repeatForever(autoreverses: true), value: shimmerPhase)
+                        }
                     }
+                }
             }
-            .frame(height: 2)
-            .onAppear { barPhase = true }
+            .frame(height: 3)
+            .onAppear { shimmerPhase = true }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
     }
 
     private var title: String {
-        switch recorder.state {
-        case .stopping: return "Saving audio…"
-        case .transcribing: return "Transcribing…"
-        case .summarizing: return "Summarizing…"
-        default: return "Processing…"
-        }
+        phase.title
     }
 
     private var step: String {
-        let total = AppConfig.shared.selectedProvider == .none ? 2 : 3
-        let current: Int
-        switch recorder.state {
-        case .stopping: current = 1
-        case .transcribing: current = 2
-        case .summarizing: current = 3
-        default: current = 0
-        }
-        return "Step \(current) of \(total)"
+        phase.detail
     }
 }
 
@@ -383,6 +375,7 @@ private struct DoneState: View {
                 Text("Meeting saved")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.doneTitle)
 
                 Spacer(minLength: 0)
 
@@ -398,6 +391,7 @@ private struct DoneState: View {
 
             HStack(spacing: 6) {
                 Button("Show", action: onShow).buttonStyle(PanelPushButtonStyle())
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.showButton)
                 Button("Copy", action: onCopy).buttonStyle(PanelPushButtonStyle())
                 Button("Done", action: onNew).buttonStyle(PanelPushButtonStyle(primary: true))
             }
@@ -501,6 +495,7 @@ private struct ErrorState: View {
                     Text(title)
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Color.dtLabel)
+                        .accessibilityIdentifier(AccessibilityIDs.Panel.errorTitle)
                     Text(message)
                         .font(.system(size: 11.5))
                         .foregroundStyle(Color.dtLabelSecondary)
@@ -530,14 +525,18 @@ private struct ErrorState: View {
         if recorder.lastSessionDir != nil {
             HStack(spacing: 6) {
                 Button("Show", action: onShow).buttonStyle(PanelPushButtonStyle())
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.showButton)
                 if isConfigRelated {
                     Button("Settings…", action: onSettings).buttonStyle(PanelPushButtonStyle())
+                        .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
                 }
                 Button("Retry", action: onRetry).buttonStyle(PanelPushButtonStyle(primary: true))
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.retryButton)
             }
         } else if isConfigRelated {
             HStack(spacing: 6) {
                 Button("Settings…", action: onSettings).buttonStyle(PanelPushButtonStyle(primary: true))
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
             }
         }
     }
@@ -551,6 +550,9 @@ private struct ErrorState: View {
         return lower.contains("api")
             || lower.contains("key")
             || lower.contains("auth")
+            || lower.contains("cookie")
+            || lower.contains("session")
+            || lower.contains("sign in")
             || lower.contains("language not supported")
             || lower.contains("apple intelligence")
     }

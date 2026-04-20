@@ -28,9 +28,7 @@ struct RecordingResult: Equatable {
 enum RecorderState: Equatable {
     case idle
     case recording
-    case stopping
-    case transcribing
-    case summarizing
+    case processing(ProcessingPhase)
     case done(result: RecordingResult)
     case error(message: String)
 
@@ -39,22 +37,17 @@ enum RecorderState: Equatable {
     }
 
     var isProcessing: Bool {
-        switch self {
-        case .stopping, .transcribing, .summarizing:
-            return true
-        default:
-            return false
-        }
+        if case .processing = self { return true }
+        return false
     }
 
     static func == (lhs: RecorderState, rhs: RecorderState) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle),
-             (.recording, .recording),
-             (.stopping, .stopping),
-             (.transcribing, .transcribing),
-             (.summarizing, .summarizing):
+             (.recording, .recording):
             return true
+        case let (.processing(a), .processing(b)):
+            return a == b
         case let (.done(a), .done(b)):
             return a == b
         case let (.error(a), .error(b)):

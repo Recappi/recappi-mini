@@ -19,6 +19,10 @@ struct RecordingStore {
         sessionDir.appendingPathComponent("recording.m4a")
     }
 
+    static func uploadAudioFileURL(in sessionDir: URL) -> URL {
+        sessionDir.appendingPathComponent("upload.wav")
+    }
+
     static func transcriptFileURL(in sessionDir: URL) -> URL {
         sessionDir.appendingPathComponent("transcript.md")
     }
@@ -29,6 +33,10 @@ struct RecordingStore {
 
     static func actionItemsFileURL(in sessionDir: URL) -> URL {
         sessionDir.appendingPathComponent("action-items.md")
+    }
+
+    static func remoteManifestURL(in sessionDir: URL) -> URL {
+        sessionDir.appendingPathComponent("remote-session.json")
     }
 
     static func saveTranscript(_ text: String, in sessionDir: URL) throws {
@@ -73,5 +81,22 @@ struct RecordingStore {
             content += line + "\n"
         }
         try content.write(to: actionItemsFileURL(in: sessionDir), atomically: true, encoding: .utf8)
+    }
+
+    @discardableResult
+    static func saveRemoteManifest(_ manifest: RemoteSessionManifest, in sessionDir: URL) -> RemoteSessionManifest {
+        var next = manifest
+        next.updatedAt = ISO8601DateFormatter().string(from: Date())
+        let url = remoteManifestURL(in: sessionDir)
+        if let data = try? JSONEncoder().encode(next) {
+            try? data.write(to: url)
+        }
+        return next
+    }
+
+    static func loadRemoteManifest(in sessionDir: URL) -> RemoteSessionManifest? {
+        let url = remoteManifestURL(in: sessionDir)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(RemoteSessionManifest.self, from: data)
     }
 }

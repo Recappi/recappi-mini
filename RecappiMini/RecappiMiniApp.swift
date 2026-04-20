@@ -85,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        CookieSessionStore.shared.bootstrapForUITestsIfNeeded()
 
         let m = PillShellView.shadowMargin
         let pillWidth = DT.panelWidth

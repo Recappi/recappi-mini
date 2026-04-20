@@ -30,6 +30,8 @@ final class AppConfig: ObservableObject {
     static let shared = AppConfig()
 
     @AppStorage("llmProvider") var llmProvider: String = LLMProvider.apple.rawValue
+    @AppStorage("backendBaseURL") var backendBaseURL: String = "https://recordmeet.ing"
+    @AppStorage("cloudEnabled") var cloudEnabled: Bool = true
 
     // Per-provider credentials. BaseURL + Model are overridable so users can
     // point at OpenAI-compatible backends (Ollama, LM Studio, OpenRouter,
@@ -42,7 +44,7 @@ final class AppConfig: ObservableObject {
     @AppStorage("openaiBaseUrl") var openaiBaseUrl: String = ""
     @AppStorage("openaiModel") var openaiModel: String = ""
 
-    @AppStorage("speechLanguage") var speechLanguage: String = "en-US"
+    @AppStorage("speechLanguage") var cloudLanguage: String = "en-US"
 
     // Default endpoints used when the user's field is blank. Kept public so
     // the Settings form can show them as placeholders.
@@ -50,7 +52,6 @@ final class AppConfig: ObservableObject {
     static let defaultGeminiModel = "gemini-2.0-flash"
     static let defaultOpenaiBaseUrl = "https://api.openai.com/v1"
     static let defaultOpenaiChatModel = "gpt-4o-mini"
-    static let defaultOpenaiTranscribeModel = "whisper-1"
 
     var effectiveGeminiBaseUrl: String {
         let trimmed = geminiBaseUrl.trimmingCharacters(in: .whitespaces)
@@ -70,6 +71,21 @@ final class AppConfig: ObservableObject {
     var effectiveOpenaiChatModel: String {
         let trimmed = openaiModel.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty ? Self.defaultOpenaiChatModel : trimmed
+    }
+
+    var effectiveBackendBaseURL: String {
+        let override = UITestModeConfiguration.shared.backendURL?.trimmingCharacters(in: .whitespaces)
+        if let override, !override.isEmpty { return override }
+        let trimmed = backendBaseURL.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "https://recordmeet.ing" : trimmed
+    }
+
+    var normalizedCloudLanguage: String {
+        let trimmed = cloudLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let base = trimmed.split(separator: "-").first, !base.isEmpty {
+            return String(base)
+        }
+        return "en"
     }
 
     var selectedProvider: LLMProvider {
