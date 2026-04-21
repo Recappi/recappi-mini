@@ -3,12 +3,27 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="RecappiMini"
-BUILD_DIR="$PROJECT_DIR/.build/arm64-apple-macosx/debug"
 APP_BUNDLE="$PROJECT_DIR/build/$APP_NAME.app"
+BUILD_CONFIG="${BUILD_CONFIG:-debug}"
+RELEASE_MODE="${RELEASE:-0}"
+APP_VERSION="${APP_VERSION:-1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-1.0}"
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-RecappiMini Dev}"
+ENTITLEMENTS_PATH="$PROJECT_DIR/RecappiMini/RecappiMini.entitlements"
+
+if [ "$RELEASE_MODE" = "1" ] && [ "$BUILD_CONFIG" = "debug" ]; then
+    BUILD_CONFIG="release"
+fi
+
+BUILD_ARGS=()
+if [ "$BUILD_CONFIG" = "release" ]; then
+    BUILD_ARGS+=("-c" "release")
+fi
 
 echo "Building..."
 cd "$PROJECT_DIR"
-swift build
+swift build "${BUILD_ARGS[@]}"
+BUILD_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 
 echo "Creating app bundle..."
 rm -rf "$APP_BUNDLE"
@@ -26,7 +41,7 @@ cp "$PROJECT_DIR/RecappiMini/Resources/Logo.png" "$APP_BUNDLE/Contents/Resources
 cp "$PROJECT_DIR/RecappiMini/Resources/LogoTemplate.png" "$APP_BUNDLE/Contents/Resources/LogoTemplate.png"
 
 # Create Info.plist
-cat > "$APP_BUNDLE/Contents/Info.plist" << 'EOF'
+cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -38,9 +53,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'EOF'
     <key>CFBundleIdentifier</key>
     <string>com.recappi.mini</string>
     <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <string>$BUILD_NUMBER</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>$APP_VERSION</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
@@ -82,8 +97,21 @@ cp "$LOGO_SRC" "$ICONSET/icon_512x512@2x.png"
 iconutil -c icns "$ICONSET" -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET"
 
-# Codesign with persistent self-signed certificate so TCC permissions survive rebuilds
-codesign --force --deep --sign "RecappiMini Dev" --identifier "com.recappi.mini" "$APP_BUNDLE"
+if [ "$RELEASE_MODE" = "1" ] && [ "$CODESIGN_IDENTITY" != "-" ]; then
+    codesign \
+        --force \
+        --deep \
+        --sign "$CODESIGN_IDENTITY" \
+        --identifier "com.recappi.mini" \
+        --options runtime \
+        --entitlements "$ENTITLEMENTS_PATH" \
+        --timestamp \
+        "$APP_BUNDLE"
+else
+    # Preserve the existing local-dev behavior unless callers opt into
+    # release signing or explicitly request ad-hoc signing with `-`.
+    codesign --force --deep --sign "$CODESIGN_IDENTITY" --identifier "com.recappi.mini" "$APP_BUNDLE"
+fi
 
 echo "App bundle created at: $APP_BUNDLE"
 echo "Run with: open $APP_BUNDLE"
