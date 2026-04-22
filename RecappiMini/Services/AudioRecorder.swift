@@ -1,7 +1,7 @@
 import AVFoundation
 import AppKit
 import CoreMedia
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 
 struct AudioApp: Identifiable, Hashable {
     enum Bucket: Int, Sendable, Comparable {
