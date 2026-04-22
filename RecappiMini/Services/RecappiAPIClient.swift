@@ -18,6 +18,12 @@ struct RecappiAPIClient: Sendable {
         return try Self.decodeSessionLookup(from: data, response: response, origin: origin)
     }
 
+    func signOut() async throws {
+        let request = try makeRequest(path: "/api/auth/sign-out", method: "POST")
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+    }
+
     func createRecording(title: String?) async throws -> CreateRecordingResponse {
         var request = try makeRequest(path: "/api/recordings", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

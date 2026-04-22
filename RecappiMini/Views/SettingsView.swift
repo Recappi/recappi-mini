@@ -36,45 +36,23 @@ struct SettingsView: View {
                 .accessibilityIdentifier(AccessibilityIDs.Settings.cloudToggle)
 
             TextField("Backend URL", text: backendBinding, prompt: Text("https://recordmeet.ing"))
+                .disabled(sessionStore.isAuthBusy)
                 .accessibilityIdentifier(AccessibilityIDs.Settings.backendField)
 
-            HStack(spacing: 10) {
-                Button(action: { signIn(with: .google) }) {
-                    if case .authenticating = sessionStore.authStatus {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Connecting…")
-                        }
-                    } else {
-                        Text("Sign in with Google")
-                    }
-                }
-                .disabled(isAuthActionDisabled)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.signInGoogleButton)
-
-                Button("Sign in with GitHub") { signIn(with: .github) }
-                    .disabled(isAuthActionDisabled)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.signInGitHubButton)
-
-                Button("Reconnect", action: reconnect)
-                    .disabled(isAuthActionDisabled)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.reconnectButton)
-
-                Button("Sign out", action: clearSession)
-                    .disabled(sessionStore.currentSession == nil && sessionStore.authStatus == .signedOut)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.signOutButton)
-
-                Spacer(minLength: 0)
-            }
+            authActions
 
             statusView
                 .accessibilityLabel(authStatusText)
                 .accessibilityValue(authStatusText)
                 .accessibilityIdentifier(AccessibilityIDs.Settings.authStatus)
+
+            if let currentSession = sessionStore.currentSession {
+                accountSummaryCard(session: currentSession)
+            }
         } header: {
             Text("Account / Recappi Cloud")
         } footer: {
-            Text("Use Google or GitHub to sign in to Recappi Cloud. The app opens a system authentication window, completes a PKCE bridge callback in-session, stores the bearer token in Keychain, and reconnects if the backend returns 401.")
+            Text("Use Google or GitHub to sign in to Recappi Cloud. The app opens a secure system browser sheet, completes the backend PKCE bridge in-session, stores the bearer token in Keychain, and reconnects if the backend returns 401.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
@@ -142,36 +120,165 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var statusView: some View {
-        switch sessionStore.authStatus {
-        case .signedOut:
-            statusLabel(icon: "person.crop.circle.badge.xmark", color: DT.systemOrange, text: "Signed out")
-        case .authenticating:
-            statusLabel(icon: "arrow.triangle.2.circlepath", color: DT.waveformLit, text: "Authenticating with Recappi Cloud…")
-        case .signedIn(let session):
-            statusLabel(icon: "checkmark.circle.fill", color: DT.systemGreen, text: "\(session.email) · expires \(session.expiresAt.prefix(10))")
-        case .expired:
-            statusLabel(
-                icon: "clock.arrow.circlepath",
-                color: DT.systemOrange,
-                text: sessionStore.authStatusDetail ?? "Session expired — reconnect to continue."
-            )
-        case .failed:
-            statusLabel(
-                icon: "xmark.circle.fill",
-                color: DT.systemOrange,
-                text: sessionStore.authStatusDetail ?? "Authentication failed — try again or use the developer backdoor."
-            )
+        if let phase = sessionStore.authFlowPhase {
+            statusLabel(icon: "arrow.triangle.2.circlepath", color: DT.waveformLit, text: phase.statusText)
+        } else {
+            switch sessionStore.authStatus {
+            case .signedOut:
+                statusLabel(icon: "person.crop.circle.badge.xmark", color: DT.systemOrange, text: signedOutText)
+            case .authenticating:
+                statusLabel(icon: "arrow.triangle.2.circlepath", color: DT.waveformLit, text: "Authenticating with Recappi Cloud…")
+            case .signedIn(let session):
+                statusLabel(icon: "checkmark.circle.fill", color: DT.systemGreen, text: signedInText(for: session))
+            case .expired:
+                statusLabel(
+                    icon: "clock.arrow.circlepath",
+                    color: DT.systemOrange,
+                    text: sessionStore.authStatusDetail ?? "Session expired — reconnect to continue."
+                )
+            case .failed:
+                statusLabel(
+                    icon: "xmark.circle.fill",
+                    color: DT.systemOrange,
+                    text: sessionStore.authStatusDetail ?? "Authentication failed — try again or use the developer backdoor."
+                )
+            }
         }
     }
 
+    @ViewBuilder
+    private var authActions: some View {
+        HStack(spacing: 10) {
+            if sessionStore.currentSession == nil {
+                signInButton(for: .google)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.signInGoogleButton)
+
+                signInButton(for: .github)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.signInGitHubButton)
+            } else {
+                Button(reconnectButtonTitle, action: reconnect)
+                    .disabled(isAuthActionDisabled)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.reconnectButton)
+
+                if let alternate = alternateProvider {
+                    Button("Use \(alternate.displayName)") {
+                        signIn(with: alternate)
+                    }
+                    .disabled(isAuthActionDisabled)
+                }
+            }
+
+            Button(signOutButtonTitle, action: signOut)
+                .disabled(signOutDisabled)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.signOutButton)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func signInButton(for provider: OAuthProvider) -> some View {
+        Button(action: { signIn(with: provider) }) {
+            if sessionStore.authFlowPhase?.activeProvider == provider {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(sessionStore.authFlowPhase?.buttonLabel ?? "Connecting…")
+                }
+            } else {
+                Text("Sign in with \(provider.displayName)")
+            }
+        }
+        .disabled(isAuthActionDisabled)
+    }
+
+    @ViewBuilder
+    private func accountSummaryCard(session: UserSession) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Connected account")
+                .font(.system(size: 10.5, weight: .semibold))
+                .tracking(0.05 * 10.5)
+                .textCase(.uppercase)
+                .foregroundStyle(Color.dtLabelSecondary)
+
+            Text(session.email)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(Color.dtLabel)
+
+            Text(accountSummaryDetail(for: session))
+                .font(.footnote)
+                .foregroundStyle(Color.dtLabelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: DT.R.card, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DT.R.card, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        )
+    }
+
+    private var signedOutText: String {
+        if let provider = sessionStore.lastOAuthProvider {
+            return "Signed out · last used \(provider.displayName)"
+        }
+        return "Signed out"
+    }
+
+    private func signedInText(for session: UserSession) -> String {
+        let expiresPrefix = session.expiresAt.prefix(10)
+        if let provider = sessionStore.lastOAuthProvider {
+            return "\(session.email) · via \(provider.displayName) · expires \(expiresPrefix)"
+        }
+        return "\(session.email) · expires \(expiresPrefix)"
+    }
+
+    private func accountSummaryDetail(for session: UserSession) -> String {
+        let providerText = sessionStore.lastOAuthProvider?.displayName ?? "Recappi Cloud"
+        return "Signed in via \(providerText). Token refreshes on active use and currently expires on \(session.expiresAt)."
+    }
+
+    private var alternateProvider: OAuthProvider? {
+        guard let last = sessionStore.lastOAuthProvider else { return nil }
+        return OAuthProvider.allCases.first(where: { $0 != last })
+    }
+
+    private var reconnectButtonTitle: String {
+        if sessionStore.authFlowPhase == .signingOut {
+            return "Reconnect"
+        }
+        if let provider = sessionStore.lastOAuthProvider {
+            return "Reconnect with \(provider.displayName)"
+        }
+        return "Reconnect"
+    }
+
+    private var signOutButtonTitle: String {
+        if sessionStore.authFlowPhase == .signingOut {
+            return "Signing out…"
+        }
+        return "Sign out"
+    }
+
+    private var signOutDisabled: Bool {
+        sessionStore.currentSession == nil || sessionStore.isAuthBusy
+    }
+
     private var authStatusText: String {
+        if let phase = sessionStore.authFlowPhase {
+            return phase.statusText
+        }
+
         switch sessionStore.authStatus {
         case .signedOut:
-            return "Signed out"
+            return signedOutText
         case .authenticating:
             return "Authenticating"
         case .signedIn(let session):
-            return "\(session.email) expires \(session.expiresAt.prefix(10))"
+            return signedInText(for: session)
         case .expired:
             return sessionStore.authStatusDetail ?? "Session expired"
         case .failed:
@@ -193,7 +300,7 @@ struct SettingsView: View {
     }
 
     private var isAuthActionDisabled: Bool {
-        !config.cloudEnabled || sessionStore.authStatus == .authenticating
+        !config.cloudEnabled || sessionStore.isAuthBusy
     }
 
     private var shouldShowManualAuth: Bool {
@@ -226,6 +333,14 @@ struct SettingsView: View {
         }
     }
 
+    private func signOut() {
+        let origin = config.effectiveBackendBaseURL
+        Task { @MainActor in
+            await sessionStore.signOut(origin: origin)
+            manualBearerInput = UITestModeConfiguration.shared.authToken ?? ""
+        }
+    }
+
     private func importManualBearer() {
         let raw = manualBearerInput
         let origin = config.effectiveBackendBaseURL
@@ -236,11 +351,6 @@ struct SettingsView: View {
                 NSSound.beep()
             }
         }
-    }
-
-    private func clearSession() {
-        sessionStore.clearSession()
-        manualBearerInput = UITestModeConfiguration.shared.authToken ?? ""
     }
 
     private var languageBinding: Binding<String> {

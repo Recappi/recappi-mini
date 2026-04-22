@@ -17,6 +17,60 @@ enum AuthStatus: Equatable {
     case failed
 }
 
+enum AuthFlowPhase: Equatable {
+    case starting(provider: OAuthProvider)
+    case awaitingUserInteraction(provider: OAuthProvider)
+    case exchangingCode(provider: OAuthProvider)
+    case verifyingSession(provider: OAuthProvider?)
+    case signingOut
+
+    var activeProvider: OAuthProvider? {
+        switch self {
+        case .starting(let provider),
+                .awaitingUserInteraction(let provider),
+                .exchangingCode(let provider):
+            return provider
+        case .verifyingSession(let provider):
+            return provider
+        case .signingOut:
+            return nil
+        }
+    }
+
+    var statusText: String {
+        switch self {
+        case .starting(let provider):
+            return "Starting \(provider.displayName) sign-in…"
+        case .awaitingUserInteraction(let provider):
+            return "Continue with \(provider.displayName) in the secure browser sheet."
+        case .exchangingCode(let provider):
+            return "Finishing \(provider.displayName) sign-in with Recappi Cloud…"
+        case .verifyingSession(let provider):
+            if let provider {
+                return "Refreshing your \(provider.displayName) session…"
+            }
+            return "Refreshing your Recappi Cloud session…"
+        case .signingOut:
+            return "Signing out of Recappi Cloud…"
+        }
+    }
+
+    var buttonLabel: String {
+        switch self {
+        case .starting:
+            return "Preparing…"
+        case .awaitingUserInteraction:
+            return "Continue in browser…"
+        case .exchangingCode:
+            return "Finishing…"
+        case .verifyingSession:
+            return "Verifying…"
+        case .signingOut:
+            return "Signing out…"
+        }
+    }
+}
+
 enum OAuthProvider: String, CaseIterable, Identifiable, Sendable {
     case google
     case github

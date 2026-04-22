@@ -7,6 +7,7 @@ final class AuthSessionStore: ObservableObject {
 
     @Published private(set) var authStatus: AuthStatus
     @Published private(set) var authStatusDetail: String?
+    @Published private(set) var authFlowPhase: AuthFlowPhase?
 
     private let defaults = UserDefaults.standard
     private let keychain = KeychainAuthStore()
@@ -22,9 +23,11 @@ final class AuthSessionStore: ObservableObject {
            keychain.readBearerToken() != nil {
             authStatus = .signedIn(session)
             authStatusDetail = nil
+            authFlowPhase = nil
         } else {
             authStatus = .signedOut
             authStatusDetail = nil
+            authFlowPhase = nil
         }
     }
 
@@ -41,6 +44,10 @@ final class AuthSessionStore: ObservableObject {
         defaults.string(forKey: lastProviderKey).flatMap(OAuthProvider.init(rawValue:))
     }
 
+    var isAuthBusy: Bool {
+        authFlowPhase != nil || authStatus == .authenticating
+    }
+
     func bootstrapForUITestsIfNeeded() async {
         guard UITestModeConfiguration.shared.isEnabled else { return }
 
@@ -53,6 +60,7 @@ final class AuthSessionStore: ObservableObject {
             defaults.removeObject(forKey: lastVerifiedKey)
             authStatus = .signedOut
             authStatusDetail = nil
+            authFlowPhase = nil
         }
 
         if let authToken = UITestModeConfiguration.shared.authToken,
@@ -71,10 +79,15 @@ final class AuthSessionStore: ObservableObject {
     }
 
     func startOAuth(provider: OAuthProvider, origin: String) async throws -> UserSession {
-        beginAuthentication()
+        beginAuthentication(.starting(provider: provider))
         let resolvedOrigin = Self.normalizeOrigin(origin)
         do {
-            let bootstrap = try await NativeOAuthCoordinator().authenticate(provider: provider, origin: resolvedOrigin)
+            let bootstrap = try await NativeOAuthCoordinator().authenticate(
+                provider: provider,
+                origin: resolvedOrigin
+            ) { phase in
+                self.authFlowPhase = phase
+            }
             persist(
                 bearerToken: bootstrap.bearerToken,
                 session: bootstrap.session,
@@ -83,6 +96,7 @@ final class AuthSessionStore: ObservableObject {
             )
             authStatus = .signedIn(bootstrap.session)
             authStatusDetail = nil
+            authFlowPhase = nil
             return bootstrap.session
         } catch {
             if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
@@ -91,6 +105,7 @@ final class AuthSessionStore: ObservableObject {
                 authStatus = .failed
             }
             authStatusDetail = error.localizedDescription
+            authFlowPhase = nil
             throw error
         }
     }
@@ -100,10 +115,11 @@ final class AuthSessionStore: ObservableObject {
         guard let normalized = Self.normalizeBearerToken(cleaned) else {
             authStatus = .failed
             authStatusDetail = RecappiSessionError.invalidBearerFormat.localizedDescription
+            authFlowPhase = nil
             throw RecappiSessionError.invalidBearerFormat
         }
 
-        beginAuthentication()
+        beginAuthentication(.verifyingSession(provider: nil))
         let resolvedOrigin = Self.normalizeOrigin(origin)
         let client = RecappiAPIClient(origin: resolvedOrigin, bearerToken: normalized)
 
@@ -122,14 +138,17 @@ final class AuthSessionStore: ObservableObject {
             )
             authStatus = .signedIn(session)
             authStatusDetail = nil
+            authFlowPhase = nil
             return session
         } catch let error as RecappiAPIError where error == .unauthorized {
             authStatus = .expired
             authStatusDetail = error.localizedDescription
+            authFlowPhase = nil
             throw error
         } catch {
             authStatus = .failed
             authStatusDetail = error.localizedDescription
+            authFlowPhase = nil
             throw error
         }
     }
@@ -143,6 +162,7 @@ final class AuthSessionStore: ObservableObject {
         guard let bearerToken = keychain.readBearerToken() else {
             authStatus = .signedOut
             authStatusDetail = nil
+            authFlowPhase = nil
             throw RecappiSessionError.notSignedIn
         }
 
@@ -164,14 +184,17 @@ final class AuthSessionStore: ObservableObject {
             )
             authStatus = .signedIn(session)
             authStatusDetail = nil
+            authFlowPhase = nil
             return session
         } catch let error as RecappiAPIError where error == .unauthorized {
             authStatus = .expired
             authStatusDetail = error.localizedDescription
+            authFlowPhase = nil
             throw error
         } catch {
             authStatus = .failed
             authStatusDetail = error.localizedDescription
+            authFlowPhase = nil
             throw error
         }
     }
@@ -179,6 +202,7 @@ final class AuthSessionStore: ObservableObject {
     func handleUnauthorized(origin: String) async throws -> UserSession {
         authStatus = .expired
         authStatusDetail = RecappiAPIError.unauthorized.localizedDescription
+        authFlowPhase = nil
         _ = keychain.deleteBearerToken()
         defaults.removeObject(forKey: cachedUserKey)
         defaults.removeObject(forKey: lastVerifiedKey)
@@ -194,6 +218,26 @@ final class AuthSessionStore: ObservableObject {
         keychain.readBearerToken()
     }
 
+    func signOut(origin: String) async {
+        let resolvedOrigin = Self.normalizeOrigin(origin)
+        authFlowPhase = .signingOut
+        authStatusDetail = nil
+
+        if let bearerToken = keychain.readBearerToken() {
+            let client = RecappiAPIClient(origin: resolvedOrigin, bearerToken: bearerToken)
+            do {
+                try await client.signOut()
+            } catch let error as RecappiAPIError where error == .unauthorized {
+                // Treat an already-expired token as signed out and continue clearing local state.
+            } catch {
+                // Remote revocation is best-effort; local sign-out still wins.
+                NSLog("[Recappi] signOut remote revoke failed: \(error.localizedDescription)")
+            }
+        }
+
+        clearSession()
+    }
+
     func clearSession() {
         _ = keychain.deleteBearerToken()
         defaults.removeObject(forKey: cachedUserKey)
@@ -201,11 +245,13 @@ final class AuthSessionStore: ObservableObject {
         defaults.removeObject(forKey: lastVerifiedKey)
         authStatus = .signedOut
         authStatusDetail = nil
+        authFlowPhase = nil
     }
 
-    private func beginAuthentication() {
+    private func beginAuthentication(_ phase: AuthFlowPhase) {
         authStatus = .authenticating
         authStatusDetail = nil
+        authFlowPhase = phase
     }
 
     private func persist(
@@ -257,8 +303,11 @@ enum RecappiSessionError: LocalizedError {
     case oauthCancelled
     case oauthCallbackMismatch
     case oauthCallbackMissingCode
+    case oauthExchangeExpired
     case oauthExchangeMissingToken
+    case oauthVerifierMismatch
     case oauthPKCEGenerationFailed
+    case oauthStartRejected(String)
     case oauthStartFailed
     case reauthenticationUnavailableInUITests
 
@@ -271,15 +320,21 @@ enum RecappiSessionError: LocalizedError {
         case .notSignedIn:
             return "Sign in to Recappi Cloud in Settings before processing this recording."
         case .oauthCancelled:
-            return "Recappi Cloud sign-in was canceled."
+            return "Recappi Cloud sign-in did not finish. If you closed the browser sheet or saw an error page there, retry."
         case .oauthCallbackMismatch:
             return "Recappi Cloud sign-in returned to an unexpected callback."
         case .oauthCallbackMissingCode:
             return "Recappi Cloud sign-in finished, but the callback did not include an exchange code."
+        case .oauthExchangeExpired:
+            return "Recappi Cloud sign-in expired before the app could finish exchanging the bridge code. Retry the login flow."
         case .oauthExchangeMissingToken:
             return "Recappi Cloud sign-in finished, but the bridge did not return a reusable bearer token."
+        case .oauthVerifierMismatch:
+            return "Recappi Cloud rejected the login challenge. Retry the sign-in flow."
         case .oauthPKCEGenerationFailed:
             return "Recappi Cloud sign-in could not prepare a secure login challenge."
+        case .oauthStartRejected(let message):
+            return "Recappi Cloud refused to start sign-in: \(message)"
         case .oauthStartFailed:
             return "Recappi Cloud sign-in could not start."
         case .reauthenticationUnavailableInUITests:

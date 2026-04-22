@@ -110,35 +110,93 @@ extension XCTestCase {
         let button = app.buttons[UITestIDs.Panel.settingsButton]
         XCTAssertTrue(button.waitForExistence(timeout: 15), "Expected in-panel Settings button.")
         button.click()
+        dismissSecurityAgentIfPresent()
         XCTAssertTrue(uiElement(app, id: UITestIDs.Settings.authStatus).waitForExistence(timeout: 15), "Expected Settings auth status.")
     }
 
     func waitForSignedInStatus(in app: XCUIApplication, timeout: TimeInterval = 25) {
         let status = uiElement(app, id: UITestIDs.Settings.authStatus)
         XCTAssertTrue(status.waitForExistence(timeout: timeout), "Expected auth status element.")
-        let predicate = NSPredicate(format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", "expires", "expires")
-        expectation(for: predicate, evaluatedWith: status)
-        waitForExpectations(timeout: timeout)
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            dismissSecurityAgentIfPresent(timeout: 0.2)
+
+            let statusText = authStatusSnapshot(from: status)
+            if statusText.localizedCaseInsensitiveContains("expires") {
+                return
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        XCTFail("Expected signed-in auth status, got: \(status.label)")
     }
 
     func waitForFailedStatus(in app: XCUIApplication, timeout: TimeInterval = 15) {
         let status = uiElement(app, id: UITestIDs.Settings.authStatus)
         XCTAssertTrue(status.waitForExistence(timeout: timeout), "Expected auth status element.")
-        let predicate = NSPredicate(
-            format: """
-            label CONTAINS[c] %@ OR value CONTAINS[c] %@ OR
-            label CONTAINS[c] %@ OR value CONTAINS[c] %@ OR
-            label CONTAINS[c] %@ OR value CONTAINS[c] %@
-            """,
-            "Authentication failed",
+
+        let failureMarkers = [
             "Authentication failed",
             "Session expired",
-            "Session expired",
-            "Signed out",
             "Signed out"
-        )
-        expectation(for: predicate, evaluatedWith: status)
-        waitForExpectations(timeout: timeout)
+        ]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            dismissSecurityAgentIfPresent(timeout: 0.2)
+
+            let statusText = authStatusSnapshot(from: status)
+            if failureMarkers.contains(where: statusText.localizedCaseInsensitiveContains) {
+                return
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        XCTFail("Expected failed auth status, got: \(status.label)")
+    }
+
+    func ensureSignedInByReauthIfNeeded(
+        in app: XCUIApplication,
+        timeout: TimeInterval = 90
+    ) {
+        let status = uiElement(app, id: UITestIDs.Settings.authStatus)
+        XCTAssertTrue(status.waitForExistence(timeout: timeout), "Expected auth status element.")
+
+        let deadline = Date().addingTimeInterval(timeout)
+        var attemptedInteractiveLogin = false
+
+        while Date() < deadline {
+            dismissSecurityAgentIfPresent(timeout: 0.2)
+
+            let statusText = authStatusSnapshot(from: status)
+            if statusText.localizedCaseInsensitiveContains("expires") {
+                return
+            }
+
+            if !attemptedInteractiveLogin {
+                let reconnect = app.buttons[UITestIDs.Settings.reconnectButton]
+                if reconnect.exists && reconnect.isEnabled {
+                    reconnect.click()
+                    attemptedInteractiveLogin = true
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+                    continue
+                }
+
+                let google = app.buttons[UITestIDs.Settings.signInGoogleButton]
+                if google.exists && google.isEnabled {
+                    google.click()
+                    attemptedInteractiveLogin = true
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+                    continue
+                }
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+
+        XCTFail("Expected signed-in auth status after interactive login, got: \(authStatusSnapshot(from: status))")
     }
 
     func signOut(in app: XCUIApplication) {
@@ -179,5 +237,44 @@ extension XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func dismissSecurityAgentIfPresent(timeout: TimeInterval = 2) {
+        let securityAgent = XCUIApplication(bundleIdentifier: "com.apple.SecurityAgent")
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if clickFirstButton(named: "Always Allow", in: securityAgent) {
+                return
+            }
+
+            if clickFirstButton(named: "Allow", in: securityAgent) {
+                return
+            }
+
+            if clickFirstButton(named: "OK", in: securityAgent) {
+                return
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+    }
+
+    private func clickFirstButton(named name: String, in app: XCUIApplication) -> Bool {
+        guard app.state != .notRunning else { return false }
+
+        let button = app
+            .descendants(matching: .button)
+            .matching(NSPredicate(format: "label == %@", name))
+            .firstMatch
+        guard button.exists else { return false }
+        button.click()
+        return true
+    }
+
+    private func authStatusSnapshot(from element: XCUIElement) -> String {
+        [element.label, element.value as? String]
+            .compactMap { $0 }
+            .joined(separator: " ")
     }
 }

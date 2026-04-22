@@ -62,6 +62,17 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
     <string>RecappiMini</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.recappi.mini.auth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>recappi</string>
+            </array>
+        </dict>
+    </array>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
     <key>LSUIElement</key>

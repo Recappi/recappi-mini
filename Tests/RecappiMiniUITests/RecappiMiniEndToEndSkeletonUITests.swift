@@ -6,6 +6,27 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testPersistedSessionTranscriptionFlow() throws {
+        let baseline = UITestArtifacts.sessionNames()
+        let app = launchRecappiApp(authToken: "")
+
+        openSettings(from: app)
+        ensureSignedInByReauthIfNeeded(in: app)
+        closeSettingsWindow(in: app)
+        startAndStopFixtureRecording(in: app)
+
+        let processingTitle = uiElement(app, id: UITestIDs.Panel.processingTitle)
+        XCTAssertTrue(processingTitle.waitForExistence(timeout: 20), "Expected processing UI after stop.")
+        waitForCompletion(in: app)
+
+        let sessionDir = try UITestArtifacts.newestSession(excluding: baseline)
+        attachArtifacts(for: sessionDir, named: "persisted-session-smoke")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("recording.m4a").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("upload.wav").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("transcript.md").path))
+    }
+
     func testBearerDrivenTranscriptionFlow() throws {
         guard let authToken = UITestPaths.liveAuthTokenValue, !authToken.isEmpty else {
             throw XCTSkip("Set RECAPPI_TEST_AUTH_TOKEN to run the live backend UI test.")

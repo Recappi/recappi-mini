@@ -35,6 +35,47 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testNativeOAuthUsesBrowserKickoffPage() throws {
+        let url = try NativeOAuthCoordinator.nativeLoginKickoffURL(
+            origin: "https://recordmeet.ing/",
+            provider: .google,
+            challenge: String(repeating: "A", count: 43)
+        )
+
+        XCTAssertEqual(url.scheme, "https")
+        XCTAssertEqual(url.host, "recordmeet.ing")
+        XCTAssertEqual(url.path, "/login")
+
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let items = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(items["native"], "1")
+        XCTAssertEqual(items["provider"], "google")
+        XCTAssertEqual(
+            items["callbackURL"],
+            "https://recordmeet.ing/api/native-oauth-bridge?challenge=\(String(repeating: "A", count: 43))"
+        )
+        XCTAssertEqual(items["errorCallbackURL"], items["callbackURL"])
+    }
+
+    func testNativeOAuthExtractsBridgeExchangeCode() throws {
+        let callbackURL = try XCTUnwrap(URL(string: "recappi://auth/callback?code=bridge-code-123"))
+        XCTAssertEqual(
+            try NativeOAuthCoordinator.extractExchangeCode(from: callbackURL),
+            "bridge-code-123"
+        )
+    }
+
+    func testAuthFlowPhaseProvidesUserFacingLabels() {
+        XCTAssertEqual(
+            AuthFlowPhase.awaitingUserInteraction(provider: .google).statusText,
+            "Continue with Google in the secure browser sheet."
+        )
+        XCTAssertEqual(
+            AuthFlowPhase.exchangingCode(provider: .github).buttonLabel,
+            "Finishing…"
+        )
+    }
+
     @MainActor
     func testNormalizedCloudLanguageUsesBaseCode() {
         let config = AppConfig.shared
