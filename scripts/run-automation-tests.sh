@@ -14,6 +14,7 @@ RECORDINGS_ROOT_OVERRIDE_FILE="$ROOT_DIR/.build/xcode/recappi_test_recordings_ro
 export RECAPPI_TEST_APP="${RECAPPI_TEST_APP:-$ROOT_DIR/build/RecappiMini.app}"
 export RECAPPI_TEST_AUDIO_FIXTURE="${RECAPPI_TEST_AUDIO_FIXTURE:-$ROOT_DIR/Tests/Fixtures/Audio/automation-recording.m4a}"
 export RECAPPI_TEST_UPLOAD_FIXTURE="${RECAPPI_TEST_UPLOAD_FIXTURE:-$ROOT_DIR/Tests/Fixtures/Audio/automation-upload.wav}"
+export RECAPPI_TEST_ALLOW_INTERACTIVE_OAUTH="${RECAPPI_TEST_ALLOW_INTERACTIVE_OAUTH:-0}"
 
 mkdir -p "$ROOT_DIR/.build/xcode"
 if [[ -n "${RECAPPI_TEST_AUTH_TOKEN:-}" ]]; then

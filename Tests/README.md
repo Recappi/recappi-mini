@@ -40,6 +40,10 @@ real cloud processing flow without depending on live microphone capture:
    Overrides the backend base URL when needed.
 4. `RECAPPI_TEST_AUDIO_FIXTURE=<path>`
    Replaces live recording capture with a bundled `recording.m4a` fixture.
+5. `RECAPPI_TEST_ALLOW_INTERACTIVE_OAUTH=1`
+   Opts the UI suite into a real browser-based Google/GitHub sign-in. This is
+   disabled by default because unattended runs should seed
+   `RECAPPI_TEST_AUTH_TOKEN` instead.
 
 The runtime also exposes stable accessibility identifiers for the Settings
 auth flow, recording controls, processing labels, retry button, and result
@@ -54,6 +58,20 @@ actions. UI automation now seeds bearer-token auth directly.
 ./scripts/run-automation-tests.sh
 ```
 
+For unattended end-to-end runs, prefer a seeded bearer token:
+
+```bash
+RECAPPI_TEST_AUTH_TOKEN=... ./scripts/run-automation-tests.sh
+```
+
+If you intentionally want to exercise the real browser login flow, opt in
+explicitly:
+
+```bash
+RECAPPI_TEST_ALLOW_INTERACTIVE_OAUTH=1 ./scripts/run-automation-tests.sh \
+  -only-testing:RecappiMiniUITests/RecappiMiniEndToEndSkeletonUITests/testPersistedSessionTranscriptionFlow
+```
+
 ## Expected environment variables
 
 - `RECAPPI_TEST_AUTH_TOKEN`
@@ -63,6 +81,9 @@ actions. UI automation now seeds bearer-token auth directly.
 - `RECAPPI_TEST_APP`
   Optional override for the built app bundle path. Defaults to
   `build/RecappiMini.app`.
+- `RECAPPI_TEST_ALLOW_INTERACTIVE_OAUTH`
+  Optional opt-in for manual interactive OAuth smoke. Leave this unset for
+  unattended runs.
 
 ## Known caveat
 

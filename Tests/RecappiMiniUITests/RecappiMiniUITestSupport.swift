@@ -140,7 +140,8 @@ extension XCTestCase {
         let failureMarkers = [
             "Authentication failed",
             "Session expired",
-            "Signed out"
+            "Signed out",
+            "did not return a usable session"
         ]
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -160,7 +161,7 @@ extension XCTestCase {
     func ensureSignedInByReauthIfNeeded(
         in app: XCUIApplication,
         timeout: TimeInterval = 90
-    ) {
+    ) throws {
         let status = uiElement(app, id: UITestIDs.Settings.authStatus)
         XCTAssertTrue(status.waitForExistence(timeout: timeout), "Expected auth status element.")
 
@@ -178,6 +179,12 @@ extension XCTestCase {
             if !attemptedInteractiveLogin {
                 let reconnect = app.buttons[UITestIDs.Settings.reconnectButton]
                 if reconnect.exists && reconnect.isEnabled {
+                    guard UITestPaths.allowInteractiveOAuth else {
+                        throw XCTSkip(
+                            "Interactive OAuth is manual-only in unattended runs. " +
+                            "Seed RECAPPI_TEST_AUTH_TOKEN or set RECAPPI_TEST_ALLOW_INTERACTIVE_OAUTH=1 to opt in."
+                        )
+                    }
                     reconnect.click()
                     attemptedInteractiveLogin = true
                     RunLoop.current.run(until: Date().addingTimeInterval(0.5))
@@ -186,6 +193,12 @@ extension XCTestCase {
 
                 let google = app.buttons[UITestIDs.Settings.signInGoogleButton]
                 if google.exists && google.isEnabled {
+                    guard UITestPaths.allowInteractiveOAuth else {
+                        throw XCTSkip(
+                            "Interactive OAuth is manual-only in unattended runs. " +
+                            "Seed RECAPPI_TEST_AUTH_TOKEN or set RECAPPI_TEST_ALLOW_INTERACTIVE_OAUTH=1 to opt in."
+                        )
+                    }
                     google.click()
                     attemptedInteractiveLogin = true
                     RunLoop.current.run(until: Date().addingTimeInterval(0.5))

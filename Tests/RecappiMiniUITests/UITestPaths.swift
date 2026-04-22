@@ -68,4 +68,17 @@ enum UITestPaths {
         }
         return readOverride(from: recordingsRootOverrideFile)
     }
+
+    static var allowInteractiveOAuth: Bool {
+        guard let env = ProcessInfo.processInfo.environment["RECAPPI_TEST_ALLOW_INTERACTIVE_OAUTH"] else {
+            return false
+        }
+
+        switch env.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "y", "on":
+            return true
+        default:
+            return false
+        }
+    }
 }

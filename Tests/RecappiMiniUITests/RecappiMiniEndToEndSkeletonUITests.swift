@@ -11,7 +11,7 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         let app = launchRecappiApp(authToken: "")
 
         openSettings(from: app)
-        ensureSignedInByReauthIfNeeded(in: app)
+        try ensureSignedInByReauthIfNeeded(in: app)
         closeSettingsWindow(in: app)
         startAndStopFixtureRecording(in: app)
 
