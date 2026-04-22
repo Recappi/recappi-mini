@@ -126,6 +126,7 @@ final class AuthSessionStore: ObservableObject {
         do {
             let lookup = try await client.getSession()
             guard let session = lookup.userSession else {
+                discardPersistedCredentialStorage()
                 authStatus = .failed
                 throw RecappiSessionError.invalidSession
             }
@@ -172,6 +173,7 @@ final class AuthSessionStore: ObservableObject {
         do {
             let lookup = try await client.getSession()
             guard let session = lookup.userSession else {
+                discardPersistedCredentialStorage()
                 authStatus = .failed
                 throw RecappiSessionError.invalidSession
             }
@@ -239,13 +241,17 @@ final class AuthSessionStore: ObservableObject {
     }
 
     func clearSession() {
-        _ = keychain.deleteBearerToken()
-        defaults.removeObject(forKey: cachedUserKey)
+        discardPersistedCredentialStorage()
         defaults.removeObject(forKey: backendOriginKey)
-        defaults.removeObject(forKey: lastVerifiedKey)
         authStatus = .signedOut
         authStatusDetail = nil
         authFlowPhase = nil
+    }
+
+    private func discardPersistedCredentialStorage() {
+        _ = keychain.deleteBearerToken()
+        defaults.removeObject(forKey: cachedUserKey)
+        defaults.removeObject(forKey: lastVerifiedKey)
     }
 
     private func beginAuthentication(_ phase: AuthFlowPhase) {
@@ -316,7 +322,7 @@ enum RecappiSessionError: LocalizedError {
         case .invalidBearerFormat:
             return "Paste a bearer token or full Authorization header."
         case .invalidSession:
-            return "Recappi Cloud rejected this sign-in. Reconnect and try again."
+            return "Sign-in finished, but Recappi Cloud did not return a usable session. Reconnect and try again."
         case .notSignedIn:
             return "Sign in to Recappi Cloud in Settings before processing this recording."
         case .oauthCancelled:

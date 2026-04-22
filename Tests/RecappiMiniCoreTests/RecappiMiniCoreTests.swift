@@ -9,15 +9,53 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(AuthSessionStore.normalizeBearerToken("set-auth-token: qwe.456"), "qwe.456")
     }
 
-    func testResolveBearerTokenFallsBackFromHeaderToPayload() {
+    func testResolveBearerTokenOnlyUsesSetAuthHeader() {
         XCTAssertEqual(
-            RecappiAPIClient.resolveBearerToken(headerToken: "set-auth-token: header.123", payloadToken: "body.456"),
+            RecappiAPIClient.resolveBearerToken(headerToken: "set-auth-token: header.123"),
             "header.123"
         )
-        XCTAssertEqual(
-            RecappiAPIClient.resolveBearerToken(headerToken: nil, payloadToken: "body.456"),
-            "body.456"
+        XCTAssertNil(RecappiAPIClient.resolveBearerToken(headerToken: nil))
+    }
+
+    func testDecodeSessionLookupDoesNotTreatPayloadSessionTokenAsBearer() throws {
+        let data = """
+        {
+          "session": {
+            "expiresAt": "2026-05-22T00:00:00.000Z",
+            "token": "raw-session-token"
+          },
+          "user": {
+            "id": "user_123",
+            "email": "user@example.com",
+            "name": "Recappi User",
+            "image": null
+          }
+        }
+        """.data(using: .utf8)!
+        let response = try XCTUnwrap(
+            HTTPURLResponse(
+                url: try XCTUnwrap(URL(string: "https://recordmeet.ing/api/auth/get-session")),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )
         )
+
+        let lookup = try RecappiAPIClient.decodeSessionLookup(
+            from: data,
+            response: response,
+            origin: "https://recordmeet.ing"
+        )
+
+        XCTAssertEqual(lookup.userSession?.email, "user@example.com")
+        XCTAssertNil(lookup.bearerToken)
+    }
+
+    func testBearerSessionDisablesCookies() {
+        let session = RecappiNetworking.makeBearerSession()
+        XCTAssertFalse(session.configuration.httpShouldSetCookies)
+        XCTAssertEqual(session.configuration.httpCookieAcceptPolicy, .never)
+        XCTAssertNil(session.configuration.httpCookieStorage)
     }
 
     func testNativeOAuthUsesBridgeCallbackScheme() throws {

@@ -5,12 +5,15 @@ struct SettingsView: View {
     @ObservedObject private var config = AppConfig.shared
     @ObservedObject private var sessionStore = AuthSessionStore.shared
     @State private var manualBearerInput = UITestModeConfiguration.shared.authToken ?? ""
+    @State private var capturePermissions = CapturePermissionSnapshot.placeholder
+    @State private var permissionsBusy = false
 
     var body: some View {
         VStack(spacing: 0) {
             SettingsHeader()
             Form {
                 accountSection
+                permissionsSection
                 if shouldShowManualAuth {
                     manualAuthSection
                 }
@@ -25,6 +28,7 @@ struct SettingsView: View {
         .containerBackground(DT.recordingShell, for: .window)
         .navigationTitle("Recappi Mini Settings")
         .frame(minWidth: 520, idealWidth: 560, maxWidth: 660)
+        .task { refreshPermissionStatus() }
         .onDisappear {
             NSApp.setActivationPolicy(.accessory)
         }
@@ -78,6 +82,44 @@ struct SettingsView: View {
             Text("Developer Auth Backdoor")
         } footer: {
             Text("Hidden in release builds. Useful for automation, backend probes, and auth debugging when native OAuth is unavailable on the current machine.")
+                .foregroundStyle(Color.dtLabelSecondary)
+                .font(.footnote)
+        }
+    }
+
+    @ViewBuilder private var permissionsSection: some View {
+        Section {
+            permissionRow(
+                title: "Microphone",
+                state: capturePermissions.microphone,
+                accessibilityID: AccessibilityIDs.Settings.permissionMicrophoneStatus
+            )
+
+            permissionRow(
+                title: "Screen & system audio",
+                state: capturePermissions.screenCapture,
+                accessibilityID: AccessibilityIDs.Settings.permissionScreenCaptureStatus
+            )
+
+            HStack(spacing: 10) {
+                Button("Request microphone", action: requestMicrophonePermission)
+                    .disabled(permissionsBusy)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.requestMicrophoneButton)
+
+                Button("Request screen & system audio", action: requestScreenCapturePermission)
+                    .disabled(permissionsBusy)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.requestScreenCaptureButton)
+
+                Button("Refresh", action: refreshPermissionStatus)
+                    .disabled(permissionsBusy)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.refreshPermissionsButton)
+
+                Spacer(minLength: 0)
+            }
+        } header: {
+            Text("Permissions")
+        } footer: {
+            Text("Use these controls to re-check access or trigger the system permission flow again. If macOS already remembers a denial, the screen & system audio request may send you to System Settings instead of showing an alert.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
@@ -299,6 +341,19 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private func permissionRow(
+        title: String,
+        state: CapturePermissionSnapshot.State,
+        accessibilityID: String
+    ) -> some View {
+        LabeledContent(title) {
+            Label(state.label, systemImage: state.systemImage)
+                .foregroundStyle(state == .authorized ? DT.systemGreen : DT.systemOrange)
+                .accessibilityIdentifier(accessibilityID)
+        }
+    }
+
     private var isAuthActionDisabled: Bool {
         !config.cloudEnabled || sessionStore.isAuthBusy
     }
@@ -351,6 +406,26 @@ struct SettingsView: View {
                 NSSound.beep()
             }
         }
+    }
+
+    private func refreshPermissionStatus() {
+        capturePermissions = CapturePermissionPrimer.shared.snapshot()
+    }
+
+    private func requestMicrophonePermission() {
+        Task { @MainActor in
+            permissionsBusy = true
+            _ = await CapturePermissionPrimer.shared.requestMicrophoneAccess()
+            refreshPermissionStatus()
+            permissionsBusy = false
+        }
+    }
+
+    private func requestScreenCapturePermission() {
+        permissionsBusy = true
+        _ = CapturePermissionPrimer.shared.requestScreenCaptureAccess()
+        refreshPermissionStatus()
+        permissionsBusy = false
     }
 
     private var languageBinding: Binding<String> {

@@ -6,6 +6,8 @@
     <string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Recappi Mini needs microphone access to record meetings</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Recappi Mini needs system audio recording access to capture meeting audio from your Mac</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>

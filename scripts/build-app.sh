@@ -79,6 +79,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Recappi Mini needs microphone access to record meetings</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Recappi Mini needs system audio recording access to capture meeting audio from your Mac</string>
     <!-- Allow HTTP for local backend development / localhost overrides. -->
     <key>NSAppTransportSecurity</key>
     <dict>

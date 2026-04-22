@@ -140,7 +140,7 @@ struct PanelIconButtonStyle: ButtonStyle {
 /// Flat red Record/Stop button. Solid fill + thin rim + inner mark —
 /// no gradients or glow so it sits flush on the charcoal pill.
 struct PrimaryRecordButton: View {
-    enum Kind { case record, stop }
+    enum Kind { case record, stop, loading }
 
     let kind: Kind
     var size: CGFloat = 28
@@ -167,6 +167,11 @@ struct PrimaryRecordButton: View {
                     RoundedRectangle(cornerRadius: size * 0.08)
                         .fill(Color.white)
                         .frame(width: size * 0.30, height: size * 0.30)
+                case .loading:
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                        .scaleEffect(0.85)
                 }
             }
             .frame(width: size, height: size)

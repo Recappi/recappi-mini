@@ -1,11 +1,24 @@
 import Foundation
 
+enum RecappiNetworking {
+    static func makeBearerSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration)
+    }
+
+    static let bearerSession = makeBearerSession()
+}
+
 struct RecappiAPIClient: Sendable {
     let origin: String
     let bearerToken: String
     let session: URLSession
 
-    init(origin: String, bearerToken: String, session: URLSession = .shared) {
+    init(origin: String, bearerToken: String, session: URLSession = RecappiNetworking.bearerSession) {
         self.origin = origin.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
         self.bearerToken = bearerToken
         self.session = session
@@ -118,6 +131,7 @@ struct RecappiAPIClient: Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 180
+        request.httpShouldHandleCookies = false
         request.setValue(origin, forHTTPHeaderField: "Origin")
         request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
         return request
@@ -134,7 +148,7 @@ struct RecappiAPIClient: Sendable {
 
         let payload = try JSONDecoder().decode(SessionEnvelope.self, from: data)
         let headerToken = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "set-auth-token")
-        let resolvedToken = resolveBearerToken(headerToken: headerToken, payloadToken: payload.session?.token)
+        let resolvedToken = resolveBearerToken(headerToken: headerToken)
 
         guard let session = payload.session, let user = payload.user else {
             return SessionLookup(userSession: nil, bearerToken: resolvedToken)
@@ -152,16 +166,9 @@ struct RecappiAPIClient: Sendable {
         return SessionLookup(userSession: userSession, bearerToken: resolvedToken)
     }
 
-    static func resolveBearerToken(headerToken: String?, payloadToken: String?) -> String? {
-        if let headerToken,
-           let normalized = AuthSessionStore.normalizeBearerToken(headerToken) {
-            return normalized
-        }
-        if let payloadToken,
-           let normalized = AuthSessionStore.normalizeBearerToken(payloadToken) {
-            return normalized
-        }
-        return nil
+    static func resolveBearerToken(headerToken: String?) -> String? {
+        guard let headerToken else { return nil }
+        return AuthSessionStore.normalizeBearerToken(headerToken)
     }
 
     static func validate(response: URLResponse, data: Data) throws {

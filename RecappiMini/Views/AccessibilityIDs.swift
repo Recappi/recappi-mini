@@ -12,6 +12,11 @@ enum AccessibilityIDs {
         static let signOutButton = "recappi.settings.signOutButton"
         static let manualBearerField = "recappi.settings.manualBearerField"
         static let importBearerButton = "recappi.settings.importBearerButton"
+        static let permissionMicrophoneStatus = "recappi.settings.permissionMicrophoneStatus"
+        static let permissionScreenCaptureStatus = "recappi.settings.permissionScreenCaptureStatus"
+        static let requestMicrophoneButton = "recappi.settings.requestMicrophoneButton"
+        static let requestScreenCaptureButton = "recappi.settings.requestScreenCaptureButton"
+        static let refreshPermissionsButton = "recappi.settings.refreshPermissionsButton"
     }
 
     enum Panel {

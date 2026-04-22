@@ -34,6 +34,15 @@ struct RecordingPanel: View {
         case .idle:
             IdleState(
                 recorder: recorder,
+                isStarting: false,
+                onGear: presentSettings,
+                onRecord: startRecording,
+                onClose: onClosePanel
+            )
+        case .starting:
+            IdleState(
+                recorder: recorder,
+                isStarting: true,
                 onGear: presentSettings,
                 onRecord: startRecording,
                 onClose: onClosePanel
@@ -133,6 +142,7 @@ struct RecordingPanel: View {
     private var stateKey: String {
         switch recorder.state {
         case .idle: return "idle"
+        case .starting: return "starting"
         case .recording: return "recording"
         case .processing: return "processing"
         case .done(let r):
@@ -149,6 +159,7 @@ struct RecordingPanel: View {
 
 private struct IdleState: View {
     @ObservedObject var recorder: AudioRecorder
+    let isStarting: Bool
     var onGear: () -> Void
     var onRecord: () -> Void
     var onClose: () -> Void
@@ -159,12 +170,15 @@ private struct IdleState: View {
 
             AudioSourcePill(recorder: recorder)
                 .frame(maxWidth: .infinity)
+                .disabled(isStarting)
+                .opacity(isStarting ? 0.72 : 1)
 
             Button(action: onGear) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 13))
             }
             .buttonStyle(PanelIconButtonStyle())
+            .disabled(isStarting)
             .help("Settings (⌘,)")
             .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
 
@@ -176,9 +190,10 @@ private struct IdleState: View {
             .keyboardShortcut("w", modifiers: [.command])
             .help("Hide panel (⌘W)")
 
-            PrimaryRecordButton(kind: .record, action: onRecord)
+            PrimaryRecordButton(kind: isStarting ? .loading : .record, action: onRecord)
                 .keyboardShortcut(.return, modifiers: [])
-                .help("Record")
+                .disabled(isStarting)
+                .help(isStarting ? "Starting recording…" : "Record")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.recordButton)
         }
         .frame(height: 28)
@@ -221,7 +236,7 @@ private struct RecordingState: View {
             .padding(.horizontal, 2)
 
             HStack(spacing: 6) {
-                DotMatrixWaveform(history: recorder.audioLevelHistory)
+                DotMatrixWaveform(levels: recorder.audioSpectrumLevels)
                     .frame(maxWidth: .infinity, maxHeight: 28)
                     .padding(.leading, 4)
 
@@ -681,43 +696,39 @@ private final class MenuClosure: NSObject {
 
 // MARK: - Dot-matrix waveform
 
-/// Rolling LED-matrix waveform. Each column is one `audioLevelHistory`
-/// sample; as new samples arrive, the history advances so the matrix
-/// scrolls right-to-left, newest on the right. Fills the full Canvas
-/// width — `colStep` / `rowStep` scale with size, dots sized to 60% of
-/// the smaller cell axis so they stay round regardless of aspect.
+/// Same dot-matrix shell as the original recording UI, but the columns now
+/// represent fixed frequency buckets instead of a rolling timeline.
 struct DotMatrixWaveform: View {
-    let history: [Float]
+    let levels: [Float]
 
     private let rows: Int = 5
 
     var body: some View {
         Canvas { ctx, size in
-            let cols = history.count
+            let cols = levels.count
             guard cols > 0 else { return }
+
             let colStep = size.width / CGFloat(cols)
             let rowStep = size.height / CGFloat(rows)
             let dotSize = min(colStep, rowStep) * 0.6
 
-            for c in 0..<cols {
-                // sqrt compresses: voice peaks hover 0.1-0.3 linear; this
-                // maps that range into the visible middle of the bar.
-                let amp = sqrt(max(0, min(1, CGFloat(history[c]))))
-                let lit = Int((amp * CGFloat(rows)).rounded())
-                // Bottom-aligned: rows grow from the baseline upward.
+            for column in 0..<cols {
+                let amplitude = max(0, min(1, CGFloat(levels[column])))
+                let lit = Int((amplitude * CGFloat(rows)).rounded())
                 let firstLit = rows - lit
-                for r in 0..<rows {
-                    let x = CGFloat(c) * colStep + (colStep - dotSize) / 2
-                    let y = CGFloat(r) * rowStep + (rowStep - dotSize) / 2
+
+                for row in 0..<rows {
+                    let x = CGFloat(column) * colStep + (colStep - dotSize) / 2
+                    let y = CGFloat(row) * rowStep + (rowStep - dotSize) / 2
                     let rect = CGRect(x: x, y: y, width: dotSize, height: dotSize)
-                    let color: Color = r >= firstLit
+                    let color: Color = row >= firstLit
                         ? DT.waveformLit
                         : DT.waveformUnlit
                     ctx.fill(Path(ellipseIn: rect), with: .color(color))
                 }
             }
         }
-        .animation(.linear(duration: 0.05), value: history)
+        .animation(.easeOut(duration: 0.08), value: levels)
     }
 }
 

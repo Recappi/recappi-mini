@@ -86,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         Task { await AuthSessionStore.shared.bootstrapForUITestsIfNeeded() }
+        Task { await CapturePermissionPrimer.shared.primeIfNeeded() }
 
         let m = PillShellView.shadowMargin
         let pillWidth = DT.panelWidth

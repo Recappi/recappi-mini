@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import AppKit
 import CoreMedia
@@ -96,12 +97,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var selectedApp: AudioApp?
     @Published var recordingAppName: String?
     @Published var audioLevel: Float = 0
-    /// Rolling ring of recent peak amplitudes driving the recording-state
-    /// waveform. Owning this on the recorder (not inside the SwiftUI View)
-    /// means re-renders don't trash the history or the capture subscription.
-    @Published var audioLevelHistory: [Float] = Array(repeating: 0, count: AudioRecorder.historySize)
-
-    static let historySize = 40
+    @Published var audioSpectrumLevels: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
     /// Session directory of the most-recent (or in-progress) recording.
     /// Populated on stop and kept through processing + error states so the
     /// UI can offer Retry / Show without stashing state at the view layer.
@@ -129,6 +125,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// SwiftUI doesn't burn a re-render per ScreenCaptureKit buffer.
     private var lastLevelPublish: CFTimeInterval = 0
     private let uiTestMode = UITestModeConfiguration.shared
+
+    static let spectrumBucketCount = 40
 
     var currentSessionDir: URL? { sessionDir }
 
@@ -231,6 +229,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     func startRecording() async throws {
         guard state == .idle else { return }
+        state = .starting
 
         if uiTestMode.isEnabled {
             try startUITestRecording()
@@ -238,6 +237,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         try await requestMicrophoneAccessIfNeeded()
+        guard CapturePermissionPrimer.shared.hasScreenCaptureAccess() else {
+            throw RecorderError.screenCaptureDenied
+        }
 
         let content = try await SCShareableContent.current
         guard let display = content.displays.first else {
@@ -270,8 +272,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.systemWriter = sysWriter
         self.systemInput = sysInput
         let sysOut = SystemAudioOutput(writer: sysWriter, input: sysInput)
-        sysOut.onLevel = { [weak self] level in
-            self?.ingestLevel(level)
+        sysOut.onMeterFrame = { [weak self] frame in
+            self?.ingestMeterFrame(frame)
         }
         self.systemOutput = sysOut
 
@@ -314,8 +316,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         captureSession.addInput(deviceInput)
 
         let mcOut = MicAudioOutput(writer: mcWriter, input: mcInput)
-        mcOut.onLevel = { [weak self] level in
-            self?.ingestLevel(level)
+        mcOut.onMeterFrame = { [weak self] frame in
+            self?.ingestMeterFrame(frame)
         }
         let captureOutput = AVCaptureAudioDataOutput()
         captureOutput.setSampleBufferDelegate(mcOut, queue: DispatchQueue(label: "mic.capture"))
@@ -397,11 +399,10 @@ final class AudioRecorder: NSObject, ObservableObject {
         return sessionDir
     }
 
-    /// Merge the latest peak from either audio source into `audioLevel`.
-    /// Called from the capture queues — we hop to the main actor, take the
-    /// max of system + mic so either source can drive the meter, and cap
-    /// publish rate to 30 Hz.
-    nonisolated func ingestLevel(_ level: Float) {
+    /// Merge the latest peak + spectrum from either audio source into the
+    /// live recording meter. Called from the capture queues — we hop to the
+    /// main actor, take the max of system + mic, and cap publish rate to 30 Hz.
+    nonisolated func ingestMeterFrame(_ frame: AudioMeterFrame) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let now = CACurrentMediaTime()
@@ -410,13 +411,12 @@ final class AudioRecorder: NSObject, ObservableObject {
 
             // Hold peak with light decay so a single-buffer spike still reads
             // visually over the ~33ms publish window.
-            let smoothed = max(self.audioLevel * 0.82, level)
+            let smoothed = max(self.audioLevel * 0.82, frame.peak)
             self.audioLevel = smoothed
 
-            var next = self.audioLevelHistory
-            next.removeFirst()
-            next.append(smoothed)
-            self.audioLevelHistory = next
+            let incoming = normalizeSpectrum(frame.bands)
+            let decayed = self.audioSpectrumLevels.map { $0 * 0.72 }
+            self.audioSpectrumLevels = zip(decayed, incoming).map(max)
         }
     }
 
@@ -424,7 +424,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         state = .idle
         elapsedSeconds = 0
         audioLevel = 0
-        audioLevelHistory = Array(repeating: 0, count: Self.historySize)
+        audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
         lastLevelPublish = 0
         sessionDir = nil
         lastSessionDir = nil
@@ -437,6 +437,16 @@ final class AudioRecorder: NSObject, ObservableObject {
         micInput = nil
         micOutput = nil
         recordingAppName = nil
+    }
+
+    private func normalizeSpectrum(_ levels: [Float]) -> [Float] {
+        if levels.count == Self.spectrumBucketCount {
+            return levels
+        }
+        if levels.count > Self.spectrumBucketCount {
+            return Array(levels.prefix(Self.spectrumBucketCount))
+        }
+        return levels + Array(repeating: 0, count: Self.spectrumBucketCount - levels.count)
     }
 
     // MARK: - Permissions
@@ -503,18 +513,28 @@ final class AudioRecorder: NSObject, ObservableObject {
 
 // MARK: - Audio level extraction
 
-/// Peak amplitude of a PCM `CMSampleBuffer`, normalised to 0…1. Handles
-/// the two formats ScreenCaptureKit + AVCaptureSession actually deliver
-/// on current macOS: 32-bit float interleaved (SCStream default) and
-/// 16-bit signed integer (AVCaptureSession microphones). Anything else
-/// returns 0 — we don't try to be clever about exotic encodings.
+struct AudioMeterFrame: Sendable {
+    let peak: Float
+    let bands: [Float]
+}
+
+/// Peak amplitude + frequency buckets of a PCM `CMSampleBuffer`,
+/// normalised to 0…1. Handles the two formats ScreenCaptureKit +
+/// AVCaptureSession actually deliver on current macOS: 32-bit float
+/// interleaved (SCStream default) and 16-bit signed integer
+/// (AVCaptureSession microphones).
 enum AudioLevelExtractor {
-    static func peak(_ sampleBuffer: CMSampleBuffer) -> Float {
+    static func meterFrame(
+        _ sampleBuffer: CMSampleBuffer,
+        bucketCount: Int = 13
+    ) -> AudioMeterFrame {
         guard
             let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
             let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
             let asbdPtr = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
-        else { return 0 }
+        else {
+            return AudioMeterFrame(peak: 0, bands: Array(repeating: 0, count: bucketCount))
+        }
 
         var totalLength = 0
         var dataPointer: UnsafeMutablePointer<Int8>?
@@ -525,36 +545,154 @@ enum AudioLevelExtractor {
             totalLengthOut: &totalLength,
             dataPointerOut: &dataPointer
         )
-        guard status == kCMBlockBufferNoErr, let raw = dataPointer else { return 0 }
+        guard status == kCMBlockBufferNoErr, let raw = dataPointer else {
+            return AudioMeterFrame(peak: 0, bands: Array(repeating: 0, count: bucketCount))
+        }
 
         let asbd = asbdPtr.pointee
         let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let channels = max(Int(asbd.mChannelsPerFrame), 1)
 
         if isFloat, asbd.mBitsPerChannel == 32 {
             let count = totalLength / MemoryLayout<Float>.size
             return raw.withMemoryRebound(to: Float.self, capacity: count) { ptr in
-                var peak: Float = 0
-                for i in 0..<count {
-                    let v = abs(ptr[i])
-                    if v > peak { peak = v }
+                let mono = collapseToMono(frameCount: count / channels, channels: channels) { frame, channel in
+                    ptr[(frame * channels) + channel]
                 }
-                return min(peak, 1)
+                return analyze(samples: mono, sampleRate: Double(asbd.mSampleRate), bucketCount: bucketCount)
             }
         }
 
         if asbd.mBitsPerChannel == 16 {
             let count = totalLength / MemoryLayout<Int16>.size
             return raw.withMemoryRebound(to: Int16.self, capacity: count) { ptr in
-                var peak: Float = 0
-                for i in 0..<count {
-                    let v = Float(abs(Int32(ptr[i]))) / 32768
-                    if v > peak { peak = v }
+                let mono = collapseToMono(frameCount: count / channels, channels: channels) { frame, channel in
+                    Float(ptr[(frame * channels) + channel]) / 32768
                 }
-                return min(peak, 1)
+                return analyze(samples: mono, sampleRate: Double(asbd.mSampleRate), bucketCount: bucketCount)
             }
         }
 
-        return 0
+        return AudioMeterFrame(peak: 0, bands: Array(repeating: 0, count: bucketCount))
+    }
+
+    private static func collapseToMono(
+        frameCount: Int,
+        channels: Int,
+        sampleAt: (_ frame: Int, _ channel: Int) -> Float
+    ) -> [Float] {
+        guard frameCount > 0 else { return [] }
+        return (0..<frameCount).map { frame in
+            var sum: Float = 0
+            for channel in 0..<channels {
+                sum += sampleAt(frame, channel)
+            }
+            return sum / Float(channels)
+        }
+    }
+
+    private static func analyze(samples: [Float], sampleRate: Double, bucketCount: Int) -> AudioMeterFrame {
+        guard !samples.isEmpty else {
+            return AudioMeterFrame(peak: 0, bands: Array(repeating: 0, count: bucketCount))
+        }
+
+        var peak: Float = 0
+        for sample in samples {
+            peak = max(peak, abs(sample))
+        }
+
+        let fftSize = 2048
+        guard samples.count >= 32 else {
+            let clampedPeak = min(peak, 1)
+            return AudioMeterFrame(peak: clampedPeak, bands: Array(repeating: clampedPeak, count: bucketCount))
+        }
+
+        let truncated = Array(samples.suffix(fftSize))
+        let paddedSamples = truncated + Array(repeating: 0, count: max(0, fftSize - truncated.count))
+
+        var window = [Float](repeating: 0, count: fftSize)
+        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+        let windowed = zip(paddedSamples, window).map(*)
+
+        let log2n = vDSP_Length(log2(Float(fftSize)))
+        guard let fft = vDSP.FFT(log2n: log2n, radix: .radix2, ofType: DSPSplitComplex.self) else {
+            return AudioMeterFrame(peak: min(peak, 1), bands: Array(repeating: 0, count: bucketCount))
+        }
+
+        var inReal = windowed
+        var inImag = [Float](repeating: 0, count: fftSize)
+        var outReal = [Float](repeating: 0, count: fftSize)
+        var outImag = [Float](repeating: 0, count: fftSize)
+
+        inReal.withUnsafeMutableBufferPointer { inRealPtr in
+            inImag.withUnsafeMutableBufferPointer { inImagPtr in
+                outReal.withUnsafeMutableBufferPointer { outRealPtr in
+                    outImag.withUnsafeMutableBufferPointer { outImagPtr in
+                        let input = DSPSplitComplex(realp: inRealPtr.baseAddress!, imagp: inImagPtr.baseAddress!)
+                        var output = DSPSplitComplex(realp: outRealPtr.baseAddress!, imagp: outImagPtr.baseAddress!)
+                        fft.forward(input: input, output: &output)
+                    }
+                }
+            }
+        }
+
+        let halfCount = fftSize / 2
+        let nyquist = sampleRate / 2
+        let minFrequency = max(90.0, sampleRate / Double(fftSize))
+        let maxFrequency = max(min(nyquist, 16_000), minFrequency * 2)
+        let minMel = hzToMel(minFrequency)
+        let maxMel = hzToMel(maxFrequency)
+
+        var bandMagnitudes = [Float](repeating: 0, count: bucketCount)
+
+        for bucketIndex in 0..<bucketCount {
+            let startT = Double(bucketIndex) / Double(bucketCount)
+            let endT = Double(bucketIndex + 1) / Double(bucketCount)
+            let lower = melToHz(minMel + ((maxMel - minMel) * startT))
+            let upper = melToHz(minMel + ((maxMel - minMel) * endT))
+            let center = sqrt(lower * upper)
+
+            var strongest: Float = 0
+            var count: Int = 0
+
+            for bin in 1..<halfCount {
+                let frequency = (Double(bin) * sampleRate) / Double(fftSize)
+                guard frequency >= lower, frequency < upper else { continue }
+                let magnitude = hypot(outReal[bin], outImag[bin])
+                strongest = max(strongest, magnitude)
+                count += 1
+            }
+
+            let bucketEnergy = count > 0 ? strongest : 0
+            let spectralTiltCompensation = Float(pow(max(center, 140) / 140, 0.24))
+            bandMagnitudes[bucketIndex] = bucketEnergy * spectralTiltCompensation
+        }
+
+        let smoothedBands = bandMagnitudes.indices.map { index -> Float in
+            let previous = bandMagnitudes[max(index - 1, 0)]
+            let current = bandMagnitudes[index]
+            let next = bandMagnitudes[min(index + 1, bandMagnitudes.count - 1)]
+            return (previous * 0.2) + (current * 0.6) + (next * 0.2)
+        }
+
+        let maxBand = max(smoothedBands.max() ?? 0, 0.0001)
+        let amplitudeScale = min(1, sqrt(min(peak, 1)) * 1.55)
+        let normalizedBands = smoothedBands.enumerated().map { index, magnitude in
+            let t = Float(index) / Float(max(bucketCount - 1, 1))
+            let relative = max(0, min(1, magnitude / maxBand))
+            let equalized = pow(relative, 0.62) * (0.5 + (1.45 * pow(t, 0.9)))
+            return min(1, equalized * amplitudeScale)
+        }
+
+        return AudioMeterFrame(peak: min(peak, 1), bands: normalizedBands)
+    }
+
+    private static func hzToMel(_ hz: Double) -> Double {
+        2595 * log10(1 + (hz / 700))
+    }
+
+    private static func melToHz(_ mel: Double) -> Double {
+        700 * (pow(10, mel / 2595) - 1)
     }
 }
 
@@ -565,10 +703,10 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     private let input: AVAssetWriterInput
     private var isWriterStarted = false
 
-    /// Called on the capture queue for each buffer with the peak amplitude.
-    /// AudioRecorder hops this to the main actor + throttles to ~30 Hz for
-    /// the waveform view.
-    var onLevel: ((Float) -> Void)?
+    /// Called on the capture queue for each buffer with a peak + spectrum
+    /// snapshot. AudioRecorder hops this to the main actor + throttles to
+    /// ~30 Hz for the waveform view.
+    var onMeterFrame: ((AudioMeterFrame) -> Void)?
 
     init(writer: AVAssetWriter, input: AVAssetWriterInput) {
         self.writer = writer
@@ -594,7 +732,7 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
             input.append(sampleBuffer)
         }
 
-        onLevel?(AudioLevelExtractor.peak(sampleBuffer))
+        onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer))
     }
 }
 
@@ -605,7 +743,7 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     private let input: AVAssetWriterInput
     private var isWriterStarted = false
 
-    var onLevel: ((Float) -> Void)?
+    var onMeterFrame: ((AudioMeterFrame) -> Void)?
 
     init(writer: AVAssetWriter, input: AVAssetWriterInput) {
         self.writer = writer
@@ -630,7 +768,7 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
             input.append(sampleBuffer)
         }
 
-        onLevel?(AudioLevelExtractor.peak(sampleBuffer))
+        onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer))
     }
 }
 
@@ -640,6 +778,7 @@ enum RecorderError: LocalizedError {
     case noDisplay
     case noMicrophone
     case micDenied
+    case screenCaptureDenied
     case micSetupFailed
     case notRecording
     case noSessionDir
@@ -651,6 +790,7 @@ enum RecorderError: LocalizedError {
         case .noDisplay: return "No display found for audio capture"
         case .noMicrophone: return "No microphone found"
         case .micDenied: return "Microphone access denied. Enable in System Settings > Privacy & Security > Microphone"
+        case .screenCaptureDenied: return "Screen & system audio recording access is required. Enable Recappi Mini in System Settings > Privacy & Security > Screen & System Audio Recording"
         case .micSetupFailed: return "Couldn't set up microphone capture"
         case .notRecording: return "Not currently recording"
         case .noSessionDir: return "No session directory"

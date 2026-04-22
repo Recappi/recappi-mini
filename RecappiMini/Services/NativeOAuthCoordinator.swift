@@ -122,10 +122,11 @@ final class NativeOAuthCoordinator: NSObject {
             )
 
             session.presentationContextProvider = self
-            // Reuse the normal browser session so native sign-in can benefit from
-            // existing Google / Recappi cookies instead of forcing a clean login
-            // on every attempt.
-            session.prefersEphemeralWebBrowserSession = false
+            // Keep the native sign-in sheet isolated from the user's Safari
+            // session. The backend's `/login?native=1` route currently redirects
+            // already-signed-in web sessions to `/`, which strands the flow on
+            // the website instead of reaching the native OAuth bridge.
+            session.prefersEphemeralWebBrowserSession = true
             webAuthenticationSession = session
 
             if session.start() {
@@ -230,7 +231,7 @@ struct RecappiAuthBootstrapClient: Sendable {
     let origin: String
     let session: URLSession
 
-    init(origin: String, session: URLSession = .shared) {
+    init(origin: String, session: URLSession = RecappiNetworking.bearerSession) {
         self.origin = origin.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
         self.session = session
     }
@@ -277,6 +278,7 @@ struct RecappiAuthBootstrapClient: Sendable {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.httpShouldHandleCookies = false
         request.setValue(origin, forHTTPHeaderField: "Origin")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         return request

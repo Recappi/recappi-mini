@@ -14,6 +14,7 @@ struct RecordingResult: Equatable {
 
 enum RecorderState: Equatable {
     case idle
+    case starting
     case recording
     case processing(ProcessingPhase)
     case done(result: RecordingResult)
@@ -31,6 +32,7 @@ enum RecorderState: Equatable {
     static func == (lhs: RecorderState, rhs: RecorderState) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle),
+             (.starting, .starting),
              (.recording, .recording):
             return true
         case let (.processing(a), .processing(b)):
