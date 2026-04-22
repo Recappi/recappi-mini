@@ -74,7 +74,7 @@ struct SettingsView: View {
         } header: {
             Text("Account / Recappi Cloud")
         } footer: {
-            Text("Use Google or GitHub to sign in to Recappi Cloud. The app stores a bearer token in Keychain and reauthenticates if the backend returns 401.")
+            Text("Use Google or GitHub to sign in to Recappi Cloud. The app opens a system authentication window, completes a PKCE bridge callback in-session, stores the bearer token in Keychain, and reconnects if the backend returns 401.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
@@ -150,9 +150,17 @@ struct SettingsView: View {
         case .signedIn(let session):
             statusLabel(icon: "checkmark.circle.fill", color: DT.systemGreen, text: "\(session.email) · expires \(session.expiresAt.prefix(10))")
         case .expired:
-            statusLabel(icon: "clock.arrow.circlepath", color: DT.systemOrange, text: "Session expired — reconnect to continue.")
+            statusLabel(
+                icon: "clock.arrow.circlepath",
+                color: DT.systemOrange,
+                text: sessionStore.authStatusDetail ?? "Session expired — reconnect to continue."
+            )
         case .failed:
-            statusLabel(icon: "xmark.circle.fill", color: DT.systemOrange, text: "Authentication failed — try again or use the developer backdoor.")
+            statusLabel(
+                icon: "xmark.circle.fill",
+                color: DT.systemOrange,
+                text: sessionStore.authStatusDetail ?? "Authentication failed — try again or use the developer backdoor."
+            )
         }
     }
 
@@ -165,9 +173,9 @@ struct SettingsView: View {
         case .signedIn(let session):
             return "\(session.email) expires \(session.expiresAt.prefix(10))"
         case .expired:
-            return "Session expired"
+            return sessionStore.authStatusDetail ?? "Session expired"
         case .failed:
-            return "Authentication failed"
+            return sessionStore.authStatusDetail ?? "Authentication failed"
         }
     }
 

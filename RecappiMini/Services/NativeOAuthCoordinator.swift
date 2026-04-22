@@ -1,56 +1,92 @@
 import AppKit
 import AuthenticationServices
+import CryptoKit
 import Foundation
+import Security
 
 struct AuthBootstrap: Equatable {
     let session: UserSession
     let bearerToken: String
 }
 
+private struct PKCEChallenge: Equatable {
+    let verifier: String
+    let challenge: String
+}
+
 @MainActor
 final class NativeOAuthCoordinator: NSObject {
+    nonisolated static let callbackScheme = "recappi"
+    nonisolated static let callbackHost = "auth"
+    nonisolated static let callbackPath = "/callback"
+    nonisolated static let bridgePath = "/api/native-oauth-bridge"
+
     private var webAuthenticationSession: ASWebAuthenticationSession?
+    private var webAuthenticationRelay: WebAuthenticationCompletionRelay?
     private var completionBridge: CheckedContinuation<URL, Error>?
 
     func authenticate(provider: OAuthProvider, origin: String) async throws -> AuthBootstrap {
         let client = RecappiAuthBootstrapClient(origin: origin)
-        let authorizeURL = try await client.signInURL(provider: provider, callbackURL: origin + "/")
-        let callback = try makeCallbackMatcher(from: authorizeURL)
+        let challenge = try Self.makePKCEChallenge()
+        let authorizeURL = try await client.signInURL(provider: provider, challenge: challenge.challenge)
 
-        _ = try await startWebAuthenticationSession(url: authorizeURL, callback: callback)
+        let callbackURL = try await startWebAuthenticationSession(
+            url: authorizeURL,
+            callbackURLScheme: Self.callbackScheme
+        )
         webAuthenticationSession = nil
 
-        return try await client.exchangeSharedBrowserSession()
+        let code = try Self.extractExchangeCode(from: callbackURL)
+        return try await client.exchangeCode(code: code, verifier: challenge.verifier)
+    }
+
+    nonisolated static func bridgeCallbackURL(origin: String, challenge: String) throws -> String {
+        let trimmedOrigin = origin.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        guard var components = URLComponents(string: trimmedOrigin + bridgePath) else {
+            throw RecappiAPIError.invalidURL
+        }
+        components.queryItems = [URLQueryItem(name: "challenge", value: challenge)]
+        guard let url = components.url else {
+            throw RecappiAPIError.invalidURL
+        }
+        return url.absoluteString
+    }
+
+    nonisolated static func extractExchangeCode(from callbackURL: URL) throws -> String {
+        guard callbackURL.scheme?.lowercased() == callbackScheme,
+              callbackURL.host?.lowercased() == callbackHost,
+              callbackURL.path == callbackPath else {
+            throw RecappiSessionError.oauthCallbackMismatch
+        }
+
+        let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
+        let code = components?.queryItems?.first(where: { $0.name == "code" })?.value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let code, !code.isEmpty else {
+            throw RecappiSessionError.oauthCallbackMissingCode
+        }
+
+        return code
     }
 
     private func startWebAuthenticationSession(
         url: URL,
-        callback: ASWebAuthenticationSession.Callback
+        callbackURLScheme: String
     ) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
             completionBridge = continuation
+            let relay = WebAuthenticationCompletionRelay(coordinator: self)
+            webAuthenticationRelay = relay
 
-            let session = ASWebAuthenticationSession(url: url, callback: callback) { [weak self] callbackURL, error in
-                guard let self else { return }
-                self.webAuthenticationSession = nil
-                let bridge = self.completionBridge
-                self.completionBridge = nil
-
-                if let error {
-                    bridge?.resume(throwing: Self.mapAuthenticationError(error))
-                    return
-                }
-
-                guard let callbackURL else {
-                    bridge?.resume(throwing: RecappiSessionError.oauthCallbackMismatch)
-                    return
-                }
-
-                bridge?.resume(returning: callbackURL)
-            }
+            let session = ASWebAuthenticationSession(
+                url: url,
+                callbackURLScheme: callbackURLScheme,
+                completionHandler: relay.makeHandler()
+            )
 
             session.presentationContextProvider = self
-            session.prefersEphemeralWebBrowserSession = false
+            session.prefersEphemeralWebBrowserSession = true
             webAuthenticationSession = session
 
             if session.start() {
@@ -58,21 +94,29 @@ final class NativeOAuthCoordinator: NSObject {
             }
 
             webAuthenticationSession = nil
+            webAuthenticationRelay = nil
             completionBridge = nil
             continuation.resume(throwing: RecappiSessionError.oauthStartFailed)
         }
     }
 
-    private func makeCallbackMatcher(from authorizeURL: URL) throws -> ASWebAuthenticationSession.Callback {
-        guard let components = URLComponents(url: authorizeURL, resolvingAgainstBaseURL: false),
-              let redirectValue = components.queryItems?.first(where: { $0.name == "redirect_uri" })?.value,
-              let redirectURL = URL(string: redirectValue),
-              let host = redirectURL.host else {
-            throw RecappiSessionError.oauthCallbackMismatch
+    fileprivate func finishWebAuthenticationSession(callbackURL: URL?, error: Error?) {
+        webAuthenticationSession = nil
+        webAuthenticationRelay = nil
+        let bridge = completionBridge
+        completionBridge = nil
+
+        if let error {
+            bridge?.resume(throwing: Self.mapAuthenticationError(error))
+            return
         }
 
-        let path = redirectURL.path.isEmpty ? "/" : redirectURL.path
-        return .https(host: host, path: path)
+        guard let callbackURL else {
+            bridge?.resume(throwing: RecappiSessionError.oauthCallbackMismatch)
+            return
+        }
+
+        bridge?.resume(returning: callbackURL)
     }
 
     private static func mapAuthenticationError(_ error: Error) -> Error {
@@ -86,6 +130,43 @@ final class NativeOAuthCoordinator: NSObject {
         }
 
         return error
+    }
+
+    private nonisolated static func makePKCEChallenge() throws -> PKCEChallenge {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard status == errSecSuccess else {
+            throw RecappiSessionError.oauthPKCEGenerationFailed
+        }
+
+        let verifierData = Data(bytes)
+        let verifier = base64URLEncode(verifierData)
+        let digest = SHA256.hash(data: Data(verifier.utf8))
+        let challenge = base64URLEncode(Data(digest))
+        return PKCEChallenge(verifier: verifier, challenge: challenge)
+    }
+
+    private nonisolated static func base64URLEncode(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+private final class WebAuthenticationCompletionRelay {
+    weak var coordinator: NativeOAuthCoordinator?
+
+    init(coordinator: NativeOAuthCoordinator) {
+        self.coordinator = coordinator
+    }
+
+    nonisolated func makeHandler() -> (URL?, Error?) -> Void {
+        { [weak coordinator = self.coordinator] callbackURL, error in
+            Task { @MainActor [weak coordinator] in
+                coordinator?.finishWebAuthenticationSession(callbackURL: callbackURL, error: error)
+            }
+        }
     }
 }
 
@@ -115,20 +196,20 @@ struct RecappiAuthBootstrapClient: Sendable {
         self.session = session
     }
 
-    func signInURL(provider: OAuthProvider, callbackURL: String) async throws -> URL {
-        guard let url = URL(string: origin + "/api/auth/sign-in/social") else {
-            throw RecappiAPIError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
+    func signInURL(provider: OAuthProvider, challenge: String) async throws -> URL {
+        let bridgeCallbackURL = try NativeOAuthCoordinator.bridgeCallbackURL(origin: origin, challenge: challenge)
+        var request = try makeRequest(path: "/api/auth/sign-in/social")
         request.timeoutInterval = 180
-        request.setValue(origin, forHTTPHeaderField: "Origin")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(SocialSignInRequest(provider: provider.rawValue, callbackURL: callbackURL))
+        request.httpBody = try JSONEncoder().encode(
+            SocialSignInRequest(
+                provider: provider.rawValue,
+                callbackURL: bridgeCallbackURL,
+                errorCallbackURL: bridgeCallbackURL
+            )
+        )
 
         let (data, response) = try await session.data(for: request)
-        try RecappiAPIClient.validate(response: response, data: data)
+        try Self.validate(response: response, data: data)
         let payload = try JSONDecoder().decode(SocialSignInResponse.self, from: data)
 
         guard let url = URL(string: payload.url) else {
@@ -138,47 +219,72 @@ struct RecappiAuthBootstrapClient: Sendable {
         return url
     }
 
-    func exchangeSharedBrowserSession() async throws -> AuthBootstrap {
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieAcceptPolicy = .always
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
-        configuration.httpShouldSetCookies = true
+    func exchangeCode(code: String, verifier: String) async throws -> AuthBootstrap {
+        var request = try makeRequest(path: "/api/native-oauth-bridge/exchange")
+        request.timeoutInterval = 180
+        request.httpBody = try JSONEncoder().encode(NativeOAuthExchangeRequest(code: code, verifier: verifier))
 
-        let sharedSession = URLSession(configuration: configuration)
-        return try await exchangeSession(using: sharedSession)
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        let payload = try JSONDecoder().decode(NativeOAuthExchangeResponse.self, from: data)
+
+        guard let normalizedToken = AuthSessionStore.normalizeBearerToken(payload.token) else {
+            throw RecappiSessionError.oauthExchangeMissingToken
+        }
+
+        let lookup = try await RecappiAPIClient(origin: origin, bearerToken: normalizedToken, session: session).getSession()
+        guard let userSession = lookup.userSession else {
+            throw RecappiSessionError.invalidSession
+        }
+
+        return AuthBootstrap(
+            session: userSession,
+            bearerToken: lookup.bearerToken ?? normalizedToken
+        )
     }
 
-    private func exchangeSession(using sessionToUse: URLSession) async throws -> AuthBootstrap {
-        guard let url = URL(string: origin + "/api/auth/get-session") else {
+    private func makeRequest(path: String) throws -> URLRequest {
+        guard let url = URL(string: origin + path) else {
             throw RecappiAPIError.invalidURL
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 180
+        request.httpMethod = "POST"
         request.setValue(origin, forHTTPHeaderField: "Origin")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return request
+    }
 
-        let (data, response) = try await sessionToUse.data(for: request)
-        try RecappiAPIClient.validate(response: response, data: data)
-        let lookup = try RecappiAPIClient.decodeSessionLookup(from: data, response: response, origin: origin)
-
-        guard let session = lookup.userSession else {
-            throw RecappiSessionError.invalidSession
-        }
-        guard let bearerToken = lookup.bearerToken else {
-            throw RecappiSessionError.oauthExchangeMissingToken
+    private static func validate(response: URLResponse, data: Data) throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw RecappiAPIError.invalidResponse
         }
 
-        return AuthBootstrap(session: session, bearerToken: bearerToken)
+        guard (200...299).contains(http.statusCode) else {
+            throw RecappiAPIError.http(
+                statusCode: http.statusCode,
+                message: RecappiAPIClient.extractErrorMessage(from: data)
+            )
+        }
     }
 }
 
 private struct SocialSignInRequest: Encodable {
     let provider: String
     let callbackURL: String
+    let errorCallbackURL: String
 }
 
 private struct SocialSignInResponse: Decodable {
     let url: String
     let redirect: Bool?
+}
+
+private struct NativeOAuthExchangeRequest: Encodable {
+    let code: String
+    let verifier: String
+}
+
+private struct NativeOAuthExchangeResponse: Decodable {
+    let token: String
 }

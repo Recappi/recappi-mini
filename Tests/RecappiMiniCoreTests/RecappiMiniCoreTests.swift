@@ -20,6 +20,21 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testNativeOAuthUsesBridgeCallbackScheme() throws {
+        XCTAssertEqual(NativeOAuthCoordinator.callbackScheme, "recappi")
+        XCTAssertEqual(NativeOAuthCoordinator.callbackHost, "auth")
+        XCTAssertEqual(NativeOAuthCoordinator.callbackPath, "/callback")
+
+        let url = try NativeOAuthCoordinator.bridgeCallbackURL(
+            origin: "https://recordmeet.ing/",
+            challenge: String(repeating: "A", count: 43)
+        )
+        XCTAssertEqual(
+            url,
+            "https://recordmeet.ing/api/native-oauth-bridge?challenge=\(String(repeating: "A", count: 43))"
+        )
+    }
+
     @MainActor
     func testNormalizedCloudLanguageUsesBaseCode() {
         let config = AppConfig.shared
