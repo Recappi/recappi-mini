@@ -39,17 +39,7 @@ struct CapturePermissionSnapshot: Equatable, Sendable {
 final class CapturePermissionPrimer {
     static let shared = CapturePermissionPrimer()
 
-    private let defaults = UserDefaults.standard
-    private let didPrimeScreenCaptureKey = "recappi.didPrimeScreenCapturePermission"
-
     private init() {}
-
-    func primeIfNeeded() async {
-        guard !UITestModeConfiguration.shared.isEnabled else { return }
-
-        await requestMicrophoneIfNeeded()
-        requestScreenCaptureIfNeeded()
-    }
 
     func snapshot() -> CapturePermissionSnapshot {
         CapturePermissionSnapshot(
@@ -68,7 +58,6 @@ final class CapturePermissionPrimer {
     }
 
     func requestScreenCaptureAccess() -> CapturePermissionSnapshot.State {
-        defaults.set(true, forKey: didPrimeScreenCaptureKey)
         if !CGPreflightScreenCaptureAccess() {
             _ = CGRequestScreenCaptureAccess()
         }
@@ -104,11 +93,4 @@ final class CapturePermissionPrimer {
         }
     }
 
-    private func requestScreenCaptureIfNeeded() {
-        guard !CGPreflightScreenCaptureAccess() else { return }
-        guard defaults.bool(forKey: didPrimeScreenCaptureKey) == false else { return }
-
-        defaults.set(true, forKey: didPrimeScreenCaptureKey)
-        _ = CGRequestScreenCaptureAccess()
-    }
 }

@@ -100,7 +100,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         Task { await AuthSessionStore.shared.bootstrapForUITestsIfNeeded() }
-        Task { await CapturePermissionPrimer.shared.primeIfNeeded() }
         appUpdater.start()
 
         let m = PillShellView.shadowMargin

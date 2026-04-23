@@ -5,13 +5,10 @@ enum UITestIDs {
     enum Settings {
         static let authStatus = "recappi.settings.authStatus"
         static let authStatusText = "recappi.settings.authStatusText"
-        static let backendField = "recappi.settings.backendField"
         static let signInGoogleButton = "recappi.settings.signInGoogleButton"
         static let signInGitHubButton = "recappi.settings.signInGitHubButton"
         static let reconnectButton = "recappi.settings.reconnectButton"
         static let signOutButton = "recappi.settings.signOutButton"
-        static let manualBearerField = "recappi.settings.manualBearerField"
-        static let importBearerButton = "recappi.settings.importBearerButton"
     }
 
     enum Panel {

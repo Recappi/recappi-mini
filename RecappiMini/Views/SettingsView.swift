@@ -5,7 +5,6 @@ struct SettingsView: View {
     @ObservedObject private var config = AppConfig.shared
     @ObservedObject private var sessionStore = AuthSessionStore.shared
     @ObservedObject private var appUpdater = AppUpdater.shared
-    @State private var manualBearerInput = UITestModeConfiguration.shared.authToken ?? ""
     @State private var capturePermissions = CapturePermissionSnapshot.placeholder
     @State private var permissionsBusy = false
 
@@ -22,12 +21,9 @@ struct SettingsView: View {
             Form {
                 accountSection
                 permissionsSection
-                if shouldShowManualAuth {
-                    manualAuthSection
-                }
                 transcriptionSection
-                updatesSection
                 storageSection
+                updatesSection
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
@@ -36,105 +32,66 @@ struct SettingsView: View {
         .preferredColorScheme(.dark)
         .containerBackground(DT.recordingShell, for: .window)
         .navigationTitle("Recappi Mini Settings")
-        .frame(minWidth: 520, idealWidth: 560, maxWidth: 660)
+        .frame(minWidth: 520, idealWidth: 560, maxWidth: 620)
         .task { refreshPermissionStatus() }
         .onDisappear {
             NSApp.setActivationPolicy(.accessory)
         }
     }
 
-    @ViewBuilder private var accountSection: some View {
+    @ViewBuilder
+    private var accountSection: some View {
         Section {
-            Toggle("Use Recappi Cloud for transcription", isOn: cloudEnabledBinding)
+            Toggle("Cloud transcription", isOn: cloudEnabledBinding)
                 .accessibilityIdentifier(AccessibilityIDs.Settings.cloudToggle)
-
-            TextField("Backend URL", text: backendBinding, prompt: Text("https://recordmeet.ing"))
-                .disabled(sessionStore.isAuthBusy)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.backendField)
-
-            authActions
 
             statusView
                 .accessibilityLabel(authStatusText)
                 .accessibilityValue(authStatusText)
                 .accessibilityIdentifier(AccessibilityIDs.Settings.authStatus)
 
+            authActions
+
             if let currentSession = sessionStore.currentSession {
-                accountSummaryCard(session: currentSession)
+                accountSummary(session: currentSession)
             }
         } header: {
-            Text("Account / Recappi Cloud")
-        } footer: {
-            Text("Use Google or GitHub to sign in to Recappi Cloud. The app opens a secure system browser sheet, completes the backend PKCE bridge in-session, stores the bearer token in Keychain, and reconnects if the backend returns 401.")
-                .foregroundStyle(Color.dtLabelSecondary)
-                .font(.footnote)
+            Text("Account")
         }
     }
 
-    @ViewBuilder private var manualAuthSection: some View {
-        Section {
-            TextField(
-                "Paste bearer token or Authorization header",
-                text: $manualBearerInput,
-                prompt: Text("Bearer …")
-            )
-            .accessibilityIdentifier(AccessibilityIDs.Settings.manualBearerField)
-
-            HStack(spacing: 10) {
-                Button("Import bearer", action: importManualBearer)
-                    .disabled(manualBearerInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAuthActionDisabled)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.importBearerButton)
-
-                Spacer(minLength: 0)
-            }
-        } header: {
-            Text("Developer Auth Backdoor")
-        } footer: {
-            Text("Hidden in release builds. Useful for automation, backend probes, and auth debugging when native OAuth is unavailable on the current machine.")
-                .foregroundStyle(Color.dtLabelSecondary)
-                .font(.footnote)
-        }
-    }
-
-    @ViewBuilder private var permissionsSection: some View {
+    @ViewBuilder
+    private var permissionsSection: some View {
         Section {
             permissionRow(
                 title: "Microphone",
                 state: capturePermissions.microphone,
-                accessibilityID: AccessibilityIDs.Settings.permissionMicrophoneStatus
+                statusID: AccessibilityIDs.Settings.permissionMicrophoneStatus,
+                requestID: AccessibilityIDs.Settings.requestMicrophoneButton,
+                action: requestMicrophonePermission
             )
 
             permissionRow(
                 title: "Screen & system audio",
                 state: capturePermissions.screenCapture,
-                accessibilityID: AccessibilityIDs.Settings.permissionScreenCaptureStatus
+                statusID: AccessibilityIDs.Settings.permissionScreenCaptureStatus,
+                requestID: AccessibilityIDs.Settings.requestScreenCaptureButton,
+                action: requestScreenCapturePermission
             )
 
-            HStack(spacing: 10) {
-                Button("Request microphone", action: requestMicrophonePermission)
-                    .disabled(permissionsBusy)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.requestMicrophoneButton)
-
-                Button("Request screen & system audio", action: requestScreenCapturePermission)
-                    .disabled(permissionsBusy)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.requestScreenCaptureButton)
-
+            HStack {
                 Button("Refresh", action: refreshPermissionStatus)
                     .disabled(permissionsBusy)
                     .accessibilityIdentifier(AccessibilityIDs.Settings.refreshPermissionsButton)
-
                 Spacer(minLength: 0)
             }
         } header: {
             Text("Permissions")
-        } footer: {
-            Text("Use these controls to re-check access or trigger the system permission flow again. If macOS already remembers a denial, the screen & system audio request may send you to System Settings instead of showing an alert.")
-                .foregroundStyle(Color.dtLabelSecondary)
-                .font(.footnote)
         }
     }
 
-    @ViewBuilder private var transcriptionSection: some View {
+    @ViewBuilder
+    private var transcriptionSection: some View {
         Section {
             Picker("Language", selection: languageBinding) {
                 Text("English (US)").tag("en-US")
@@ -145,32 +102,33 @@ struct SettingsView: View {
                 Text("Français").tag("fr-FR")
                 Text("Deutsch").tag("de-DE")
             }
+            .disabled(!config.cloudEnabled)
         } header: {
             Text("Transcription")
         } footer: {
-            Text("Language hint sent to the Recappi backend for transcription. Regional variants are normalized before upload, for example en-US becomes en.")
+            Text("Language hint sent with each cloud transcription.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
     }
 
-    @ViewBuilder private var storageSection: some View {
+    @ViewBuilder
+    private var storageSection: some View {
         Section {
             LabeledContent("Recordings folder") {
-                Button("Show in Finder") {
-                    NSWorkspace.shared.open(RecordingStore.baseDirectory)
-                }
+                Button("Show in Finder", action: openRecordingsFolder)
             }
         } header: {
             Text("Storage")
         } footer: {
-            Text("Each session keeps recording.m4a, transcript.md, and remote-session.json in ~/Documents/Recappi Mini. A compatibility upload.wav is generated only when the backend rejects the high-quality upload.")
+            Text("Recordings are saved in ~/Documents/Recappi Mini.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
     }
 
-    @ViewBuilder private var updatesSection: some View {
+    @ViewBuilder
+    private var updatesSection: some View {
         Section {
             LabeledContent("Current version") {
                 Text(appVersionText)
@@ -199,24 +157,20 @@ struct SettingsView: View {
             )
             .disabled(!appUpdater.automaticallyChecksForUpdates)
 
-            HStack(spacing: 10) {
+            HStack {
                 Button("Check for Updates…") {
                     appUpdater.checkForUpdates()
                 }
                 .disabled(!appUpdater.canCheckForUpdates)
-
                 Spacer(minLength: 0)
             }
         } header: {
             Text("Updates")
-        } footer: {
-            Text("Recappi Mini checks the published Sparkle appcast for new notarized releases from GitHub. Automatic checks are enabled by default, while automatic download stays user-controlled.")
-                .foregroundStyle(Color.dtLabelSecondary)
-                .font(.footnote)
         }
     }
 
-    @ViewBuilder private var statusView: some View {
+    @ViewBuilder
+    private var statusView: some View {
         if let phase = sessionStore.authFlowPhase {
             statusLabel(icon: "arrow.triangle.2.circlepath", color: DT.waveformLit, text: phase.statusText)
         } else {
@@ -231,13 +185,13 @@ struct SettingsView: View {
                 statusLabel(
                     icon: "clock.arrow.circlepath",
                     color: DT.systemOrange,
-                    text: sessionStore.authStatusDetail ?? "Session expired — reconnect to continue."
+                    text: sessionStore.authStatusDetail ?? "Session expired. Reconnect to continue."
                 )
             case .failed:
                 statusLabel(
                     icon: "xmark.circle.fill",
                     color: DT.systemOrange,
-                    text: sessionStore.authStatusDetail ?? "Authentication failed — try again or use the developer backdoor."
+                    text: sessionStore.authStatusDetail ?? "Authentication failed. Try signing in again."
                 )
             }
         }
@@ -263,11 +217,11 @@ struct SettingsView: View {
                     }
                     .disabled(isAuthActionDisabled)
                 }
-            }
 
-            Button(signOutButtonTitle, action: signOut)
-                .disabled(signOutDisabled)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.signOutButton)
+                Button(signOutButtonTitle, action: signOut)
+                    .disabled(signOutDisabled)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.signOutButton)
+            }
 
             Spacer(minLength: 0)
         }
@@ -289,53 +243,65 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func accountSummaryCard(session: UserSession) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Connected account")
-                .font(.system(size: 10.5, weight: .semibold))
-                .tracking(0.05 * 10.5)
-                .textCase(.uppercase)
-                .foregroundStyle(Color.dtLabelSecondary)
-
+    private func accountSummary(session: UserSession) -> some View {
+        LabeledContent("Connected as") {
             Text(session.email)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(Color.dtLabel)
+                .foregroundStyle(Color.dtLabelSecondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
 
-            Text(accountSummaryDetail(for: session))
+    @ViewBuilder
+    private func statusLabel(icon: String, color: Color, text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+            Text(text)
                 .font(.footnote)
                 .foregroundStyle(Color.dtLabelSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
+            Spacer(minLength: 0)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: DT.R.card, style: .continuous)
-                .fill(Color.white.opacity(0.04))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DT.R.card, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-        )
+    }
+
+    @ViewBuilder
+    private func permissionRow(
+        title: String,
+        state: CapturePermissionSnapshot.State,
+        statusID: String,
+        requestID: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 8) {
+                Label(state.label, systemImage: state.systemImage)
+                    .foregroundStyle(state == .authorized ? DT.systemGreen : DT.systemOrange)
+                    .accessibilityIdentifier(statusID)
+
+                if state != .authorized {
+                    Button("Allow", action: action)
+                        .disabled(permissionsBusy)
+                        .accessibilityIdentifier(requestID)
+                }
+            }
+        }
     }
 
     private var signedOutText: String {
         if let provider = sessionStore.lastOAuthProvider {
-            return "Signed out · last used \(provider.displayName)"
+            return "Signed out. Last used \(provider.displayName)."
         }
-        return "Signed out"
+        return "Signed out."
     }
 
     private func signedInText(for session: UserSession) -> String {
         let expiresPrefix = session.expiresAt.prefix(10)
         if let provider = sessionStore.lastOAuthProvider {
-            return "\(session.email) · via \(provider.displayName) · expires \(expiresPrefix)"
+            return "\(session.email) via \(provider.displayName), expires \(expiresPrefix)."
         }
-        return "\(session.email) · expires \(expiresPrefix)"
-    }
-
-    private func accountSummaryDetail(for session: UserSession) -> String {
-        let providerText = sessionStore.lastOAuthProvider?.displayName ?? "Recappi Cloud"
-        return "Signed in via \(providerText). Token refreshes on active use and currently expires on \(session.expiresAt)."
+        return "\(session.email), expires \(expiresPrefix)."
     }
 
     private var alternateProvider: OAuthProvider? {
@@ -405,42 +371,8 @@ struct SettingsView: View {
         return Self.updateCheckDateFormatter.string(from: date)
     }
 
-    @ViewBuilder
-    private func statusLabel(icon: String, color: Color, text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-            Text(text)
-                .font(.footnote)
-                .foregroundStyle(Color.dtLabelSecondary)
-                .lineLimit(2)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
-        }
-    }
-
-    @ViewBuilder
-    private func permissionRow(
-        title: String,
-        state: CapturePermissionSnapshot.State,
-        accessibilityID: String
-    ) -> some View {
-        LabeledContent(title) {
-            Label(state.label, systemImage: state.systemImage)
-                .foregroundStyle(state == .authorized ? DT.systemGreen : DT.systemOrange)
-                .accessibilityIdentifier(accessibilityID)
-        }
-    }
-
     private var isAuthActionDisabled: Bool {
         !config.cloudEnabled || sessionStore.isAuthBusy
-    }
-
-    private var shouldShowManualAuth: Bool {
-#if DEBUG
-        return true
-#else
-        return UITestModeConfiguration.shared.manualAuthEnabled
-#endif
     }
 
     private func signIn(with provider: OAuthProvider) {
@@ -469,19 +401,6 @@ struct SettingsView: View {
         let origin = config.effectiveBackendBaseURL
         Task { @MainActor in
             await sessionStore.signOut(origin: origin)
-            manualBearerInput = UITestModeConfiguration.shared.authToken ?? ""
-        }
-    }
-
-    private func importManualBearer() {
-        let raw = manualBearerInput
-        let origin = config.effectiveBackendBaseURL
-        Task { @MainActor in
-            do {
-                _ = try await sessionStore.importBearerToken(raw, origin: origin)
-            } catch {
-                NSSound.beep()
-            }
         }
     }
 
@@ -505,17 +424,14 @@ struct SettingsView: View {
         permissionsBusy = false
     }
 
+    private func openRecordingsFolder() {
+        NSWorkspace.shared.open(RecordingStore.baseDirectory)
+    }
+
     private var languageBinding: Binding<String> {
         Binding(
             get: { AppConfig.shared.cloudLanguage },
             set: { AppConfig.shared.cloudLanguage = $0 }
-        )
-    }
-
-    private var backendBinding: Binding<String> {
-        Binding(
-            get: { AppConfig.shared.backendBaseURL },
-            set: { AppConfig.shared.backendBaseURL = $0 }
         )
     }
 
@@ -530,10 +446,10 @@ struct SettingsView: View {
 private struct SettingsHeader: View {
     var body: some View {
         HStack(spacing: 14) {
-            LogoTile(size: 56)
+            LogoTile(size: 40)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Recappi Mini")
-                    .font(.title2.weight(.semibold))
+                    .font(.title3.weight(.semibold))
                     .foregroundStyle(Color.dtLabel)
                 Text("Menu-bar meeting recorder")
                     .font(.footnote)
@@ -542,7 +458,7 @@ private struct SettingsHeader: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 20)
-        .padding(.bottom, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
     }
 }
