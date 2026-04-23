@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/Recappi/recappi-mini/sparkle-appcast/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>/1OzWfoXSQ2w+rIi6pKRn8X8egyv+T/dQGOyG7QJj0M=</string>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Recappi Mini needs microphone access to record meetings</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Recappi Mini needs system audio recording access to capture meeting audio from your Mac</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+</dict>
+</plist>

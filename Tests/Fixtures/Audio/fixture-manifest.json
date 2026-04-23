@@ -1,0 +1,12 @@
+{
+  "generator": "scripts/generate-test-audio-fixtures.sh",
+  "spoken_phrase": "Recappi Mini automation smoke test. This sentence should survive upload and transcription.",
+  "artifacts": {
+    "recording_m4a": "automation-recording.m4a",
+    "upload_wav": "automation-upload.wav"
+  },
+  "checksums": {
+    "recording_m4a_sha256": "e826579ee8ef0388119604956bcfac9993f9ed7883ef1f7d8b226ced2af0fcb3",
+    "upload_wav_sha256": "5fa2ae3b9d200e6b44458fa0862ffa093f07d0161883b8bd2fc53104745b319e"
+  }
+}
