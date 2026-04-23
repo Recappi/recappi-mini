@@ -50,7 +50,10 @@ final class PillShellView: NSView {
     static let cornerRadius: CGFloat = 14
 
     private let chromeLayer = CALayer()
+    private let contentClipView = NSView()
     private(set) var contentView: NSView?
+    private var pendingContentSync = false
+    private var targetWindowSize: NSSize?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -58,6 +61,20 @@ final class PillShellView: NSView {
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.masksToBounds = false
         layer?.addSublayer(chromeLayer)
+
+        contentClipView.translatesAutoresizingMaskIntoConstraints = false
+        contentClipView.wantsLayer = true
+        contentClipView.layer?.cornerRadius = Self.cornerRadius
+        contentClipView.layer?.masksToBounds = true
+        addSubview(contentClipView)
+
+        let m = Self.shadowMargin
+        NSLayoutConstraint.activate([
+            contentClipView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: m),
+            contentClipView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -m),
+            contentClipView.topAnchor.constraint(equalTo: topAnchor, constant: m),
+            contentClipView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -m),
+        ])
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }
@@ -65,25 +82,17 @@ final class PillShellView: NSView {
     func setContent(_ view: NSView) {
         contentView?.removeFromSuperview()
         contentView = view
-        addSubview(view)
+        contentClipView.addSubview(view)
         view.translatesAutoresizingMaskIntoConstraints = false
-        let m = Self.shadowMargin
-        // Pin top + leading + trailing only — no bottom constraint so
-        // hostingView grows to its SwiftUI intrinsic height. The window
-        // then resizes to match (via the frame-change observer below).
-        // If we pinned the bottom, NSHostingView would be clamped to the
-        // shell's current height and SwiftUI content would be clipped
-        // instead of growing.
+        // Pin top + leading + trailing only. The hosting view may jump to
+        // its final intrinsic height immediately, while the NSPanel animates
+        // toward that height; contentClipView tracks the current pill bounds
+        // and clips the interim overflow so content never leaks outside.
         NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: m),
-            view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -m),
-            view.topAnchor.constraint(equalTo: topAnchor, constant: m),
+            view.leadingAnchor.constraint(equalTo: contentClipView.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: contentClipView.trailingAnchor),
+            view.topAnchor.constraint(equalTo: contentClipView.topAnchor),
         ])
-        // Clip the SwiftUI content to the rounded pill shape so nothing
-        // spills past the chrome's corners.
-        view.wantsLayer = true
-        view.layer?.cornerRadius = Self.cornerRadius
-        view.layer?.masksToBounds = true
 
         // Resize the window whenever hostingView's frame (= SwiftUI
         // intrinsic height) changes.
@@ -96,27 +105,57 @@ final class PillShellView: NSView {
         )
         // Also call once now so the initial layout matches intrinsic
         // size rather than the initial hard-coded panel contentRect.
-        DispatchQueue.main.async { [weak self] in self?.syncWindowToContent() }
+        scheduleWindowSync()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     @objc private func contentFrameChanged(_ note: Notification) {
-        syncWindowToContent()
+        scheduleWindowSync()
+    }
+
+    private func scheduleWindowSync() {
+        guard !pendingContentSync else { return }
+        pendingContentSync = true
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingContentSync = false
+            self.syncWindowToContent()
+        }
     }
 
     private func syncWindowToContent() {
         guard let panel = window as? FloatingPanel, let inner = contentView else { return }
-        let innerSize = inner.frame.size
+        let innerSize = measuredContentSize(for: inner)
         let desired = NSSize(
             width: innerSize.width + Self.shadowMargin * 2,
             height: innerSize.height + Self.shadowMargin * 2
         )
-        guard panel.frame.size != desired else { return }
+        if targetWindowSize?.isClose(to: desired) == true { return }
+        guard !panel.frame.size.isClose(to: desired) else {
+            targetWindowSize = desired
+            return
+        }
+        targetWindowSize = desired
         FloatingPanelController.resizeToContent(panel, size: desired)
+    }
+
+    private func measuredContentSize(for view: NSView) -> NSSize {
+        view.layoutSubtreeIfNeeded()
+        let fittingSize = view.fittingSize
+        let frameSize = view.frame.size
+        return NSSize(
+            width: max(frameSize.width, fittingSize.width),
+            height: fittingSize.height > 0 ? fittingSize.height : frameSize.height
+        )
     }
 
     override var intrinsicContentSize: NSSize {
         guard let inner = contentView else { return .zero }
-        let size = inner.frame.size
+        let size = measuredContentSize(for: inner)
         let pad = Self.shadowMargin * 2
         return NSSize(width: size.width + pad, height: size.height + pad)
     }
@@ -124,6 +163,8 @@ final class PillShellView: NSView {
     override func layout() {
         super.layout()
         let pillRect = bounds.insetBy(dx: Self.shadowMargin, dy: Self.shadowMargin)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         chromeLayer.frame = pillRect
         chromeLayer.cornerRadius = Self.cornerRadius
         chromeLayer.masksToBounds = false
@@ -140,6 +181,8 @@ final class PillShellView: NSView {
             cornerHeight: Self.cornerRadius,
             transform: nil
         )
+        contentClipView.layer?.cornerRadius = Self.cornerRadius
+        CATransaction.commit()
     }
 }
 
@@ -171,9 +214,15 @@ struct FloatingPanelController {
         frame.origin.y += dy
         frame.size = size
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.2
+            ctx.duration = 0.16
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(frame, display: true)
         }
+    }
+}
+
+private extension NSSize {
+    func isClose(to other: NSSize, tolerance: CGFloat = 0.5) -> Bool {
+        abs(width - other.width) <= tolerance && abs(height - other.height) <= tolerance
     }
 }

@@ -12,7 +12,6 @@ struct RecordingPanel: View {
 
     var body: some View {
         mainView
-            .id(stateKey)
             .padding(panelPadding)
             .frame(width: DT.panelWidth)
             .fixedSize(horizontal: false, vertical: true)
@@ -135,22 +134,6 @@ struct RecordingPanel: View {
         guard !body.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(body, forType: .string)
-    }
-
-    // MARK: - Sizing
-
-    private var stateKey: String {
-        switch recorder.state {
-        case .idle: return "idle"
-        case .starting: return "starting"
-        case .recording: return "recording"
-        case .processing: return "processing"
-        case .done(let r):
-            let hasTranscript = (r.transcript ?? "").isEmpty == false
-            return "done-\(hasTranscript ? "transcript" : "bare")"
-        case .error(let m):
-            return "error-\(recorder.lastSessionDir != nil ? "recoverable" : "plain")-\(m.count)"
-        }
     }
 
 }
