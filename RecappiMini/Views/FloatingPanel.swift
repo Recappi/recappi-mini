@@ -144,6 +144,7 @@ final class PillShellView: NSView {
     }
 
     private func measuredContentSize(for view: NSView) -> NSSize {
+        view.invalidateIntrinsicContentSize()
         view.layoutSubtreeIfNeeded()
         let fittingSize = view.fittingSize
         let frameSize = view.frame.size

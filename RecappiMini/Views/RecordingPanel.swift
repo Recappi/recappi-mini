@@ -12,19 +12,39 @@ struct RecordingPanel: View {
 
     var body: some View {
         mainView
+            .frame(
+                width: DT.panelWidth - DT.panelPadding * 2,
+                height: contentHeight,
+                alignment: .topLeading
+            )
+            .clipped()
             .padding(panelPadding)
-            .frame(width: DT.panelWidth)
-            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: DT.panelWidth, height: contentHeight + DT.panelPadding * 2)
             // Pill chrome (rounded bg + border + shadow) is painted by
             // the AppKit `PillShellView` wrapping this NSHostingView.
-            // The window auto-resizes to SwiftUI `fittingSize` via a
-            // frame observer on PillShellView — no per-state height
-            // switch, no clipped/padded mismatches.
+            // Keep explicit per-state heights so AppKit never animates from
+            // a stale NSHostingView frame while SwiftUI content has already
+            // moved to the next state.
     }
 
     private var panelPadding: EdgeInsets {
         let p = DT.panelPadding
         return EdgeInsets(top: p, leading: p, bottom: p, trailing: p)
+    }
+
+    private var contentHeight: CGFloat {
+        switch recorder.state {
+        case .idle, .starting:
+            28
+        case .recording:
+            48
+        case .processing:
+            50
+        case .done(let result):
+            ((result.transcript ?? "").isEmpty ? 48 : 136)
+        case .error:
+            82
+        }
     }
 
     @ViewBuilder
