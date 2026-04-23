@@ -187,8 +187,7 @@ private struct IdleState: View {
                     .font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(PanelIconButtonStyle())
-            .keyboardShortcut("w", modifiers: [.command])
-            .help("Hide panel (⌘W)")
+            .help("Quit Recappi Mini")
 
             PrimaryRecordButton(kind: isStarting ? .loading : .record, action: onRecord)
                 .keyboardShortcut(.return, modifiers: [])

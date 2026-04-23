@@ -33,10 +33,14 @@ struct RecappiMiniApp: App {
     /// so the 36pt source is downsampled to the standard menu-bar height
     /// instead of overflowing the bar.
     private var menuBarIcon: NSImage {
-        let img = NSImage(named: "LogoTemplate") ?? NSImage()
-        img.isTemplate = true
-        img.size = NSSize(width: 18, height: 18)
-        return img
+        let image = Bundle.main.url(forResource: "LogoTemplate", withExtension: "png")
+            .flatMap(NSImage.init(contentsOf:))
+            ?? NSImage(named: "LogoTemplate")
+            ?? NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "Recappi Mini")
+            ?? NSImage(size: NSSize(width: 18, height: 18))
+        image.isTemplate = true
+        image.size = NSSize(width: 18, height: 18)
+        return image
     }
 }
 
@@ -106,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let contentView = RecordingPanel(
             recorder: recorder,
             onOpenFolder: { folderURL in NSWorkspace.shared.open(folderURL) },
-            onClosePanel: { [weak self] in self?.hidePanel() }
+            onClosePanel: { [weak self] in self?.quitApp() }
         )
 
         let hostingView = NSHostingView(rootView: contentView)
@@ -150,6 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         workspaceObservers.removeAll()
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showPanel()
+        return true
+    }
+
     func showPanel() {
         panel?.orderFrontRegardless()
         panelVisible = true
@@ -163,6 +172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     func togglePanel() {
         if panelVisible { hidePanel() } else { showPanel() }
+    }
+
+    func quitApp() {
+        NSApp.terminate(nil)
     }
 
     private func installWorkspaceObservers() {
