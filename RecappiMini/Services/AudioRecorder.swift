@@ -1,6 +1,7 @@
 import Accelerate
 import AVFoundation
 import AppKit
+import CoreAudio
 import CoreMedia
 @preconcurrency import ScreenCaptureKit
 
@@ -15,7 +16,7 @@ struct AudioApp: Identifiable, Hashable {
     let id: String  // bundle ID
     let name: String
     let icon: NSImage?
-    let scApp: SCRunningApplication
+    let scApp: SCRunningApplication?
     let bucket: Bucket
     /// True when AudioActivityMonitor sees this bundle currently producing
     /// output audio. Active apps float to the top of the picker.
@@ -110,15 +111,15 @@ final class AudioRecorder: NSObject, ObservableObject {
     let activityMonitor = AudioActivityMonitor()
 
     private var stream: SCStream?
-    private var systemWriter: AVAssetWriter?
-    private var systemInput: AVAssetWriterInput?
     private var systemOutput: SystemAudioOutput?
+    private let systemCaptureQueue = DispatchQueue(label: "RecappiMini.SystemCapture")
+    private var audioDeviceMonitor: DefaultAudioDeviceMonitor?
+    private var currentOutputAudioFormat: OutputDeviceAudioFormat?
 
     // --- Microphone (AVCaptureSession) pipeline ---
     private var micSession: AVCaptureSession?
-    private var micWriter: AVAssetWriter?
-    private var micInput: AVAssetWriterInput?
     private var micOutput: MicAudioOutput?
+    private let micCaptureQueue = DispatchQueue(label: "RecappiMini.MicCapture")
 
     private var sessionDir: URL?
     private var timer: Timer?
@@ -127,6 +128,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var lastLevelPublish: CFTimeInterval = 0
     private var lastHistoryPublish: CFTimeInterval = 0
     private let uiTestMode = UITestModeConfiguration.shared
+    private var refreshAppsRetryTask: Task<Void, Never>?
 
     static let spectrumBucketCount = AudioSpectrumConfiguration.bucketCount
     private static let historySampleInterval: CFTimeInterval = 0.18
@@ -136,52 +138,55 @@ final class AudioRecorder: NSObject, ObservableObject {
     // MARK: - App discovery
 
     func refreshApps() async {
+        refreshAppsFromWorkspaceSnapshot()
+
+        let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.mini"
+        let active = activityMonitor.activeBundleIDs
+        let fallbackApps = Self.workspaceAudioApps(
+            selfBundleID: selfBundleID,
+            active: active
+        )
+
         do {
             let content = try await SCShareableContent.current
-            let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.mini"
+            let apps = Self.shareableContentAudioApps(
+                from: content.applications,
+                selfBundleID: selfBundleID,
+                active: active
+            )
 
-            // Group SCRunningApplications by their "owning" bundle — Chrome
-            // and similar emit audio from child helpers like
-            // com.google.Chrome.helper(.Renderer). We collapse those onto the
-            // parent bundle id so the list and selection stay at the app
-            // level the user recognises.
-            var byParent: [String: SCRunningApplication] = [:]
-            for scApp in content.applications {
-                let bid = scApp.bundleIdentifier
-                guard !bid.isEmpty else { continue }
-                let parent = Self.parentBundle(of: bid)
-                guard parent != selfBundleID else { continue }
-                guard !parent.hasPrefix("com.apple.") || isNotableAppleApp(parent) else { continue }
-                // Prefer the parent-bundle instance if we see it; otherwise
-                // keep the first helper we found so we at least have an
-                // SCRunningApplication to stream through.
-                if byParent[parent] == nil || scApp.bundleIdentifier == parent {
-                    byParent[parent] = scApp
-                }
+            if !apps.isEmpty {
+                applyRunningApps(apps)
+                cancelRefreshAppsRetry()
+                return
             }
 
-            let active = activityMonitor.activeBundleIDs
-            let apps = byParent.compactMap { (parentBid, scApp) -> AudioApp? in
-                let name = Self.displayName(for: parentBid, fallback: scApp.applicationName)
-                guard !name.isEmpty else { return nil }
-                let rawIcon = NSWorkspace.shared.icon(forFile:
-                    NSWorkspace.shared.urlForApplication(withBundleIdentifier: parentBid)?.path ?? "")
-                rawIcon.size = NSSize(width: 16, height: 16)
-                return AudioApp(
-                    id: parentBid,
-                    name: name,
-                    icon: rawIcon,
-                    scApp: scApp,
-                    bucket: AudioAppCategories.bucket(for: parentBid),
-                    isActive: active.contains(parentBid)
-                )
+            if !fallbackApps.isEmpty {
+                applyRunningApps(fallbackApps)
             }
-            .sorted(by: Self.sortOrder)
-
-            self.runningApps = apps
+            scheduleRefreshAppsRetry()
         } catch {
-            self.runningApps = []
+            if !fallbackApps.isEmpty {
+                applyRunningApps(fallbackApps)
+            } else if runningApps.isEmpty {
+                self.runningApps = []
+            }
+            scheduleRefreshAppsRetry()
         }
+    }
+
+    /// `SCShareableContent.current` is occasionally empty during app launch
+    /// and right after process churn. Seed the picker from NSWorkspace so the
+    /// menu still shows a useful list while ScreenCaptureKit catches up.
+    func refreshAppsFromWorkspaceSnapshot() {
+        let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.mini"
+        let active = activityMonitor.activeBundleIDs
+        let fallbackApps = Self.workspaceAudioApps(
+            selfBundleID: selfBundleID,
+            active: active
+        )
+        guard !fallbackApps.isEmpty else { return }
+        applyRunningApps(fallbackApps)
     }
 
     /// Active apps float above inactive; within each active/inactive group
@@ -228,6 +233,129 @@ final class AudioRecorder: NSObject, ObservableObject {
         return fallback
     }
 
+    private func applyRunningApps(_ apps: [AudioApp]) {
+        runningApps = apps
+
+        guard let selectedID = selectedApp?.id else { return }
+        if let refreshedSelection = apps.first(where: { $0.id == selectedID }) {
+            selectedApp = refreshedSelection
+        }
+    }
+
+    private func scheduleRefreshAppsRetry(after delay: Duration = .seconds(1)) {
+        guard refreshAppsRetryTask == nil else { return }
+
+        refreshAppsRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.refreshAppsRetryTask = nil
+            await self?.refreshApps()
+        }
+    }
+
+    private func cancelRefreshAppsRetry() {
+        refreshAppsRetryTask?.cancel()
+        refreshAppsRetryTask = nil
+    }
+
+    private static func shareableContentAudioApps(
+        from applications: [SCRunningApplication],
+        selfBundleID: String,
+        active: Set<String>
+    ) -> [AudioApp] {
+        var byParent: [String: SCRunningApplication] = [:]
+        for scApp in applications {
+            let bid = scApp.bundleIdentifier
+            guard !bid.isEmpty else { continue }
+            let parent = parentBundle(of: bid)
+            guard shouldIncludeRunningApp(bundleID: parent, selfBundleID: selfBundleID) else { continue }
+            if byParent[parent] == nil || scApp.bundleIdentifier == parent {
+                byParent[parent] = scApp
+            }
+        }
+
+        return byParent.compactMap { parentBid, scApp in
+            let fallbackName = scApp.applicationName
+            return makeAudioApp(
+                bundleID: parentBid,
+                fallbackName: fallbackName,
+                active: active,
+                scApp: scApp
+            )
+        }
+        .sorted(by: sortOrder)
+    }
+
+    private static func workspaceAudioApps(
+        selfBundleID: String,
+        active: Set<String>
+    ) -> [AudioApp] {
+        var byParent: [String: NSRunningApplication] = [:]
+        for app in NSWorkspace.shared.runningApplications {
+            guard !app.isTerminated else { continue }
+            guard let bid = app.bundleIdentifier, !bid.isEmpty else { continue }
+            let parent = parentBundle(of: bid)
+            guard shouldIncludeRunningApp(bundleID: parent, selfBundleID: selfBundleID) else { continue }
+
+            let isRegular = app.activationPolicy == .regular
+            let isDirectBundle = bid == parent
+            let isAudioActive = active.contains(parent)
+            guard isRegular || isDirectBundle || isAudioActive else { continue }
+
+            if byParent[parent] == nil || bid == parent {
+                byParent[parent] = app
+            }
+        }
+
+        return byParent.compactMap { parentBid, app in
+            makeAudioApp(
+                bundleID: parentBid,
+                fallbackName: app.localizedName ?? "",
+                active: active,
+                scApp: nil
+            )
+        }
+        .sorted(by: sortOrder)
+    }
+
+    private static func makeAudioApp(
+        bundleID: String,
+        fallbackName: String,
+        active: Set<String>,
+        scApp: SCRunningApplication?
+    ) -> AudioApp? {
+        let name = displayName(for: bundleID, fallback: fallbackName)
+        guard !name.isEmpty else { return nil }
+
+        let rawIcon = NSWorkspace.shared.icon(forFile:
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?.path ?? "")
+        rawIcon.size = NSSize(width: 16, height: 16)
+
+        return AudioApp(
+            id: bundleID,
+            name: name,
+            icon: rawIcon,
+            scApp: scApp,
+            bucket: AudioAppCategories.bucket(for: bundleID),
+            isActive: active.contains(bundleID)
+        )
+    }
+
+    private static func shouldIncludeRunningApp(bundleID: String, selfBundleID: String) -> Bool {
+        guard bundleID != selfBundleID else { return false }
+        guard !bundleID.hasPrefix("com.apple.") || isNotableAppleApp(bundleID) else { return false }
+        return true
+    }
+
+    private static func isNotableAppleApp(_ bid: String) -> Bool {
+        let notable: Set<String> = [
+            "com.apple.Safari",
+            "com.apple.FaceTime",
+            "com.apple.Music",
+        ]
+        return notable.contains(bid)
+    }
+
     // MARK: - Start / Stop
 
     func startRecording() async throws {
@@ -256,25 +384,12 @@ final class AudioRecorder: NSObject, ObservableObject {
         let systemURL = sessionDir.appendingPathComponent("system.m4a")
         let micURL = sessionDir.appendingPathComponent("mic.m4a")
 
-        // Both sources write at native 48kHz stereo 128kbps AAC.
-        // The merge step now preserves that higher-quality profile in the
-        // canonical `recording.m4a`; any 16kHz mono WAV conversion is deferred
-        // until a backend compatibility fallback actually needs it.
-        let sourceSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 48000,
-            AVNumberOfChannelsKey: 2,
-            AVEncoderBitRateKey: 128000,
-        ]
+        let outputAudioFormat = try OutputDeviceAudioFormat.currentDefaultOutput()
+        self.currentOutputAudioFormat = outputAudioFormat
 
         // --- System audio pipeline ---
-        let sysWriter = try AVAssetWriter(url: systemURL, fileType: .m4a)
-        let sysInput = AVAssetWriterInput(mediaType: .audio, outputSettings: sourceSettings)
-        sysInput.expectsMediaDataInRealTime = true
-        sysWriter.add(sysInput)
-        self.systemWriter = sysWriter
-        self.systemInput = sysInput
-        let sysOut = SystemAudioOutput(writer: sysWriter, input: sysInput)
+        let sysWriter = SegmentedAudioWriter(finalURL: systemURL, processingQueue: systemCaptureQueue)
+        let sysOut = SystemAudioOutput(writer: sysWriter)
         sysOut.onMeterFrame = { [weak self] frame in
             self?.ingestMeterFrame(frame)
         }
@@ -290,24 +405,13 @@ final class AudioRecorder: NSObject, ObservableObject {
             recordingAppName = nil
         }
 
-        let config = SCStreamConfiguration()
-        config.capturesAudio = true
-        config.sampleRate = 48000
-        config.channelCount = 2
-        config.excludesCurrentProcessAudio = true
+        let config = makeSystemAudioConfiguration(audioFormat: outputAudioFormat)
 
         let scStream = SCStream(filter: filter, configuration: config, delegate: nil)
-        try scStream.addStreamOutput(sysOut, type: .audio, sampleHandlerQueue: .global(qos: .userInitiated))
+        try scStream.addStreamOutput(sysOut, type: .audio, sampleHandlerQueue: systemCaptureQueue)
         self.stream = scStream
 
         // --- Microphone pipeline ---
-        let mcWriter = try AVAssetWriter(url: micURL, fileType: .m4a)
-        let mcInput = AVAssetWriterInput(mediaType: .audio, outputSettings: sourceSettings)
-        mcInput.expectsMediaDataInRealTime = true
-        mcWriter.add(mcInput)
-        self.micWriter = mcWriter
-        self.micInput = mcInput
-
         let captureSession = AVCaptureSession()
         guard let micDevice = AVCaptureDevice.default(for: .audio) else {
             throw RecorderError.noMicrophone
@@ -318,12 +422,13 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
         captureSession.addInput(deviceInput)
 
-        let mcOut = MicAudioOutput(writer: mcWriter, input: mcInput)
+        let mcWriter = SegmentedAudioWriter(finalURL: micURL, processingQueue: micCaptureQueue)
+        let mcOut = MicAudioOutput(writer: mcWriter)
         mcOut.onMeterFrame = { [weak self] frame in
             self?.ingestMeterFrame(frame)
         }
         let captureOutput = AVCaptureAudioDataOutput()
-        captureOutput.setSampleBufferDelegate(mcOut, queue: DispatchQueue(label: "mic.capture"))
+        captureOutput.setSampleBufferDelegate(mcOut, queue: micCaptureQueue)
         guard captureSession.canAddOutput(captureOutput) else {
             throw RecorderError.micSetupFailed
         }
@@ -332,10 +437,18 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.micOutput = mcOut
 
         // --- Start both pipelines ---
-        try await scStream.startCapture()
-        sysWriter.startWriting()
-        mcWriter.startWriting()
-        captureSession.startRunning()
+        do {
+            try startMonitoringOutputDeviceChanges()
+            try await scStream.startCapture()
+            captureSession.startRunning()
+        } catch {
+            stopMonitoringOutputDeviceChanges()
+            self.stream = nil
+            self.systemOutput = nil
+            self.micSession = nil
+            self.micOutput = nil
+            throw error
+        }
 
         self.audioLevel = 0
         self.audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
@@ -359,24 +472,25 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.state = .processing(.savingAudio)
         self.timer?.invalidate()
         self.timer = nil
+        stopMonitoringOutputDeviceChanges()
 
         if uiTestMode.isEnabled {
             return try stopUITestRecording()
         }
 
         // Stop system audio stream
+        let systemOutput = self.systemOutput
         try await stream?.stopCapture()
         stream = nil
-        systemOutput = nil
-        systemInput?.markAsFinished()
-        await systemWriter?.finishWriting()
+        self.systemOutput = nil
+        let finishedSystemURL = try await systemOutput?.finishWriting()
 
         // Stop microphone capture
+        let micOutput = self.micOutput
         micSession?.stopRunning()
         micSession = nil
-        micOutput = nil
-        micInput?.markAsFinished()
-        await micWriter?.finishWriting()
+        self.micOutput = nil
+        let finishedMicURL = try await micOutput?.finishWriting()
 
         guard let sessionDir = self.sessionDir else {
             throw RecorderError.noSessionDir
@@ -384,19 +498,19 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.lastSessionDir = sessionDir
 
         // Merge system + mic into a single high-quality recording.m4a.
-        let systemURL = sessionDir.appendingPathComponent("system.m4a")
-        let micURL = sessionDir.appendingPathComponent("mic.m4a")
         let mergedURL = RecordingStore.audioFileURL(in: sessionDir)
+        let sourceURLs = [finishedSystemURL, finishedMicURL].compactMap { $0 }
 
         do {
             try await AudioMixer.mix(
-                sources: [systemURL, micURL],
+                sources: sourceURLs,
                 to: mergedURL
             )
             // Only delete intermediates on success; on failure the caller
             // (stop/retry flow) can still inspect the two raw files.
-            try? FileManager.default.removeItem(at: systemURL)
-            try? FileManager.default.removeItem(at: micURL)
+            for sourceURL in sourceURLs {
+                try? FileManager.default.removeItem(at: sourceURL)
+            }
         } catch {
             // Merge failed — leave intermediates for debugging and surface the
             // error to the caller. Transcription downstream needs recording.m4a
@@ -442,6 +556,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     func reset() {
+        cancelRefreshAppsRetry()
+        stopMonitoringOutputDeviceChanges()
         state = .idle
         elapsedSeconds = 0
         audioLevel = 0
@@ -452,12 +568,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         sessionDir = nil
         lastSessionDir = nil
         stream = nil
-        systemWriter = nil
-        systemInput = nil
         systemOutput = nil
+        currentOutputAudioFormat = nil
         micSession = nil
-        micWriter = nil
-        micInput = nil
         micOutput = nil
         recordingAppName = nil
     }
@@ -529,13 +642,85 @@ final class AudioRecorder: NSObject, ObservableObject {
         return sessionDir
     }
 
-    private func isNotableAppleApp(_ bid: String) -> Bool {
-        let notable: Set<String> = [
-            "com.apple.Safari",
-            "com.apple.FaceTime",
-            "com.apple.Music",
-        ]
-        return notable.contains(bid)
+    private func makeSystemAudioConfiguration(audioFormat: OutputDeviceAudioFormat) -> SCStreamConfiguration {
+        let config = SCStreamConfiguration()
+        config.capturesAudio = true
+        config.sampleRate = audioFormat.sampleRate
+        config.channelCount = audioFormat.channelCount
+        config.excludesCurrentProcessAudio = true
+        return config
+    }
+
+    private func startMonitoringOutputDeviceChanges() throws {
+        let monitor = try DefaultAudioDeviceMonitor { [weak self] change in
+            Task { @MainActor [weak self] in
+                await self?.handleAudioDeviceChange(change)
+            }
+        }
+        self.audioDeviceMonitor = monitor
+    }
+
+    private func stopMonitoringOutputDeviceChanges() {
+        audioDeviceMonitor?.stop()
+        audioDeviceMonitor = nil
+    }
+
+    private func handleAudioDeviceChange(_ change: DefaultAudioDeviceMonitor.Change) async {
+        switch change {
+        case .output(let format):
+            await handleOutputDeviceChange(format)
+        case .input:
+            reconfigureMicrophoneForDefaultInput()
+        }
+    }
+
+    private func handleOutputDeviceChange(_ format: OutputDeviceAudioFormat) async {
+        guard state == .recording else { return }
+        guard currentOutputAudioFormat != format else { return }
+        guard let stream else {
+            currentOutputAudioFormat = format
+            return
+        }
+
+        currentOutputAudioFormat = format
+
+        do {
+            try await stream.updateConfiguration(makeSystemAudioConfiguration(audioFormat: format))
+        } catch {
+            print("Failed to update output audio configuration: \(error.localizedDescription)")
+        }
+    }
+
+    private func reconfigureMicrophoneForDefaultInput() {
+        guard state == .recording else { return }
+        guard let micSession else { return }
+        guard let newDevice = AVCaptureDevice.default(for: .audio) else { return }
+
+        let existingInputs = micSession.inputs.compactMap { $0 as? AVCaptureDeviceInput }
+        if existingInputs.contains(where: { $0.device.uniqueID == newDevice.uniqueID }) {
+            return
+        }
+
+        do {
+            let newInput = try AVCaptureDeviceInput(device: newDevice)
+
+            micSession.beginConfiguration()
+            existingInputs.forEach { micSession.removeInput($0) }
+
+            if micSession.canAddInput(newInput) {
+                micSession.addInput(newInput)
+                micSession.commitConfiguration()
+                return
+            }
+
+            for oldInput in existingInputs where micSession.canAddInput(oldInput) {
+                micSession.addInput(oldInput)
+            }
+            micSession.commitConfiguration()
+            print("Failed to switch microphone input: capture session rejected the new device")
+        } catch {
+            print("Failed to switch microphone input: \(error.localizedDescription)")
+        }
     }
 }
 
@@ -744,18 +929,15 @@ enum AudioLevelExtractor {
 // MARK: - System audio receiver
 
 final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
-    private let writer: AVAssetWriter
-    private let input: AVAssetWriterInput
-    private var isWriterStarted = false
+    private let writer: SegmentedAudioWriter
 
     /// Called on the capture queue for each buffer with a peak + spectrum
     /// snapshot. AudioRecorder hops this to the main actor + throttles to
     /// ~30 Hz for the waveform view.
     var onMeterFrame: ((AudioMeterFrame) -> Void)?
 
-    init(writer: AVAssetWriter, input: AVAssetWriterInput) {
+    init(writer: SegmentedAudioWriter) {
         self.writer = writer
-        self.input = input
     }
 
     func stream(
@@ -765,34 +947,24 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     ) {
         guard type == .audio else { return }
         guard sampleBuffer.isValid else { return }
-        guard writer.status == .writing else { return }
-
-        if !isWriterStarted {
-            let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            writer.startSession(atSourceTime: timestamp)
-            isWriterStarted = true
-        }
-
-        if input.isReadyForMoreMediaData {
-            input.append(sampleBuffer)
-        }
-
+        writer.append(sampleBuffer)
         onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount))
+    }
+
+    func finishWriting() async throws -> URL? {
+        try await writer.finishWriting()
     }
 }
 
 // MARK: - Microphone receiver
 
 final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
-    private let writer: AVAssetWriter
-    private let input: AVAssetWriterInput
-    private var isWriterStarted = false
+    private let writer: SegmentedAudioWriter
 
     var onMeterFrame: ((AudioMeterFrame) -> Void)?
 
-    init(writer: AVAssetWriter, input: AVAssetWriterInput) {
+    init(writer: SegmentedAudioWriter) {
         self.writer = writer
-        self.input = input
     }
 
     func captureOutput(
@@ -801,19 +973,563 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         from connection: AVCaptureConnection
     ) {
         guard sampleBuffer.isValid else { return }
-        guard writer.status == .writing else { return }
-
-        if !isWriterStarted {
-            let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            writer.startSession(atSourceTime: timestamp)
-            isWriterStarted = true
-        }
-
-        if input.isReadyForMoreMediaData {
-            input.append(sampleBuffer)
-        }
-
+        writer.append(sampleBuffer)
         onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount))
+    }
+
+    func finishWriting() async throws -> URL? {
+        try await writer.finishWriting()
+    }
+}
+
+private struct CaptureStreamFormat: Equatable {
+    let sampleRate: Int
+    let channelCount: Int
+
+    init(sampleBuffer: CMSampleBuffer) throws {
+        guard let formatDescription = sampleBuffer.formatDescription,
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else {
+            throw RecorderError.invalidAudioFormat
+        }
+
+        self.sampleRate = max(Int(asbd.pointee.mSampleRate.rounded()), 1)
+        self.channelCount = max(Int(asbd.pointee.mChannelsPerFrame), 1)
+    }
+
+    var recommendedBitRate: Int {
+        min(max(channelCount, 1) * 64_000, 256_000)
+    }
+}
+
+private final class UncheckedAssetWriterRef: @unchecked Sendable {
+    let writer: AVAssetWriter
+
+    init(_ writer: AVAssetWriter) {
+        self.writer = writer
+    }
+}
+
+final class SegmentedAudioWriter: @unchecked Sendable {
+    private let finalURL: URL
+    private let processingQueue: DispatchQueue
+    private var activeWriter: AVAssetWriter?
+    private var activeInput: AVAssetWriterInput?
+    private var activeFormat: CaptureStreamFormat?
+    private var activeSessionStarted = false
+    private var segmentURLs: [URL] = []
+    private var segmentIndex = 0
+    private var pendingFinalizationCount = 0
+    private var pendingError: Error?
+    private var finishContinuation: CheckedContinuation<URL?, Error>?
+
+    init(finalURL: URL, processingQueue: DispatchQueue) {
+        self.finalURL = finalURL
+        self.processingQueue = processingQueue
+    }
+
+    func append(_ sampleBuffer: CMSampleBuffer) {
+        guard finishContinuation == nil else { return }
+
+        do {
+            let streamFormat = try CaptureStreamFormat(sampleBuffer: sampleBuffer)
+
+            if activeFormat != streamFormat || activeWriter == nil || activeInput == nil {
+                finishActiveSegment()
+                try startSegment(for: sampleBuffer, format: streamFormat)
+            }
+
+            guard let writer = activeWriter, let input = activeInput else { return }
+
+            if !activeSessionStarted {
+                writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+                activeSessionStarted = true
+            }
+
+            guard writer.status == .writing else {
+                if writer.status == .failed || writer.status == .cancelled {
+                    pendingError = pendingError ?? writer.error ?? RecorderError.failedToAppendAudio
+                }
+                return
+            }
+
+            guard input.isReadyForMoreMediaData else { return }
+
+            if !input.append(sampleBuffer) {
+                pendingError = pendingError ?? writer.error ?? RecorderError.failedToAppendAudio
+            }
+        } catch {
+            pendingError = pendingError ?? error
+        }
+    }
+
+    func finishWriting() async throws -> URL? {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL?, Error>) in
+            processingQueue.async {
+                guard self.finishContinuation == nil else {
+                    continuation.resume(throwing: RecorderError.finishAlreadyRequested)
+                    return
+                }
+
+                self.finishContinuation = continuation
+                self.finishActiveSegment()
+                self.completeFinishIfPossible()
+            }
+        }
+    }
+
+    private func startSegment(for sampleBuffer: CMSampleBuffer, format: CaptureStreamFormat) throws {
+        let segmentURL = makeSegmentURL(index: segmentIndex)
+        segmentIndex += 1
+
+        let writer = try AVAssetWriter(url: segmentURL, fileType: .m4a)
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: format.sampleRate,
+            AVNumberOfChannelsKey: format.channelCount,
+            AVEncoderBitRateKey: format.recommendedBitRate,
+        ]
+        let input = AVAssetWriterInput(
+            mediaType: .audio,
+            outputSettings: settings,
+            sourceFormatHint: sampleBuffer.formatDescription
+        )
+        input.expectsMediaDataInRealTime = true
+
+        guard writer.canAdd(input) else {
+            throw RecorderError.failedToCreateAudioInput
+        }
+
+        writer.add(input)
+        guard writer.startWriting() else {
+            throw writer.error ?? RecorderError.failedToStartWriter
+        }
+
+        activeWriter = writer
+        activeInput = input
+        activeFormat = format
+        activeSessionStarted = false
+        segmentURLs.append(segmentURL)
+    }
+
+    private func finishActiveSegment() {
+        guard let writer = activeWriter, let input = activeInput else { return }
+
+        activeWriter = nil
+        activeInput = nil
+        activeFormat = nil
+        activeSessionStarted = false
+
+        input.markAsFinished()
+        pendingFinalizationCount += 1
+
+        let writerRef = UncheckedAssetWriterRef(writer)
+        writer.finishWriting { [weak self, writerRef] in
+            guard let self else { return }
+            let status = writerRef.writer.status
+            let error = writerRef.writer.error
+
+            self.processingQueue.async {
+                if status == .failed || status == .cancelled {
+                    self.pendingError = self.pendingError ?? error ?? RecorderError.failedToFinalizeSegment
+                }
+                self.pendingFinalizationCount -= 1
+                self.completeFinishIfPossible()
+            }
+        }
+    }
+
+    private func completeFinishIfPossible() {
+        guard pendingFinalizationCount == 0 else { return }
+        guard let continuation = finishContinuation else { return }
+
+        finishContinuation = nil
+
+        if let error = pendingError {
+            continuation.resume(throwing: error)
+            return
+        }
+
+        Task {
+            do {
+                let finalizedURL = try await finalizeSegments()
+                continuation.resume(returning: finalizedURL)
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    private func finalizeSegments() async throws -> URL? {
+        guard !segmentURLs.isEmpty else { return nil }
+
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: finalURL.path) {
+            try fileManager.removeItem(at: finalURL)
+        }
+
+        if segmentURLs.count == 1 {
+            try fileManager.moveItem(at: segmentURLs[0], to: finalURL)
+            return finalURL
+        }
+
+        let composition = AVMutableComposition()
+        guard let track = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else {
+            throw RecorderError.exportFailed
+        }
+
+        var cursor = CMTime.zero
+        for segmentURL in segmentURLs {
+            let asset = AVURLAsset(url: segmentURL)
+            let sourceTracks = try await asset.loadTracks(withMediaType: .audio)
+            guard let sourceTrack = sourceTracks.first else {
+                throw RecorderError.exportFailed
+            }
+
+            let duration = try await asset.load(.duration)
+            let range = CMTimeRange(start: .zero, duration: duration)
+            try track.insertTimeRange(range, of: sourceTrack, at: cursor)
+            cursor = CMTimeAdd(cursor, duration)
+        }
+
+        guard let exporter = AVAssetExportSession(
+            asset: composition,
+            presetName: AVAssetExportPresetAppleM4A
+        ) else {
+            throw RecorderError.exportFailed
+        }
+
+        try await exporter.export(to: finalURL, as: .m4a)
+
+        for segmentURL in segmentURLs {
+            try? fileManager.removeItem(at: segmentURL)
+        }
+
+        return finalURL
+    }
+
+    private func makeSegmentURL(index: Int) -> URL {
+        let baseName = finalURL.deletingPathExtension().lastPathComponent
+        let segmentName = "\(baseName)-segment-\(String(format: "%03d", index)).m4a"
+        return finalURL.deletingLastPathComponent().appendingPathComponent(segmentName)
+    }
+}
+
+struct OutputDeviceAudioFormat: Equatable, Sendable {
+    let deviceID: AudioDeviceID
+    let sampleRate: Int
+    let channelCount: Int
+
+    static func currentDefaultOutput() throws -> OutputDeviceAudioFormat {
+        let deviceID = try currentDefaultOutputDeviceID()
+        return try Self(
+            deviceID: deviceID,
+            sampleRate: currentSampleRate(for: deviceID),
+            channelCount: currentChannelCount(for: deviceID)
+        )
+    }
+
+    private static func currentDefaultOutputDeviceID() throws -> AudioDeviceID {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID: AudioDeviceID = kAudioObjectUnknown
+        var dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &dataSize,
+            &deviceID
+        )
+
+        guard status == noErr, deviceID != kAudioObjectUnknown else {
+            throw RecorderError.unavailableOutputDevice
+        }
+
+        return deviceID
+    }
+
+    private static func currentSampleRate(for deviceID: AudioDeviceID) throws -> Int {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var sampleRate = Float64(0)
+        var dataSize = UInt32(MemoryLayout<Float64>.size)
+
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, &sampleRate)
+        guard status == noErr else {
+            throw RecorderError.unavailableOutputDevice
+        }
+
+        return max(Int(sampleRate.rounded()), 1)
+    }
+
+    private static func currentChannelCount(for deviceID: AudioDeviceID) throws -> Int {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize = UInt32(0)
+
+        let sizeStatus = AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &dataSize)
+        guard sizeStatus == noErr, dataSize > 0 else {
+            throw RecorderError.unavailableOutputDevice
+        }
+
+        let bufferListPointer = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(dataSize),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { bufferListPointer.deallocate() }
+
+        let valueStatus = AudioObjectGetPropertyData(
+            deviceID,
+            &address,
+            0,
+            nil,
+            &dataSize,
+            bufferListPointer
+        )
+        guard valueStatus == noErr else {
+            throw RecorderError.unavailableOutputDevice
+        }
+
+        let audioBufferList = bufferListPointer.assumingMemoryBound(to: AudioBufferList.self)
+        let channelCount = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            .reduce(0) { $0 + Int($1.mNumberChannels) }
+
+        return max(channelCount, 1)
+    }
+}
+
+final class DefaultAudioDeviceMonitor {
+    enum Change: Sendable {
+        case input(AudioDeviceID)
+        case output(OutputDeviceAudioFormat)
+    }
+
+    private let queue = DispatchQueue(label: "RecappiMini.OutputDeviceMonitor")
+    private let onChange: @Sendable (Change) -> Void
+    private var currentOutputDeviceID: AudioDeviceID?
+    private var currentInputDeviceID: AudioDeviceID?
+    private var lastFormat: OutputDeviceAudioFormat?
+    private var defaultInputListener: AudioObjectPropertyListenerBlock?
+    private var defaultDeviceListener: AudioObjectPropertyListenerBlock?
+    private var currentDeviceListener: AudioObjectPropertyListenerBlock?
+
+    init(onChange: @escaping @Sendable (Change) -> Void) throws {
+        self.onChange = onChange
+
+        let initialFormat = try OutputDeviceAudioFormat.currentDefaultOutput()
+        self.currentOutputDeviceID = initialFormat.deviceID
+        self.currentInputDeviceID = try Self.currentDefaultInputDeviceID()
+        self.lastFormat = initialFormat
+
+        try addDefaultInputListener()
+        try addDefaultDeviceListener()
+        try addCurrentDeviceListeners(for: initialFormat.deviceID)
+    }
+
+    deinit {
+        stop()
+    }
+
+    func stop() {
+        if let defaultInputListener {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                queue,
+                defaultInputListener
+            )
+            self.defaultInputListener = nil
+        }
+
+        if let defaultDeviceListener {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                queue,
+                defaultDeviceListener
+            )
+            self.defaultDeviceListener = nil
+        }
+
+        removeCurrentDeviceListeners()
+    }
+
+    private func addDefaultInputListener() throws {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.handleInputDeviceChange()
+        }
+
+        let status = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            queue,
+            listener
+        )
+        guard status == noErr else {
+            throw RecorderError.failedToMonitorOutputDevice
+        }
+
+        defaultInputListener = listener
+    }
+
+    private func addDefaultDeviceListener() throws {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.handleDeviceOrFormatChange()
+        }
+
+        let status = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            queue,
+            listener
+        )
+        guard status == noErr else {
+            throw RecorderError.failedToMonitorOutputDevice
+        }
+
+        defaultDeviceListener = listener
+    }
+
+    private func addCurrentDeviceListeners(for deviceID: AudioDeviceID) throws {
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.handleDeviceOrFormatChange()
+        }
+
+        var sampleRateAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var channelAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        let sampleRateStatus = AudioObjectAddPropertyListenerBlock(
+            deviceID,
+            &sampleRateAddress,
+            queue,
+            listener
+        )
+        guard sampleRateStatus == noErr else {
+            throw RecorderError.failedToMonitorOutputDevice
+        }
+
+        let channelStatus = AudioObjectAddPropertyListenerBlock(
+            deviceID,
+            &channelAddress,
+            queue,
+            listener
+        )
+        guard channelStatus == noErr else {
+            AudioObjectRemovePropertyListenerBlock(deviceID, &sampleRateAddress, queue, listener)
+            throw RecorderError.failedToMonitorOutputDevice
+        }
+
+        currentDeviceListener = listener
+    }
+
+    private func removeCurrentDeviceListeners() {
+        guard let deviceID = currentOutputDeviceID, let currentDeviceListener else { return }
+
+        var sampleRateAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var channelAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        AudioObjectRemovePropertyListenerBlock(deviceID, &sampleRateAddress, queue, currentDeviceListener)
+        AudioObjectRemovePropertyListenerBlock(deviceID, &channelAddress, queue, currentDeviceListener)
+        self.currentDeviceListener = nil
+    }
+
+    private func handleInputDeviceChange() {
+        guard let deviceID = try? Self.currentDefaultInputDeviceID() else { return }
+        guard deviceID != currentInputDeviceID else { return }
+
+        currentInputDeviceID = deviceID
+        onChange(.input(deviceID))
+    }
+
+    private func handleDeviceOrFormatChange() {
+        guard let format = try? OutputDeviceAudioFormat.currentDefaultOutput() else { return }
+
+        if format.deviceID != currentOutputDeviceID {
+            removeCurrentDeviceListeners()
+            currentOutputDeviceID = format.deviceID
+            try? addCurrentDeviceListeners(for: format.deviceID)
+        }
+
+        guard format != lastFormat else { return }
+        lastFormat = format
+        onChange(.output(format))
+    }
+
+    private static func currentDefaultInputDeviceID() throws -> AudioDeviceID {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID: AudioDeviceID = kAudioObjectUnknown
+        var dataSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &dataSize,
+            &deviceID
+        )
+
+        guard status == noErr, deviceID != kAudioObjectUnknown else {
+            throw RecorderError.unavailableOutputDevice
+        }
+
+        return deviceID
     }
 }
 
@@ -829,6 +1545,14 @@ enum RecorderError: LocalizedError {
     case noSessionDir
     case exportFailed
     case missingUITestFixture
+    case unavailableOutputDevice
+    case failedToMonitorOutputDevice
+    case invalidAudioFormat
+    case failedToCreateAudioInput
+    case failedToStartWriter
+    case failedToAppendAudio
+    case failedToFinalizeSegment
+    case finishAlreadyRequested
 
     var errorDescription: String? {
         switch self {
@@ -841,6 +1565,14 @@ enum RecorderError: LocalizedError {
         case .noSessionDir: return "No session directory"
         case .exportFailed: return "Failed to merge audio sources"
         case .missingUITestFixture: return "UI test fixture audio is missing"
+        case .unavailableOutputDevice: return "Couldn't read the current output device format"
+        case .failedToMonitorOutputDevice: return "Couldn't monitor output device changes"
+        case .invalidAudioFormat: return "Audio format information is unavailable"
+        case .failedToCreateAudioInput: return "Couldn't create the audio writer input"
+        case .failedToStartWriter: return "Couldn't start the audio writer"
+        case .failedToAppendAudio: return "Couldn't append captured audio"
+        case .failedToFinalizeSegment: return "Couldn't finalize the recorded audio segment"
+        case .finishAlreadyRequested: return "Audio finishing is already in progress"
         }
     }
 }

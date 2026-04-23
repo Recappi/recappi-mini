@@ -624,11 +624,16 @@ struct AudioSourcePill: View {
         recorder.selectedApp?.name ?? "All system audio"
     }
 
+    @MainActor
     private func showMenu() {
         guard let anchor, let window = anchor.window else { return }
+        recorder.refreshAppsFromWorkspaceSnapshot()
         let menu = buildMenu()
         let origin = menuPopUpLocation(for: menu, anchor: anchor, window: window)
         menu.popUp(positioning: nil, at: origin, in: nil)
+        Task {
+            await recorder.refreshApps()
+        }
     }
 
     private func buildMenu() -> NSMenu {

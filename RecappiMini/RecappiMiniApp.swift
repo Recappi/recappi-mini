@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var panel: FloatingPanel?
     private let recorder = AudioRecorder()
     private var activityObserver: AnyCancellable?
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     /// Tracks whether the floating panel is currently on-screen so the
     /// MenuBarExtra can flip its label between Show / Hide. Published so
@@ -111,6 +112,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
         self.panel = panel
 
+        installWorkspaceObservers()
+        recorder.refreshAppsFromWorkspaceSnapshot()
+
         Task {
             await recorder.refreshApps()
         }
@@ -128,9 +132,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        let center = NSWorkspace.shared.notificationCenter
+        for observer in workspaceObservers {
+            center.removeObserver(observer)
+        }
+        workspaceObservers.removeAll()
+    }
+
     func showPanel() {
         panel?.orderFrontRegardless()
         panelVisible = true
+        refreshRunningApps()
     }
 
     func hidePanel() {
@@ -140,5 +153,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
     func togglePanel() {
         if panelVisible { hidePanel() } else { showPanel() }
+    }
+
+    private func installWorkspaceObservers() {
+        let center = NSWorkspace.shared.notificationCenter
+        let names: [NSNotification.Name] = [
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+        ]
+
+        workspaceObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshRunningApps()
+                }
+            }
+        }
+    }
+
+    private func refreshRunningApps() {
+        recorder.refreshAppsFromWorkspaceSnapshot()
+        Task {
+            await recorder.refreshApps()
+        }
     }
 }
