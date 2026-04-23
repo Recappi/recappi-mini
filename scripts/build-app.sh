@@ -7,9 +7,11 @@ APP_BUNDLE="$PROJECT_DIR/build/$APP_NAME.app"
 BUILD_CONFIG="${BUILD_CONFIG:-debug}"
 RELEASE_MODE="${RELEASE:-0}"
 APP_VERSION="${APP_VERSION:-1.0}"
-BUILD_NUMBER="${BUILD_NUMBER:-1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-1}"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-RecappiMini Dev}"
 ENTITLEMENTS_PATH="$PROJECT_DIR/RecappiMini/RecappiMini.entitlements"
+SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://raw.githubusercontent.com/Recappi/recappi-mini/sparkle-appcast/appcast.xml}"
+SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-/1OzWfoXSQ2w+rIi6pKRn8X8egyv+T/dQGOyG7QJj0M=}"
 
 if [ "$RELEASE_MODE" = "1" ] && [ "$BUILD_CONFIG" = "debug" ]; then
     BUILD_CONFIG="release"
@@ -29,9 +31,14 @@ echo "Creating app bundle..."
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
 
 # Copy binary
 cp "$BUILD_DIR/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/"
+
+if [ -d "$BUILD_DIR/Sparkle.framework" ]; then
+    ditto "$BUILD_DIR/Sparkle.framework" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+fi
 
 # Copy Logo.png directly into Contents/Resources so `Image("Logo")` and
 # `MenuBarExtra(image: "Logo")` both resolve via Bundle.main without a
@@ -56,6 +63,14 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
     <string>$BUILD_NUMBER</string>
     <key>CFBundleShortVersionString</key>
     <string>$APP_VERSION</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>$SPARKLE_FEED_URL</string>
+    <key>SUPublicEDKey</key>
+    <string>$SPARKLE_PUBLIC_ED_KEY</string>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>

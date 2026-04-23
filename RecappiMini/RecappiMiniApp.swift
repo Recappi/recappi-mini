@@ -42,6 +42,7 @@ struct RecappiMiniApp: App {
 
 struct MenuBarContents: View {
     @ObservedObject var appDelegate: AppDelegate
+    @ObservedObject private var appUpdater = AppUpdater.shared
     // `SettingsLink` won't bring the Settings window forward while the app
     // is in `.accessory` activation mode (which we have to be in so the
     // floating panel can coexist without a dock icon). Use the env-provided
@@ -65,6 +66,13 @@ struct MenuBarContents: View {
 
         Divider()
 
+        Button("Check for Updates…") {
+            appUpdater.checkForUpdates()
+        }
+        .disabled(!appUpdater.canCheckForUpdates)
+
+        Divider()
+
         Button("Quit") {
             NSApp.terminate(nil)
         }
@@ -76,6 +84,7 @@ struct MenuBarContents: View {
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private var panel: FloatingPanel?
     private let recorder = AudioRecorder()
+    private let appUpdater = AppUpdater.shared
     private var activityObserver: AnyCancellable?
     private var workspaceObservers: [NSObjectProtocol] = []
 
@@ -88,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         NSApp.setActivationPolicy(.accessory)
         Task { await AuthSessionStore.shared.bootstrapForUITestsIfNeeded() }
         Task { await CapturePermissionPrimer.shared.primeIfNeeded() }
+        appUpdater.start()
 
         let m = PillShellView.shadowMargin
         let pillWidth = DT.panelWidth

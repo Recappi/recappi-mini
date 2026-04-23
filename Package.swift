@@ -6,9 +6,15 @@ let package = Package(
     platforms: [
         .macOS(.v26),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.8.1"),
+    ],
     targets: [
         .executableTarget(
             name: "RecappiMini",
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "RecappiMini",
             exclude: ["Info.plist", "RecappiMini.entitlements", "Resources"],
             linkerSettings: [

@@ -4,6 +4,14 @@
 <dict>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/Recappi/recappi-mini/sparkle-appcast/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>/1OzWfoXSQ2w+rIi6pKRn8X8egyv+T/dQGOyG7QJj0M=</string>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
     <key>NSMicrophoneUsageDescription</key>
     <string>Recappi Mini needs microphone access to record meetings</string>
     <key>NSAudioCaptureUsageDescription</key>

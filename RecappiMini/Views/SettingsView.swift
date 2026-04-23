@@ -4,9 +4,17 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject private var config = AppConfig.shared
     @ObservedObject private var sessionStore = AuthSessionStore.shared
+    @ObservedObject private var appUpdater = AppUpdater.shared
     @State private var manualBearerInput = UITestModeConfiguration.shared.authToken ?? ""
     @State private var capturePermissions = CapturePermissionSnapshot.placeholder
     @State private var permissionsBusy = false
+
+    private static let updateCheckDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +26,7 @@ struct SettingsView: View {
                     manualAuthSection
                 }
                 transcriptionSection
+                updatesSection
                 storageSection
             }
             .formStyle(.grouped)
@@ -156,6 +165,52 @@ struct SettingsView: View {
             Text("Storage")
         } footer: {
             Text("Each session keeps recording.m4a, transcript.md, and remote-session.json in ~/Documents/Recappi Mini. A compatibility upload.wav is generated only when the backend rejects the high-quality upload.")
+                .foregroundStyle(Color.dtLabelSecondary)
+                .font(.footnote)
+        }
+    }
+
+    @ViewBuilder private var updatesSection: some View {
+        Section {
+            LabeledContent("Current version") {
+                Text(appVersionText)
+                    .foregroundStyle(Color.dtLabelSecondary)
+            }
+
+            LabeledContent("Last checked") {
+                Text(lastUpdateCheckText)
+                    .foregroundStyle(Color.dtLabelSecondary)
+            }
+
+            Toggle(
+                "Automatically check for updates",
+                isOn: Binding(
+                    get: { appUpdater.automaticallyChecksForUpdates },
+                    set: { appUpdater.setAutomaticallyChecksForUpdates($0) }
+                )
+            )
+
+            Toggle(
+                "Automatically download updates",
+                isOn: Binding(
+                    get: { appUpdater.automaticallyDownloadsUpdates },
+                    set: { appUpdater.setAutomaticallyDownloadsUpdates($0) }
+                )
+            )
+            .disabled(!appUpdater.automaticallyChecksForUpdates)
+
+            HStack(spacing: 10) {
+                Button("Check for Updates…") {
+                    appUpdater.checkForUpdates()
+                }
+                .disabled(!appUpdater.canCheckForUpdates)
+
+                Spacer(minLength: 0)
+            }
+        } header: {
+            Text("Updates")
+        } footer: {
+            Text("Recappi Mini checks the published Sparkle appcast for new notarized releases from GitHub. Automatic checks are enabled by default, while automatic download stays user-controlled.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
@@ -326,6 +381,28 @@ struct SettingsView: View {
         case .failed:
             return sessionStore.authStatusDetail ?? "Authentication failed"
         }
+    }
+
+    private var appVersionText: String {
+        let bundle = Bundle.main
+        let shortVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let buildNumber = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+
+        switch (shortVersion, buildNumber) {
+        case let (shortVersion?, buildNumber?) where shortVersion != buildNumber:
+            return "\(shortVersion) (\(buildNumber))"
+        case let (shortVersion?, _):
+            return shortVersion
+        case let (_, buildNumber?):
+            return buildNumber
+        default:
+            return "Unknown"
+        }
+    }
+
+    private var lastUpdateCheckText: String {
+        guard let date = appUpdater.lastUpdateCheckDate else { return "Not yet" }
+        return Self.updateCheckDateFormatter.string(from: date)
     }
 
     @ViewBuilder
