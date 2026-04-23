@@ -22,9 +22,9 @@ say -o "$SOURCE_AIFF" "$PHRASE"
 afconvert "$SOURCE_AIFF" \
   -o "$RECORDING_M4A" \
   -f m4af \
-  -d aac@16000 \
-  -c 1 \
-  -b 32000 \
+  -d aac@48000 \
+  -c 2 \
+  -b 128000 \
   >/dev/null
 
 afconvert "$SOURCE_AIFF" \

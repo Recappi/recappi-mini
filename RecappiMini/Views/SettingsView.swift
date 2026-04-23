@@ -155,7 +155,7 @@ struct SettingsView: View {
         } header: {
             Text("Storage")
         } footer: {
-            Text("Each session keeps recording.m4a, upload.wav, transcript.md, and remote-session.json side by side in ~/Documents/Recappi Mini.")
+            Text("Each session keeps recording.m4a, transcript.md, and remote-session.json in ~/Documents/Recappi Mini. A compatibility upload.wav is generated only when the backend rejects the high-quality upload.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }

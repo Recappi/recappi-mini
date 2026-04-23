@@ -1,24 +1,26 @@
 import AVFoundation
 import Foundation
 
-/// Offline-mixes multiple audio files into a single AAC m4a at voice-grade
-/// compression (16kHz mono 32kbps). Runs via AVAudioEngine's manual
-/// rendering mode so it completes without playback.
+/// Offline-mixes multiple audio files into a single AAC m4a while preserving
+/// a high-quality recording artifact for local storage and Recappi Cloud
+/// upload. Runs via AVAudioEngine's manual rendering mode so it completes
+/// without playback.
 ///
 /// Why not AVAssetExportSession: AppleM4A preset outputs as many audio
 /// tracks as the composition has. We need a single mixed track so downstream
 /// downstream processing treats it as one continuous signal.
 enum AudioMixer {
-    /// Output file settings — voice-grade AAC. ~14MB / hour of audio while
-    /// staying compact enough for routine local storage. Built on demand so
-    /// we don't need
-    /// to wrestle with Swift 6 concurrency for a mutable-type global.
+    /// Output file settings — 48kHz stereo AAC. This keeps the final
+    /// `recording.m4a` at a quality level the backend can downsample itself
+    /// when needed, while still staying compact enough for routine storage.
+    /// Built on demand so we don't need to wrestle with Swift 6 concurrency
+    /// for a mutable-type global.
     private static func outputSettings() -> [String: Any] {
         [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 16000,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderBitRateKey: 32000,
+            AVSampleRateKey: 48000,
+            AVNumberOfChannelsKey: 2,
+            AVEncoderBitRateKey: 128000,
         ]
     }
 
@@ -47,18 +49,13 @@ enum AudioMixer {
         let mainMixer = engine.mainMixerNode
 
         // Render directly at the output file's processing format so
-        // AVAudioFile.write doesn't have to convert channel count or sample
-        // rate (it can't — it only reencodes at the file's AAC target).
-        // AVAudioEngine will insert implicit converters between each
-        // source's native format and this render format at the mixer.
-        // Render directly at the output file's processing format so
         // AVAudioFile.write doesn't need to convert channel count or sample
         // rate (ExtAudioFileWrite rejects mismatches with -50 / paramErr).
         // AVAudioEngine inserts implicit converters between each source's
-        // native 48kHz stereo Float32 and this render format at the mixer.
+        // native format and this render format at the mixer.
         guard let renderFormat = AVAudioFormat(
-            standardFormatWithSampleRate: 16000,
-            channels: 1
+            standardFormatWithSampleRate: 48000,
+            channels: 2
         ) else {
             throw RecorderError.exportFailed
         }

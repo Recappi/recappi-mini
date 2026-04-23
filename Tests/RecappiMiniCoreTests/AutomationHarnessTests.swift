@@ -25,6 +25,13 @@ final class AutomationHarnessTests: XCTestCase {
         XCTAssertEqual(payload["generator"] as? String, "scripts/generate-test-audio-fixtures.sh")
     }
 
+    func testRecordingFixtureLooksLikeHighQualityM4A() throws {
+        let output = try Shell.run("/usr/bin/afinfo", arguments: [AutomationPaths.recordingFixture.path])
+        XCTAssertTrue(output.contains("m4af") || output.contains("File type ID:   m4af"))
+        XCTAssertTrue(output.contains("48000 Hz"))
+        XCTAssertTrue(output.contains("2 ch"))
+    }
+
     func testUploadFixtureLooksLikeMono16kWav() throws {
         let output = try Shell.run("/usr/bin/afinfo", arguments: [AutomationPaths.uploadFixture.path])
         XCTAssertTrue(output.contains("File type ID: WAVE") || output.contains("WAVE"))

@@ -204,7 +204,23 @@ private struct IdleState: View {
 // MARK: - Recording
 
 private struct RecordingState: View {
+    private enum WaveformMode: String {
+        case spectrum
+        case history
+
+        var next: Self { self == .spectrum ? .history : .spectrum }
+        var helpText: String {
+            switch self {
+            case .spectrum:
+                return "Click to switch to slow scrolling volume history"
+            case .history:
+                return "Click to switch back to frequency buckets"
+            }
+        }
+    }
+
     @ObservedObject var recorder: AudioRecorder
+    @AppStorage("recappi.panel.recordingWaveformMode") private var waveformModeRaw = WaveformMode.spectrum.rawValue
     var onDiscard: () -> Void
     var onStop: () -> Void
 
@@ -236,9 +252,15 @@ private struct RecordingState: View {
             .padding(.horizontal, 2)
 
             HStack(spacing: 6) {
-                DotMatrixWaveform(levels: recorder.audioSpectrumLevels)
-                    .frame(maxWidth: .infinity, maxHeight: 28)
-                    .padding(.leading, 4)
+                Button(action: toggleWaveformMode) {
+                    waveformView
+                        .frame(maxWidth: .infinity, maxHeight: 28)
+                        .padding(.leading, 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(waveformMode.helpText)
+                .accessibilityIdentifier(AccessibilityIDs.Panel.waveformToggle)
 
                 Button(action: onDiscard) {
                     Image(systemName: "trash")
@@ -257,8 +279,27 @@ private struct RecordingState: View {
         }
     }
 
+    @ViewBuilder
+    private var waveformView: some View {
+        switch waveformMode {
+        case .spectrum:
+            DotMatrixWaveform(levels: recorder.audioSpectrumLevels)
+        case .history:
+            DotMatrixWaveform(levels: recorder.audioLevelHistory)
+        }
+    }
+
     private var recordingSourceLabel: String {
         recorder.recordingAppName ?? recorder.selectedApp?.name ?? "All system audio"
+    }
+
+    private var waveformMode: WaveformMode {
+        get { WaveformMode(rawValue: waveformModeRaw) ?? .spectrum }
+        nonmutating set { waveformModeRaw = newValue.rawValue }
+    }
+
+    private func toggleWaveformMode() {
+        waveformMode = waveformMode.next
     }
 
     private func formatTime(_ seconds: Int) -> String {
@@ -698,6 +739,22 @@ private final class MenuClosure: NSObject {
 
 /// Same dot-matrix shell as the original recording UI, but the columns now
 /// represent fixed frequency buckets instead of a rolling timeline.
+enum DotMatrixWaveformModel {
+    static func litRowCounts(for levels: [Float], rows: Int = 5) -> [Int] {
+        guard rows > 0 else { return Array(repeating: 0, count: levels.count) }
+        return levels.map { rawLevel in
+            let amplitude = max(0, min(1, rawLevel))
+            guard amplitude > 0.028 else { return 0 }
+            // Traditional player visualizers exaggerate low-amplitude activity
+            // so the whole spectrum feels alive instead of collapsing into the
+            // bass bins. Keep that visual behavior while preserving stronger
+            // peaks for the louder columns.
+            let perceptual = pow(amplitude, 0.58)
+            return max(1, min(rows, Int(ceil(perceptual * Float(rows)))))
+        }
+    }
+}
+
 struct DotMatrixWaveform: View {
     let levels: [Float]
 
@@ -711,10 +768,10 @@ struct DotMatrixWaveform: View {
             let colStep = size.width / CGFloat(cols)
             let rowStep = size.height / CGFloat(rows)
             let dotSize = min(colStep, rowStep) * 0.6
+            let litRows = DotMatrixWaveformModel.litRowCounts(for: levels, rows: rows)
 
             for column in 0..<cols {
-                let amplitude = max(0, min(1, CGFloat(levels[column])))
-                let lit = Int((amplitude * CGFloat(rows)).rounded())
+                let lit = litRows[column]
                 let firstLit = rows - lit
 
                 for row in 0..<rows {

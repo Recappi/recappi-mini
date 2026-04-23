@@ -45,51 +45,29 @@ final class SessionProcessor {
         let session = try await AuthSessionStore.shared.ensureAuthorized(origin: config.effectiveBackendBaseURL)
         let client = RecappiAPIClient(origin: session.backendOrigin, bearerToken: try bearerToken())
 
-        updatePhase(.preparingUploadWav)
-        let uploadURL = try await UploadAudioExporter.ensureUploadAudio(for: sessionDir)
-
         var manifest = RecordingStore.loadRemoteManifest(in: sessionDir) ?? .stage("verifyingSession")
-        manifest.uploadFilename = uploadURL.lastPathComponent
         manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+        let recordingURL = RecordingStore.audioFileURL(in: sessionDir)
 
-        updatePhase(.creatingRecording)
-        let created = try await client.createRecording(title: sessionDir.lastPathComponent)
-        manifest.recordingId = created.id
-        manifest.stage = "creatingRecording"
-        manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
-
-        do {
-            updatePhase(.uploading(progress: 0))
-            let parts = try await client.uploadRecording(
-                recordingId: created.id,
-                fileURL: uploadURL,
-                partSize: created.partSize
-            ) { progress in
-                updatePhase(.uploading(progress: progress))
-            }
-
-            updatePhase(.completingUpload)
-            _ = try await client.completeRecording(recordingId: created.id, parts: parts)
-            manifest.stage = "completingUpload"
-            manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
-        } catch {
-            await client.abortRecordingIfNeeded(recordingId: created.id)
-            manifest.errorMessage = error.localizedDescription
-            manifest.stage = "uploadFailed"
-            _ = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
-            throw error
-        }
+        let uploadedRecording = try await uploadRecordingAsset(
+            primaryURL: recordingURL,
+            sessionDir: sessionDir,
+            client: client,
+            manifest: manifest,
+            updatePhase: updatePhase
+        )
+        manifest = uploadedRecording.manifest
 
         let language = config.normalizedCloudLanguage
         updatePhase(.startingTranscription)
-        let start = try await client.startTranscription(recordingId: created.id, language: language)
+        let start = try await client.startTranscription(recordingId: uploadedRecording.recordingId, language: language)
         manifest.jobId = start.jobId
         manifest.stage = "startingTranscription"
         manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
 
         let job = try await pollForCompletion(
             client: client,
-            recordingId: created.id,
+            recordingId: uploadedRecording.recordingId,
             initial: start,
             updatePhase: updatePhase
         )
@@ -101,7 +79,7 @@ final class SessionProcessor {
         manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
 
         updatePhase(.fetchingTranscript)
-        let transcript = try await client.getTranscript(recordingId: created.id, jobId: job.id)
+        let transcript = try await client.getTranscript(recordingId: uploadedRecording.recordingId, jobId: job.id)
         try RecordingStore.saveTranscript(transcript.text, in: sessionDir)
 
         manifest.stage = "done"
@@ -114,6 +92,117 @@ final class SessionProcessor {
             transcript: transcript.text,
             duration: duration
         )
+    }
+
+    private func uploadRecordingAsset(
+        primaryURL: URL,
+        sessionDir: URL,
+        client: RecappiAPIClient,
+        manifest: RemoteSessionManifest,
+        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void
+    ) async throws -> UploadedRecordingAsset {
+        do {
+            return try await uploadAndComplete(
+                fileURL: primaryURL,
+                client: client,
+                manifest: manifest,
+                updatePhase: updatePhase
+            )
+        } catch {
+            guard shouldRetryWithWaveFallback(after: error, primaryURL: primaryURL) else {
+                var failedManifest = manifest
+                failedManifest.errorMessage = error.localizedDescription
+                failedManifest.stage = "uploadFailed"
+                _ = RecordingStore.saveRemoteManifest(failedManifest, in: sessionDir)
+                throw error
+            }
+
+            updatePhase(.preparingUploadWav)
+            let fallbackURL = try await UploadAudioExporter.ensureUploadAudio(for: sessionDir)
+
+            do {
+                return try await uploadAndComplete(
+                    fileURL: fallbackURL,
+                    client: client,
+                    manifest: manifest,
+                    updatePhase: updatePhase
+                )
+            } catch {
+                var failedManifest = manifest
+                failedManifest.uploadFilename = fallbackURL.lastPathComponent
+                failedManifest.errorMessage = error.localizedDescription
+                failedManifest.stage = "uploadFailed"
+                _ = RecordingStore.saveRemoteManifest(failedManifest, in: sessionDir)
+                throw error
+            }
+        }
+    }
+
+    private func uploadAndComplete(
+        fileURL: URL,
+        client: RecappiAPIClient,
+        manifest: RemoteSessionManifest,
+        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void
+    ) async throws -> UploadedRecordingAsset {
+        var nextManifest = manifest
+        nextManifest.uploadFilename = fileURL.lastPathComponent
+        nextManifest.errorMessage = nil
+        nextManifest = RecordingStore.saveRemoteManifest(nextManifest, in: fileURL.deletingLastPathComponent())
+
+        updatePhase(.creatingRecording)
+        let created = try await client.createRecording(title: fileURL.deletingLastPathComponent().lastPathComponent)
+        nextManifest.recordingId = created.id
+        nextManifest.jobId = nil
+        nextManifest.transcriptId = nil
+        nextManifest.stage = "creatingRecording"
+        nextManifest = RecordingStore.saveRemoteManifest(nextManifest, in: fileURL.deletingLastPathComponent())
+
+        do {
+            updatePhase(.uploading(progress: 0))
+            let parts = try await client.uploadRecording(
+                recordingId: created.id,
+                fileURL: fileURL,
+                partSize: created.partSize
+            ) { progress in
+                updatePhase(.uploading(progress: progress))
+            }
+
+            updatePhase(.completingUpload)
+            _ = try await client.completeRecording(recordingId: created.id, parts: parts)
+            nextManifest.stage = "completingUpload"
+            nextManifest.errorMessage = nil
+            nextManifest = RecordingStore.saveRemoteManifest(nextManifest, in: fileURL.deletingLastPathComponent())
+
+            return UploadedRecordingAsset(recordingId: created.id, manifest: nextManifest)
+        } catch {
+            await client.abortRecordingIfNeeded(recordingId: created.id)
+            throw error
+        }
+    }
+
+    private func shouldRetryWithWaveFallback(after error: Error, primaryURL: URL) -> Bool {
+        guard primaryURL.pathExtension.lowercased() != "wav" else { return false }
+
+        if let apiError = error as? RecappiAPIError {
+            switch apiError {
+            case .http(_, let message):
+                let lower = message.lowercased()
+                return lower.contains("wav")
+                    || lower.contains("header")
+                    || lower.contains("audio format")
+                    || lower.contains("unsupported")
+            case .invalidResponse:
+                return true
+            case .unauthorized, .invalidURL:
+                return false
+            }
+        }
+
+        if error is URLError {
+            return true
+        }
+
+        return false
     }
 
     private func pollForCompletion(
@@ -146,6 +235,11 @@ final class SessionProcessor {
         }
         return value
     }
+}
+
+private struct UploadedRecordingAsset {
+    let recordingId: String
+    let manifest: RemoteSessionManifest
 }
 
 enum SessionProcessorError: LocalizedError {

@@ -98,6 +98,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var recordingAppName: String?
     @Published var audioLevel: Float = 0
     @Published var audioSpectrumLevels: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
+    @Published var audioLevelHistory: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
     /// Session directory of the most-recent (or in-progress) recording.
     /// Populated on stop and kept through processing + error states so the
     /// UI can offer Retry / Show without stashing state at the view layer.
@@ -124,9 +125,11 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// Timestamp of the last `audioLevel` publish; capped at 30 Hz so
     /// SwiftUI doesn't burn a re-render per ScreenCaptureKit buffer.
     private var lastLevelPublish: CFTimeInterval = 0
+    private var lastHistoryPublish: CFTimeInterval = 0
     private let uiTestMode = UITestModeConfiguration.shared
 
-    static let spectrumBucketCount = 40
+    static let spectrumBucketCount = AudioSpectrumConfiguration.bucketCount
+    private static let historySampleInterval: CFTimeInterval = 0.18
 
     var currentSessionDir: URL? { sessionDir }
 
@@ -254,9 +257,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         let micURL = sessionDir.appendingPathComponent("mic.m4a")
 
         // Both sources write at native 48kHz stereo 128kbps AAC.
-        // Recompression to 16kHz mono 32kbps happens during the merge step so
-        // we keep raw quality in case the merge fails and the user needs the
-        // intermediates.
+        // The merge step now preserves that higher-quality profile in the
+        // canonical `recording.m4a`; any 16kHz mono WAV conversion is deferred
+        // until a backend compatibility fallback actually needs it.
         let sourceSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: 48000,
@@ -334,6 +337,11 @@ final class AudioRecorder: NSObject, ObservableObject {
         mcWriter.startWriting()
         captureSession.startRunning()
 
+        self.audioLevel = 0
+        self.audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
+        self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
+        self.lastLevelPublish = 0
+        self.lastHistoryPublish = 0
         self.state = .recording
         self.elapsedSeconds = 0
         self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -375,7 +383,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
         self.lastSessionDir = sessionDir
 
-        // Merge system + mic into a single compressed recording.m4a.
+        // Merge system + mic into a single high-quality recording.m4a.
         let systemURL = sessionDir.appendingPathComponent("system.m4a")
         let micURL = sessionDir.appendingPathComponent("mic.m4a")
         let mergedURL = RecordingStore.audioFileURL(in: sessionDir)
@@ -406,17 +414,30 @@ final class AudioRecorder: NSObject, ObservableObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let now = CACurrentMediaTime()
-            guard now - self.lastLevelPublish >= 1.0 / 30.0 else { return }
-            self.lastLevelPublish = now
 
             // Hold peak with light decay so a single-buffer spike still reads
             // visually over the ~33ms publish window.
             let smoothed = max(self.audioLevel * 0.82, frame.peak)
-            self.audioLevel = smoothed
 
-            let incoming = normalizeSpectrum(frame.bands)
-            let decayed = self.audioSpectrumLevels.map { $0 * 0.72 }
-            self.audioSpectrumLevels = zip(decayed, incoming).map(max)
+            if now - self.lastLevelPublish >= 1.0 / 30.0 {
+                self.lastLevelPublish = now
+                self.audioLevel = smoothed
+
+                let incoming = normalizeSpectrum(frame.bands)
+                let decayed = self.audioSpectrumLevels.map { $0 * 0.72 }
+                self.audioSpectrumLevels = zip(decayed, incoming).map(max)
+            }
+
+            if now - self.lastHistoryPublish >= Self.historySampleInterval {
+                self.lastHistoryPublish = now
+                let historyValue = min(1, pow(max(smoothed, 0), 0.75))
+                var history = self.audioLevelHistory
+                history.append(historyValue)
+                if history.count > Self.spectrumBucketCount {
+                    history.removeFirst(history.count - Self.spectrumBucketCount)
+                }
+                self.audioLevelHistory = history
+            }
         }
     }
 
@@ -425,7 +446,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         elapsedSeconds = 0
         audioLevel = 0
         audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
+        audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
         lastLevelPublish = 0
+        lastHistoryPublish = 0
         sessionDir = nil
         lastSessionDir = nil
         stream = nil
@@ -476,6 +499,11 @@ final class AudioRecorder: NSObject, ObservableObject {
         let sessionDir = try RecordingStore.createSessionDirectory()
         self.sessionDir = sessionDir
         self.lastSessionDir = nil
+        self.audioLevel = 0
+        self.audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
+        self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
+        self.lastLevelPublish = 0
+        self.lastHistoryPublish = 0
         self.state = .recording
         self.elapsedSeconds = 0
         self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -518,15 +546,29 @@ struct AudioMeterFrame: Sendable {
     let bands: [Float]
 }
 
+enum AudioSpectrumConfiguration {
+    static let bucketCount = 40
+}
+
 /// Peak amplitude + frequency buckets of a PCM `CMSampleBuffer`,
 /// normalised to 0…1. Handles the two formats ScreenCaptureKit +
 /// AVCaptureSession actually deliver on current macOS: 32-bit float
 /// interleaved (SCStream default) and 16-bit signed integer
 /// (AVCaptureSession microphones).
 enum AudioLevelExtractor {
+    /// Test-only hook so spectrum bucket tuning can be validated with
+    /// deterministic synthetic signals.
+    static func analyzeSamplesForTesting(
+        _ samples: [Float],
+        sampleRate: Double,
+        bucketCount: Int = AudioSpectrumConfiguration.bucketCount
+    ) -> [Float] {
+        analyze(samples: samples, sampleRate: sampleRate, bucketCount: bucketCount).bands
+    }
+
     static func meterFrame(
         _ sampleBuffer: CMSampleBuffer,
-        bucketCount: Int = 13
+        bucketCount: Int = AudioSpectrumConfiguration.bucketCount
     ) -> AudioMeterFrame {
         guard
             let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
@@ -639,20 +681,24 @@ enum AudioLevelExtractor {
         let halfCount = fftSize / 2
         let nyquist = sampleRate / 2
         let minFrequency = max(90.0, sampleRate / Double(fftSize))
-        let maxFrequency = max(min(nyquist, 16_000), minFrequency * 2)
-        let minMel = hzToMel(minFrequency)
-        let maxMel = hzToMel(maxFrequency)
+        // This view is a compact "player-style" spectrum, not a lab-grade
+        // analyzer. Cap the displayed range so typical music / speech spreads
+        // across the whole width instead of leaving the right edge empty.
+        let maxFrequency = max(min(nyquist, 8_000), minFrequency * 2)
+        let minLogFrequency = log(minFrequency)
+        let maxLogFrequency = log(maxFrequency)
 
         var bandMagnitudes = [Float](repeating: 0, count: bucketCount)
 
         for bucketIndex in 0..<bucketCount {
             let startT = Double(bucketIndex) / Double(bucketCount)
             let endT = Double(bucketIndex + 1) / Double(bucketCount)
-            let lower = melToHz(minMel + ((maxMel - minMel) * startT))
-            let upper = melToHz(minMel + ((maxMel - minMel) * endT))
+            let lower = exp(minLogFrequency + ((maxLogFrequency - minLogFrequency) * startT))
+            let upper = exp(minLogFrequency + ((maxLogFrequency - minLogFrequency) * endT))
             let center = sqrt(lower * upper)
 
             var strongest: Float = 0
+            var energySum: Float = 0
             var count: Int = 0
 
             for bin in 1..<halfCount {
@@ -660,11 +706,15 @@ enum AudioLevelExtractor {
                 guard frequency >= lower, frequency < upper else { continue }
                 let magnitude = hypot(outReal[bin], outImag[bin])
                 strongest = max(strongest, magnitude)
+                energySum += magnitude * magnitude
                 count += 1
             }
 
-            let bucketEnergy = count > 0 ? strongest : 0
-            let spectralTiltCompensation = Float(pow(max(center, 140) / 140, 0.24))
+            let rms = count > 0 ? sqrt(energySum / Float(count)) : 0
+            let bucketEnergy = (rms * 0.78) + (strongest * 0.22)
+            // Counterbalance the natural low-frequency bias of music / voice
+            // so the compact visualizer behaves more like a traditional player.
+            let spectralTiltCompensation = Float(pow(max(center, 140) / 140, 0.42))
             bandMagnitudes[bucketIndex] = bucketEnergy * spectralTiltCompensation
         }
 
@@ -679,20 +729,15 @@ enum AudioLevelExtractor {
         let amplitudeScale = min(1, sqrt(min(peak, 1)) * 1.55)
         let normalizedBands = smoothedBands.enumerated().map { index, magnitude in
             let t = Float(index) / Float(max(bucketCount - 1, 1))
-            let relative = max(0, min(1, magnitude / maxBand))
-            let equalized = pow(relative, 0.62) * (0.5 + (1.45 * pow(t, 0.9)))
+            let floorRatio: Float = 0.005   // ~ -46 dB floor
+            let clamped = max(magnitude, maxBand * floorRatio)
+            let decibels = 20 * log10(clamped / maxBand)
+            let dbNormalized = max(0, min(1, (decibels + 46) / 46))
+            let equalized = pow(dbNormalized, 0.88) * (0.78 + (0.92 * pow(t, 0.9)))
             return min(1, equalized * amplitudeScale)
         }
 
         return AudioMeterFrame(peak: min(peak, 1), bands: normalizedBands)
-    }
-
-    private static func hzToMel(_ hz: Double) -> Double {
-        2595 * log10(1 + (hz / 700))
-    }
-
-    private static func melToHz(_ mel: Double) -> Double {
-        700 * (pow(10, mel / 2595) - 1)
     }
 }
 
@@ -732,7 +777,7 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
             input.append(sampleBuffer)
         }
 
-        onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer))
+        onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount))
     }
 }
 
@@ -768,7 +813,7 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
             input.append(sampleBuffer)
         }
 
-        onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer))
+        onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount))
     }
 }
 

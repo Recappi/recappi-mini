@@ -106,7 +106,7 @@ enum ProcessingPhase: Equatable {
     var title: String {
         switch self {
         case .savingAudio: return "Saving audio…"
-        case .preparingUploadWav: return "Preparing upload audio…"
+        case .preparingUploadWav: return "Preparing fallback audio…"
         case .verifyingSession: return "Verifying session…"
         case .creatingRecording: return "Creating recording…"
         case .uploading: return "Uploading…"
@@ -122,7 +122,7 @@ enum ProcessingPhase: Equatable {
         case .savingAudio:
             return "Preparing local session"
         case .preparingUploadWav:
-            return "Converting recording.m4a to upload.wav"
+            return "Preparing a WAV fallback for backend compatibility"
         case .verifyingSession:
             return "Checking Recappi Cloud session"
         case .creatingRecording:

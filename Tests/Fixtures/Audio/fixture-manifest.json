@@ -6,7 +6,7 @@
     "upload_wav": "automation-upload.wav"
   },
   "checksums": {
-    "recording_m4a_sha256": "4afe23d12b0f04772a4cd8b18f9e0b251ceddc43252c97093749daed31a799aa",
+    "recording_m4a_sha256": "e826579ee8ef0388119604956bcfac9993f9ed7883ef1f7d8b226ced2af0fcb3",
     "upload_wav_sha256": "5fa2ae3b9d200e6b44458fa0862ffa093f07d0161883b8bd2fc53104745b319e"
   }
 }

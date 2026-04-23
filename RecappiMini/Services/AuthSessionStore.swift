@@ -11,6 +11,9 @@ final class AuthSessionStore: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private let keychain = KeychainAuthStore()
+    private let developmentStore = DevelopmentAuthStore()
+    private let uiTestMode = UITestModeConfiguration.shared
+    private var uiTestBearerToken: String?
 
     private let cachedUserKey = "recappi.cachedUserSession"
     private let backendOriginKey = "recappi.backendOrigin"
@@ -18,9 +21,17 @@ final class AuthSessionStore: ObservableObject {
     private let lastProviderKey = "recappi.lastOAuthProvider"
 
     private init() {
+        let hasPersistedToken: Bool
+        if uiTestMode.isEnabled {
+            hasPersistedToken = false
+        } else if Self.prefersDevelopmentFileStore {
+            hasPersistedToken = developmentStore.readBearerToken() != nil
+        } else {
+            hasPersistedToken = keychain.readBearerToken() != nil
+        }
         if let data = defaults.data(forKey: cachedUserKey),
            let session = try? JSONDecoder().decode(UserSession.self, from: data),
-           keychain.readBearerToken() != nil {
+           hasPersistedToken {
             authStatus = .signedIn(session)
             authStatusDetail = nil
             authFlowPhase = nil
@@ -49,13 +60,13 @@ final class AuthSessionStore: ObservableObject {
     }
 
     func bootstrapForUITestsIfNeeded() async {
-        guard UITestModeConfiguration.shared.isEnabled else { return }
+        guard uiTestMode.isEnabled else { return }
 
         let origin = AppConfig.shared.effectiveBackendBaseURL
-        let hasInjectedAuth = UITestModeConfiguration.shared.authToken != nil
+        let hasInjectedAuth = uiTestMode.authToken != nil
 
         if hasInjectedAuth {
-            _ = keychain.deleteBearerToken()
+            _ = deletePersistedBearerToken()
             defaults.removeObject(forKey: cachedUserKey)
             defaults.removeObject(forKey: lastVerifiedKey)
             authStatus = .signedOut
@@ -63,12 +74,12 @@ final class AuthSessionStore: ObservableObject {
             authFlowPhase = nil
         }
 
-        if let authToken = UITestModeConfiguration.shared.authToken,
+        if let authToken = uiTestMode.authToken,
            let normalized = Self.normalizeBearerToken(authToken) {
-            _ = keychain.saveBearerToken(normalized)
+            _ = savePersistedBearerToken(normalized)
         }
 
-        guard keychain.readBearerToken() != nil else { return }
+        guard readPersistedBearerToken() != nil else { return }
 
         do {
             _ = try await ensureAuthorized(origin: origin)
@@ -160,7 +171,7 @@ final class AuthSessionStore: ObservableObject {
     }
 
     func ensureAuthorized(origin: String) async throws -> UserSession {
-        guard let bearerToken = keychain.readBearerToken() else {
+        guard let bearerToken = readPersistedBearerToken() else {
             authStatus = .signedOut
             authStatusDetail = nil
             authFlowPhase = nil
@@ -205,11 +216,11 @@ final class AuthSessionStore: ObservableObject {
         authStatus = .expired
         authStatusDetail = RecappiAPIError.unauthorized.localizedDescription
         authFlowPhase = nil
-        _ = keychain.deleteBearerToken()
+        _ = deletePersistedBearerToken()
         defaults.removeObject(forKey: cachedUserKey)
         defaults.removeObject(forKey: lastVerifiedKey)
 
-        if UITestModeConfiguration.shared.isEnabled {
+        if uiTestMode.isEnabled {
             throw RecappiSessionError.reauthenticationUnavailableInUITests
         }
 
@@ -217,7 +228,7 @@ final class AuthSessionStore: ObservableObject {
     }
 
     func bearerToken() -> String? {
-        keychain.readBearerToken()
+        readPersistedBearerToken()
     }
 
     func signOut(origin: String) async {
@@ -225,7 +236,7 @@ final class AuthSessionStore: ObservableObject {
         authFlowPhase = .signingOut
         authStatusDetail = nil
 
-        if let bearerToken = keychain.readBearerToken() {
+        if let bearerToken = readPersistedBearerToken() {
             let client = RecappiAPIClient(origin: resolvedOrigin, bearerToken: bearerToken)
             do {
                 try await client.signOut()
@@ -249,7 +260,7 @@ final class AuthSessionStore: ObservableObject {
     }
 
     private func discardPersistedCredentialStorage() {
-        _ = keychain.deleteBearerToken()
+        _ = deletePersistedBearerToken()
         defaults.removeObject(forKey: cachedUserKey)
         defaults.removeObject(forKey: lastVerifiedKey)
     }
@@ -266,7 +277,7 @@ final class AuthSessionStore: ObservableObject {
         origin: String,
         provider: OAuthProvider?
     ) {
-        _ = keychain.saveBearerToken(bearerToken)
+        _ = savePersistedBearerToken(bearerToken)
         defaults.set(origin, forKey: backendOriginKey)
         defaults.set(Date().timeIntervalSince1970, forKey: lastVerifiedKey)
         if let provider {
@@ -275,6 +286,47 @@ final class AuthSessionStore: ObservableObject {
         if let data = try? JSONEncoder().encode(session) {
             defaults.set(data, forKey: cachedUserKey)
         }
+    }
+
+    private func readPersistedBearerToken() -> String? {
+        if uiTestMode.isEnabled {
+            return uiTestBearerToken
+        }
+        if Self.prefersDevelopmentFileStore {
+            return developmentStore.readBearerToken()
+        }
+        return keychain.readBearerToken()
+    }
+
+    private func savePersistedBearerToken(_ value: String) -> Bool {
+        if uiTestMode.isEnabled {
+            uiTestBearerToken = value
+            return true
+        }
+        if Self.prefersDevelopmentFileStore {
+            return developmentStore.saveBearerToken(value)
+        }
+        return keychain.saveBearerToken(value)
+    }
+
+    private func deletePersistedBearerToken() -> Bool {
+        if uiTestMode.isEnabled {
+            let hadValue = uiTestBearerToken != nil
+            uiTestBearerToken = nil
+            return hadValue
+        }
+        if Self.prefersDevelopmentFileStore {
+            return developmentStore.deleteBearerToken()
+        }
+        return keychain.deleteBearerToken()
+    }
+
+    private static var prefersDevelopmentFileStore: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["RECAPPI_USE_KEYCHAIN_AUTH"] != "1"
+        #else
+        return ProcessInfo.processInfo.environment["RECAPPI_USE_FILE_AUTH_STORAGE"] == "1"
+        #endif
     }
 
     nonisolated static func normalizeOrigin(_ raw: String) -> String {
@@ -393,5 +445,51 @@ private struct KeychainAuthStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+    }
+}
+
+private struct DevelopmentAuthStore {
+    private let fileManager = FileManager.default
+
+    private var fileURL: URL {
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+        return appSupport
+            .appendingPathComponent("com.recappi.mini", isDirectory: true)
+            .appendingPathComponent("debug-auth-token", isDirectory: false)
+    }
+
+    func readBearerToken() -> String? {
+        guard let data = try? Data(contentsOf: fileURL),
+              let token = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !token.isEmpty else {
+            return nil
+        }
+        return token
+    }
+
+    func saveBearerToken(_ value: String) -> Bool {
+        do {
+            let directory = fileURL.deletingLastPathComponent()
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data(value.utf8).write(to: fileURL, options: .atomic)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            return true
+        } catch {
+            NSLog("[Recappi] failed to persist debug auth token: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func deleteBearerToken() -> Bool {
+        guard fileManager.fileExists(atPath: fileURL.path) else { return true }
+        do {
+            try fileManager.removeItem(at: fileURL)
+            return true
+        } catch {
+            NSLog("[Recappi] failed to remove debug auth token: \(error.localizedDescription)")
+            return false
+        }
     }
 }

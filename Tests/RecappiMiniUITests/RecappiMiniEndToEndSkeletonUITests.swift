@@ -23,8 +23,15 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         attachArtifacts(for: sessionDir, named: "persisted-session-smoke")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("recording.m4a").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("upload.wav").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("remote-session.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("transcript.md").path))
+
+        let manifest = try loadRemoteManifest(from: sessionDir)
+        let uploadFilename = manifest["uploadFilename"] as? String
+        XCTAssertTrue(["recording.m4a", "upload.wav"].contains(uploadFilename))
+        if uploadFilename == "upload.wav" {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("upload.wav").path))
+        }
     }
 
     func testBearerDrivenTranscriptionFlow() throws {
@@ -48,10 +55,17 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         attachArtifacts(for: sessionDir, named: "transcript-only-session")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("recording.m4a").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("upload.wav").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("remote-session.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("transcript.md").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("summary.md").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("action-items.md").path))
+
+        let manifest = try loadRemoteManifest(from: sessionDir)
+        let uploadFilename = manifest["uploadFilename"] as? String
+        XCTAssertTrue(["recording.m4a", "upload.wav"].contains(uploadFilename))
+        if uploadFilename == "upload.wav" {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("upload.wav").path))
+        }
     }
 
     func testInvalidBearerFlow() throws {
@@ -72,5 +86,11 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         waitForSignedInStatus(in: app)
         signOut(in: app)
         waitForFailedStatus(in: app, timeout: 15)
+    }
+
+    private func loadRemoteManifest(from sessionDir: URL) throws -> [String: Any] {
+        let manifestURL = sessionDir.appendingPathComponent("remote-session.json")
+        let data = try Data(contentsOf: manifestURL)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 }
