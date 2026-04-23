@@ -47,6 +47,10 @@ enum AudioMixer {
     private static func runOfflineRender(files: [AVAudioFile], destination: URL) throws {
         let engine = AVAudioEngine()
         let mainMixer = engine.mainMixerNode
+        // Match the Recappi SDK's conservative input/output mix: normalize
+        // sources to a stable stereo render format, then average instead of
+        // summing two already-hot streams.
+        mainMixer.outputVolume = outputHeadroom(forSourceCount: files.count)
 
         // Render directly at the output file's processing format so
         // AVAudioFile.write doesn't need to convert channel count or sample
@@ -120,5 +124,9 @@ enum AudioMixer {
 
         for (player, _) in players { player.stop() }
         engine.stop()
+    }
+
+    static func outputHeadroom(forSourceCount count: Int) -> Float {
+        count > 1 ? 0.5 : 1.0
     }
 }

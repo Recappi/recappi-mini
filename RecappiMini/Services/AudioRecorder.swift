@@ -114,7 +114,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var systemOutput: SystemAudioOutput?
     private let systemCaptureQueue = DispatchQueue(label: "RecappiMini.SystemCapture")
     private var audioDeviceMonitor: DefaultAudioDeviceMonitor?
-    private var currentOutputAudioFormat: OutputDeviceAudioFormat?
+    private var currentOutputAudioDeviceID: AudioDeviceID?
 
     // --- Microphone (AVCaptureSession) pipeline ---
     private var micSession: AVCaptureSession?
@@ -384,8 +384,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         let systemURL = sessionDir.appendingPathComponent("system.m4a")
         let micURL = sessionDir.appendingPathComponent("mic.m4a")
 
-        let outputAudioFormat = try OutputDeviceAudioFormat.currentDefaultOutput()
-        self.currentOutputAudioFormat = outputAudioFormat
+        let outputAudioDeviceID = try OutputDeviceAudioFormat.currentDefaultOutputDeviceID()
+        self.currentOutputAudioDeviceID = outputAudioDeviceID
 
         // --- System audio pipeline ---
         let sysWriter = SegmentedAudioWriter(finalURL: systemURL, processingQueue: systemCaptureQueue)
@@ -405,7 +405,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             recordingAppName = nil
         }
 
-        let config = makeSystemAudioConfiguration(audioFormat: outputAudioFormat)
+        let config = makeSystemAudioConfiguration()
 
         let scStream = SCStream(filter: filter, configuration: config, delegate: nil)
         try scStream.addStreamOutput(sysOut, type: .audio, sampleHandlerQueue: systemCaptureQueue)
@@ -428,6 +428,14 @@ final class AudioRecorder: NSObject, ObservableObject {
             self?.ingestMeterFrame(frame)
         }
         let captureOutput = AVCaptureAudioDataOutput()
+        captureOutput.audioSettings = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 48_000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsNonInterleaved: false,
+        ]
         captureOutput.setSampleBufferDelegate(mcOut, queue: micCaptureQueue)
         guard captureSession.canAddOutput(captureOutput) else {
             throw RecorderError.micSetupFailed
@@ -506,12 +514,22 @@ final class AudioRecorder: NSObject, ObservableObject {
                 sources: sourceURLs,
                 to: mergedURL
             )
+            AudioCaptureDiagnostics.write(
+                sources: sourceURLs,
+                output: mergedURL,
+                to: sessionDir
+            )
             // Only delete intermediates on success; on failure the caller
             // (stop/retry flow) can still inspect the two raw files.
             for sourceURL in sourceURLs {
                 try? FileManager.default.removeItem(at: sourceURL)
             }
         } catch {
+            AudioCaptureDiagnostics.write(
+                sources: sourceURLs,
+                output: nil,
+                to: sessionDir
+            )
             // Merge failed — leave intermediates for debugging and surface the
             // error to the caller. Transcription downstream needs recording.m4a
             // to exist, so rethrow.
@@ -569,7 +587,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         lastSessionDir = nil
         stream = nil
         systemOutput = nil
-        currentOutputAudioFormat = nil
+        currentOutputAudioDeviceID = nil
         micSession = nil
         micOutput = nil
         recordingAppName = nil
@@ -642,11 +660,15 @@ final class AudioRecorder: NSObject, ObservableObject {
         return sessionDir
     }
 
-    private func makeSystemAudioConfiguration(audioFormat: OutputDeviceAudioFormat) -> SCStreamConfiguration {
+    private func makeSystemAudioConfiguration() -> SCStreamConfiguration {
         let config = SCStreamConfiguration()
         config.capturesAudio = true
-        config.sampleRate = audioFormat.sampleRate
-        config.channelCount = audioFormat.channelCount
+        // Keep ScreenCaptureKit on a conservative app-friendly format.
+        // Some output devices report 6/8/16-channel layouts or unusual
+        // sample rates; forwarding those directly into realtime AAC encoding
+        // has produced loud noise on other machines.
+        config.sampleRate = 48_000
+        config.channelCount = 2
         config.excludesCurrentProcessAudio = true
         return config
     }
@@ -667,25 +689,25 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private func handleAudioDeviceChange(_ change: DefaultAudioDeviceMonitor.Change) async {
         switch change {
-        case .output(let format):
-            await handleOutputDeviceChange(format)
+        case .output(let deviceID):
+            await handleOutputDeviceChange(deviceID)
         case .input:
             reconfigureMicrophoneForDefaultInput()
         }
     }
 
-    private func handleOutputDeviceChange(_ format: OutputDeviceAudioFormat) async {
+    private func handleOutputDeviceChange(_ deviceID: AudioDeviceID) async {
         guard state == .recording else { return }
-        guard currentOutputAudioFormat != format else { return }
+        guard currentOutputAudioDeviceID != deviceID else { return }
         guard let stream else {
-            currentOutputAudioFormat = format
+            currentOutputAudioDeviceID = deviceID
             return
         }
 
-        currentOutputAudioFormat = format
+        currentOutputAudioDeviceID = deviceID
 
         do {
-            try await stream.updateConfiguration(makeSystemAudioConfiguration(audioFormat: format))
+            try await stream.updateConfiguration(makeSystemAudioConfiguration())
         } catch {
             print("Failed to update output audio configuration: \(error.localizedDescription)")
         }
@@ -982,9 +1004,14 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     }
 }
 
-private struct CaptureStreamFormat: Equatable {
+struct CaptureStreamFormat: Equatable {
     let sampleRate: Int
     let channelCount: Int
+
+    init(sampleRate: Int, channelCount: Int) {
+        self.sampleRate = max(sampleRate, 1)
+        self.channelCount = min(max(channelCount, 1), 2)
+    }
 
     init(sampleBuffer: CMSampleBuffer) throws {
         guard let formatDescription = sampleBuffer.formatDescription,
@@ -992,8 +1019,10 @@ private struct CaptureStreamFormat: Equatable {
             throw RecorderError.invalidAudioFormat
         }
 
-        self.sampleRate = max(Int(asbd.pointee.mSampleRate.rounded()), 1)
-        self.channelCount = max(Int(asbd.pointee.mChannelsPerFrame), 1)
+        self.init(
+            sampleRate: Int(asbd.pointee.mSampleRate.rounded()),
+            channelCount: Int(asbd.pointee.mChannelsPerFrame)
+        )
     }
 
     var recommendedBitRate: Int {
@@ -1217,6 +1246,69 @@ final class SegmentedAudioWriter: @unchecked Sendable {
     }
 }
 
+private struct AudioCaptureDiagnostics: Codable {
+    struct FileInfo: Codable {
+        let role: String
+        let fileName: String
+        let exists: Bool
+        let sampleRate: Double?
+        let channelCount: UInt32?
+        let durationSeconds: Double?
+        let error: String?
+
+        init(role: String, url: URL) {
+            self.role = role
+            self.fileName = url.lastPathComponent
+            self.exists = FileManager.default.fileExists(atPath: url.path)
+
+            do {
+                let file = try AVAudioFile(forReading: url)
+                sampleRate = file.fileFormat.sampleRate
+                channelCount = file.fileFormat.channelCount
+                durationSeconds = file.fileFormat.sampleRate > 0
+                    ? Double(file.length) / file.fileFormat.sampleRate
+                    : nil
+                error = nil
+            } catch {
+                sampleRate = nil
+                channelCount = nil
+                durationSeconds = nil
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
+    let createdAt: Date
+    let sources: [FileInfo]
+    let output: FileInfo?
+
+    static func write(sources: [URL], output: URL?, to sessionDir: URL) {
+        let diagnostics = AudioCaptureDiagnostics(
+            createdAt: Date(),
+            sources: sources.map { FileInfo(role: role(for: $0), url: $0) },
+            output: output.map { FileInfo(role: "mixed", url: $0) }
+        )
+
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(diagnostics)
+            try data.write(to: sessionDir.appendingPathComponent("audio-capture.json"))
+        } catch {
+            print("Failed to write audio capture diagnostics: \(error.localizedDescription)")
+        }
+    }
+
+    private static func role(for url: URL) -> String {
+        switch url.deletingPathExtension().lastPathComponent {
+        case "system": "system"
+        case "mic": "mic"
+        default: "source"
+        }
+    }
+}
+
 struct OutputDeviceAudioFormat: Equatable, Sendable {
     let deviceID: AudioDeviceID
     let sampleRate: Int
@@ -1231,7 +1323,7 @@ struct OutputDeviceAudioFormat: Equatable, Sendable {
         )
     }
 
-    private static func currentDefaultOutputDeviceID() throws -> AudioDeviceID {
+    static func currentDefaultOutputDeviceID() throws -> AudioDeviceID {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -1315,7 +1407,7 @@ struct OutputDeviceAudioFormat: Equatable, Sendable {
 final class DefaultAudioDeviceMonitor {
     enum Change: Sendable {
         case input(AudioDeviceID)
-        case output(OutputDeviceAudioFormat)
+        case output(AudioDeviceID)
     }
 
     private let queue = DispatchQueue(label: "RecappiMini.OutputDeviceMonitor")
@@ -1504,7 +1596,7 @@ final class DefaultAudioDeviceMonitor {
 
         guard format != lastFormat else { return }
         lastFormat = format
-        onChange(.output(format))
+        onChange(.output(format.deviceID))
     }
 
     private static func currentDefaultInputDeviceID() throws -> AudioDeviceID {

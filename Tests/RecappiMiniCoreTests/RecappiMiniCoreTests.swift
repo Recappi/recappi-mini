@@ -17,6 +17,22 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertNil(RecappiAPIClient.resolveBearerToken(headerToken: nil))
     }
 
+    func testCaptureStreamFormatClampsMultiChannelSourcesToStereo() {
+        let format = CaptureStreamFormat(sampleRate: 96_000, channelCount: 8)
+
+        XCTAssertEqual(format.sampleRate, 96_000)
+        XCTAssertEqual(format.channelCount, 2)
+        XCTAssertEqual(format.recommendedBitRate, 128_000)
+    }
+
+    func testCaptureStreamFormatFallsBackToMinimumUsableFormat() {
+        let format = CaptureStreamFormat(sampleRate: 0, channelCount: 0)
+
+        XCTAssertEqual(format.sampleRate, 1)
+        XCTAssertEqual(format.channelCount, 1)
+        XCTAssertEqual(format.recommendedBitRate, 64_000)
+    }
+
     func testDecodeSessionLookupDoesNotTreatPayloadSessionTokenAsBearer() throws {
         let data = """
         {
@@ -177,6 +193,45 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(audioFile.fileFormat.channelCount, 2)
     }
 
+    func testAudioMixerAveragesHotMicAndSystemSources() async throws {
+        XCTAssertEqual(AudioMixer.outputHeadroom(forSourceCount: 1), 1.0)
+        XCTAssertEqual(AudioMixer.outputHeadroom(forSourceCount: 2), 0.5)
+
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let systemURL = temp.appendingPathComponent("system.caf")
+        let micURL = temp.appendingPathComponent("mic.caf")
+        let destination = temp.appendingPathComponent("mixed-recording.m4a")
+
+        try writeTone(
+            to: systemURL,
+            frequency: 440,
+            sampleRate: 48_000,
+            channels: 2,
+            duration: 0.25,
+            amplitude: 0.5
+        )
+        try writeTone(
+            to: micURL,
+            frequency: 440,
+            sampleRate: 48_000,
+            channels: 1,
+            duration: 0.25,
+            amplitude: 0.5
+        )
+
+        try await AudioMixer.mix(
+            sources: [systemURL, micURL],
+            to: destination
+        )
+
+        let peak = try peakAmplitude(in: destination)
+        XCTAssertGreaterThan(peak, 0.35)
+        XCTAssertLessThan(peak, 0.58)
+    }
+
     func testSpectrumBucketsReachHighFrequencyBucketsForHighTone() {
         let sampleRate = 48_000.0
         let samples = sineWave(
@@ -322,6 +377,61 @@ final class RecappiMiniCoreTests: XCTestCase {
             }
             return Float(max(-1, min(1, sum / Double(components.count))))
         }
+    }
+
+    private func writeTone(
+        to url: URL,
+        frequency: Double,
+        sampleRate: Double,
+        channels: AVAudioChannelCount,
+        duration: Double,
+        amplitude: Float
+    ) throws {
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channels),
+              let buffer = AVAudioPCMBuffer(
+                pcmFormat: format,
+                frameCapacity: AVAudioFrameCount(sampleRate * duration)
+              ),
+              let channelData = buffer.floatChannelData else {
+            XCTFail("Failed to create tone buffer")
+            return
+        }
+
+        buffer.frameLength = buffer.frameCapacity
+        for frame in 0..<Int(buffer.frameLength) {
+            let sample = amplitude * Float(sin(2 * .pi * frequency * Double(frame) / sampleRate))
+            for channel in 0..<Int(channels) {
+                channelData[channel][frame] = sample
+            }
+        }
+
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        try file.write(from: buffer)
+    }
+
+    private func peakAmplitude(in url: URL) throws -> Float {
+        let file = try AVAudioFile(forReading: url)
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: file.processingFormat,
+            frameCapacity: AVAudioFrameCount(file.length)
+        ) else {
+            XCTFail("Failed to create read buffer")
+            return 0
+        }
+
+        try file.read(into: buffer)
+        guard let channelData = buffer.floatChannelData else {
+            XCTFail("Failed to read float channel data")
+            return 0
+        }
+
+        var peak: Float = 0
+        for channel in 0..<Int(buffer.format.channelCount) {
+            for frame in 0..<Int(buffer.frameLength) {
+                peak = max(peak, abs(channelData[channel][frame]))
+            }
+        }
+        return peak
     }
 
 }
