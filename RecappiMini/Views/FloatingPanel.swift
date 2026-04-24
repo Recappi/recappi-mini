@@ -74,6 +74,7 @@ final class PillShellView: NSView {
     /// are not clipped by the NSPanel bounds.
     static let shadowMargin: CGFloat = 24
     static let cornerRadius: CGFloat = 14
+    static let transitionOffset: CGFloat = 28
 
     private(set) var contentView: NSView?
     private var pendingContentSync = false
@@ -191,6 +192,64 @@ final class PillShellView: NSView {
         let pad = Self.shadowMargin * 2
         return NSSize(width: size.width + pad, height: size.height + pad)
     }
+
+    func prepareTransition(offsetX: CGFloat, opacity: Float) {
+        guard let layer else { return }
+        layer.removeAnimation(forKey: "recappi.panelContentTransition")
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = CATransform3DMakeTranslation(offsetX, 0, 0)
+        layer.opacity = opacity
+        CATransaction.commit()
+    }
+
+    func animateTransition(
+        toOffsetX offsetX: CGFloat,
+        opacity: Float,
+        duration: TimeInterval,
+        timingFunction: CAMediaTimingFunction,
+        completion: @escaping () -> Void
+    ) {
+        guard let layer else {
+            completion()
+            return
+        }
+
+        let fromTransform = layer.presentation()?.transform ?? layer.transform
+        let fromOpacity = layer.presentation()?.opacity ?? layer.opacity
+        let toTransform = CATransform3DMakeTranslation(offsetX, 0, 0)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.removeAnimation(forKey: "recappi.panelContentTransition")
+        layer.transform = toTransform
+        layer.opacity = opacity
+        CATransaction.commit()
+
+        let transform = CABasicAnimation(keyPath: "transform")
+        transform.fromValue = NSValue(caTransform3D: fromTransform)
+        transform.toValue = NSValue(caTransform3D: toTransform)
+
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = fromOpacity
+        fade.toValue = opacity
+
+        let group = CAAnimationGroup()
+        group.animations = [transform, fade]
+        group.duration = duration
+        group.timingFunction = timingFunction
+        group.fillMode = .removed
+        group.isRemovedOnCompletion = true
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock(completion)
+        layer.add(group, forKey: "recappi.panelContentTransition")
+        CATransaction.commit()
+    }
+
+    func resetTransition() {
+        prepareTransition(offsetX: 0, opacity: 1)
+    }
 }
 
 @MainActor
@@ -215,29 +274,37 @@ struct FloatingPanelController {
         let visible = visibleFrame(screen: screen, panelSize: panel.frame.size)
         panel.isFloatingTransitioning = true
         panel.deferredContentSize = nil
+        let shell = panel.contentView as? PillShellView
         if panel.isVisible {
             panel.setFrame(visible, display: false)
+            shell?.resetTransition()
             panel.orderFrontRegardless()
             finishTransition(panel)
             completion?()
         } else {
-            let hidden = hiddenFrame(screen: screen, panelSize: panel.frame.size)
-            panel.setFrame(hidden, display: false)
-            panel.alphaValue = 0.92
+            // Moving an NSPanel's frame every animation tick is surprisingly
+            // easy to hitch. Keep the window fixed and let Core Animation move
+            // the layer contents instead.
+            panel.setFrame(visible, display: false)
+            panel.alphaValue = 1
+            shell?.prepareTransition(offsetX: PillShellView.transitionOffset, opacity: 0)
             panel.orderFrontRegardless()
 
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.18
-                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
-                context.completionHandler = {
-                    panel.alphaValue = 1
-                    panel.orderFrontRegardless()
-                    panel.setFrame(visible, display: false)
-                    finishTransition(panel)
-                    completion?()
-                }
-                panel.animator().alphaValue = 1
-                panel.animator().setFrame(visible, display: false)
+            guard let shell else {
+                finishTransition(panel)
+                completion?()
+                return
+            }
+
+            shell.animateTransition(
+                toOffsetX: 0,
+                opacity: 1,
+                duration: 0.14,
+                timingFunction: CAMediaTimingFunction(controlPoints: 0.23, 1.0, 0.32, 1.0)
+            ) {
+                panel.orderFrontRegardless()
+                finishTransition(panel)
+                completion?()
             }
         }
     }
@@ -246,18 +313,27 @@ struct FloatingPanelController {
         let hidden = hiddenFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
         panel.isFloatingTransitioning = true
         panel.deferredContentSize = nil
+        let shell = panel.contentView as? PillShellView
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0.0, 0.7, 1.0)
-            context.completionHandler = {
-                panel.setFrame(hidden, display: false)
-                panel.alphaValue = 1
-                finishTransition(panel)
-                completion?()
-            }
-            panel.animator().alphaValue = 0.92
-            panel.animator().setFrame(hidden, display: false)
+        guard let shell else {
+            panel.orderOut(nil)
+            panel.setFrame(hidden, display: false)
+            finishTransition(panel)
+            completion?()
+            return
+        }
+
+        shell.animateTransition(
+            toOffsetX: PillShellView.transitionOffset,
+            opacity: 0,
+            duration: 0.12,
+            timingFunction: CAMediaTimingFunction(controlPoints: 0.23, 1.0, 0.32, 1.0)
+        ) {
+            panel.orderOut(nil)
+            panel.setFrame(hidden, display: false)
+            shell.resetTransition()
+            finishTransition(panel)
+            completion?()
         }
     }
 
