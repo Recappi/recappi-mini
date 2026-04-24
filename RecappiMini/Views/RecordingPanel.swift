@@ -35,15 +35,33 @@ struct RecordingPanel: View {
     private var contentHeight: CGFloat {
         switch recorder.state {
         case .idle, .starting:
-            28
+            recorder.recordingSuggestion == nil && recorder.meetingPrompt == nil ? 28 : 48
         case .recording:
             48
         case .processing:
             50
         case .done(let result):
-            ((result.transcript ?? "").isEmpty ? 48 : 136)
+            doneContentHeight(for: result)
         case .error:
             82
+        }
+    }
+
+    private func doneContentHeight(for result: RecordingResult) -> CGFloat {
+        let transcript = (result.transcript ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !transcript.isEmpty else { return 48 }
+
+        let flattened = transcript.replacingOccurrences(of: "\n", with: " ")
+        let estimatedLines = max(1, min(3, Int(ceil(Double(flattened.count) / 34.0))))
+
+        switch estimatedLines {
+        case 1:
+            return 106
+        case 2:
+            return 120
+        default:
+            return 134
         }
     }
 
@@ -56,6 +74,7 @@ struct RecordingPanel: View {
                 isStarting: false,
                 onGear: presentSettings,
                 onRecord: startRecording,
+                onRecordSuggestion: startSuggestedRecording,
                 onClose: onClosePanel
             )
         case .starting:
@@ -64,6 +83,7 @@ struct RecordingPanel: View {
                 isStarting: true,
                 onGear: presentSettings,
                 onRecord: startRecording,
+                onRecordSuggestion: startSuggestedRecording,
                 onClose: onClosePanel
             )
         case .recording: RecordingState(recorder: recorder, onDiscard: discardRecording, onStop: stopRecording)
@@ -108,6 +128,11 @@ struct RecordingPanel: View {
                 recorder.state = .error(message: error.localizedDescription)
             }
         }
+    }
+
+    private func startSuggestedRecording() {
+        _ = recorder.acceptRecordingSuggestion()
+        startRecording()
     }
 
     private func stopRecording() {
@@ -165,9 +190,65 @@ private struct IdleState: View {
     let isStarting: Bool
     var onGear: () -> Void
     var onRecord: () -> Void
+    var onRecordSuggestion: () -> Void
     var onClose: () -> Void
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            controlsRow
+
+            if !isStarting {
+                if let suggestion = recorder.recordingSuggestion {
+                    Button(action: onRecordSuggestion) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(DT.waveformLit)
+                            Text("\(suggestion.promptTitle) may be in a meeting")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(Color.dtLabelSecondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text("Record app")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(DT.waveformLit)
+                                .padding(.horizontal, 6)
+                                .frame(height: 16)
+                                .background(
+                                    Capsule()
+                                        .fill(DT.waveformLit.opacity(0.13))
+                                )
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 2)
+                    .accessibilityLabel("\(suggestion.promptTitle) may be in a meeting")
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.recordingSuggestion)
+                    .help("Record only \(suggestion.appName). Use the source menu to keep recording all system audio.")
+                } else if let prompt = recorder.meetingPrompt {
+                    HStack(spacing: 5) {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(DT.waveformLit)
+                        Text("\(prompt.promptTitle) may be in a meeting")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(Color.dtLabelSecondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                    }
+                    .padding(.horizontal, 2)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(prompt.promptTitle) may be in a meeting")
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.meetingPrompt)
+                    .help("Recappi Mini selected \(prompt.appName) because it looks like a meeting is active.")
+                }
+            }
+        }
+        .task { await recorder.refreshApps() }
+    }
+
+    private var controlsRow: some View {
         HStack(spacing: 6) {
             LogoTile(size: 28)
 
@@ -176,21 +257,24 @@ private struct IdleState: View {
                 .disabled(isStarting)
                 .opacity(isStarting ? 0.72 : 1)
 
-            Button(action: onGear) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13))
+            if recorder.recordingSuggestion == nil {
+                Button(action: onGear) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(PanelIconButtonStyle())
+                .disabled(isStarting)
+                .help("Settings (⌘,)")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
             }
-            .buttonStyle(PanelIconButtonStyle())
-            .disabled(isStarting)
-            .help("Settings (⌘,)")
-            .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(PanelIconButtonStyle())
-            .help("Quit Recappi Mini")
+            .help("Hide panel")
+            .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
 
             PrimaryRecordButton(kind: isStarting ? .loading : .record, action: onRecord)
                 .keyboardShortcut(.return, modifiers: [])
@@ -199,7 +283,6 @@ private struct IdleState: View {
                 .accessibilityIdentifier(AccessibilityIDs.Panel.recordButton)
         }
         .frame(height: 28)
-        .task { await recorder.refreshApps() }
     }
 }
 
@@ -613,6 +696,7 @@ struct AudioSourcePill: View {
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .animation(DT.ease(0.12), value: hovered)
+        .accessibilityIdentifier(AccessibilityIDs.Panel.audioSourcePicker)
         .background {
             // No explicit frame — the anchor NSView fills the pill so
             // anchor.convert(bounds, to: nil) returns the pill's real
@@ -672,7 +756,7 @@ struct AudioSourcePill: View {
 
     private func menuItem(title: String, image: NSImage?, app: AudioApp?) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        let sleeve = MenuClosure { [recorder] in recorder.selectedApp = app }
+        let sleeve = MenuClosure { [recorder] in recorder.selectApp(app) }
         item.representedObject = sleeve
         item.target = sleeve
         item.action = #selector(MenuClosure.invoke)

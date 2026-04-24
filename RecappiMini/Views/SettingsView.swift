@@ -21,6 +21,7 @@ struct SettingsView: View {
             Form {
                 accountSection
                 permissionsSection
+                recordingAssistSection
                 transcriptionSection
                 storageSection
                 updatesSection
@@ -87,6 +88,20 @@ struct SettingsView: View {
             }
         } header: {
             Text("Permissions")
+        }
+    }
+
+    @ViewBuilder
+    private var recordingAssistSection: some View {
+        Section {
+            Toggle("Suggest recording when app audio starts", isOn: autoPromptBinding)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.autoPromptToggle)
+        } header: {
+            Text("Recording Assist")
+        } footer: {
+            Text("When a meeting app or browser meeting tab starts playing audio, Recappi Mini opens the panel and explains which app looks ready to record.")
+                .foregroundStyle(Color.dtLabelSecondary)
+                .font(.footnote)
         }
     }
 
@@ -439,6 +454,13 @@ struct SettingsView: View {
         Binding(
             get: { AppConfig.shared.cloudEnabled },
             set: { AppConfig.shared.cloudEnabled = $0 }
+        )
+    }
+
+    private var autoPromptBinding: Binding<Bool> {
+        Binding(
+            get: { AppConfig.shared.autoPromptForActiveAudioApps },
+            set: { AppConfig.shared.autoPromptForActiveAudioApps = $0 }
         )
     }
 }

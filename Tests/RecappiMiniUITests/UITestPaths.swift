@@ -40,6 +40,10 @@ enum UITestPaths {
         automationOverridesDirectory.appendingPathComponent("recappi_test_recordings_root.txt")
     }
 
+    static var autoPromptCommandFile: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("recappi_ui_test_command.json")
+    }
+
     static func readOverride(from url: URL) -> String? {
         guard let raw = try? String(contentsOf: url, encoding: .utf8) else {
             return nil

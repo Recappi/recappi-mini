@@ -351,6 +351,126 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(bands.count, AudioSpectrumConfiguration.bucketCount)
     }
 
+    @MainActor
+    func testAutoPromptCandidatePrefersMeetingAppOverBrowser() {
+        let browser = makeAudioApp(
+            id: "com.google.Chrome",
+            name: "Google Chrome",
+            bucket: .browser,
+            isActive: true
+        )
+        let meeting = makeAudioApp(
+            id: "us.zoom.xos",
+            name: "Zoom",
+            bucket: .meeting,
+            isActive: true
+        )
+        let other = makeAudioApp(
+            id: "com.apple.Music",
+            name: "Music",
+            bucket: .other,
+            isActive: true
+        )
+
+        let candidate = AudioRecorder.autoPromptCandidate(
+            from: [browser, other, meeting],
+            active: ["com.google.Chrome", "us.zoom.xos", "com.apple.Music"]
+        )
+
+        XCTAssertEqual(candidate?.id, "us.zoom.xos")
+    }
+
+    @MainActor
+    func testAutoPromptCandidateIgnoresOtherAndInactiveApps() {
+        let inactiveMeeting = makeAudioApp(
+            id: "com.microsoft.teams2",
+            name: "Microsoft Teams",
+            bucket: .meeting,
+            isActive: false
+        )
+        let activeOther = makeAudioApp(
+            id: "com.apple.Music",
+            name: "Music",
+            bucket: .other,
+            isActive: true
+        )
+
+        XCTAssertNil(AudioRecorder.autoPromptCandidate(
+            from: [inactiveMeeting, activeOther],
+            active: ["com.apple.Music"]
+        ))
+    }
+
+    @MainActor
+    func testAutoPromptCandidateSkipsBrowserOnlyAudio() {
+        let browser = makeAudioApp(
+            id: "com.google.Chrome",
+            name: "Google Chrome",
+            bucket: .browser,
+            isActive: true
+        )
+
+        XCTAssertNil(AudioRecorder.autoPromptCandidate(
+            from: [browser],
+            active: ["com.google.Chrome"]
+        ))
+    }
+
+    @MainActor
+    func testRecordingSuggestionDoesNotReplaceCurrentSourceUntilAccepted() {
+        let recorder = AudioRecorder()
+        let zoom = makeAudioApp(
+            id: "us.zoom.xos",
+            name: "Zoom",
+            bucket: .meeting,
+            isActive: true
+        )
+        recorder.runningApps = [zoom]
+
+        recorder.suggestRecording(for: zoom)
+
+        XCTAssertNil(recorder.selectedApp)
+        XCTAssertEqual(recorder.recordingSuggestion?.appID, "us.zoom.xos")
+        XCTAssertTrue(recorder.acceptRecordingSuggestion())
+        XCTAssertEqual(recorder.selectedApp?.id, "us.zoom.xos")
+        XCTAssertNil(recorder.recordingSuggestion)
+    }
+
+    func testBrowserMeetingDetectorClassifiesGoogleMeet() {
+        let match = BrowserMeetingDetector.classify(
+            urlString: "https://meet.google.com/abc-defg-hij",
+            title: "Daily sync",
+            browserName: "Safari"
+        )
+
+        XCTAssertEqual(match?.meetingName, "Google Meet")
+        XCTAssertEqual(match?.suggestionTitle, "Google Meet in Safari")
+    }
+
+    func testBrowserMeetingDetectorClassifiesTeamsAndZoomWeb() {
+        let teams = BrowserMeetingDetector.classify(
+            urlString: "https://teams.microsoft.com/l/meetup-join/123",
+            title: "Teams call",
+            browserName: "Google Chrome"
+        )
+        let zoom = BrowserMeetingDetector.classify(
+            urlString: "https://app.zoom.us/wc/123456/start",
+            title: "Zoom",
+            browserName: "Google Chrome"
+        )
+
+        XCTAssertEqual(teams?.meetingName, "Microsoft Teams")
+        XCTAssertEqual(zoom?.meetingName, "Zoom Web")
+    }
+
+    func testBrowserMeetingDetectorIgnoresUnknownHosts() {
+        XCTAssertNil(BrowserMeetingDetector.classify(
+            urlString: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            title: "video",
+            browserName: "Safari"
+        ))
+    }
+
     private func sineWave(
         frequency: Double,
         sampleRate: Double,
@@ -432,6 +552,22 @@ final class RecappiMiniCoreTests: XCTestCase {
             }
         }
         return peak
+    }
+
+    private func makeAudioApp(
+        id: String,
+        name: String,
+        bucket: AudioApp.Bucket,
+        isActive: Bool
+    ) -> AudioApp {
+        AudioApp(
+            id: id,
+            name: name,
+            icon: nil,
+            scApp: nil,
+            bucket: bucket,
+            isActive: isActive
+        )
     }
 
 }

@@ -5,6 +5,7 @@ enum UITestIDs {
     enum Settings {
         static let authStatus = "recappi.settings.authStatus"
         static let authStatusText = "recappi.settings.authStatusText"
+        static let autoPromptToggle = "recappi.settings.autoPromptToggle"
         static let signInGoogleButton = "recappi.settings.signInGoogleButton"
         static let signInGitHubButton = "recappi.settings.signInGitHubButton"
         static let reconnectButton = "recappi.settings.reconnectButton"
@@ -12,7 +13,11 @@ enum UITestIDs {
     }
 
     enum Panel {
+        static let audioSourcePicker = "recappi.panel.audioSourcePicker"
         static let settingsButton = "recappi.panel.settingsButton"
+        static let closeButton = "recappi.panel.closeButton"
+        static let recordingSuggestion = "recappi.panel.recordingSuggestion"
+        static let meetingPrompt = "recappi.panel.meetingPrompt"
         static let recordButton = "recappi.panel.recordButton"
         static let stopButton = "recappi.panel.stopButton"
         static let processingTitle = "recappi.panel.processingTitle"
@@ -59,13 +64,18 @@ enum UITestArtifacts {
 @MainActor
 extension XCTestCase {
     func launchRecappiApp(
-        authToken: String? = nil
+        authToken: String? = nil,
+        simulatedAutoPromptApp: (bundleID: String, name: String)? = nil,
+        simulatedAutoPromptMeetingLabel: String? = nil,
+        hiddenAutoPromptSnoozeSeconds: TimeInterval? = nil
     ) -> XCUIApplication {
         terminateExistingRecappiInstances()
 
         let app = XCUIApplication(url: UITestPaths.appBundle)
         app.launchEnvironment["RECAPPI_UI_TEST"] = "1"
         app.launchEnvironment["RECAPPI_TEST_AUDIO_FIXTURE"] = UITestPaths.recordingFixture.path
+        try? FileManager.default.removeItem(at: UITestPaths.autoPromptCommandFile)
+        app.launchEnvironment["RECAPPI_UI_TEST_COMMAND_FILE"] = UITestPaths.autoPromptCommandFile.path
 
         let effectiveAuthToken = authToken ?? UITestPaths.liveAuthTokenValue
         if let effectiveAuthToken, !effectiveAuthToken.isEmpty {
@@ -73,6 +83,16 @@ extension XCTestCase {
         }
         if let backend = UITestPaths.backendOverrideValue, !backend.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_BACKEND_URL"] = backend
+        }
+        if let simulatedAutoPromptApp {
+            app.launchEnvironment["RECAPPI_TEST_AUTO_PROMPT_BUNDLE_ID"] = simulatedAutoPromptApp.bundleID
+            app.launchEnvironment["RECAPPI_TEST_AUTO_PROMPT_APP_NAME"] = simulatedAutoPromptApp.name
+        }
+        if let simulatedAutoPromptMeetingLabel, !simulatedAutoPromptMeetingLabel.isEmpty {
+            app.launchEnvironment["RECAPPI_TEST_AUTO_PROMPT_MEETING_LABEL"] = simulatedAutoPromptMeetingLabel
+        }
+        if let hiddenAutoPromptSnoozeSeconds {
+            app.launchEnvironment["RECAPPI_TEST_HIDDEN_AUTOPROMPT_SNOOZE_SECONDS"] = String(hiddenAutoPromptSnoozeSeconds)
         }
 
         app.launch()
@@ -220,6 +240,37 @@ extension XCTestCase {
         XCTAssertTrue(app.buttons[UITestIDs.Panel.recordButton].waitForExistence(timeout: 15), "Expected panel to return after closing Settings.")
     }
 
+    func hidePanel(in app: XCUIApplication) {
+        let closeButton = app.buttons[UITestIDs.Panel.closeButton]
+        XCTAssertTrue(closeButton.waitForExistence(timeout: 10), "Expected panel close button.")
+        closeButton.click()
+        XCTAssertTrue(waitForNonExistence(of: closeButton, timeout: 10), "Expected panel close button to disappear after hiding the panel.")
+    }
+
+    func postSimulatedAutoPrompt(
+        bundleID: String,
+        appName: String,
+        meetingLabel: String? = nil,
+        active: Bool
+    ) {
+        var userInfo: [String: Any] = [
+            "bundleID": bundleID,
+            "appName": appName,
+            "active": active,
+        ]
+        if let meetingLabel, !meetingLabel.isEmpty {
+            userInfo["meetingLabel"] = meetingLabel
+        }
+        let data = try! JSONSerialization.data(withJSONObject: userInfo, options: [.sortedKeys])
+        try! FileManager.default.createDirectory(
+            at: UITestPaths.autoPromptCommandFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try! data.write(to: UITestPaths.autoPromptCommandFile, options: [.atomic])
+        RunLoop.current.run(until: Date().addingTimeInterval(0.45))
+    }
+
     func startAndStopFixtureRecording(in app: XCUIApplication) {
         let recordButton = app.buttons[UITestIDs.Panel.recordButton]
         XCTAssertTrue(recordButton.waitForExistence(timeout: 15), "Expected Record button.")
@@ -280,6 +331,18 @@ extension XCTestCase {
         guard button.exists else { return false }
         button.click()
         return true
+    }
+
+    @discardableResult
+    func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !element.exists {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return !element.exists
     }
 
     private func authStatusSnapshot(from element: XCUIElement) -> String {

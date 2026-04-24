@@ -93,10 +93,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
     </array>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
-    <key>LSUIElement</key>
-    <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Recappi Mini needs microphone access to record meetings</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Recappi Mini uses your active browser tab URL and title to detect meeting pages in Safari and Chrome.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Recappi Mini needs system audio recording access to capture meeting audio from your Mac</string>
     <!-- Allow HTTP for local backend development / localhost overrides. -->

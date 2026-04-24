@@ -5,6 +5,7 @@ enum AccessibilityIDs {
         static let authStatus = "recappi.settings.authStatus"
         static let authStatusText = "recappi.settings.authStatusText"
         static let cloudToggle = "recappi.settings.cloudToggle"
+        static let autoPromptToggle = "recappi.settings.autoPromptToggle"
         static let signInGoogleButton = "recappi.settings.signInGoogleButton"
         static let signInGitHubButton = "recappi.settings.signInGitHubButton"
         static let reconnectButton = "recappi.settings.reconnectButton"
@@ -17,10 +18,14 @@ enum AccessibilityIDs {
     }
 
     enum Panel {
+        static let audioSourcePicker = "recappi.panel.audioSourcePicker"
         static let recordButton = "recappi.panel.recordButton"
         static let stopButton = "recappi.panel.stopButton"
+        static let closeButton = "recappi.panel.closeButton"
         static let discardButton = "recappi.panel.discardButton"
         static let waveformToggle = "recappi.panel.waveformToggle"
+        static let recordingSuggestion = "recappi.panel.recordingSuggestion"
+        static let meetingPrompt = "recappi.panel.meetingPrompt"
         static let processingTitle = "recappi.panel.processingTitle"
         static let processingDetail = "recappi.panel.processingDetail"
         static let doneTitle = "recappi.panel.doneTitle"

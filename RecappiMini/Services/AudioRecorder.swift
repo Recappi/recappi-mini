@@ -31,6 +31,18 @@ struct AudioApp: Identifiable, Hashable {
     }
 }
 
+struct RecordingSuggestion: Equatable, Sendable {
+    let appID: String
+    let appName: String
+    let promptTitle: String
+}
+
+struct MeetingPrompt: Equatable, Sendable {
+    let appID: String
+    let appName: String
+    let promptTitle: String
+}
+
 /// Bundle-ID whitelists for smart sorting. Helpers / renderers are filtered
 /// out at the refresh step, so we classify by the user-visible parent bundle.
 private enum AudioAppCategories {
@@ -96,6 +108,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var elapsedSeconds: Int = 0
     @Published var runningApps: [AudioApp] = []
     @Published var selectedApp: AudioApp?
+    @Published var recordingSuggestion: RecordingSuggestion?
+    @Published var meetingPrompt: MeetingPrompt?
     @Published var recordingAppName: String?
     @Published var audioLevel: Float = 0
     @Published var audioSpectrumLevels: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
@@ -128,6 +142,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var lastLevelPublish: CFTimeInterval = 0
     private var lastHistoryPublish: CFTimeInterval = 0
     private let uiTestMode = UITestModeConfiguration.shared
+    private var uiTestInjectedAudioApps: [String: AudioApp] = [:]
+    private var uiTestInjectedActiveBundleIDs: Set<String> = []
     private var refreshAppsRetryTask: Task<Void, Never>?
 
     static let spectrumBucketCount = AudioSpectrumConfiguration.bucketCount
@@ -141,7 +157,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         refreshAppsFromWorkspaceSnapshot()
 
         let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.mini"
-        let active = activityMonitor.activeBundleIDs
+        let active = effectiveActiveBundleIDs(from: activityMonitor.activeBundleIDs)
         let fallbackApps = Self.workspaceAudioApps(
             selfBundleID: selfBundleID,
             active: active
@@ -156,20 +172,20 @@ final class AudioRecorder: NSObject, ObservableObject {
             )
 
             if !apps.isEmpty {
-                applyRunningApps(apps)
+                applyRunningApps(appsWithUITestInjections(apps, active: active))
                 cancelRefreshAppsRetry()
                 return
             }
 
             if !fallbackApps.isEmpty {
-                applyRunningApps(fallbackApps)
+                applyRunningApps(appsWithUITestInjections(fallbackApps, active: active))
             }
             scheduleRefreshAppsRetry()
         } catch {
             if !fallbackApps.isEmpty {
-                applyRunningApps(fallbackApps)
+                applyRunningApps(appsWithUITestInjections(fallbackApps, active: active))
             } else if runningApps.isEmpty {
-                self.runningApps = []
+                self.runningApps = appsWithUITestInjections([], active: active)
             }
             scheduleRefreshAppsRetry()
         }
@@ -180,13 +196,14 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// menu still shows a useful list while ScreenCaptureKit catches up.
     func refreshAppsFromWorkspaceSnapshot() {
         let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.mini"
-        let active = activityMonitor.activeBundleIDs
+        let active = effectiveActiveBundleIDs(from: activityMonitor.activeBundleIDs)
         let fallbackApps = Self.workspaceAudioApps(
             selfBundleID: selfBundleID,
             active: active
         )
-        guard !fallbackApps.isEmpty else { return }
-        applyRunningApps(fallbackApps)
+        let apps = appsWithUITestInjections(fallbackApps, active: active)
+        guard !apps.isEmpty else { return }
+        applyRunningApps(apps)
     }
 
     /// Active apps float above inactive; within each active/inactive group
@@ -197,13 +214,110 @@ final class AudioRecorder: NSObject, ObservableObject {
         return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
     }
 
+    static func autoPromptCandidate(from apps: [AudioApp], active: Set<String>) -> AudioApp? {
+        apps
+            .filter { active.contains($0.id) && shouldAutoPrompt(for: $0) }
+            .sorted(by: sortOrder)
+            .first
+    }
+
+    static func shouldAutoPrompt(for app: AudioApp) -> Bool {
+        app.bucket == .meeting
+    }
+
+    func selectApp(_ app: AudioApp?, clearPrompts: Bool = true) {
+        selectedApp = app
+        if clearPrompts {
+            recordingSuggestion = nil
+            meetingPrompt = nil
+        }
+    }
+
+    func suggestRecording(for app: AudioApp) {
+        suggestRecording(for: app, promptTitle: app.name)
+    }
+
+    func suggestRecording(for app: AudioApp, promptTitle: String) {
+        meetingPrompt = nil
+        recordingSuggestion = RecordingSuggestion(
+            appID: app.id,
+            appName: app.name,
+            promptTitle: promptTitle
+        )
+    }
+
+    func clearRecordingSuggestion() {
+        recordingSuggestion = nil
+    }
+
+    func showMeetingPrompt(for app: AudioApp, promptTitle: String) {
+        recordingSuggestion = nil
+        meetingPrompt = MeetingPrompt(
+            appID: app.id,
+            appName: app.name,
+            promptTitle: promptTitle
+        )
+    }
+
+    func clearMeetingPrompt() {
+        meetingPrompt = nil
+    }
+
+    func injectUITestAudioApp(bundleID: String, name: String) {
+        let app = AudioApp(
+            id: bundleID,
+            name: name,
+            icon: nil,
+            scApp: nil,
+            bucket: AudioAppCategories.bucket(for: bundleID),
+            isActive: true
+        )
+        uiTestInjectedAudioApps[bundleID] = app
+        uiTestInjectedActiveBundleIDs.insert(bundleID)
+        applyRunningApps(appsWithUITestInjections(runningApps, active: effectiveActiveBundleIDs(from: activityMonitor.activeBundleIDs)))
+    }
+
+    @discardableResult
+    func acceptRecordingSuggestion() -> Bool {
+        guard let suggestion = recordingSuggestion else { return false }
+        guard let app = runningApps.first(where: { $0.id == suggestion.appID }) else {
+            recordingSuggestion = nil
+            return false
+        }
+
+        selectedApp = app
+        recordingSuggestion = nil
+        meetingPrompt = nil
+        return true
+    }
+
+    func updateRecordingSuggestion(promptTitle: String, forAppID appID: String) {
+        guard var suggestion = recordingSuggestion, suggestion.appID == appID else { return }
+        guard suggestion.promptTitle != promptTitle else { return }
+        suggestion = RecordingSuggestion(
+            appID: suggestion.appID,
+            appName: suggestion.appName,
+            promptTitle: promptTitle
+        )
+        recordingSuggestion = suggestion
+    }
+
     /// Re-apply the latest activity snapshot without a full SCShareableContent
     /// round-trip. Called when AudioActivityMonitor publishes a change.
     func applyActivity(_ active: Set<String>) {
+        let effectiveActive = effectiveActiveBundleIDs(from: active)
+
+        if let suggestion = recordingSuggestion, !effectiveActive.contains(suggestion.appID) {
+            recordingSuggestion = nil
+        }
+        if let prompt = meetingPrompt, !effectiveActive.contains(prompt.appID) {
+            meetingPrompt = nil
+        }
+
         var mutated = runningApps
         var anyChanged = false
         for i in mutated.indices {
-            let shouldBeActive = active.contains(mutated[i].id)
+            let shouldBeActive = effectiveActive.contains(mutated[i].id)
             if mutated[i].isActive != shouldBeActive {
                 mutated[i].isActive = shouldBeActive
                 anyChanged = true
@@ -240,6 +354,22 @@ final class AudioRecorder: NSObject, ObservableObject {
         if let refreshedSelection = apps.first(where: { $0.id == selectedID }) {
             selectedApp = refreshedSelection
         }
+    }
+
+    private func effectiveActiveBundleIDs(from active: Set<String>) -> Set<String> {
+        active.union(uiTestInjectedActiveBundleIDs)
+    }
+
+    private func appsWithUITestInjections(_ apps: [AudioApp], active: Set<String>) -> [AudioApp] {
+        guard !uiTestInjectedAudioApps.isEmpty else { return apps }
+
+        var byID = Dictionary(uniqueKeysWithValues: apps.map { ($0.id, $0) })
+        for (bundleID, injected) in uiTestInjectedAudioApps {
+            var app = byID[bundleID] ?? injected
+            app.isActive = active.contains(bundleID)
+            byID[bundleID] = app
+        }
+        return Array(byID.values).sorted(by: Self.sortOrder)
     }
 
     private func scheduleRefreshAppsRetry(after delay: Duration = .seconds(1)) {
@@ -360,6 +490,8 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     func startRecording() async throws {
         guard state == .idle else { return }
+        recordingSuggestion = nil
+        meetingPrompt = nil
         state = .starting
 
         if uiTestMode.isEnabled {
@@ -396,10 +528,17 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.systemOutput = sysOut
 
         let filter: SCContentFilter
-        if let app = selectedApp,
-           let liveApp = content.applications.first(where: { $0.bundleIdentifier == app.id }) {
-            filter = SCContentFilter(display: display, including: [liveApp], exceptingWindows: [])
-            recordingAppName = app.name
+        if let app = selectedApp {
+            let liveApps = content.applications.filter {
+                Self.parentBundle(of: $0.bundleIdentifier) == app.id
+            }
+            if !liveApps.isEmpty {
+                filter = SCContentFilter(display: display, including: liveApps, exceptingWindows: [])
+                recordingAppName = app.name
+            } else {
+                filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                recordingAppName = nil
+            }
         } else {
             filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
             recordingAppName = nil
@@ -585,6 +724,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         lastHistoryPublish = 0
         sessionDir = nil
         lastSessionDir = nil
+        recordingSuggestion = nil
+        meetingPrompt = nil
         stream = nil
         systemOutput = nil
         currentOutputAudioDeviceID = nil

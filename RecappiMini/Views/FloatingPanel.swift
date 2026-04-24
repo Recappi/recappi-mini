@@ -19,7 +19,7 @@ final class FloatingPanel: NSPanel {
         // native shadow to trace the rounded SwiftUI alpha.
         hasShadow = false
         isMovableByWindowBackground = true
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         titlebarAppearsTransparent = true
         titleVisibility = .hidden
         hidesOnDeactivate = false
@@ -194,14 +194,55 @@ struct FloatingPanelController {
     /// each pill edge (so the CALayer shadow has room); origin is
     /// offset accordingly.
     static func positionAtTopRight(_ panel: FloatingPanel, width: CGFloat, height: CGFloat) {
-        guard let screen = NSScreen.main else { return }
-        let screenFrame = screen.visibleFrame
         let m = PillShellView.shadowMargin
         let windowWidth = width + m * 2
         let windowHeight = height + m * 2
-        let x = screenFrame.maxX - width - 16 - m
-        let y = screenFrame.maxY - height - 16 - m
-        panel.setFrame(NSRect(x: x, y: y, width: windowWidth, height: windowHeight), display: true)
+        let frame = visibleFrame(
+            screen: panel.screen ?? NSScreen.main,
+            panelSize: NSSize(width: windowWidth, height: windowHeight)
+        )
+        panel.setFrame(frame, display: true)
+    }
+
+    static func present(_ panel: FloatingPanel, completion: (() -> Void)? = nil) {
+        let screen = panel.screen ?? NSScreen.main
+        let visible = visibleFrame(screen: screen, panelSize: panel.frame.size)
+        let hidden = hiddenFrame(screen: screen, panelSize: panel.frame.size)
+        if panel.isVisible {
+            panel.orderFrontRegardless()
+        } else {
+            panel.setFrame(hidden, display: false)
+            panel.orderFrontRegardless()
+        }
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.22
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
+            ctx.completionHandler = {
+                panel.orderFrontRegardless()
+                if !panel.frame.origin.equalTo(visible.origin) || !panel.frame.size.isClose(to: visible.size) {
+                    panel.setFrame(visible, display: true)
+                }
+                completion?()
+            }
+            panel.animator().setFrame(visible, display: true)
+        }
+    }
+
+    static func dismiss(_ panel: FloatingPanel, completion: (() -> Void)? = nil) {
+        let hidden = hiddenFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.18
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.9, 1.0)
+            ctx.completionHandler = {
+                if !panel.frame.origin.equalTo(hidden.origin) || !panel.frame.size.isClose(to: hidden.size) {
+                    panel.setFrame(hidden, display: true)
+                }
+                completion?()
+            }
+            panel.animator().setFrame(hidden, display: true)
+        }
     }
 
     /// Resizes the panel to the given total window size while keeping
@@ -219,6 +260,40 @@ struct FloatingPanelController {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(frame, display: true)
         }
+    }
+
+    static func isPresented(_ panel: FloatingPanel) -> Bool {
+        guard panel.isVisible else { return false }
+        let visible = visibleFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
+        let intersection = panel.frame.intersection(visible)
+        guard !intersection.isNull else { return false }
+        let visibleWidthRatio = intersection.width / max(panel.frame.width, 1)
+        let visibleHeightRatio = intersection.height / max(panel.frame.height, 1)
+        return visibleWidthRatio > 0.55 && visibleHeightRatio > 0.55
+    }
+
+    static func snapToVisible(_ panel: FloatingPanel) {
+        let frame = visibleFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
+        panel.setFrame(frame, display: true)
+    }
+
+    static func snapToHidden(_ panel: FloatingPanel) {
+        let frame = hiddenFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
+        panel.setFrame(frame, display: true)
+    }
+
+    private static func visibleFrame(screen: NSScreen?, panelSize: NSSize) -> NSRect {
+        let screenFrame = (screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        let x = screenFrame.maxX - panelSize.width + PillShellView.shadowMargin - 16
+        let y = screenFrame.maxY - panelSize.height + PillShellView.shadowMargin - 16
+        return NSRect(origin: CGPoint(x: x, y: y), size: panelSize)
+    }
+
+    private static func hiddenFrame(screen: NSScreen?, panelSize: NSSize) -> NSRect {
+        let screenFrame = (screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        var frame = visibleFrame(screen: screen, panelSize: panelSize)
+        frame.origin.x = screenFrame.maxX + 12
+        return frame
     }
 }
 
