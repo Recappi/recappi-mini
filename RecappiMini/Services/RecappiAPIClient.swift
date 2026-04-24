@@ -448,23 +448,34 @@ struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {
         userId = try container.decodeIfPresent(String.self, forKey: .userId)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         let metadata = try container.decodeIfPresent(CloudRecordingMetadata.self, forKey: .metadata)
-        summaryTitle = container.decodeFirstString(forKeys: [.summaryTitle, .meetingTitle])
-            ?? metadata?.summaryTitle
-            ?? metadata?.meetingTitle
-        sourceTitle = container.decodeFirstString(forKeys: [.sourceTitle, .source])
-            ?? metadata?.sourceTitle
-            ?? metadata?.source
-        sourceAppName = container.decodeFirstString(forKeys: [.sourceAppName, .sourceApp, .appName, .application, .app])
-            ?? metadata?.sourceAppName
-            ?? metadata?.sourceApp
-            ?? metadata?.appName
-            ?? metadata?.application
-            ?? metadata?.app
-        sourceAppBundleID = container.decodeFirstString(forKeys: [.sourceAppBundleID, .sourceBundleID, .bundleID, .bundleId])
-            ?? metadata?.sourceAppBundleID
-            ?? metadata?.sourceBundleID
-            ?? metadata?.bundleID
-            ?? metadata?.bundleId
+        let directSummaryTitle = container.decodeFirstString(forKeys: [.summaryTitle, .meetingTitle])
+        summaryTitle = directSummaryTitle ?? Self.firstString([
+            metadata?.summaryTitle,
+            metadata?.meetingTitle,
+        ])
+
+        let directSourceTitle = container.decodeFirstString(forKeys: [.sourceTitle, .source])
+        sourceTitle = directSourceTitle ?? Self.firstString([
+            metadata?.sourceTitle,
+            metadata?.source,
+        ])
+
+        let directSourceAppName = container.decodeFirstString(forKeys: [.sourceAppName, .sourceApp, .appName, .application, .app])
+        sourceAppName = directSourceAppName ?? Self.firstString([
+            metadata?.sourceAppName,
+            metadata?.sourceApp,
+            metadata?.appName,
+            metadata?.application,
+            metadata?.app,
+        ])
+
+        let directSourceBundleID = container.decodeFirstString(forKeys: [.sourceAppBundleID, .sourceBundleID, .bundleID, .bundleId])
+        sourceAppBundleID = directSourceBundleID ?? Self.firstString([
+            metadata?.sourceAppBundleID,
+            metadata?.sourceBundleID,
+            metadata?.bundleID,
+            metadata?.bundleId,
+        ])
         r2Key = try container.decodeIfPresent(String.self, forKey: .r2Key)
         r2UploadId = try container.decodeIfPresent(String.self, forKey: .r2UploadId)
         status = try container.decode(CloudRecordingStatus.self, forKey: .status)
@@ -476,6 +487,12 @@ struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {
         activeTranscriptId = try container.decodeIfPresent(String.self, forKey: .activeTranscriptId)
         createdAt = RecappiDateDecoder.decodeDateIfPresent(from: container, forKey: .createdAt)
         updatedAt = RecappiDateDecoder.decodeDateIfPresent(from: container, forKey: .updatedAt)
+    }
+
+    private static func firstString(_ values: [String?]) -> String? {
+        values.lazy
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
     }
 }
 
