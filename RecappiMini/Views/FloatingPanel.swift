@@ -74,7 +74,6 @@ final class PillShellView: NSView {
     /// are not clipped by the NSPanel bounds.
     static let shadowMargin: CGFloat = 24
     static let cornerRadius: CGFloat = 14
-    static let transitionOffset: CGFloat = 28
 
     private(set) var contentView: NSView?
     private var pendingContentSync = false
@@ -250,6 +249,10 @@ final class PillShellView: NSView {
     func resetTransition() {
         prepareTransition(offsetX: 0, opacity: 1)
     }
+
+    var notificationTransitionOffset: CGFloat {
+        max(bounds.width, 1) + Self.shadowMargin
+    }
 }
 
 @MainActor
@@ -289,7 +292,7 @@ struct FloatingPanelController {
             panel.setFrame(visible, display: false)
             panel.ignoresMouseEvents = false
             panel.alphaValue = 1
-            shell?.prepareTransition(offsetX: PillShellView.transitionOffset, opacity: 0)
+            shell?.prepareTransition(offsetX: shell?.notificationTransitionOffset ?? 0, opacity: 1)
             if !panel.isVisible {
                 panel.orderFrontRegardless()
             }
@@ -303,8 +306,8 @@ struct FloatingPanelController {
             shell.animateTransition(
                 toOffsetX: 0,
                 opacity: 1,
-                duration: 0.14,
-                timingFunction: CAMediaTimingFunction(controlPoints: 0.23, 1.0, 0.32, 1.0)
+                duration: 0.22,
+                timingFunction: CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0, 1)
             ) {
                 panel.orderFrontRegardless()
                 finishTransition(panel)
@@ -328,10 +331,10 @@ struct FloatingPanelController {
         }
 
         shell.animateTransition(
-            toOffsetX: PillShellView.transitionOffset,
-            opacity: 0,
-            duration: 0.12,
-            timingFunction: CAMediaTimingFunction(controlPoints: 0.23, 1.0, 0.32, 1.0)
+            toOffsetX: shell.notificationTransitionOffset,
+            opacity: 1,
+            duration: 0.18,
+            timingFunction: CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0, 1)
         ) {
             panel.setFrame(hidden, display: false)
             panel.ignoresMouseEvents = true
