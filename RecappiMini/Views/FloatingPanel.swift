@@ -275,8 +275,9 @@ struct FloatingPanelController {
         panel.isFloatingTransitioning = true
         panel.deferredContentSize = nil
         let shell = panel.contentView as? PillShellView
-        if panel.isVisible {
+        if isPresented(panel) {
             panel.setFrame(visible, display: false)
+            panel.ignoresMouseEvents = false
             shell?.resetTransition()
             panel.orderFrontRegardless()
             finishTransition(panel)
@@ -286,9 +287,12 @@ struct FloatingPanelController {
             // easy to hitch. Keep the window fixed and let Core Animation move
             // the layer contents instead.
             panel.setFrame(visible, display: false)
+            panel.ignoresMouseEvents = false
             panel.alphaValue = 1
             shell?.prepareTransition(offsetX: PillShellView.transitionOffset, opacity: 0)
-            panel.orderFrontRegardless()
+            if !panel.isVisible {
+                panel.orderFrontRegardless()
+            }
 
             guard let shell else {
                 finishTransition(panel)
@@ -316,8 +320,8 @@ struct FloatingPanelController {
         let shell = panel.contentView as? PillShellView
 
         guard let shell else {
-            panel.orderOut(nil)
             panel.setFrame(hidden, display: false)
+            panel.ignoresMouseEvents = true
             finishTransition(panel)
             completion?()
             return
@@ -329,8 +333,8 @@ struct FloatingPanelController {
             duration: 0.12,
             timingFunction: CAMediaTimingFunction(controlPoints: 0.23, 1.0, 0.32, 1.0)
         ) {
-            panel.orderOut(nil)
             panel.setFrame(hidden, display: false)
+            panel.ignoresMouseEvents = true
             shell.resetTransition()
             finishTransition(panel)
             completion?()

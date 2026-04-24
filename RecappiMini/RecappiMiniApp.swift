@@ -439,7 +439,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             guard let self else { return }
             guard self.panelTransitionToken == transitionToken else { return }
             guard self.panelVisible == false else { return }
-            panel.orderOut(nil)
             self.syncPanelVisibility()
             self.restoreAccessoryActivationPolicyIfPossible()
             self.scheduleHiddenPanelAutoPromptIfNeeded()
