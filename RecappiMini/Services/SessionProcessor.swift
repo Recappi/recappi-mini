@@ -150,7 +150,10 @@ final class SessionProcessor {
         nextManifest = RecordingStore.saveRemoteManifest(nextManifest, in: fileURL.deletingLastPathComponent())
 
         updatePhase(.creatingRecording)
-        let created = try await client.createRecording(title: fileURL.deletingLastPathComponent().lastPathComponent)
+        let sessionDir = fileURL.deletingLastPathComponent()
+        let recordingTitle = RecordingStore.loadSessionMetadata(in: sessionDir)?.cloudRecordingTitle
+            ?? sessionDir.lastPathComponent
+        let created = try await client.createRecording(title: recordingTitle)
         nextManifest.recordingId = created.id
         nextManifest.jobId = nil
         nextManifest.transcriptId = nil

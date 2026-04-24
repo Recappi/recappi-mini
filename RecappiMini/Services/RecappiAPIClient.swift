@@ -110,10 +110,86 @@ struct RecappiAPIClient: Sendable {
     }
 
     func getTranscript(recordingId: String, jobId: String) async throws -> TranscriptResponse {
-        let request = try makeRequest(path: "/api/recordings/\(recordingId)/transcript?jobId=\(jobId)")
+        return try await getRecordingTranscript(id: recordingId, jobId: jobId)
+    }
+
+    func listRecordings(limit: Int = 20, cursor: String? = nil) async throws -> CloudRecordingsPage {
+        var queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        if let cursor, !cursor.isEmpty {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let request = try makeRequest(path: "/api/recordings", queryItems: queryItems)
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        return try JSONDecoder().decode(CloudRecordingsPage.self, from: data)
+    }
+
+    func getRecording(id: String) async throws -> CloudRecording {
+        let request = try makeRequest(path: "/api/recordings/\(id)")
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        return try JSONDecoder().decode(CloudRecording.self, from: data)
+    }
+
+    func deleteRecording(id: String) async throws {
+        let request = try makeRequest(path: "/api/recordings/\(id)", method: "DELETE")
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+    }
+
+    func getRecordingTranscript(id: String, jobId: String? = nil) async throws -> TranscriptResponse {
+        let queryItems = jobId.map { [URLQueryItem(name: "jobId", value: $0)] } ?? []
+        let request = try makeRequest(path: "/api/recordings/\(id)/transcript", queryItems: queryItems)
         let (data, response) = try await session.data(for: request)
         try Self.validate(response: response, data: data)
         return try JSONDecoder().decode(TranscriptResponse.self, from: data)
+    }
+
+    func downloadRecordingAudio(id: String, destination: URL) async throws -> URL {
+        var request = try makeRequest(path: "/api/recordings/\(id)/audio")
+        request.setValue("audio/*", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: destination, options: .atomic)
+        return destination
+    }
+
+    func getBillingStatus() async throws -> BillingStatus {
+        let request = try makeRequest(path: "/api/billing/status")
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        return try JSONDecoder().decode(BillingStatus.self, from: data)
+    }
+
+    func createBillingPortalSession() async throws -> BillingURLResponse {
+        var request = try makeRequest(path: "/api/billing/portal", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        return try JSONDecoder().decode(BillingURLResponse.self, from: data)
+    }
+
+    func createBillingCheckoutSession(
+        tier: BillingTier,
+        successPath: String? = "/plans?status=success",
+        cancelPath: String? = "/plans?status=cancel"
+    ) async throws -> BillingURLResponse {
+        var request = try makeRequest(path: "/api/billing/checkout", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(BillingCheckoutRequest(
+            tier: tier.rawValue,
+            successPath: successPath,
+            cancelPath: cancelPath
+        ))
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        return try JSONDecoder().decode(BillingURLResponse.self, from: data)
     }
 
     func abortRecordingIfNeeded(recordingId: String) async {
@@ -124,8 +200,18 @@ struct RecappiAPIClient: Sendable {
         _ = try? await session.data(for: request)
     }
 
-    private func makeRequest(path: String, method: String = "GET") throws -> URLRequest {
-        guard let url = URL(string: origin + path) else {
+    func makeRequest(
+        path: String,
+        method: String = "GET",
+        queryItems: [URLQueryItem] = []
+    ) throws -> URLRequest {
+        guard var components = URLComponents(string: origin + path) else {
+            throw RecappiAPIError.invalidURL
+        }
+        if !queryItems.isEmpty {
+            components.queryItems = (components.queryItems ?? []) + queryItems
+        }
+        guard let url = components.url else {
             throw RecappiAPIError.invalidURL
         }
         var request = URLRequest(url: url)
@@ -266,6 +352,260 @@ struct CompletedRecording: Decodable {
     let contentType: String
 }
 
+enum CloudRecordingStatus: Equatable, Sendable, Decodable {
+    case uploading
+    case ready
+    case failed
+    case aborted
+    case unknown(String)
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        switch value {
+        case "uploading": self = .uploading
+        case "ready": self = .ready
+        case "failed": self = .failed
+        case "aborted": self = .aborted
+        default: self = .unknown(value)
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .uploading: return "uploading"
+        case .ready: return "ready"
+        case .failed: return "failed"
+        case .aborted: return "aborted"
+        case .unknown(let value): return value
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .uploading: return "Uploading"
+        case .ready: return "Ready"
+        case .failed: return "Failed"
+        case .aborted: return "Aborted"
+        case .unknown(let value): return value.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+}
+
+struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {
+    let id: String
+    let userId: String?
+    let title: String?
+    let summaryTitle: String?
+    let sourceTitle: String?
+    let sourceAppName: String?
+    let sourceAppBundleID: String?
+    let r2Key: String?
+    let r2UploadId: String?
+    let status: CloudRecordingStatus
+    let sizeBytes: Int64?
+    let durationMs: Int?
+    let sampleRate: Int?
+    let channels: Int?
+    let contentType: String?
+    let activeTranscriptId: String?
+    let createdAt: Date?
+    let updatedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId
+        case title
+        case summaryTitle
+        case meetingTitle
+        case sourceTitle
+        case source
+        case sourceAppName
+        case sourceApp
+        case appName
+        case application
+        case app
+        case sourceAppBundleID
+        case sourceBundleID
+        case bundleID
+        case bundleId
+        case metadata
+        case r2Key
+        case r2UploadId
+        case status
+        case sizeBytes
+        case durationMs
+        case sampleRate
+        case channels
+        case contentType
+        case activeTranscriptId
+        case createdAt
+        case updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        userId = try container.decodeIfPresent(String.self, forKey: .userId)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        let metadata = try container.decodeIfPresent(CloudRecordingMetadata.self, forKey: .metadata)
+        summaryTitle = container.decodeFirstString(forKeys: [.summaryTitle, .meetingTitle])
+            ?? metadata?.summaryTitle
+            ?? metadata?.meetingTitle
+        sourceTitle = container.decodeFirstString(forKeys: [.sourceTitle, .source])
+            ?? metadata?.sourceTitle
+            ?? metadata?.source
+        sourceAppName = container.decodeFirstString(forKeys: [.sourceAppName, .sourceApp, .appName, .application, .app])
+            ?? metadata?.sourceAppName
+            ?? metadata?.sourceApp
+            ?? metadata?.appName
+            ?? metadata?.application
+            ?? metadata?.app
+        sourceAppBundleID = container.decodeFirstString(forKeys: [.sourceAppBundleID, .sourceBundleID, .bundleID, .bundleId])
+            ?? metadata?.sourceAppBundleID
+            ?? metadata?.sourceBundleID
+            ?? metadata?.bundleID
+            ?? metadata?.bundleId
+        r2Key = try container.decodeIfPresent(String.self, forKey: .r2Key)
+        r2UploadId = try container.decodeIfPresent(String.self, forKey: .r2UploadId)
+        status = try container.decode(CloudRecordingStatus.self, forKey: .status)
+        sizeBytes = try container.decodeIfPresent(Int64.self, forKey: .sizeBytes)
+        durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+        sampleRate = try container.decodeIfPresent(Int.self, forKey: .sampleRate)
+        channels = try container.decodeIfPresent(Int.self, forKey: .channels)
+        contentType = try container.decodeIfPresent(String.self, forKey: .contentType)
+        activeTranscriptId = try container.decodeIfPresent(String.self, forKey: .activeTranscriptId)
+        createdAt = RecappiDateDecoder.decodeDateIfPresent(from: container, forKey: .createdAt)
+        updatedAt = RecappiDateDecoder.decodeDateIfPresent(from: container, forKey: .updatedAt)
+    }
+}
+
+private struct CloudRecordingMetadata: Decodable, Equatable, Sendable {
+    let summaryTitle: String?
+    let meetingTitle: String?
+    let sourceTitle: String?
+    let source: String?
+    let sourceAppName: String?
+    let sourceApp: String?
+    let appName: String?
+    let application: String?
+    let app: String?
+    let sourceAppBundleID: String?
+    let sourceBundleID: String?
+    let bundleID: String?
+    let bundleId: String?
+}
+
+private extension KeyedDecodingContainer where Key == CloudRecording.CodingKeys {
+    func decodeFirstString(forKeys keys: [Key]) -> String? {
+        for key in keys {
+            if let value = try? decodeIfPresent(String.self, forKey: key),
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+}
+
+private enum RecappiDateDecoder {
+    static func decodeDateIfPresent<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K
+    ) -> Date? {
+        if let milliseconds = try? container.decodeIfPresent(Double.self, forKey: key) {
+            return Date(timeIntervalSince1970: normalizeTimestamp(milliseconds))
+        }
+
+        guard let raw = try? container.decodeIfPresent(String.self, forKey: key) else {
+            return nil
+        }
+
+        if let numeric = Double(raw) {
+            return Date(timeIntervalSince1970: normalizeTimestamp(numeric))
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: raw) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: raw)
+    }
+
+    private static func normalizeTimestamp(_ raw: Double) -> TimeInterval {
+        raw > 10_000_000_000 ? raw / 1000 : raw
+    }
+}
+
+struct CloudRecordingsPage: Decodable, Equatable, Sendable {
+    let items: [CloudRecording]
+    let nextCursor: String?
+}
+
+enum BillingTier: String, CaseIterable, Codable, Equatable, Sendable {
+    case free
+    case starter
+    case pro
+    case business
+
+    var displayName: String {
+        switch self {
+        case .free: return "Free"
+        case .starter: return "Starter"
+        case .pro: return "Pro"
+        case .business: return "Business"
+        }
+    }
+}
+
+struct BillingStatus: Decodable, Equatable, Sendable {
+    let tier: BillingTier
+    let periodStart: Date?
+    let periodEnd: Date?
+    let storageBytes: Int64
+    let storageCapBytes: Int64
+    let minutesUsed: Double
+    let minutesCap: Double
+    let isOverStorage: Bool
+    let isOverMinutes: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case tier
+        case periodStart
+        case periodEnd
+        case storageBytes
+        case storageCapBytes
+        case minutesUsed
+        case minutesCap
+        case isOverStorage
+        case isOverMinutes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tier = try container.decode(BillingTier.self, forKey: .tier)
+        periodStart = RecappiDateDecoder.decodeDateIfPresent(from: container, forKey: .periodStart)
+        periodEnd = RecappiDateDecoder.decodeDateIfPresent(from: container, forKey: .periodEnd)
+        storageBytes = try container.decode(Int64.self, forKey: .storageBytes)
+        storageCapBytes = try container.decode(Int64.self, forKey: .storageCapBytes)
+        minutesUsed = try container.decode(Double.self, forKey: .minutesUsed)
+        minutesCap = try container.decode(Double.self, forKey: .minutesCap)
+        isOverStorage = try container.decode(Bool.self, forKey: .isOverStorage)
+        isOverMinutes = try container.decode(Bool.self, forKey: .isOverMinutes)
+    }
+}
+
+struct BillingURLResponse: Decodable, Equatable, Sendable {
+    let url: String
+}
+
+private struct BillingCheckoutRequest: Encodable {
+    let tier: String
+    let successPath: String?
+    let cancelPath: String?
+}
+
 private struct StartTranscriptionRequest: Encodable {
     let language: String
 }
@@ -292,7 +632,7 @@ struct TranscriptionJob: Decodable {
     let error: String?
 }
 
-struct TranscriptResponse: Decodable {
+struct TranscriptResponse: Decodable, Equatable, Sendable {
     let id: String
     let text: String
 }

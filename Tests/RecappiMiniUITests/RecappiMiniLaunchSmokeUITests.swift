@@ -74,6 +74,99 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         add(attachment)
     }
 
+    func testCloudCenterSignedOutLaunchSmoke() throws {
+        let app = launchRecappiApp(authToken: "", openCloudWindowOnLaunch: true)
+
+        let cloudWindow = uiElement(app, id: UITestIDs.Cloud.window)
+        XCTAssertTrue(cloudWindow.waitForExistence(timeout: 15), "Expected Recappi Cloud window to open in UI-test mode.")
+
+        let authStatus = uiElement(app, id: UITestIDs.Cloud.authStatus)
+        XCTAssertTrue(authStatus.waitForExistence(timeout: 10), "Expected Cloud auth status chip.")
+
+        XCTAssertTrue(
+            app.buttons[UITestIDs.Cloud.signInGoogleButton].waitForExistence(timeout: 10),
+            "Expected Google sign-in CTA in signed-out Cloud Center."
+        )
+        XCTAssertTrue(
+            app.buttons[UITestIDs.Cloud.signInGitHubButton].waitForExistence(timeout: 10),
+            "Expected GitHub sign-in CTA in signed-out Cloud Center."
+        )
+
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "cloud-center-signed-out"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testCloudCenterLoadsLiveRecordingsWithSeededBearer() throws {
+        guard let authToken = UITestPaths.liveAuthTokenValue, !authToken.isEmpty else {
+            throw XCTSkip("Set RECAPPI_TEST_AUTH_TOKEN to run the live Cloud Center library smoke.")
+        }
+
+        let app = launchRecappiApp(authToken: authToken, openCloudWindowOnLaunch: true)
+
+        let cloudWindow = uiElement(app, id: UITestIDs.Cloud.window)
+        XCTAssertTrue(cloudWindow.waitForExistence(timeout: 15), "Expected Recappi Cloud window to open.")
+
+        let recordingsList = uiElement(app, id: UITestIDs.Cloud.recordingsList)
+        XCTAssertTrue(
+            recordingsList.waitForExistence(timeout: 30),
+            "Expected live cloud recordings list to load without decoding errors."
+        )
+        XCTAssertTrue(
+            uiElement(app, id: UITestIDs.Cloud.billingStatus).waitForExistence(timeout: 10),
+            "Expected Cloud Center to show billing plan and limits for a signed-in account."
+        )
+        let downloadButton = app.buttons[UITestIDs.Cloud.downloadAudioButton]
+        XCTAssertTrue(downloadButton.waitForExistence(timeout: 10), "Expected fixed detail action bar to remain visible.")
+        XCTAssertTrue(downloadButton.isHittable, "Expected Download audio action to be visible and hittable, not clipped below the window.")
+        let deleteButton = app.buttons[UITestIDs.Cloud.deleteButton]
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 10), "Expected Delete action in fixed detail action bar.")
+        XCTAssertTrue(deleteButton.isHittable, "Expected Delete action to be visible and hittable, not clipped below the window.")
+
+        let initialWindowHeight = cloudWindow.frame.height
+        let transcriptText = uiElement(app, id: UITestIDs.Cloud.transcriptText)
+        if !transcriptText.waitForExistence(timeout: 5) {
+            let loadTranscriptButton = app.buttons[UITestIDs.Cloud.loadTranscriptButton]
+            XCTAssertTrue(
+                loadTranscriptButton.waitForExistence(timeout: 10),
+                "Expected transcript text or a loading affordance for recordings without a cached transcript."
+            )
+            XCTAssertTrue(loadTranscriptButton.isHittable, "Expected Load transcript button to be visible before loading.")
+            loadTranscriptButton.click()
+            XCTAssertTrue(
+                transcriptText.waitForExistence(timeout: 10),
+                "Expected live cloud transcript text to load for the selected ready recording."
+            )
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        XCTAssertEqual(
+            cloudWindow.frame.height,
+            initialWindowHeight,
+            accuracy: 1,
+            "Expected Cloud Center window height to stay stable while transcript loading starts."
+        )
+
+        let rowPredicate = NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.recordingRowPrefix)
+        let rows = recordingsList.descendants(matching: .any).matching(rowPredicate)
+        XCTAssertGreaterThanOrEqual(rows.count, 2, "Expected enough live recordings to exercise selection layout stability.")
+        rows.element(boundBy: 1).click()
+        XCTAssertTrue(downloadButton.waitForExistence(timeout: 10), "Expected detail actions to remain visible after changing selection.")
+        XCTAssertEqual(
+            cloudWindow.frame.height,
+            initialWindowHeight,
+            accuracy: 1,
+            "Expected Cloud Center window height to stay stable while switching recordings."
+        )
+
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "cloud-center-live-recordings"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testHiddenPanelAutoPromptSelectsAppAndRemovesSuggestionBanner() throws {
         let app = launchRecappiApp(authToken: "")
         hidePanel(in: app)

@@ -17,6 +17,7 @@ struct UITestModeConfiguration {
     let simulatedAutoPromptApp: SimulatedAutoPromptApp?
     let simulatedAutoPromptMeetingLabel: String?
     let hiddenAutoPromptSnoozeSeconds: TimeInterval?
+    let openCloudWindowOnLaunch: Bool
 
     private init(processInfo: ProcessInfo = .processInfo) {
         let env = processInfo.environment
@@ -28,6 +29,7 @@ struct UITestModeConfiguration {
         audioFixturePath = env["RECAPPI_TEST_AUDIO_FIXTURE"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         commandFilePath = env["RECAPPI_UI_TEST_COMMAND_FILE"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         manualAuthEnabled = env["RECAPPI_ENABLE_MANUAL_AUTH"] == "1"
+        openCloudWindowOnLaunch = env["RECAPPI_TEST_OPEN_CLOUD_WINDOW"] == "1"
         if let rawSnooze = env["RECAPPI_TEST_HIDDEN_AUTOPROMPT_SNOOZE_SECONDS"],
            let parsedSnooze = TimeInterval(rawSnooze) {
             hiddenAutoPromptSnoozeSeconds = max(parsedSnooze, 0)

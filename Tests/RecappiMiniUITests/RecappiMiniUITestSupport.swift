@@ -10,6 +10,7 @@ enum UITestIDs {
         static let signInGitHubButton = "recappi.settings.signInGitHubButton"
         static let reconnectButton = "recappi.settings.reconnectButton"
         static let signOutButton = "recappi.settings.signOutButton"
+        static let openCloudButton = "recappi.settings.openCloudButton"
     }
 
     enum Panel {
@@ -23,6 +24,26 @@ enum UITestIDs {
         static let processingTitle = "recappi.panel.processingTitle"
         static let doneTitle = "recappi.panel.doneTitle"
         static let errorTitle = "recappi.panel.errorTitle"
+    }
+
+    enum Cloud {
+        static let window = "recappi.cloud.window"
+        static let authStatus = "recappi.cloud.authStatus"
+        static let refreshButton = "recappi.cloud.refreshButton"
+        static let billingStatus = "recappi.cloud.billingStatus"
+        static let billingButton = "recappi.cloud.billingButton"
+        static let plansButton = "recappi.cloud.plansButton"
+        static let signInGoogleButton = "recappi.cloud.signInGoogleButton"
+        static let signInGitHubButton = "recappi.cloud.signInGitHubButton"
+        static let reconnectButton = "recappi.cloud.reconnectButton"
+        static let recordingsList = "recappi.cloud.recordingsList"
+        static let recordingRowPrefix = "recappi.cloud.recordingRow."
+        static let loadMoreButton = "recappi.cloud.loadMoreButton"
+        static let transcriptText = "recappi.cloud.transcriptText"
+        static let loadTranscriptButton = "recappi.cloud.loadTranscriptButton"
+        static let copyTranscriptButton = "recappi.cloud.copyTranscriptButton"
+        static let downloadAudioButton = "recappi.cloud.downloadAudioButton"
+        static let deleteButton = "recappi.cloud.deleteButton"
     }
 }
 
@@ -67,7 +88,8 @@ extension XCTestCase {
         authToken: String? = nil,
         simulatedAutoPromptApp: (bundleID: String, name: String)? = nil,
         simulatedAutoPromptMeetingLabel: String? = nil,
-        hiddenAutoPromptSnoozeSeconds: TimeInterval? = nil
+        hiddenAutoPromptSnoozeSeconds: TimeInterval? = nil,
+        openCloudWindowOnLaunch: Bool = false
     ) -> XCUIApplication {
         terminateExistingRecappiInstances()
 
@@ -93,6 +115,9 @@ extension XCTestCase {
         }
         if let hiddenAutoPromptSnoozeSeconds {
             app.launchEnvironment["RECAPPI_TEST_HIDDEN_AUTOPROMPT_SNOOZE_SECONDS"] = String(hiddenAutoPromptSnoozeSeconds)
+        }
+        if openCloudWindowOnLaunch {
+            app.launchEnvironment["RECAPPI_TEST_OPEN_CLOUD_WINDOW"] = "1"
         }
 
         app.launch()

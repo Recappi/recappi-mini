@@ -490,6 +490,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     func startRecording() async throws {
         guard state == .idle else { return }
+        let metadata = recordingSessionMetadata()
         recordingSuggestion = nil
         meetingPrompt = nil
         state = .starting
@@ -510,6 +511,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         let sessionDir = try RecordingStore.createSessionDirectory()
+        RecordingStore.saveSessionMetadata(metadata, in: sessionDir)
         self.sessionDir = sessionDir
 
         // Intermediate files; merged into recording.m4a at stop.
@@ -769,6 +771,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         let sessionDir = try RecordingStore.createSessionDirectory()
+        RecordingStore.saveSessionMetadata(recordingSessionMetadata(), in: sessionDir)
         self.sessionDir = sessionDir
         self.lastSessionDir = nil
         self.audioLevel = 0
@@ -783,6 +786,19 @@ final class AudioRecorder: NSObject, ObservableObject {
                 self?.elapsedSeconds += 1
             }
         }
+    }
+
+    private func recordingSessionMetadata() -> RecordingSessionMetadata {
+        let sourceApp = selectedApp
+        let promptTitle = meetingPrompt?.promptTitle ?? recordingSuggestion?.promptTitle
+        let appName = sourceApp?.name ?? meetingPrompt?.appName ?? recordingSuggestion?.appName
+        let bundleID = sourceApp?.id ?? meetingPrompt?.appID ?? recordingSuggestion?.appID
+        let sourceTitle = promptTitle ?? appName ?? "All system audio"
+        return RecordingSessionMetadata.capture(
+            sourceTitle: sourceTitle,
+            sourceAppName: appName,
+            sourceBundleID: bundleID
+        )
     }
 
     private func stopUITestRecording() throws -> URL {

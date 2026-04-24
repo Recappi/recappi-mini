@@ -67,6 +67,10 @@ struct MenuBarContents: View {
         }
         .keyboardShortcut("r", modifiers: [.command, .shift])
 
+        Button("Recappi Cloud…") {
+            appDelegate.showCloudCenter()
+        }
+
         Button("Settings…") {
             NSApp.setActivationPolicy(.regular)
             NSApp.activate(ignoringOtherApps: true)
@@ -108,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private var panel: FloatingPanel?
+    private var cloudWindow: NSWindow?
     private let recorder = AudioRecorder()
     private let appUpdater = AppUpdater.shared
     private let uiTestMode = UITestModeConfiguration.shared
@@ -147,7 +152,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         guard !didFinishLaunching else { return }
         didFinishLaunching = true
         NSApp.setActivationPolicy(.accessory)
-        Task { await AuthSessionStore.shared.bootstrapForUITestsIfNeeded() }
+        Task { @MainActor in
+            await AuthSessionStore.shared.bootstrapForUITestsIfNeeded()
+            if self.uiTestMode.openCloudWindowOnLaunch {
+                self.showCloudCenter()
+            }
+        }
         appUpdater.start()
 
         let m = PillShellView.shadowMargin
@@ -269,6 +279,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    func showCloudCenter() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.unhide(nil)
+        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+        NSApp.activate(ignoringOtherApps: true)
+
+        if let cloudWindow {
+            cloudWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let hostingView = NSHostingView(rootView: CloudCenterPanel())
+        hostingView.autoresizingMask = [.width, .height]
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Recappi Cloud"
+        window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 700, height: 600)
+        window.contentView = hostingView
+        window.delegate = self
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        cloudWindow = window
     }
 
     private func installWorkspaceObservers() {
@@ -554,7 +595,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let hasVisibleSettingsWindow = NSApp.windows.contains { window in
             window.isVisible && window.title.localizedCaseInsensitiveContains("settings")
         }
-        guard !hasVisibleSettingsWindow else { return }
+        let hasVisibleCloudWindow = cloudWindow?.isVisible == true
+        guard !hasVisibleSettingsWindow && !hasVisibleCloudWindow else { return }
         NSApp.setActivationPolicy(.accessory)
     }
 
@@ -599,5 +641,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     func windowDidExpose(_ notification: Notification) {
         syncPanelVisibility()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if let closingWindow = notification.object as? NSWindow, closingWindow === cloudWindow {
+            cloudWindow = nil
+            restoreAccessoryActivationPolicyIfPossible()
+        }
     }
 }

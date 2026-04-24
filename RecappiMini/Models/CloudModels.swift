@@ -196,3 +196,48 @@ struct RemoteSessionManifest: Codable, Equatable {
         )
     }
 }
+
+struct RecordingSessionMetadata: Codable, Equatable, Sendable {
+    var summaryTitle: String?
+    var sourceTitle: String
+    var sourceAppName: String?
+    var sourceBundleID: String?
+    var startedAt: String
+
+    static func capture(
+        sourceTitle: String,
+        sourceAppName: String?,
+        sourceBundleID: String?
+    ) -> RecordingSessionMetadata {
+        RecordingSessionMetadata(
+            summaryTitle: nil,
+            sourceTitle: sourceTitle,
+            sourceAppName: sourceAppName,
+            sourceBundleID: sourceBundleID,
+            startedAt: ISO8601DateFormatter().string(from: Date())
+        )
+    }
+
+    var cloudRecordingTitle: String {
+        if let summaryTitle = clean(summaryTitle) {
+            return summaryTitle
+        }
+
+        if let sourceTitle = clean(sourceTitle), sourceTitle != "All system audio" {
+            return sourceTitle
+        }
+
+        if let sourceAppName = clean(sourceAppName) {
+            return "\(sourceAppName) recording"
+        }
+
+        return "Audio recording"
+    }
+
+    private func clean(_ value: String?) -> String? {
+        guard let text = value?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return nil
+        }
+        return text
+    }
+}

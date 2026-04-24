@@ -10,6 +10,7 @@ enum AccessibilityIDs {
         static let signInGitHubButton = "recappi.settings.signInGitHubButton"
         static let reconnectButton = "recappi.settings.reconnectButton"
         static let signOutButton = "recappi.settings.signOutButton"
+        static let openCloudButton = "recappi.settings.openCloudButton"
         static let permissionMicrophoneStatus = "recappi.settings.permissionMicrophoneStatus"
         static let permissionScreenCaptureStatus = "recappi.settings.permissionScreenCaptureStatus"
         static let requestMicrophoneButton = "recappi.settings.requestMicrophoneButton"
@@ -33,5 +34,26 @@ enum AccessibilityIDs {
         static let retryButton = "recappi.panel.retryButton"
         static let settingsButton = "recappi.panel.settingsButton"
         static let showButton = "recappi.panel.showButton"
+    }
+
+    enum Cloud {
+        static let window = "recappi.cloud.window"
+        static let authStatus = "recappi.cloud.authStatus"
+        static let refreshButton = "recappi.cloud.refreshButton"
+        static let billingStatus = "recappi.cloud.billingStatus"
+        static let billingButton = "recappi.cloud.billingButton"
+        static let plansButton = "recappi.cloud.plansButton"
+        static let signInGoogleButton = "recappi.cloud.signInGoogleButton"
+        static let signInGitHubButton = "recappi.cloud.signInGitHubButton"
+        static let reconnectButton = "recappi.cloud.reconnectButton"
+        static let recordingsList = "recappi.cloud.recordingsList"
+        static let recordingRowPrefix = "recappi.cloud.recordingRow."
+        static let loadMoreButton = "recappi.cloud.loadMoreButton"
+        static let transcriptText = "recappi.cloud.transcriptText"
+        static let loadTranscriptButton = "recappi.cloud.loadTranscriptButton"
+        static let copyTranscriptButton = "recappi.cloud.copyTranscriptButton"
+        static let downloadAudioButton = "recappi.cloud.downloadAudioButton"
+        static let deleteButton = "recappi.cloud.deleteButton"
+        static let confirmDeleteButton = "recappi.cloud.confirmDeleteButton"
     }
 }

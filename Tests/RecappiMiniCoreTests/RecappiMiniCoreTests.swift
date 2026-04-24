@@ -74,6 +74,216 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertNil(session.configuration.httpCookieStorage)
     }
 
+    func testCloudLibraryListRequestUsesBearerAndOrigin() throws {
+        let client = RecappiAPIClient(origin: "https://recordmeet.ing/", bearerToken: "token_123")
+        let request = try client.makeRequest(
+            path: "/api/recordings",
+            queryItems: [
+                URLQueryItem(name: "limit", value: "20"),
+                URLQueryItem(name: "cursor", value: "cursor_abc"),
+            ]
+        )
+
+        XCTAssertEqual(request.url?.absoluteString, "https://recordmeet.ing/api/recordings?limit=20&cursor=cursor_abc")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Origin"), "https://recordmeet.ing")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token_123")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+        XCTAssertFalse(request.httpShouldHandleCookies)
+    }
+
+    func testCloudTranscriptRequestUsesOptionalJobQuery() throws {
+        let client = RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123")
+        let request = try client.makeRequest(
+            path: "/api/recordings/rec_123/transcript",
+            queryItems: [URLQueryItem(name: "jobId", value: "job_123")]
+        )
+
+        XCTAssertEqual(
+            request.url?.absoluteString,
+            "https://recordmeet.ing/api/recordings/rec_123/transcript?jobId=job_123"
+        )
+    }
+
+    func testCloudLibraryLatestTranscriptRequestDoesNotUseActiveTranscriptIdAsJobId() throws {
+        let client = RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123")
+        let request = try client.makeRequest(path: "/api/recordings/rec_123/transcript")
+
+        XCTAssertEqual(
+            request.url?.absoluteString,
+            "https://recordmeet.ing/api/recordings/rec_123/transcript"
+        )
+    }
+
+    func testBillingStatusRequestUsesBearerAndOrigin() throws {
+        let client = RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123")
+        let request = try client.makeRequest(path: "/api/billing/status")
+
+        XCTAssertEqual(request.url?.absoluteString, "https://recordmeet.ing/api/billing/status")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Origin"), "https://recordmeet.ing")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token_123")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+    }
+
+    func testBillingStatusDecodingAcceptsBackendMillisecondTimestamps() throws {
+        let data = """
+        {
+          "tier": "free",
+          "periodStart": 1776834706311,
+          "periodEnd": 1779426706311,
+          "storageBytes": 13482642,
+          "storageCapBytes": 1073741824,
+          "minutesUsed": 20,
+          "minutesCap": 120,
+          "isOverStorage": false,
+          "isOverMinutes": false
+        }
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(BillingStatus.self, from: data)
+
+        XCTAssertEqual(status.tier, .free)
+        XCTAssertEqual(status.storageBytes, 13_482_642)
+        XCTAssertEqual(status.storageCapBytes, 1_073_741_824)
+        XCTAssertEqual(status.minutesUsed, 20)
+        XCTAssertEqual(status.minutesCap, 120)
+        XCTAssertFalse(status.isOverStorage)
+        XCTAssertFalse(status.isOverMinutes)
+        XCTAssertEqual(Int(status.periodEnd?.timeIntervalSince1970 ?? 0), 1_779_426_706)
+    }
+
+    func testCloudRecordingListDecoding() throws {
+        let data = """
+        {
+          "items": [
+            {
+              "id": "rec_123",
+              "userId": "user_123",
+              "title": "Weekly sync",
+              "r2Key": "recordings/user_123/rec_123.wav",
+              "r2UploadId": null,
+              "status": "ready",
+              "sizeBytes": 456789,
+              "durationMs": 123456,
+              "sampleRate": 48000,
+              "channels": 2,
+              "contentType": "audio/wav",
+              "activeTranscriptId": "tr_123",
+              "createdAt": "2026-04-24T08:00:00.000Z",
+              "updatedAt": "2026-04-24T08:03:00.000Z"
+            }
+          ],
+          "nextCursor": "next_456"
+        }
+        """.data(using: .utf8)!
+
+        let page = try JSONDecoder().decode(CloudRecordingsPage.self, from: data)
+
+        XCTAssertEqual(page.nextCursor, "next_456")
+        XCTAssertEqual(page.items.count, 1)
+        XCTAssertEqual(page.items.first?.id, "rec_123")
+        XCTAssertEqual(page.items.first?.title, "Weekly sync")
+        XCTAssertEqual(page.items.first?.status, .ready)
+        XCTAssertEqual(page.items.first?.durationMs, 123456)
+        XCTAssertEqual(page.items.first?.contentType, "audio/wav")
+        XCTAssertEqual(
+            page.items.first?.createdAt,
+            ISO8601DateFormatter().date(from: "2026-04-24T08:00:00Z")
+        )
+    }
+
+    func testCloudRecordingListDecodingAcceptsBackendMillisecondTimestamps() throws {
+        let data = """
+        {
+          "items": [
+            {
+              "id": "rec_123",
+              "status": "ready",
+              "createdAt": 1776957994323,
+              "updatedAt": 1776958013234
+            }
+          ],
+          "nextCursor": "1776957994323"
+        }
+        """.data(using: .utf8)!
+
+        let page = try JSONDecoder().decode(CloudRecordingsPage.self, from: data)
+
+        XCTAssertEqual(page.nextCursor, "1776957994323")
+        XCTAssertEqual(Int(page.items[0].createdAt?.timeIntervalSince1970 ?? 0), 1_776_957_994)
+        XCTAssertEqual(Int(page.items[0].updatedAt?.timeIntervalSince1970 ?? 0), 1_776_958_013)
+    }
+
+    func testCloudRecordingDecodingAcceptsSourceMetadata() throws {
+        let data = """
+        {
+          "id": "rec_123",
+          "title": "Google Meet in Safari",
+          "summaryTitle": "Design review",
+          "sourceAppName": "Safari",
+          "sourceAppBundleID": "com.apple.Safari",
+          "status": "ready",
+          "metadata": {
+            "sourceTitle": "Google Meet in Safari"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let recording = try JSONDecoder().decode(CloudRecording.self, from: data)
+
+        XCTAssertEqual(recording.title, "Google Meet in Safari")
+        XCTAssertEqual(recording.summaryTitle, "Design review")
+        XCTAssertEqual(recording.sourceTitle, "Google Meet in Safari")
+        XCTAssertEqual(recording.sourceAppName, "Safari")
+        XCTAssertEqual(recording.sourceAppBundleID, "com.apple.Safari")
+    }
+
+    func testRecordingSessionMetadataBuildsHumanCloudTitle() throws {
+        let metadata = RecordingSessionMetadata.capture(
+            sourceTitle: "Google Meet in Safari",
+            sourceAppName: "Safari",
+            sourceBundleID: "com.apple.Safari"
+        )
+
+        XCTAssertEqual(metadata.cloudRecordingTitle, "Google Meet in Safari")
+
+        let allSystem = RecordingSessionMetadata.capture(
+            sourceTitle: "All system audio",
+            sourceAppName: nil,
+            sourceBundleID: nil
+        )
+
+        XCTAssertEqual(allSystem.cloudRecordingTitle, "Audio recording")
+    }
+
+    func testCloudRecordingDecodingKeepsUnknownStatusReadable() throws {
+        let data = """
+        {
+          "id": "rec_123",
+          "status": "processing_audio"
+        }
+        """.data(using: .utf8)!
+
+        let recording = try JSONDecoder().decode(CloudRecording.self, from: data)
+
+        XCTAssertEqual(recording.status, .unknown("processing_audio"))
+        XCTAssertEqual(recording.status.displayName, "Processing Audio")
+    }
+
+    func testUnauthorizedResponseMapsToExpiredAuthPath() throws {
+        let response = try XCTUnwrap(
+            HTTPURLResponse(
+                url: try XCTUnwrap(URL(string: "https://recordmeet.ing/api/recordings")),
+                statusCode: 401,
+                httpVersion: nil,
+                headerFields: nil
+            )
+        )
+
+        XCTAssertThrowsError(try RecappiAPIClient.validate(response: response, data: Data())) { error in
+            XCTAssertEqual(error as? RecappiAPIError, .unauthorized)
+        }
+    }
+
     func testNativeOAuthUsesBridgeCallbackScheme() throws {
         XCTAssertEqual(NativeOAuthCoordinator.callbackScheme, "recappi")
         XCTAssertEqual(NativeOAuthCoordinator.callbackHost, "auth")

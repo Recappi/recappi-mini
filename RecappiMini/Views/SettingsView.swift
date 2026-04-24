@@ -56,6 +56,13 @@ struct SettingsView: View {
             if let currentSession = sessionStore.currentSession {
                 accountSummary(session: currentSession)
             }
+
+            HStack {
+                Button("Open Recappi Cloud", action: openCloudCenter)
+                    .disabled(!config.cloudEnabled)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.openCloudButton)
+                Spacer(minLength: 0)
+            }
         } header: {
             Text("Account")
         }
@@ -417,6 +424,10 @@ struct SettingsView: View {
         Task { @MainActor in
             await sessionStore.signOut(origin: origin)
         }
+    }
+
+    private func openCloudCenter() {
+        AppDelegate.shared.showCloudCenter()
     }
 
     private func refreshPermissionStatus() {
