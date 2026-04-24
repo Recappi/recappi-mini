@@ -15,7 +15,7 @@
     <key>NSMicrophoneUsageDescription</key>
     <string>Recappi Mini needs microphone access to record meetings</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Recappi Mini uses your active browser tab URL and title to detect meeting pages in Safari and Chrome.</string>
+    <string>Recappi Mini reads browser tab URLs and titles to detect meeting pages in Safari, Chrome, Arc, and compatible browsers.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Recappi Mini needs system audio recording access to capture meeting audio from your Mac</string>
     <key>NSAppTransportSecurity</key>

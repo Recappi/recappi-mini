@@ -208,6 +208,38 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         add(attachment)
     }
 
+    func testHiddenPanelAutoPromptSelectsArcMeeting() throws {
+        let app = launchRecappiApp(authToken: "")
+        hidePanel(in: app)
+
+        postSimulatedAutoPrompt(
+            bundleID: "company.thebrowser.Browser",
+            appName: "Arc",
+            meetingLabel: "Google Meet in Arc",
+            active: true
+        )
+
+        let sourcePicker = uiElement(app, id: UITestIDs.Panel.audioSourcePicker)
+        XCTAssertTrue(sourcePicker.waitForExistence(timeout: 15), "Expected panel to reappear for an Arc meeting.")
+        let sourceText = [sourcePicker.label, sourcePicker.value as? String]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        XCTAssertTrue(
+            sourceText.localizedCaseInsensitiveContains("Arc"),
+            "Expected hidden auto-prompt to preselect Arc, got: \(sourceText)"
+        )
+
+        let meetingPrompt = uiElement(app, id: UITestIDs.Panel.meetingPrompt)
+        XCTAssertTrue(meetingPrompt.waitForExistence(timeout: 5), "Expected hidden auto-prompt to explain that Arc may be in a meeting.")
+        let promptText = [meetingPrompt.label, meetingPrompt.value as? String]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        XCTAssertTrue(
+            promptText.localizedCaseInsensitiveContains("Google Meet in Arc"),
+            "Expected Arc meeting prompt copy, got: \(promptText)"
+        )
+    }
+
     func testHiddenPanelIgnoresBrowserAudioWithoutMeetingContext() throws {
         let app = launchRecappiApp(authToken: "")
         hidePanel(in: app)

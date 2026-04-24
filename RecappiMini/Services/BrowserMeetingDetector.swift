@@ -34,16 +34,8 @@ enum BrowserMeetingDetector {
     }
 
     static func inferMeetingSuggestion(bundleID: String, browserName: String) async -> String? {
-        guard let context = await readBrowserContext(bundleID: bundleID),
-              let match = classify(
-                urlString: context.urlString,
-                title: context.pageTitle,
-                browserName: browserName
-              ) else {
-            return nil
-        }
-
-        return match.suggestionTitle
+        guard let output = await readBrowserContextOutput(bundleID: bundleID) else { return nil }
+        return meetingSuggestion(fromScriptOutput: output, browserName: browserName)
     }
 
     static func classify(
@@ -82,13 +74,26 @@ enum BrowserMeetingDetector {
         )
     }
 
-    private static func readBrowserContext(bundleID: String) async -> BrowserTabContext? {
+    static func meetingSuggestion(fromScriptOutput output: String, browserName: String) -> String? {
+        for context in BrowserTabContext.parseMany(output: output) {
+            if let match = classify(
+                urlString: context.urlString,
+                title: context.pageTitle,
+                browserName: browserName
+            ) {
+                return match.suggestionTitle
+            }
+        }
+
+        return nil
+    }
+
+    private static func readBrowserContextOutput(bundleID: String) async -> String? {
         guard let scriptKind = supportedBrowsers[bundleID] else { return nil }
 
         return await Task.detached(priority: .utility) {
             do {
-                let output = try runAppleScript(script(for: bundleID, kind: scriptKind))
-                return BrowserTabContext(output: output)
+                return try runAppleScript(script(for: bundleID, kind: scriptKind))
             } catch {
                 return nil
             }
@@ -102,8 +107,19 @@ enum BrowserMeetingDetector {
             if application id "\(bundleID)" is not running then return ""
             tell application id "\(bundleID)"
                 if (count of windows) is 0 then return ""
-                set currentTab to current tab of front window
-                return (URL of currentTab as text) & linefeed & (name of currentTab as text)
+                set previousDelimiters to AppleScript's text item delimiters
+                set AppleScript's text item delimiters to linefeed
+                set tabRows to {}
+                repeat with windowRef in windows
+                    repeat with tabRef in tabs of windowRef
+                        set tabURL to URL of tabRef as text
+                        set tabTitle to name of tabRef as text
+                        if tabURL is not "" then set end of tabRows to tabURL & tab & tabTitle
+                    end repeat
+                end repeat
+                set output to tabRows as text
+                set AppleScript's text item delimiters to previousDelimiters
+                return output
             end tell
             """
         case .chromium:
@@ -111,8 +127,19 @@ enum BrowserMeetingDetector {
             if application id "\(bundleID)" is not running then return ""
             tell application id "\(bundleID)"
                 if (count of windows) is 0 then return ""
-                set activeTabRef to active tab of front window
-                return (URL of activeTabRef as text) & linefeed & (title of activeTabRef as text)
+                set previousDelimiters to AppleScript's text item delimiters
+                set AppleScript's text item delimiters to linefeed
+                set tabRows to {}
+                repeat with windowRef in windows
+                    repeat with tabRef in tabs of windowRef
+                        set tabURL to URL of tabRef as text
+                        set tabTitle to title of tabRef as text
+                        if tabURL is not "" then set end of tabRows to tabURL & tab & tabTitle
+                    end repeat
+                end repeat
+                set output to tabRows as text
+                set AppleScript's text item delimiters to previousDelimiters
+                return output
             end tell
             """
         }
@@ -143,7 +170,7 @@ enum BrowserMeetingDetector {
     }
 }
 
-private struct BrowserTabContext: Equatable, Sendable {
+struct BrowserTabContext: Equatable, Sendable {
     let urlString: String?
     let pageTitle: String?
 
@@ -156,6 +183,38 @@ private struct BrowserTabContext: Equatable, Sendable {
         guard let first = lines.first else { return nil }
         urlString = first
         pageTitle = lines.dropFirst().first
+    }
+
+    private init(urlString: String?, pageTitle: String?) {
+        self.urlString = urlString
+        self.pageTitle = pageTitle
+    }
+
+    static func parseMany(output: String) -> [BrowserTabContext] {
+        let rows = output
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let tabSeparated = rows.compactMap { row -> BrowserTabContext? in
+            guard row.contains("\t") else { return nil }
+            let parts = row.components(separatedBy: "\t")
+            guard let first = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !first.isEmpty else {
+                return nil
+            }
+            let title = parts.dropFirst().joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return BrowserTabContext(
+                urlString: first,
+                pageTitle: title.isEmpty ? nil : title
+            )
+        }
+        if !tabSeparated.isEmpty {
+            return tabSeparated
+        }
+
+        return BrowserTabContext(output: output).map { [$0] } ?? []
     }
 }
 

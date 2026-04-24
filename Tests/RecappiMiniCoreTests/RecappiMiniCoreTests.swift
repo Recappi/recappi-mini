@@ -657,6 +657,35 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(match?.suggestionTitle, "Google Meet in Safari")
     }
 
+    func testBrowserMeetingDetectorSupportsArc() {
+        XCTAssertTrue(BrowserMeetingDetector.supports(bundleID: "company.thebrowser.Browser"))
+    }
+
+    func testBrowserMeetingDetectorFindsMeetingTabAmongArcTabs() {
+        let output = """
+        https://linear.app/recappi\tIssue tracker
+        https://meet.google.com/crh-homj-oub\tTeam sync - Google Meet
+        https://www.youtube.com/watch?v=abc\tMusic
+        """
+
+        XCTAssertEqual(
+            BrowserMeetingDetector.meetingSuggestion(fromScriptOutput: output, browserName: "Arc"),
+            "Google Meet in Arc"
+        )
+    }
+
+    func testBrowserMeetingDetectorKeepsLegacyTwoLineOutputCompatible() {
+        let output = """
+        https://teams.microsoft.com/l/meetup-join/123
+        Weekly sync | Microsoft Teams
+        """
+
+        let contexts = BrowserTabContext.parseMany(output: output)
+        XCTAssertEqual(contexts.count, 1)
+        XCTAssertEqual(contexts.first?.urlString, "https://teams.microsoft.com/l/meetup-join/123")
+        XCTAssertEqual(contexts.first?.pageTitle, "Weekly sync | Microsoft Teams")
+    }
+
     func testBrowserMeetingDetectorClassifiesTeamsAndZoomWeb() {
         let teams = BrowserMeetingDetector.classify(
             urlString: "https://teams.microsoft.com/l/meetup-join/123",

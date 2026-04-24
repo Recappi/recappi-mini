@@ -475,7 +475,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             }
 
             guard BrowserMeetingDetector.supports(bundleID: app.id) else { continue }
-            guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == app.id else { continue }
             guard let promptTitle = await BrowserMeetingDetector.inferMeetingSuggestion(
                 bundleID: app.id,
                 browserName: app.name
