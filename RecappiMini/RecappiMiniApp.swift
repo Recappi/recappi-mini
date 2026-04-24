@@ -401,26 +401,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let transitionToken = panelTransitionToken
         hiddenPanelAutoPromptTask?.cancel()
         hiddenPanelAutoPromptTask = nil
-        NSApp.setActivationPolicy(.regular)
+        // Showing the lightweight recorder panel should not flip the app into
+        // regular activation mode. That transition is surprisingly expensive
+        // and makes the slide feel hitchy; reserve it for Settings/Cloud/OAuth.
+        NSApp.unhide(nil)
         if activateApp {
-            NSApp.unhide(nil)
             NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
             NSApp.activate(ignoringOtherApps: true)
         }
         if FloatingPanelController.isPresented(panel) {
-            bringPanelToFront(panel, activateApp: false)
+            bringPanelToFront(panel, activateApp: activateApp)
             syncPanelVisibility()
+            refreshRunningApps()
         } else {
             panelVisible = true
             FloatingPanelController.present(panel) { [weak self] in
                 guard let self else { return }
                 guard self.panelTransitionToken == transitionToken else { return }
-                self.bringPanelToFront(panel, activateApp: false)
+                self.bringPanelToFront(panel, activateApp: activateApp)
                 self.syncPanelVisibility()
+                self.refreshRunningApps()
             }
         }
         schedulePanelPresentationVerification(for: transitionToken, activateApp: activateApp)
-        refreshRunningApps()
     }
 
     func hidePanel() {
@@ -636,7 +639,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         let wasPanelHidden = !(panel.map(FloatingPanelController.isPresented) ?? false)
         promptedAutoPromptKeyByBundleID[target.app.id] = target.promptKey
-        showPanel(activateApp: true)
+
+        // Prepare the prompt content before the panel starts sliding in. If we
+        // mutate SwiftUI state mid-flight, the hosting view reports a new
+        // intrinsic height and AppKit has to resize the window during motion.
         if wasPanelHidden {
             recorder.selectApp(target.app, clearPrompts: false)
             recorder.clearRecordingSuggestion()
@@ -649,6 +655,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         } else {
             recorder.suggestRecording(for: target.app)
         }
+
+        showPanel(activateApp: false)
         return true
     }
 
@@ -803,6 +811,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             panelVisible = false
             return
         }
+        guard !panel.isFloatingTransitioning else { return }
 
         let isShown = FloatingPanelController.isPresented(panel)
         let isUserVisible = isShown && (panel.occlusionState.contains(.visible) || panel.isKeyWindow)
@@ -816,7 +825,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             NSApp.activate(ignoringOtherApps: true)
         }
         panel.orderFrontRegardless()
-        panel.makeKeyAndOrderFront(nil)
     }
 
     private func restoreAccessoryActivationPolicyIfPossible() {
@@ -834,6 +842,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             try? await Task.sleep(for: .milliseconds(280))
             guard let self else { return }
             guard self.panelTransitionToken == token else { return }
+            guard !panel.isFloatingTransitioning else { return }
             let isShown = FloatingPanelController.isPresented(panel)
             let isOccluded = !panel.occlusionState.contains(.visible) && !panel.isKeyWindow
             guard !isShown || (activateApp && isOccluded) else {

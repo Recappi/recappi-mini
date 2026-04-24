@@ -25,7 +25,7 @@ struct FloatingPanelChromeView<Content: View>: View {
 }
 
 final class FloatingPanel: NSPanel {
-    fileprivate var isFloatingTransitioning = false
+    var isFloatingTransitioning = false
     fileprivate var deferredContentSize: NSSize?
 
     init(contentRect: NSRect) {
