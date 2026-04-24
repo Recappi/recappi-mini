@@ -824,6 +824,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         let isShown = FloatingPanelController.isPresented(panel)
         let isUserVisible = isShown && (panel.occlusionState.contains(.visible) || panel.isKeyWindow)
+        if isShown && panel.ignoresMouseEvents {
+            panel.ignoresMouseEvents = false
+        }
         panelVisible = isUserVisible
     }
 

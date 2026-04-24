@@ -269,6 +269,7 @@ struct FloatingPanelController {
             screen: panel.screen ?? NSScreen.main,
             panelSize: NSSize(width: windowWidth, height: windowHeight)
         )
+        panel.ignoresMouseEvents = false
         panel.setFrame(frame, display: true)
     }
 
@@ -380,11 +381,14 @@ struct FloatingPanelController {
 
     static func snapToVisible(_ panel: FloatingPanel) {
         let frame = visibleFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
+        panel.ignoresMouseEvents = false
+        (panel.contentView as? PillShellView)?.resetTransition()
         panel.setFrame(frame, display: true)
     }
 
     static func snapToHidden(_ panel: FloatingPanel) {
         let frame = hiddenFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
+        panel.ignoresMouseEvents = true
         panel.setFrame(frame, display: true)
     }
 

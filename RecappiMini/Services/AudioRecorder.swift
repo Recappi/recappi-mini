@@ -724,6 +724,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         } catch {
             detectedMeetingRecordingContext = nil
             stopMonitoringOutputDeviceChanges()
+            self.micSession?.stopRunning()
             self.stream = nil
             self.systemOutput = nil
             self.micSession = nil
@@ -747,19 +748,33 @@ final class AudioRecorder: NSObject, ObservableObject {
             return try stopUITestRecording()
         }
 
-        // Stop system audio stream
+        // Take local ownership and clear the live capture properties first.
+        // If any async stop/finalize step throws, the microphone should still
+        // be released immediately instead of staying captured until app quit.
+        let scStream = self.stream
         let systemOutput = self.systemOutput
-        try await stream?.stopCapture()
-        stream = nil
-        self.systemOutput = nil
-        let finishedSystemURL = try await systemOutput?.finishWriting()
-
-        // Stop microphone capture
         let micOutput = self.micOutput
-        micSession?.stopRunning()
-        micSession = nil
+        let micSession = self.micSession
+        self.stream = nil
+        self.systemOutput = nil
+        self.micSession = nil
         self.micOutput = nil
+
+        micSession?.stopRunning()
+
+        var stopCaptureError: Error?
+        do {
+            try await scStream?.stopCapture()
+        } catch {
+            stopCaptureError = error
+        }
+
+        let finishedSystemURL = try await systemOutput?.finishWriting()
         let finishedMicURL = try await micOutput?.finishWriting()
+
+        if let stopCaptureError {
+            throw stopCaptureError
+        }
 
         guard let sessionDir = self.sessionDir else {
             throw RecorderError.noSessionDir
@@ -848,6 +863,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         lastSessionDir = nil
         recordingSuggestion = nil
         meetingPrompt = nil
+        micSession?.stopRunning()
         stream = nil
         systemOutput = nil
         currentOutputAudioDeviceID = nil
