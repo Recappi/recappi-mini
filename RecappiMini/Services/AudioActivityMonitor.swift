@@ -2,39 +2,9 @@ import AppKit
 import CoreAudio
 import Foundation
 
-/// Polls CoreAudio's HAL process list to find which apps are currently
-/// producing audio output. The macOS 14.4+ process-object API exposes
-/// `kAudioProcessPropertyIsRunningOutput` per audio-emitting process, so
-/// we don't need to open a probe stream or parse `ps` output.
-@MainActor
-final class AudioActivityMonitor: ObservableObject {
-    /// Parent bundle IDs of apps currently outputting audio. Helpers are
-    /// collapsed via BundleCollapser so Chrome shows up as `com.google.Chrome`
-    /// instead of its renderer child.
-    @Published private(set) var activeBundleIDs: Set<String> = []
-
-    private var timer: Timer?
-
-    /// Default 2s cadence — fast enough to feel responsive when a Zoom call
-    /// starts, slow enough that the HAL query doesn't become a background tax.
-    func start(pollInterval: TimeInterval = 2.0) {
-        refresh()
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
-    }
-
-    func stop() {
-        timer?.invalidate()
-        timer = nil
-    }
-
-    private func refresh() {
-        let active = Self.queryActiveProcesses()
-        if active != activeBundleIDs {
-            activeBundleIDs = active
-        }
+private actor AudioActivityQueryService {
+    func activeBundleIDs() -> Set<String> {
+        Self.queryActiveProcesses()
     }
 
     private static func queryActiveProcesses() -> Set<String> {
@@ -59,9 +29,9 @@ final class AudioActivityMonitor: ObservableObject {
             guard isRunningOutput(id) else { continue }
 
             // Prefer HAL-supplied bundle ID (macOS 14.4+); fall back to the
-            // PID → NSRunningApplication route since some system daemons and
+            // PID -> NSRunningApplication route since some system daemons and
             // CLI helpers don't expose CFBundleID to CoreAudio. CLI tools
-            // (afplay, say → speechsynthesisd) resolve to nothing in either
+            // (afplay, say -> speechsynthesisd) resolve to nothing in either
             // path and are correctly skipped.
             var resolved: String? = bundleID(for: id)
             if resolved?.isEmpty ?? true {
@@ -119,5 +89,59 @@ final class AudioActivityMonitor: ObservableObject {
             return nil
         }
         return cf as String
+    }
+}
+
+/// Polls CoreAudio's HAL process list to find which apps are currently
+/// producing audio output. The macOS 14.4+ process-object API exposes
+/// `kAudioProcessPropertyIsRunningOutput` per audio-emitting process, so
+/// we don't need to open a probe stream or parse `ps` output.
+@MainActor
+final class AudioActivityMonitor: ObservableObject {
+    /// Parent bundle IDs of apps currently outputting audio. Helpers are
+    /// collapsed via BundleCollapser so Chrome shows up as `com.google.Chrome`
+    /// instead of its renderer child.
+    @Published private(set) var activeBundleIDs: Set<String> = []
+
+    private var timer: Timer?
+    private var refreshTask: Task<Void, Never>?
+    private let queryService = AudioActivityQueryService()
+
+    /// Default 2s cadence — fast enough to feel responsive when a Zoom call
+    /// starts, slow enough that the HAL query doesn't become a background tax.
+    func start(pollInterval: TimeInterval = 2.0) {
+        refresh()
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+        timer?.tolerance = min(0.5, pollInterval * 0.25)
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+    }
+
+    private func refresh() {
+        guard refreshTask == nil else { return }
+        refreshTask = Task { [weak self, queryService] in
+            let active = await queryService.activeBundleIDs()
+            guard !Task.isCancelled else {
+                await MainActor.run {
+                    self?.refreshTask = nil
+                }
+                return
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.refreshTask = nil
+                if active != self.activeBundleIDs {
+                    self.activeBundleIDs = active
+                }
+            }
+        }
     }
 }

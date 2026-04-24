@@ -101,6 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var browserAutoPromptTask: Task<Void, Never>?
     private var hiddenPanelAutoPromptTask: Task<Void, Never>?
     private var detectedMeetingAutoStopTask: Task<Void, Never>?
+    private var runningAppsRefreshTask: Task<Void, Never>?
+    private var runningAppsRefreshGeneration = 0
     private var recorderStateObserver: AnyCancellable?
     private var workspaceObservers: [NSObjectProtocol] = []
     private var panelTransitionToken: Int = 0
@@ -182,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         recorder.refreshAppsFromWorkspaceSnapshot()
 
         Task {
-            await recorder.refreshApps()
+            await recorder.refreshApps(seedFromWorkspace: false)
         }
 
         installUITestAutoPromptIfNeeded()
@@ -215,6 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         browserAutoPromptTask?.cancel()
         hiddenPanelAutoPromptTask?.cancel()
         detectedMeetingAutoStopTask?.cancel()
+        runningAppsRefreshTask?.cancel()
         recorderStateObserver?.cancel()
         let center = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers {
@@ -554,7 +557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         activePromptRefreshTask?.cancel()
         activePromptRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.recorder.refreshApps()
+            await self.recorder.refreshApps(seedFromWorkspace: false)
             guard !Task.isCancelled else { return }
             let latestActive = self.effectiveActiveAudioBundleIDs
             self.recorder.applyActivity(latestActive)
@@ -760,8 +763,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private func refreshRunningApps() {
         recorder.refreshAppsFromWorkspaceSnapshot()
-        Task {
-            await recorder.refreshApps()
+        runningAppsRefreshGeneration += 1
+        let generation = runningAppsRefreshGeneration
+        runningAppsRefreshTask?.cancel()
+        runningAppsRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled, let self else { return }
+            await self.recorder.refreshApps(seedFromWorkspace: false)
+            guard !Task.isCancelled, self.runningAppsRefreshGeneration == generation else { return }
+            self.runningAppsRefreshTask = nil
         }
     }
 
@@ -794,7 +804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             self.recorder.refreshAppsFromWorkspaceSnapshot()
             if self.promptForMeetingAudioIfNeeded(active) { return }
 
-            await self.recorder.refreshApps()
+            await self.recorder.refreshApps(seedFromWorkspace: false)
             guard !Task.isCancelled else { return }
 
             let latestActive = self.effectiveActiveAudioBundleIDs

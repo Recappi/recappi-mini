@@ -244,15 +244,12 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     // MARK: - App discovery
 
-    func refreshApps() async {
-        refreshAppsFromWorkspaceSnapshot()
-
+    func refreshApps(seedFromWorkspace: Bool = true) async {
+        if seedFromWorkspace {
+            refreshAppsFromWorkspaceSnapshot()
+        }
         let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.mini"
         let active = effectiveActiveBundleIDs(from: activityMonitor.activeBundleIDs)
-        let fallbackApps = Self.workspaceAudioApps(
-            selfBundleID: selfBundleID,
-            active: active
-        )
 
         do {
             let content = try await SCShareableContent.current
@@ -268,11 +265,19 @@ final class AudioRecorder: NSObject, ObservableObject {
                 return
             }
 
+            let fallbackApps = Self.workspaceAudioApps(
+                selfBundleID: selfBundleID,
+                active: active
+            )
             if !fallbackApps.isEmpty {
                 applyRunningApps(appsWithUITestInjections(fallbackApps, active: active))
             }
             scheduleRefreshAppsRetry()
         } catch {
+            let fallbackApps = Self.workspaceAudioApps(
+                selfBundleID: selfBundleID,
+                active: active
+            )
             if !fallbackApps.isEmpty {
                 applyRunningApps(appsWithUITestInjections(fallbackApps, active: active))
             } else if runningApps.isEmpty {
@@ -487,7 +492,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             self?.refreshAppsRetryTask = nil
-            await self?.refreshApps()
+            await self?.refreshApps(seedFromWorkspace: false)
         }
     }
 

@@ -247,7 +247,10 @@ private struct IdleState: View {
                 }
             }
         }
-        .task { await recorder.refreshApps() }
+        .task {
+            guard recorder.runningApps.isEmpty else { return }
+            await recorder.refreshApps()
+        }
     }
 
     private func meetingHintText(title: String, appName: String) -> String {
@@ -743,7 +746,7 @@ struct AudioSourcePill: View {
         let origin = menuPopUpLocation(for: menu, anchor: anchor, window: window)
         menu.popUp(positioning: nil, at: origin, in: nil)
         Task {
-            await recorder.refreshApps()
+            await recorder.refreshApps(seedFromWorkspace: false)
         }
     }
 
