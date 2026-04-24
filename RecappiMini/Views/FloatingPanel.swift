@@ -1,6 +1,29 @@
 import AppKit
 import SwiftUI
 
+struct FloatingPanelChromeView<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .background {
+                RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous)
+                    .fill(Color(red: 0.179, green: 0.179, blue: 0.179))
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous)
+                    .stroke(.white.opacity(0.06), lineWidth: 0.5)
+                    .allowsHitTesting(false)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous))
+    }
+}
+
 final class FloatingPanel: NSPanel {
     fileprivate var isFloatingTransitioning = false
     fileprivate var deferredContentSize: NSSize?
@@ -17,9 +40,9 @@ final class FloatingPanel: NSPanel {
         level = .floating
         isOpaque = false
         backgroundColor = .clear
-        // Shadow is owned by `PillShellView`'s CALayer via an explicit
-        // `shadowPath` — much more reliable than trying to get NSPanel's
-        // native shadow to trace the rounded SwiftUI alpha.
+        // SwiftUI owns the rounded chrome and drop shadow. The AppKit shell
+        // only provides a transparent safety margin so that shadow can render
+        // outside the visible pill without being clipped by the window bounds.
         hasShadow = false
         isMovableByWindowBackground = true
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
@@ -42,18 +65,16 @@ final class FloatingPanel: NSPanel {
     }
 }
 
-/// Custom panel chrome: rounded charcoal pill with a proper drop shadow.
-/// Uses `CALayer.shadowPath` so the shadow is deterministic and traces
-/// the rounded shape — which NSPanel's native shadow couldn't reliably
-/// do for SwiftUI-hosted transparent content.
+/// Sizing bridge between SwiftUI's intrinsic content size and the transparent
+/// NSPanel window. Chrome and motion are SwiftUI-owned; this view keeps a real
+/// AppKit safety margin around the hosted SwiftUI pill so shadows never touch
+/// the window edge.
 final class PillShellView: NSView {
-    /// Space around the chrome layer so the shadow isn't clipped by
-    /// the window bounds.
-    static let shadowMargin: CGFloat = 16
+    /// Transparent window-space around the visible pill so SwiftUI shadows
+    /// are not clipped by the NSPanel bounds.
+    static let shadowMargin: CGFloat = 24
     static let cornerRadius: CGFloat = 14
 
-    private let chromeLayer = CALayer()
-    private let contentClipView = NSView()
     private(set) var contentView: NSView?
     private var pendingContentSync = false
     private var targetWindowSize: NSSize?
@@ -63,21 +84,10 @@ final class PillShellView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.masksToBounds = false
-        layer?.addSublayer(chromeLayer)
-
-        contentClipView.translatesAutoresizingMaskIntoConstraints = false
-        contentClipView.wantsLayer = true
-        contentClipView.layer?.cornerRadius = Self.cornerRadius
-        contentClipView.layer?.masksToBounds = true
-        addSubview(contentClipView)
-
-        let m = Self.shadowMargin
-        NSLayoutConstraint.activate([
-            contentClipView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: m),
-            contentClipView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -m),
-            contentClipView.topAnchor.constraint(equalTo: topAnchor, constant: m),
-            contentClipView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -m),
-        ])
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.45
+        layer?.shadowRadius = 8
+        layer?.shadowOffset = CGSize(width: 0, height: -4)
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }
@@ -85,16 +95,13 @@ final class PillShellView: NSView {
     func setContent(_ view: NSView) {
         contentView?.removeFromSuperview()
         contentView = view
-        contentClipView.addSubview(view)
+        addSubview(view)
         view.translatesAutoresizingMaskIntoConstraints = false
-        // Pin top + leading + trailing only. The hosting view may jump to
-        // its final intrinsic height immediately, while the NSPanel animates
-        // toward that height; contentClipView tracks the current pill bounds
-        // and clips the interim overflow so content never leaks outside.
+        let m = Self.shadowMargin
         NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: contentClipView.leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: contentClipView.trailingAnchor),
-            view.topAnchor.constraint(equalTo: contentClipView.topAnchor),
+            view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: m),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -m),
+            view.topAnchor.constraint(equalTo: topAnchor, constant: m),
         ])
 
         // Resize the window whenever hostingView's frame (= SwiftUI
@@ -113,6 +120,11 @@ final class PillShellView: NSView {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    override func layout() {
+        super.layout()
+        updateShadowPath()
     }
 
     @objc private func contentFrameChanged(_ note: Notification) {
@@ -150,6 +162,18 @@ final class PillShellView: NSView {
         FloatingPanelController.resizeToContent(panel, size: desired)
     }
 
+    private func updateShadowPath() {
+        let m = Self.shadowMargin
+        let pillRect = bounds.insetBy(dx: m, dy: m)
+        guard pillRect.width > 0, pillRect.height > 0 else { return }
+        layer?.shadowPath = CGPath(
+            roundedRect: pillRect,
+            cornerWidth: Self.cornerRadius,
+            cornerHeight: Self.cornerRadius,
+            transform: nil
+        )
+    }
+
     private func measuredContentSize(for view: NSView) -> NSSize {
         view.invalidateIntrinsicContentSize()
         view.layoutSubtreeIfNeeded()
@@ -166,31 +190,6 @@ final class PillShellView: NSView {
         let size = measuredContentSize(for: inner)
         let pad = Self.shadowMargin * 2
         return NSSize(width: size.width + pad, height: size.height + pad)
-    }
-
-    override func layout() {
-        super.layout()
-        let pillRect = bounds.insetBy(dx: Self.shadowMargin, dy: Self.shadowMargin)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        chromeLayer.frame = pillRect
-        chromeLayer.cornerRadius = Self.cornerRadius
-        chromeLayer.masksToBounds = false
-        chromeLayer.backgroundColor = NSColor(srgbRed: 0.179, green: 0.179, blue: 0.179, alpha: 1).cgColor
-        chromeLayer.borderColor = NSColor.white.withAlphaComponent(0.06).cgColor
-        chromeLayer.borderWidth = 0.5
-        chromeLayer.shadowColor = NSColor.black.cgColor
-        chromeLayer.shadowOpacity = 0.45
-        chromeLayer.shadowRadius = 8
-        chromeLayer.shadowOffset = CGSize(width: 0, height: -4)
-        chromeLayer.shadowPath = CGPath(
-            roundedRect: CGRect(origin: .zero, size: pillRect.size),
-            cornerWidth: Self.cornerRadius,
-            cornerHeight: Self.cornerRadius,
-            transform: nil
-        )
-        contentClipView.layer?.cornerRadius = Self.cornerRadius
-        CATransaction.commit()
     }
 }
 
@@ -214,31 +213,32 @@ struct FloatingPanelController {
     static func present(_ panel: FloatingPanel, completion: (() -> Void)? = nil) {
         let screen = panel.screen ?? NSScreen.main
         let visible = visibleFrame(screen: screen, panelSize: panel.frame.size)
-        let hidden = hiddenFrame(screen: screen, panelSize: panel.frame.size)
         panel.isFloatingTransitioning = true
         panel.deferredContentSize = nil
         if panel.isVisible {
+            panel.setFrame(visible, display: false)
             panel.orderFrontRegardless()
+            finishTransition(panel)
+            completion?()
         } else {
+            let hidden = hiddenFrame(screen: screen, panelSize: panel.frame.size)
             panel.setFrame(hidden, display: false)
             panel.alphaValue = 0.92
             panel.orderFrontRegardless()
-        }
 
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.18
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
-            ctx.completionHandler = {
-                panel.alphaValue = 1
-                panel.orderFrontRegardless()
-                if !panel.frame.origin.equalTo(visible.origin) || !panel.frame.size.isClose(to: visible.size) {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+                context.completionHandler = {
+                    panel.alphaValue = 1
+                    panel.orderFrontRegardless()
                     panel.setFrame(visible, display: false)
+                    finishTransition(panel)
+                    completion?()
                 }
-                finishTransition(panel)
-                completion?()
+                panel.animator().alphaValue = 1
+                panel.animator().setFrame(visible, display: false)
             }
-            panel.animator().alphaValue = 1
-            panel.animator().setFrame(visible, display: false)
         }
     }
 
@@ -247,13 +247,11 @@ struct FloatingPanelController {
         panel.isFloatingTransitioning = true
         panel.deferredContentSize = nil
 
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.14
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0.0, 0.7, 1.0)
-            ctx.completionHandler = {
-                if !panel.frame.origin.equalTo(hidden.origin) || !panel.frame.size.isClose(to: hidden.size) {
-                    panel.setFrame(hidden, display: false)
-                }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0.0, 0.7, 1.0)
+            context.completionHandler = {
+                panel.setFrame(hidden, display: false)
                 panel.alphaValue = 1
                 finishTransition(panel)
                 completion?()
@@ -277,11 +275,7 @@ struct FloatingPanelController {
         let dy = frame.height - size.height
         frame.origin.y += dy
         frame.size = size
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.16
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().setFrame(frame, display: true)
-        }
+        panel.setFrame(frame, display: false)
     }
 
     private static func finishTransition(_ panel: FloatingPanel) {

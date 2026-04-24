@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import SwiftUI
 
@@ -12,17 +13,6 @@ struct RecappiMiniApp: App {
     }
 
     var body: some Scene {
-        // Use the `label:` form with an explicitly-loaded NSImage whose
-        // `isTemplate = true` is set by us. `MenuBarExtra(_:image:)` with
-        // a string name does NOT respect the Template filename convention
-        // for loose bundle PNGs — so we bypass the string lookup and pass
-        // a pre-flagged NSImage directly.
-        MenuBarExtra {
-            MenuBarContents(appDelegate: appDelegate)
-        } label: {
-            Image(nsImage: menuBarIcon)
-        }
-
         // Standalone Settings window — opened via ⌘, or the gear in the panel.
         // .contentSize makes the window track the SwiftUI content's intrinsic
         // size so settings sections can grow without forcing an internal
@@ -33,21 +23,6 @@ struct RecappiMiniApp: App {
         .windowResizability(.contentSize)
     }
 
-    /// Menu-bar icon. Loaded from `Contents/Resources/LogoTemplate.png`
-    /// with `isTemplate = true` so macOS tints the silhouette to match
-    /// the menu-bar color (light/dark, vibrancy). Size is explicit 18pt
-    /// so the 36pt source is downsampled to the standard menu-bar height
-    /// instead of overflowing the bar.
-    private var menuBarIcon: NSImage {
-        let image = Bundle.main.url(forResource: "LogoTemplate", withExtension: "png")
-            .flatMap(NSImage.init(contentsOf:))
-            ?? NSImage(named: "LogoTemplate")
-            ?? NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "Recappi Mini")
-            ?? NSImage(size: NSSize(width: 18, height: 18))
-        image.isTemplate = true
-        image.size = NSSize(width: 18, height: 18)
-        return image
-    }
 }
 
 struct MenuBarContents: View {
@@ -95,7 +70,7 @@ struct MenuBarContents: View {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWindowDelegate, NSMenuDelegate {
     static let shared = AppDelegate()
 
     private struct UITestAutoPromptCommand: Decodable {
@@ -111,6 +86,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let promptTitle: String?
     }
 
+    private var statusItem: NSStatusItem?
+    private var recordingDotView: NSView?
+    private var showHidePanelMenuItem: NSMenuItem?
+    private var checkForUpdatesMenuItem: NSMenuItem?
     private var panel: FloatingPanel?
     private var cloudWindow: NSWindow?
     private let recorder = AudioRecorder()
@@ -121,6 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var activePromptRefreshTask: Task<Void, Never>?
     private var browserAutoPromptTask: Task<Void, Never>?
     private var hiddenPanelAutoPromptTask: Task<Void, Never>?
+    private var detectedMeetingAutoStopTask: Task<Void, Never>?
+    private var recorderStateObserver: AnyCancellable?
     private var workspaceObservers: [NSObjectProtocol] = []
     private var panelTransitionToken: Int = 0
     private var uiTestCommandPollTimer: Timer?
@@ -131,13 +112,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     /// MenuBarExtra can flip its label between Show / Hide. Published so
     /// the SwiftUI menu re-renders when we toggle.
     @Published var panelVisible: Bool = true
+    @Published private(set) var isRecording: Bool = false
 
     private var effectiveActiveAudioBundleIDs: Set<String> {
-        Set(recorder.runningApps.lazy.filter(\.isActive).map(\.id)).union(simulatedUITestActiveBundleIDs)
+        Set(recorder.runningApps.lazy.filter(\.isActive).map(\.id))
     }
 
     private var hiddenAutoPromptSnoozeDuration: TimeInterval {
         uiTestMode.hiddenAutoPromptSnoozeSeconds ?? 6
+    }
+
+    private var detectedMeetingAutoStopGraceDuration: TimeInterval {
+        uiTestMode.detectedMeetingAutoStopGraceSeconds ?? 8
     }
 
     private var browserMeetingPollInterval: TimeInterval {
@@ -152,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         guard !didFinishLaunching else { return }
         didFinishLaunching = true
         NSApp.setActivationPolicy(.accessory)
+        installStatusItemIfNeeded()
         Task { @MainActor in
             await AuthSessionStore.shared.bootstrapForUITestsIfNeeded()
             if self.uiTestMode.openCloudWindowOnLaunch {
@@ -170,11 +157,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             onClosePanel: { [weak self] in self?.hidePanel() }
         )
 
-        let hostingView = NSHostingView(rootView: contentView)
+        let hostingView = NSHostingView(
+            rootView: FloatingPanelChromeView {
+                contentView
+            }
+        )
         hostingView.sizingOptions = [.intrinsicContentSize]
 
-        // AppKit shell owns the rounded chrome + shadow via CALayer so
-        // the drop shadow is reliable and traces the rounded shape.
+        // AppKit only measures and hosts; SwiftUI owns the rounded chrome,
+        // shadow, and show/hide motion so panel transitions stay compositor-friendly.
         let shell = PillShellView(frame: NSRect(x: 0, y: 0, width: 280 + m * 2, height: 56 + m * 2))
         shell.setContent(hostingView)
         panel.contentView = shell
@@ -205,10 +196,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             .sink { [weak self] active in
                 Task { @MainActor in
                     guard let self else { return }
-                    let effectiveActive = active.union(self.simulatedUITestActiveBundleIDs)
-                    self.recorder.applyActivity(effectiveActive)
-                    self.handleActiveAudioChanged(effectiveActive)
+                    self.recorder.applyActivity(active)
+                    self.handleActiveAudioChanged(self.effectiveActiveAudioBundleIDs)
                 }
+            }
+        recorderStateObserver = recorder.$state
+            .map(\.isRecording)
+            .removeDuplicates()
+            .sink { [weak self] isRecording in
+                guard let self else { return }
+                self.isRecording = isRecording
+                self.updateStatusItemRecordingState(isRecording)
             }
     }
 
@@ -216,6 +214,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         activePromptRefreshTask?.cancel()
         browserAutoPromptTask?.cancel()
         hiddenPanelAutoPromptTask?.cancel()
+        detectedMeetingAutoStopTask?.cancel()
+        recorderStateObserver?.cancel()
         let center = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers {
             center.removeObserver(observer)
@@ -223,6 +223,171 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         workspaceObservers.removeAll()
         uiTestCommandPollTimer?.invalidate()
         uiTestCommandPollTimer = nil
+        if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+            self.statusItem = nil
+        }
+    }
+
+    private func installStatusItemIfNeeded() {
+        guard statusItem == nil else { return }
+
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = item
+        if let button = item.button {
+            button.image = MenuBarIconFactory.idleIcon()
+            button.imagePosition = .imageOnly
+            button.toolTip = "Recappi Mini"
+
+            let dot = StatusRecordingDotView(frame: .zero)
+            dot.wantsLayer = true
+            dot.layer?.backgroundColor = NSColor.systemRed.cgColor
+            dot.layer?.cornerRadius = 1.9
+            dot.layer?.contentsScale = button.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+            dot.isHidden = true
+            button.addSubview(dot)
+            recordingDotView = dot
+            positionRecordingDot()
+        }
+
+        let menu = NSMenu()
+        menu.delegate = self
+
+        let showHide = NSMenuItem(
+            title: "Show Panel",
+            action: #selector(togglePanelFromStatusMenu),
+            keyEquivalent: ""
+        )
+        showHide.target = self
+        showHidePanelMenuItem = showHide
+        menu.addItem(showHide)
+
+        let cloud = NSMenuItem(
+            title: "Recappi Cloud…",
+            action: #selector(showCloudCenterFromStatusMenu),
+            keyEquivalent: ""
+        )
+        cloud.target = self
+        menu.addItem(cloud)
+
+        let settings = NSMenuItem(
+            title: "Settings…",
+            action: #selector(openSettingsFromStatusMenu),
+            keyEquivalent: ","
+        )
+        settings.target = self
+        menu.addItem(settings)
+
+        menu.addItem(.separator())
+
+        let updates = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(checkForUpdatesFromStatusMenu),
+            keyEquivalent: ""
+        )
+        updates.target = self
+        checkForUpdatesMenuItem = updates
+        menu.addItem(updates)
+
+        menu.addItem(.separator())
+
+        let quit = NSMenuItem(
+            title: "Quit",
+            action: #selector(quitFromStatusMenu),
+            keyEquivalent: "q"
+        )
+        quit.target = self
+        menu.addItem(quit)
+
+        item.menu = menu
+        updateStatusMenuItems()
+    }
+
+    private func positionRecordingDot() {
+        guard let button = statusItem?.button, let dot = recordingDotView else { return }
+        let iconSize: CGFloat = 18
+        let dotSize: CGFloat = 3.8
+        let iconOrigin = CGPoint(
+            x: button.bounds.midX - iconSize / 2,
+            y: button.bounds.midY - iconSize / 2
+        )
+        // The logo is a 36px template scaled to 18pt. The face points right;
+        // these ratios put the recording dot on the nose instead of as a
+        // generic status badge.
+        let center = CGPoint(
+            x: iconOrigin.x + iconSize * 0.92,
+            y: iconOrigin.y + iconSize * 0.58
+        )
+        let originY = button.isFlipped
+            ? button.bounds.height - center.y - dotSize / 2
+            : center.y - dotSize / 2
+        dot.frame = CGRect(
+            x: center.x - dotSize / 2,
+            y: originY,
+            width: dotSize,
+            height: dotSize
+        )
+    }
+
+    private func updateStatusItemRecordingState(_ isRecording: Bool) {
+        positionRecordingDot()
+        recordingDotView?.isHidden = !isRecording
+        if isRecording {
+            startRecordingDotPulse()
+        } else {
+            stopRecordingDotPulse()
+        }
+    }
+
+    private func startRecordingDotPulse() {
+        guard let layer = recordingDotView?.layer else { return }
+        guard layer.animation(forKey: "recappi.recordingDotPulse") == nil else { return }
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 1.0
+        animation.toValue = 0.42
+        animation.duration = 0.9
+        animation.autoreverses = true
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(animation, forKey: "recappi.recordingDotPulse")
+    }
+
+    private func stopRecordingDotPulse() {
+        guard let layer = recordingDotView?.layer else { return }
+        layer.removeAnimation(forKey: "recappi.recordingDotPulse")
+        layer.opacity = 1
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        updateStatusMenuItems()
+    }
+
+    private func updateStatusMenuItems() {
+        showHidePanelMenuItem?.title = panelVisible ? "Hide Panel" : "Show Panel"
+        checkForUpdatesMenuItem?.isEnabled = appUpdater.canCheckForUpdates
+    }
+
+    @objc private func togglePanelFromStatusMenu() {
+        togglePanel()
+        updateStatusMenuItems()
+    }
+
+    @objc private func showCloudCenterFromStatusMenu() {
+        showCloudCenter()
+    }
+
+    @objc private func openSettingsFromStatusMenu() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
+
+    @objc private func checkForUpdatesFromStatusMenu() {
+        appUpdater.checkForUpdates()
+    }
+
+    @objc private func quitFromStatusMenu() {
+        NSApp.terminate(nil)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -348,20 +513,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         uiTestCommandPollTimer?.tolerance = 0.05
     }
 
-    private var simulatedUITestActiveBundleIDs: Set<String> {
-        guard let simulated = uiTestMode.simulatedAutoPromptApp else { return [] }
-        return [simulated.bundleID]
-    }
-
     private func installUITestAutoPromptIfNeeded() {
         guard let simulated = uiTestMode.simulatedAutoPromptApp else { return }
         recorder.injectUITestAudioApp(bundleID: simulated.bundleID, name: simulated.name)
-        let active = simulatedUITestActiveBundleIDs
+        let active = Set([simulated.bundleID])
         recorder.applyActivity(active)
         handleActiveAudioChanged(active)
     }
 
     private func handleActiveAudioChanged(_ active: Set<String>) {
+        handleDetectedMeetingRecordingActivity(active)
         promptedAutoPromptKeyByBundleID = promptedAutoPromptKeyByBundleID.filter { active.contains($0.key) }
 
         guard AppConfig.shared.autoPromptForActiveAudioApps else {
@@ -400,6 +561,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             }
             self.scheduleBrowserMeetingAutoPromptIfNeeded(latestActive)
         }
+    }
+
+    private func handleDetectedMeetingRecordingActivity(_ active: Set<String>) {
+        guard let context = recorder.detectedMeetingRecordingContext,
+              recorder.state == .recording else {
+            detectedMeetingAutoStopTask?.cancel()
+            detectedMeetingAutoStopTask = nil
+            return
+        }
+
+        let targetID = BundleCollapser.parent(of: context.appID)
+        guard !active.contains(targetID) else {
+            detectedMeetingAutoStopTask?.cancel()
+            detectedMeetingAutoStopTask = nil
+            return
+        }
+
+        guard detectedMeetingAutoStopTask == nil else { return }
+        let grace = detectedMeetingAutoStopGraceDuration
+        detectedMeetingAutoStopTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(grace))
+                guard !Task.isCancelled else { return }
+                guard self.recorder.state == .recording,
+                      let current = self.recorder.detectedMeetingRecordingContext,
+                      current.appID == context.appID else {
+                    self.detectedMeetingAutoStopTask = nil
+                    return
+                }
+
+                let latestActive = self.effectiveActiveAudioBundleIDs
+                guard !latestActive.contains(targetID) else {
+                    self.detectedMeetingAutoStopTask = nil
+                    return
+                }
+
+                if await self.browserMeetingStillLooksActive(current) {
+                    continue
+                }
+
+                self.recorder.requestAutoStopForDetectedMeetingIfNeeded()
+                self.detectedMeetingAutoStopTask = nil
+                return
+            }
+        }
+    }
+
+    private func browserMeetingStillLooksActive(_ context: DetectedMeetingRecordingContext) async -> Bool {
+        guard BrowserMeetingDetector.supports(bundleID: context.appID) else { return false }
+        if meetingLabelOverride(for: context.appID) != nil {
+            return true
+        }
+        return await BrowserMeetingDetector.inferMeetingSuggestion(
+            bundleID: context.appID,
+            browserName: context.appName
+        ) != nil
     }
 
     @discardableResult
@@ -495,6 +714,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             return override
         }
         guard uiTestMode.simulatedAutoPromptApp?.bundleID == bundleID else { return nil }
+        guard effectiveActiveAudioBundleIDs.contains(bundleID) else { return nil }
         guard let override = uiTestMode.simulatedAutoPromptMeetingLabel, !override.isEmpty else { return nil }
         return override
     }
@@ -506,8 +726,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         if !command.active {
             uiTestMeetingLabelByBundleID.removeValue(forKey: command.bundleID)
-            recorder.applyActivity([])
-            handleActiveAudioChanged([])
+            let appName = command.appName.isEmpty ? command.bundleID : command.appName
+            recorder.setUITestAudioApp(bundleID: command.bundleID, name: appName, active: false)
+            let active = effectiveActiveAudioBundleIDs
+            recorder.applyActivity(active)
+            handleActiveAudioChanged(active)
             return
         }
 
@@ -521,7 +744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             uiTestMeetingLabelByBundleID.removeValue(forKey: bundleID)
         }
 
-        recorder.injectUITestAudioApp(bundleID: bundleID, name: appName)
+        recorder.setUITestAudioApp(bundleID: bundleID, name: appName, active: true)
         let active = Set([bundleID])
         recorder.applyActivity(active)
         handleActiveAudioChanged(active)

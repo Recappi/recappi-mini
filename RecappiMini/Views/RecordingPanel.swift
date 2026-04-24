@@ -17,14 +17,16 @@ struct RecordingPanel: View {
                 height: contentHeight,
                 alignment: .topLeading
             )
-            .clipped()
             .padding(panelPadding)
             .frame(width: DT.panelWidth, height: contentHeight + DT.panelPadding * 2)
-            // Pill chrome (rounded bg + border + shadow) is painted by
-            // the AppKit `PillShellView` wrapping this NSHostingView.
-            // Keep explicit per-state heights so AppKit never animates from
-            // a stale NSHostingView frame while SwiftUI content has already
-            // moved to the next state.
+            // Keep explicit per-state heights so the transparent NSPanel can
+            // snap to the latest SwiftUI size without animating AppKit layout.
+            // Do not clip here: the logo glow intentionally paints outside
+            // its 28pt tile bounds, while the outer panel still clips to the
+            // rounded pill shape.
+            .onReceive(recorder.$autoStopRequest.compactMap { $0 }) { _ in
+                stopRecording()
+            }
     }
 
     private var panelPadding: EdgeInsets {
@@ -131,7 +133,7 @@ struct RecordingPanel: View {
     }
 
     private func startSuggestedRecording() {
-        _ = recorder.acceptRecordingSuggestion()
+        guard recorder.acceptRecordingSuggestion() else { return }
         startRecording()
     }
 
@@ -204,7 +206,7 @@ private struct IdleState: View {
                             Image(systemName: "speaker.wave.2.fill")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(DT.waveformLit)
-                            Text("\(suggestion.promptTitle) may be in a meeting")
+                            Text(meetingHintText(title: suggestion.promptTitle, appName: suggestion.appName))
                                 .font(.system(size: 10.5, weight: .medium))
                                 .foregroundStyle(Color.dtLabelSecondary)
                                 .lineLimit(1)
@@ -223,7 +225,7 @@ private struct IdleState: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 2)
-                    .accessibilityLabel("\(suggestion.promptTitle) may be in a meeting")
+                    .accessibilityLabel(meetingHintText(title: suggestion.promptTitle, appName: suggestion.appName))
                     .accessibilityIdentifier(AccessibilityIDs.Panel.recordingSuggestion)
                     .help("Record only \(suggestion.appName). Use the source menu to keep recording all system audio.")
                 } else if let prompt = recorder.meetingPrompt {
@@ -231,7 +233,7 @@ private struct IdleState: View {
                         Image(systemName: "video.fill")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(DT.waveformLit)
-                        Text("\(prompt.promptTitle) may be in a meeting")
+                        Text(meetingHintText(title: prompt.promptTitle, appName: prompt.appName))
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(Color.dtLabelSecondary)
                             .lineLimit(1)
@@ -239,13 +241,36 @@ private struct IdleState: View {
                     }
                     .padding(.horizontal, 2)
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel("\(prompt.promptTitle) may be in a meeting")
+                    .accessibilityLabel(meetingHintText(title: prompt.promptTitle, appName: prompt.appName))
                     .accessibilityIdentifier(AccessibilityIDs.Panel.meetingPrompt)
                     .help("Recappi Mini selected \(prompt.appName) because it looks like a meeting is active.")
                 }
             }
         }
         .task { await recorder.refreshApps() }
+    }
+
+    private func meetingHintText(title: String, appName: String) -> String {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedApp = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            return trimmedApp.isEmpty ? "Meeting audio detected" : "\(trimmedApp) may be in a meeting"
+        }
+
+        if trimmedTitle.compare(trimmedApp, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame {
+            return "\(trimmedApp) may be in a meeting"
+        }
+
+        if let range = trimmedTitle.range(of: " in ", options: [.caseInsensitive, .backwards]) {
+            let service = trimmedTitle[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+            let source = trimmedTitle[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !service.isEmpty && !source.isEmpty {
+                return "\(service) detected in \(source)"
+            }
+        }
+
+        guard !trimmedApp.isEmpty else { return "\(trimmedTitle) detected" }
+        return "\(trimmedTitle) detected in \(trimmedApp)"
     }
 
     private var controlsRow: some View {

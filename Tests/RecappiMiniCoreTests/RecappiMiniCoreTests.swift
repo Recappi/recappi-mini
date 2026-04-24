@@ -626,6 +626,21 @@ final class RecappiMiniCoreTests: XCTestCase {
         ))
     }
 
+    func testBundleCollapserCanonicalizesArcHelpersCaseInsensitively() {
+        XCTAssertEqual(
+            BundleCollapser.parent(of: "company.thebrowser.browser.Helper.Renderer"),
+            "company.thebrowser.Browser"
+        )
+        XCTAssertTrue(BundleCollapser.matches(
+            "company.thebrowser.browser.Helper.Renderer",
+            selected: "company.thebrowser.Browser"
+        ))
+        XCTAssertEqual(
+            BundleCollapser.browserDisplayName(for: "company.thebrowser.browser.Helper.Renderer", fallback: "Arc Helper"),
+            "Arc"
+        )
+    }
+
     @MainActor
     func testRecordingSuggestionDoesNotReplaceCurrentSourceUntilAccepted() {
         let recorder = AudioRecorder()
@@ -659,6 +674,7 @@ final class RecappiMiniCoreTests: XCTestCase {
 
     func testBrowserMeetingDetectorSupportsArc() {
         XCTAssertTrue(BrowserMeetingDetector.supports(bundleID: "company.thebrowser.Browser"))
+        XCTAssertTrue(BrowserMeetingDetector.supports(bundleID: "company.thebrowser.browser.Helper.Renderer"))
     }
 
     func testBrowserMeetingDetectorFindsMeetingTabAmongArcTabs() {

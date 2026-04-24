@@ -89,6 +89,7 @@ extension XCTestCase {
         simulatedAutoPromptApp: (bundleID: String, name: String)? = nil,
         simulatedAutoPromptMeetingLabel: String? = nil,
         hiddenAutoPromptSnoozeSeconds: TimeInterval? = nil,
+        detectedMeetingAutoStopGraceSeconds: TimeInterval? = nil,
         openCloudWindowOnLaunch: Bool = false
     ) -> XCUIApplication {
         terminateExistingRecappiInstances()
@@ -115,6 +116,9 @@ extension XCTestCase {
         }
         if let hiddenAutoPromptSnoozeSeconds {
             app.launchEnvironment["RECAPPI_TEST_HIDDEN_AUTOPROMPT_SNOOZE_SECONDS"] = String(hiddenAutoPromptSnoozeSeconds)
+        }
+        if let detectedMeetingAutoStopGraceSeconds {
+            app.launchEnvironment["RECAPPI_TEST_DETECTED_MEETING_AUTOSTOP_GRACE_SECONDS"] = String(detectedMeetingAutoStopGraceSeconds)
         }
         if openCloudWindowOnLaunch {
             app.launchEnvironment["RECAPPI_TEST_OPEN_CLOUD_WINDOW"] = "1"

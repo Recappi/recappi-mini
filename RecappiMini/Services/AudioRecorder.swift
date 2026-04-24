@@ -43,6 +43,17 @@ struct MeetingPrompt: Equatable, Sendable {
     let promptTitle: String
 }
 
+struct DetectedMeetingRecordingContext: Equatable, Sendable {
+    let appID: String
+    let appName: String
+    let promptTitle: String
+}
+
+struct AutoStopRecordingRequest: Equatable, Identifiable, Sendable {
+    let id = UUID()
+    let context: DetectedMeetingRecordingContext
+}
+
 /// Bundle-ID whitelists for smart sorting. Helpers / renderers are filtered
 /// out at the refresh step, so we classify by the user-visible parent bundle.
 private enum AudioAppCategories {
@@ -74,8 +85,9 @@ private enum AudioAppCategories {
     ]
 
     static func bucket(for bundleID: String) -> AudioApp.Bucket {
-        if meetingBundles.contains(bundleID) { return .meeting }
-        if browserBundles.contains(bundleID) { return .browser }
+        let canonical = BundleCollapser.parent(of: bundleID)
+        if meetingBundles.contains(canonical) { return .meeting }
+        if browserBundles.contains(canonical) { return .browser }
         return .other
     }
 }
@@ -92,13 +104,89 @@ enum BundleCollapser {
         ".plugin_host",
     ]
 
+    private static let canonicalBundleIDsByLowercase: [String: String] = [
+        "com.apple.safari": "com.apple.Safari",
+        "com.google.chrome": "com.google.Chrome",
+        "com.google.chrome.beta": "com.google.Chrome.beta",
+        "com.google.chrome.canary": "com.google.Chrome.canary",
+        "com.brave.browser": "com.brave.Browser",
+        "company.thebrowser.browser": "company.thebrowser.Browser",
+        "company.thebrowser.arc": "company.thebrowser.Browser",
+        "com.microsoft.edgemac": "com.microsoft.edgemac",
+        "com.vivaldi.vivaldi": "com.vivaldi.Vivaldi",
+        "com.operasoftware.opera": "com.operasoftware.Opera",
+    ]
+
     static func parent(of bundleID: String) -> String {
-        for marker in markers {
-            if let range = bundleID.range(of: marker) {
-                return String(bundleID[..<range.lowerBound])
-            }
+        let stripped: String
+        if let range = markers
+            .compactMap({ bundleID.range(of: $0, options: [.caseInsensitive]) })
+            .min(by: { $0.lowerBound < $1.lowerBound }) {
+            stripped = String(bundleID[..<range.lowerBound])
+        } else {
+            stripped = bundleID
         }
-        return bundleID
+
+        return canonicalBundleID(stripped)
+    }
+
+    static func matches(_ bundleID: String, selected selectedBundleID: String) -> Bool {
+        let candidateParent = parent(of: bundleID)
+        let selectedParent = parent(of: selectedBundleID)
+        if candidateParent == selectedParent { return true }
+
+        let candidate = bundleID.lowercased()
+        let selected = selectedParent.lowercased()
+        return candidate == selected || candidate.hasPrefix("\(selected).")
+    }
+
+    private static func canonicalBundleID(_ bundleID: String) -> String {
+        canonicalBundleIDsByLowercase[bundleID.lowercased()] ?? bundleID
+    }
+
+    static func canonicalBrowserBundleID(for appName: String) -> String? {
+        let normalized = appName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        switch normalized {
+        case "arc", "arc browser":
+            return "company.thebrowser.Browser"
+        case "google chrome", "chrome":
+            return "com.google.Chrome"
+        case "safari":
+            return "com.apple.Safari"
+        case "brave browser", "brave":
+            return "com.brave.Browser"
+        case "microsoft edge", "edge":
+            return "com.microsoft.edgemac"
+        case "vivaldi":
+            return "com.vivaldi.Vivaldi"
+        case "opera":
+            return "com.operasoftware.Opera"
+        default:
+            return nil
+        }
+    }
+
+    static func browserDisplayName(for bundleID: String, fallback: String) -> String {
+        switch parent(of: bundleID) {
+        case "company.thebrowser.Browser":
+            return "Arc"
+        case "com.google.Chrome":
+            return "Google Chrome"
+        case "com.apple.Safari":
+            return "Safari"
+        default:
+            if let canonical = canonicalBrowserBundleID(for: fallback) {
+                switch canonical {
+                case "company.thebrowser.Browser": return "Arc"
+                case "com.google.Chrome": return "Google Chrome"
+                case "com.apple.Safari": return "Safari"
+                default: break
+                }
+            }
+            return fallback
+        }
     }
 }
 
@@ -111,6 +199,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var recordingSuggestion: RecordingSuggestion?
     @Published var meetingPrompt: MeetingPrompt?
     @Published var recordingAppName: String?
+    @Published private(set) var detectedMeetingRecordingContext: DetectedMeetingRecordingContext?
+    @Published private(set) var autoStopRequest: AutoStopRecordingRequest?
     @Published var audioLevel: Float = 0
     @Published var audioSpectrumLevels: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
     @Published var audioLevelHistory: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
@@ -145,6 +235,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var uiTestInjectedAudioApps: [String: AudioApp] = [:]
     private var uiTestInjectedActiveBundleIDs: Set<String> = []
     private var refreshAppsRetryTask: Task<Void, Never>?
+    private var pendingDetectedMeetingRecordingContext: DetectedMeetingRecordingContext?
 
     static let spectrumBucketCount = AudioSpectrumConfiguration.bucketCount
     private static let historySampleInterval: CFTimeInterval = 0.18
@@ -230,6 +321,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         if clearPrompts {
             recordingSuggestion = nil
             meetingPrompt = nil
+            pendingDetectedMeetingRecordingContext = nil
         }
     }
 
@@ -264,16 +356,24 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     func injectUITestAudioApp(bundleID: String, name: String) {
+        setUITestAudioApp(bundleID: bundleID, name: name, active: true)
+    }
+
+    func setUITestAudioApp(bundleID: String, name: String, active: Bool) {
         let app = AudioApp(
             id: bundleID,
             name: name,
             icon: nil,
             scApp: nil,
             bucket: AudioAppCategories.bucket(for: bundleID),
-            isActive: true
+            isActive: active
         )
         uiTestInjectedAudioApps[bundleID] = app
-        uiTestInjectedActiveBundleIDs.insert(bundleID)
+        if active {
+            uiTestInjectedActiveBundleIDs.insert(bundleID)
+        } else {
+            uiTestInjectedActiveBundleIDs.remove(bundleID)
+        }
         applyRunningApps(appsWithUITestInjections(runningApps, active: effectiveActiveBundleIDs(from: activityMonitor.activeBundleIDs)))
     }
 
@@ -286,6 +386,11 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         selectedApp = app
+        pendingDetectedMeetingRecordingContext = DetectedMeetingRecordingContext(
+            appID: suggestion.appID,
+            appName: suggestion.appName,
+            promptTitle: suggestion.promptTitle
+        )
         recordingSuggestion = nil
         meetingPrompt = nil
         return true
@@ -344,7 +449,7 @@ final class AudioRecorder: NSObject, ObservableObject {
                ?? (bundle.infoDictionary?["CFBundleName"] as? String) {
             return name
         }
-        return fallback
+        return BundleCollapser.browserDisplayName(for: bundleID, fallback: fallback)
     }
 
     private func applyRunningApps(_ apps: [AudioApp]) {
@@ -357,7 +462,10 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func effectiveActiveBundleIDs(from active: Set<String>) -> Set<String> {
-        active.union(uiTestInjectedActiveBundleIDs)
+        if uiTestMode.isEnabled, !uiTestInjectedAudioApps.isEmpty {
+            return uiTestInjectedActiveBundleIDs
+        }
+        return active.union(uiTestInjectedActiveBundleIDs)
     }
 
     private func appsWithUITestInjections(_ apps: [AudioApp], active: Set<String>) -> [AudioApp] {
@@ -482,6 +590,8 @@ final class AudioRecorder: NSObject, ObservableObject {
             "com.apple.Safari",
             "com.apple.FaceTime",
             "com.apple.Music",
+            "com.apple.QuickTimePlayerX",
+            "com.apple.VoiceMemos",
         ]
         return notable.contains(bid)
     }
@@ -491,125 +601,129 @@ final class AudioRecorder: NSObject, ObservableObject {
     func startRecording() async throws {
         guard state == .idle else { return }
         let metadata = recordingSessionMetadata()
+        let autoStopContext = detectedMeetingContextForNextRecording()
+        pendingDetectedMeetingRecordingContext = nil
         recordingSuggestion = nil
         meetingPrompt = nil
         state = .starting
 
         if uiTestMode.isEnabled {
-            try startUITestRecording()
+            try startUITestRecording(metadata: metadata, autoStopContext: autoStopContext)
             return
         }
 
-        try await requestMicrophoneAccessIfNeeded()
-        guard CapturePermissionPrimer.shared.hasScreenCaptureAccess() else {
-            throw RecorderError.screenCaptureDenied
-        }
-
-        let content = try await SCShareableContent.current
-        guard let display = content.displays.first else {
-            throw RecorderError.noDisplay
-        }
-
-        let sessionDir = try RecordingStore.createSessionDirectory()
-        RecordingStore.saveSessionMetadata(metadata, in: sessionDir)
-        self.sessionDir = sessionDir
-
-        // Intermediate files; merged into recording.m4a at stop.
-        let systemURL = sessionDir.appendingPathComponent("system.m4a")
-        let micURL = sessionDir.appendingPathComponent("mic.m4a")
-
-        let outputAudioDeviceID = try OutputDeviceAudioFormat.currentDefaultOutputDeviceID()
-        self.currentOutputAudioDeviceID = outputAudioDeviceID
-
-        // --- System audio pipeline ---
-        let sysWriter = SegmentedAudioWriter(finalURL: systemURL, processingQueue: systemCaptureQueue)
-        let sysOut = SystemAudioOutput(writer: sysWriter)
-        sysOut.onMeterFrame = { [weak self] frame in
-            self?.ingestMeterFrame(frame)
-        }
-        self.systemOutput = sysOut
-
-        let filter: SCContentFilter
-        if let app = selectedApp {
-            let liveApps = content.applications.filter {
-                Self.parentBundle(of: $0.bundleIdentifier) == app.id
+        do {
+            try await requestMicrophoneAccessIfNeeded()
+            guard CapturePermissionPrimer.shared.hasScreenCaptureAccess() else {
+                throw RecorderError.screenCaptureDenied
             }
-            if !liveApps.isEmpty {
-                filter = SCContentFilter(display: display, including: liveApps, exceptingWindows: [])
-                recordingAppName = app.name
+
+            let content = try await SCShareableContent.current
+            guard let display = content.displays.first else {
+                throw RecorderError.noDisplay
+            }
+
+            let sessionDir = try RecordingStore.createSessionDirectory()
+            RecordingStore.saveSessionMetadata(metadata, in: sessionDir)
+            self.sessionDir = sessionDir
+
+            // Intermediate files; merged into recording.m4a at stop.
+            let systemURL = sessionDir.appendingPathComponent("system.m4a")
+            let micURL = sessionDir.appendingPathComponent("mic.m4a")
+
+            let outputAudioDeviceID = try OutputDeviceAudioFormat.currentDefaultOutputDeviceID()
+            self.currentOutputAudioDeviceID = outputAudioDeviceID
+
+            // --- System audio pipeline ---
+            let sysWriter = SegmentedAudioWriter(finalURL: systemURL, processingQueue: systemCaptureQueue)
+            let sysOut = SystemAudioOutput(writer: sysWriter)
+            sysOut.onMeterFrame = { [weak self] frame in
+                self?.ingestMeterFrame(frame)
+            }
+            self.systemOutput = sysOut
+
+            let filter: SCContentFilter
+            if let app = selectedApp {
+                let liveApps = content.applications.filter {
+                    BundleCollapser.matches($0.bundleIdentifier, selected: app.id)
+                }
+                if !liveApps.isEmpty {
+                    filter = SCContentFilter(display: display, including: liveApps, exceptingWindows: [])
+                    recordingAppName = app.name
+                } else {
+                    filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                    recordingAppName = nil
+                }
             } else {
                 filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
                 recordingAppName = nil
             }
-        } else {
-            filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-            recordingAppName = nil
-        }
 
-        let config = makeSystemAudioConfiguration()
+            let config = makeSystemAudioConfiguration()
 
-        let scStream = SCStream(filter: filter, configuration: config, delegate: nil)
-        try scStream.addStreamOutput(sysOut, type: .audio, sampleHandlerQueue: systemCaptureQueue)
-        self.stream = scStream
+            let scStream = SCStream(filter: filter, configuration: config, delegate: nil)
+            try scStream.addStreamOutput(sysOut, type: .audio, sampleHandlerQueue: systemCaptureQueue)
+            self.stream = scStream
 
-        // --- Microphone pipeline ---
-        let captureSession = AVCaptureSession()
-        guard let micDevice = AVCaptureDevice.default(for: .audio) else {
-            throw RecorderError.noMicrophone
-        }
-        let deviceInput = try AVCaptureDeviceInput(device: micDevice)
-        guard captureSession.canAddInput(deviceInput) else {
-            throw RecorderError.micSetupFailed
-        }
-        captureSession.addInput(deviceInput)
+            // --- Microphone pipeline ---
+            let captureSession = AVCaptureSession()
+            guard let micDevice = AVCaptureDevice.default(for: .audio) else {
+                throw RecorderError.noMicrophone
+            }
+            let deviceInput = try AVCaptureDeviceInput(device: micDevice)
+            guard captureSession.canAddInput(deviceInput) else {
+                throw RecorderError.micSetupFailed
+            }
+            captureSession.addInput(deviceInput)
 
-        let mcWriter = SegmentedAudioWriter(finalURL: micURL, processingQueue: micCaptureQueue)
-        let mcOut = MicAudioOutput(writer: mcWriter)
-        mcOut.onMeterFrame = { [weak self] frame in
-            self?.ingestMeterFrame(frame)
-        }
-        let captureOutput = AVCaptureAudioDataOutput()
-        captureOutput.audioSettings = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 32,
-            AVLinearPCMIsFloatKey: true,
-            AVLinearPCMIsNonInterleaved: false,
-        ]
-        captureOutput.setSampleBufferDelegate(mcOut, queue: micCaptureQueue)
-        guard captureSession.canAddOutput(captureOutput) else {
-            throw RecorderError.micSetupFailed
-        }
-        captureSession.addOutput(captureOutput)
-        self.micSession = captureSession
-        self.micOutput = mcOut
+            let mcWriter = SegmentedAudioWriter(finalURL: micURL, processingQueue: micCaptureQueue)
+            let mcOut = MicAudioOutput(writer: mcWriter)
+            mcOut.onMeterFrame = { [weak self] frame in
+                self?.ingestMeterFrame(frame)
+            }
+            let captureOutput = AVCaptureAudioDataOutput()
+            captureOutput.audioSettings = [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 48_000,
+                AVNumberOfChannelsKey: 1,
+                AVLinearPCMBitDepthKey: 32,
+                AVLinearPCMIsFloatKey: true,
+                AVLinearPCMIsNonInterleaved: false,
+            ]
+            captureOutput.setSampleBufferDelegate(mcOut, queue: micCaptureQueue)
+            guard captureSession.canAddOutput(captureOutput) else {
+                throw RecorderError.micSetupFailed
+            }
+            captureSession.addOutput(captureOutput)
+            self.micSession = captureSession
+            self.micOutput = mcOut
 
-        // --- Start both pipelines ---
-        do {
+            // --- Start both pipelines ---
             try startMonitoringOutputDeviceChanges()
             try await scStream.startCapture()
             captureSession.startRunning()
+
+            self.audioLevel = 0
+            self.audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
+            self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
+            self.lastLevelPublish = 0
+            self.lastHistoryPublish = 0
+            self.detectedMeetingRecordingContext = autoStopContext
+            self.state = .recording
+            self.elapsedSeconds = 0
+            self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    self?.elapsedSeconds += 1
+                }
+            }
         } catch {
+            detectedMeetingRecordingContext = nil
             stopMonitoringOutputDeviceChanges()
             self.stream = nil
             self.systemOutput = nil
             self.micSession = nil
             self.micOutput = nil
             throw error
-        }
-
-        self.audioLevel = 0
-        self.audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
-        self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
-        self.lastLevelPublish = 0
-        self.lastHistoryPublish = 0
-        self.state = .recording
-        self.elapsedSeconds = 0
-        self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.elapsedSeconds += 1
-            }
         }
     }
 
@@ -618,6 +732,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             throw RecorderError.notRecording
         }
 
+        detectedMeetingRecordingContext = nil
         self.state = .processing(.savingAudio)
         self.timer?.invalidate()
         self.timer = nil
@@ -734,6 +849,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         micSession = nil
         micOutput = nil
         recordingAppName = nil
+        detectedMeetingRecordingContext = nil
+        pendingDetectedMeetingRecordingContext = nil
+        autoStopRequest = nil
     }
 
     private func normalizeSpectrum(_ levels: [Float]) -> [Float] {
@@ -762,7 +880,16 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
-    private func startUITestRecording() throws {
+    func requestAutoStopForDetectedMeetingIfNeeded() {
+        guard state == .recording, let context = detectedMeetingRecordingContext else { return }
+        detectedMeetingRecordingContext = nil
+        autoStopRequest = AutoStopRecordingRequest(context: context)
+    }
+
+    private func startUITestRecording(
+        metadata: RecordingSessionMetadata,
+        autoStopContext: DetectedMeetingRecordingContext?
+    ) throws {
         guard let fixturePath = uiTestMode.audioFixturePath, !fixturePath.isEmpty else {
             throw RecorderError.missingUITestFixture
         }
@@ -771,7 +898,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         let sessionDir = try RecordingStore.createSessionDirectory()
-        RecordingStore.saveSessionMetadata(recordingSessionMetadata(), in: sessionDir)
+        RecordingStore.saveSessionMetadata(metadata, in: sessionDir)
         self.sessionDir = sessionDir
         self.lastSessionDir = nil
         self.audioLevel = 0
@@ -779,6 +906,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
         self.lastLevelPublish = 0
         self.lastHistoryPublish = 0
+        self.detectedMeetingRecordingContext = autoStopContext
         self.state = .recording
         self.elapsedSeconds = 0
         self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -798,6 +926,18 @@ final class AudioRecorder: NSObject, ObservableObject {
             sourceTitle: sourceTitle,
             sourceAppName: appName,
             sourceBundleID: bundleID
+        )
+    }
+
+    private func detectedMeetingContextForNextRecording() -> DetectedMeetingRecordingContext? {
+        if let pendingDetectedMeetingRecordingContext {
+            return pendingDetectedMeetingRecordingContext
+        }
+        guard let prompt = meetingPrompt else { return nil }
+        return DetectedMeetingRecordingContext(
+            appID: prompt.appID,
+            appName: prompt.appName,
+            promptTitle: prompt.promptTitle
         )
     }
 

@@ -198,6 +198,8 @@ struct LogoTile: View {
 
     var body: some View {
         let radius = size * 0.25
+        let glowRadius = size * (9.0 / 48.0)
+        let glowYOffset = size * (4.0 / 48.0)
         Image(nsImage: logoImage)
             .resizable()
             .aspectRatio(contentMode: .fit)
@@ -220,7 +222,7 @@ struct LogoTile: View {
                     .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
             )
             // Figma: box-shadow: 0px 1px 2px rgba(0,0,0,0.25), 0px 4px 18.8px #4CB191
-            .shadow(color: Color(red: 76/255, green: 177/255, blue: 145/255).opacity(0.65), radius: 9, y: 4)
+            .shadow(color: Color(red: 76/255, green: 177/255, blue: 145/255).opacity(0.65), radius: glowRadius, y: glowYOffset)
             .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
     }
 

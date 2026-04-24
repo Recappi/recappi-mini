@@ -42,9 +42,10 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
     func testAutoPromptSuggestionKeepsManualRecordControls() throws {
         let app = launchRecappiApp(
-            authToken: "",
+            authToken: "invalid-test-token",
             simulatedAutoPromptApp: (bundleID: "com.apple.Safari", name: "Safari"),
-            simulatedAutoPromptMeetingLabel: "Google Meet in Safari"
+            simulatedAutoPromptMeetingLabel: "Google Meet in Safari",
+            detectedMeetingAutoStopGraceSeconds: 0.1
         )
 
         let suggestion = uiElement(app, id: UITestIDs.Panel.recordingSuggestion)
@@ -53,7 +54,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             .compactMap { $0 }
             .joined(separator: " ")
         XCTAssertTrue(
-            suggestionText.localizedCaseInsensitiveContains("Google Meet in Safari"),
+            suggestionText.localizedCaseInsensitiveContains("Google Meet detected in Safari"),
             "Expected meeting-specific suggestion text, got: \(suggestionText)"
         )
 
@@ -67,11 +68,48 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         let stopButton = app.buttons[UITestIDs.Panel.stopButton]
         XCTAssertTrue(stopButton.waitForExistence(timeout: 15), "Expected recording to start from the manual record button.")
 
+        postSimulatedAutoPrompt(
+            bundleID: "com.apple.Safari",
+            appName: "Safari",
+            meetingLabel: "Google Meet in Safari",
+            active: false
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+        XCTAssertTrue(stopButton.exists, "Expected manual recording to keep running when detected meeting audio ends.")
+
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = "auto-prompt-manual-record"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testDetectedMeetingSuggestionAutoStopsWhenAudioEnds() throws {
+        let app = launchRecappiApp(
+            authToken: "invalid-test-token",
+            simulatedAutoPromptApp: (bundleID: "com.google.Chrome", name: "Google Chrome"),
+            simulatedAutoPromptMeetingLabel: "Google Meet in Chrome",
+            detectedMeetingAutoStopGraceSeconds: 0.1
+        )
+
+        let suggestion = uiElement(app, id: UITestIDs.Panel.recordingSuggestion)
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 15), "Expected auto-prompt suggestion banner.")
+        suggestion.click()
+
+        let stopButton = app.buttons[UITestIDs.Panel.stopButton]
+        XCTAssertTrue(stopButton.waitForExistence(timeout: 15), "Expected suggested app recording to start.")
+
+        postSimulatedAutoPrompt(
+            bundleID: "com.google.Chrome",
+            appName: "Google Chrome",
+            meetingLabel: "Google Meet in Chrome",
+            active: false
+        )
+
+        XCTAssertTrue(
+            waitForNonExistence(of: stopButton, timeout: 15),
+            "Expected suggested meeting recording to auto-stop after meeting audio ended."
+        )
     }
 
     func testCloudCenterSignedOutLaunchSmoke() throws {
@@ -192,12 +230,12 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         XCTAssertFalse(suggestion.exists, "Expected hidden auto-prompt to skip the suggestion banner once the source is preselected.")
 
         let meetingPrompt = uiElement(app, id: UITestIDs.Panel.meetingPrompt)
-        XCTAssertTrue(meetingPrompt.waitForExistence(timeout: 5), "Expected hidden auto-prompt to explain that Safari may be in a meeting.")
+        XCTAssertTrue(meetingPrompt.waitForExistence(timeout: 5), "Expected hidden auto-prompt to explain that a Safari meeting was detected.")
         let promptText = [meetingPrompt.label, meetingPrompt.value as? String]
             .compactMap { $0 }
             .joined(separator: " ")
         XCTAssertTrue(
-            promptText.localizedCaseInsensitiveContains("may be in a meeting"),
+            promptText.localizedCaseInsensitiveContains("Google Meet detected in Safari"),
             "Expected meeting prompt copy, got: \(promptText)"
         )
 
@@ -230,12 +268,12 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         )
 
         let meetingPrompt = uiElement(app, id: UITestIDs.Panel.meetingPrompt)
-        XCTAssertTrue(meetingPrompt.waitForExistence(timeout: 5), "Expected hidden auto-prompt to explain that Arc may be in a meeting.")
+        XCTAssertTrue(meetingPrompt.waitForExistence(timeout: 5), "Expected hidden auto-prompt to explain that an Arc meeting was detected.")
         let promptText = [meetingPrompt.label, meetingPrompt.value as? String]
             .compactMap { $0 }
             .joined(separator: " ")
         XCTAssertTrue(
-            promptText.localizedCaseInsensitiveContains("Google Meet in Arc"),
+            promptText.localizedCaseInsensitiveContains("Google Meet detected in Arc"),
             "Expected Arc meeting prompt copy, got: \(promptText)"
         )
     }
@@ -280,7 +318,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             .compactMap { $0 }
             .joined(separator: " ")
         XCTAssertTrue(
-            suggestionText.localizedCaseInsensitiveContains("Google Meet in Chrome"),
+            suggestionText.localizedCaseInsensitiveContains("Google Meet detected in Chrome"),
             "Expected launch-time suggestion to mention Chrome meeting context, got: \(suggestionText)"
         )
 

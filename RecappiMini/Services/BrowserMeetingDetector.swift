@@ -13,6 +13,7 @@ struct BrowserMeetingMatch: Equatable, Sendable {
 
 enum BrowserMeetingDetector {
     private enum ScriptKind {
+        case arc
         case safari
         case chromium
     }
@@ -23,19 +24,25 @@ enum BrowserMeetingDetector {
         "com.google.Chrome.beta": .chromium,
         "com.google.Chrome.canary": .chromium,
         "com.brave.Browser": .chromium,
-        "company.thebrowser.Browser": .chromium,
+        "company.thebrowser.Browser": .arc,
         "com.microsoft.edgemac": .chromium,
         "com.vivaldi.Vivaldi": .chromium,
         "com.operasoftware.Opera": .chromium,
     ]
 
     static func supports(bundleID: String) -> Bool {
-        supportedBrowsers[bundleID] != nil
+        supportedBrowsers[BundleCollapser.parent(of: bundleID)] != nil
     }
 
     static func inferMeetingSuggestion(bundleID: String, browserName: String) async -> String? {
-        guard let output = await readBrowserContextOutput(bundleID: bundleID) else { return nil }
-        return meetingSuggestion(fromScriptOutput: output, browserName: browserName)
+        let canonicalBundleID = BundleCollapser.parent(of: bundleID)
+        for output in await readBrowserContextOutputs(bundleID: canonicalBundleID) {
+            if let suggestion = meetingSuggestion(fromScriptOutput: output, browserName: browserName) {
+                return suggestion
+            }
+        }
+
+        return nil
     }
 
     static func classify(
@@ -88,22 +95,105 @@ enum BrowserMeetingDetector {
         return nil
     }
 
-    private static func readBrowserContextOutput(bundleID: String) async -> String? {
-        guard let scriptKind = supportedBrowsers[bundleID] else { return nil }
+    private static func readBrowserContextOutputs(bundleID: String) async -> [String] {
+        guard let scriptKind = supportedBrowsers[bundleID] else { return [] }
 
         return await Task.detached(priority: .utility) {
-            do {
-                return try runAppleScript(script(for: bundleID, kind: scriptKind))
-            } catch {
-                return nil
+            var outputs: [String] = []
+            for script in scripts(for: bundleID, kind: scriptKind) {
+                do {
+                    let output = try runScript(script.source, language: script.language)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !output.isEmpty {
+                        outputs.append(output)
+                    }
+                } catch {
+                    continue
+                }
             }
+            return outputs
         }.value
     }
 
-    private static func script(for bundleID: String, kind: ScriptKind) -> String {
+    private static func scripts(for bundleID: String, kind: ScriptKind) -> [BrowserScript] {
         switch kind {
+        case .arc:
+            return [
+                arcSpacesScript(),
+                script(for: bundleID, kind: .chromium),
+                arcActiveTabScript(),
+            ]
+        case .safari, .chromium:
+            return [script(for: bundleID, kind: kind)]
+        }
+    }
+
+    private static func arcSpacesScript() -> BrowserScript {
+        // Arc exposes Spaces; its tabs are not reliably represented as
+        // plain Chromium `tabs of window`. JXA can walk windows -> spaces
+        // -> tabs, with activeTab/window tabs fallbacks for Little Arc and
+        // older builds.
+        BrowserScript(
+            language: "JavaScript",
+            source: """
+            (() => {
+              const app = Application("Arc");
+              if (!app.running()) return "";
+
+              const rows = [];
+              const seen = {};
+              const push = (url, title) => {
+                const cleanURL = String(url || "").trim();
+                if (!cleanURL) return;
+                const cleanTitle = String(title || "").trim();
+                const row = cleanURL + "\\t" + cleanTitle;
+                if (seen[row]) return;
+                seen[row] = true;
+                rows.push(row);
+              };
+              const pushTab = (tab) => {
+                try {
+                  push(tab.url(), tab.title());
+                } catch (_) {}
+              };
+
+              try {
+                app.windows().forEach((windowRef) => {
+                  try { pushTab(windowRef.activeTab()); } catch (_) {}
+
+                  try {
+                    windowRef.spaces().forEach((spaceRef) => {
+                      try { spaceRef.tabs().forEach(pushTab); } catch (_) {}
+                    });
+                  } catch (_) {}
+
+                  try { windowRef.tabs().forEach(pushTab); } catch (_) {}
+                });
+              } catch (_) {}
+
+              return rows.join("\\n");
+            })();
+            """
+        )
+    }
+
+    private static func arcActiveTabScript() -> BrowserScript {
+        BrowserScript(source: """
+        if application "Arc" is not running then return ""
+        tell application "Arc"
+            if (count of windows) is 0 then return ""
+            set activeTabRef to active tab of front window
+            return (URL of activeTabRef as text) & tab & (title of activeTabRef as text)
+        end tell
+        """)
+    }
+
+    private static func script(for bundleID: String, kind: ScriptKind) -> BrowserScript {
+        switch kind {
+        case .arc:
+            return arcSpacesScript()
         case .safari:
-            return """
+            return BrowserScript(source: """
             if application id "\(bundleID)" is not running then return ""
             tell application id "\(bundleID)"
                 if (count of windows) is 0 then return ""
@@ -121,9 +211,9 @@ enum BrowserMeetingDetector {
                 set AppleScript's text item delimiters to previousDelimiters
                 return output
             end tell
-            """
+            """)
         case .chromium:
-            return """
+            return BrowserScript(source: """
             if application id "\(bundleID)" is not running then return ""
             tell application id "\(bundleID)"
                 if (count of windows) is 0 then return ""
@@ -141,14 +231,18 @@ enum BrowserMeetingDetector {
                 set AppleScript's text item delimiters to previousDelimiters
                 return output
             end tell
-            """
+            """)
         }
     }
 
-    private static func runAppleScript(_ source: String) throws -> String {
+    private static func runScript(_ source: String, language: String?) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", source]
+        if let language {
+            process.arguments = ["-l", language, "-e", source]
+        } else {
+            process.arguments = ["-e", source]
+        }
 
         let stdout = Pipe()
         let stderr = Pipe()
@@ -167,6 +261,16 @@ enum BrowserMeetingDetector {
         }
 
         return combined
+    }
+}
+
+private struct BrowserScript: Sendable {
+    let language: String?
+    let source: String
+
+    init(language: String? = nil, source: String) {
+        self.language = language
+        self.source = source
     }
 }
 

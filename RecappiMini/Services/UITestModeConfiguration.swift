@@ -17,6 +17,7 @@ struct UITestModeConfiguration {
     let simulatedAutoPromptApp: SimulatedAutoPromptApp?
     let simulatedAutoPromptMeetingLabel: String?
     let hiddenAutoPromptSnoozeSeconds: TimeInterval?
+    let detectedMeetingAutoStopGraceSeconds: TimeInterval?
     let openCloudWindowOnLaunch: Bool
 
     private init(processInfo: ProcessInfo = .processInfo) {
@@ -35,6 +36,12 @@ struct UITestModeConfiguration {
             hiddenAutoPromptSnoozeSeconds = max(parsedSnooze, 0)
         } else {
             hiddenAutoPromptSnoozeSeconds = nil
+        }
+        if let rawAutoStopGrace = env["RECAPPI_TEST_DETECTED_MEETING_AUTOSTOP_GRACE_SECONDS"],
+           let parsedAutoStopGrace = TimeInterval(rawAutoStopGrace) {
+            detectedMeetingAutoStopGraceSeconds = max(parsedAutoStopGrace, 0)
+        } else {
+            detectedMeetingAutoStopGraceSeconds = nil
         }
 
         let bundleID = env["RECAPPI_TEST_AUTO_PROMPT_BUNDLE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
