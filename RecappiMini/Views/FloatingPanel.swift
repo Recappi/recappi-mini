@@ -2,6 +2,9 @@ import AppKit
 import SwiftUI
 
 final class FloatingPanel: NSPanel {
+    fileprivate var isFloatingTransitioning = false
+    fileprivate var deferredContentSize: NSSize?
+
     init(contentRect: NSRect) {
         super.init(
             contentRect: contentRect,
@@ -140,6 +143,10 @@ final class PillShellView: NSView {
             return
         }
         targetWindowSize = desired
+        if panel.isFloatingTransitioning {
+            panel.deferredContentSize = desired
+            return
+        }
         FloatingPanelController.resizeToContent(panel, size: desired)
     }
 
@@ -208,40 +215,51 @@ struct FloatingPanelController {
         let screen = panel.screen ?? NSScreen.main
         let visible = visibleFrame(screen: screen, panelSize: panel.frame.size)
         let hidden = hiddenFrame(screen: screen, panelSize: panel.frame.size)
+        panel.isFloatingTransitioning = true
+        panel.deferredContentSize = nil
         if panel.isVisible {
             panel.orderFrontRegardless()
         } else {
             panel.setFrame(hidden, display: false)
+            panel.alphaValue = 0.92
             panel.orderFrontRegardless()
         }
 
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.22
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
+            ctx.duration = 0.18
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
             ctx.completionHandler = {
+                panel.alphaValue = 1
                 panel.orderFrontRegardless()
                 if !panel.frame.origin.equalTo(visible.origin) || !panel.frame.size.isClose(to: visible.size) {
-                    panel.setFrame(visible, display: true)
+                    panel.setFrame(visible, display: false)
                 }
+                finishTransition(panel)
                 completion?()
             }
-            panel.animator().setFrame(visible, display: true)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrame(visible, display: false)
         }
     }
 
     static func dismiss(_ panel: FloatingPanel, completion: (() -> Void)? = nil) {
         let hidden = hiddenFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
+        panel.isFloatingTransitioning = true
+        panel.deferredContentSize = nil
 
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.18
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.9, 1.0)
+            ctx.duration = 0.14
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0.0, 0.7, 1.0)
             ctx.completionHandler = {
                 if !panel.frame.origin.equalTo(hidden.origin) || !panel.frame.size.isClose(to: hidden.size) {
-                    panel.setFrame(hidden, display: true)
+                    panel.setFrame(hidden, display: false)
                 }
+                panel.alphaValue = 1
+                finishTransition(panel)
                 completion?()
             }
-            panel.animator().setFrame(hidden, display: true)
+            panel.animator().alphaValue = 0.92
+            panel.animator().setFrame(hidden, display: false)
         }
     }
 
@@ -251,6 +269,10 @@ struct FloatingPanelController {
     /// changes, so the window tracks SwiftUI intrinsic size instead of
     /// a hard-coded per-state target.
     static func resizeToContent(_ panel: FloatingPanel, size: NSSize) {
+        if panel.isFloatingTransitioning {
+            panel.deferredContentSize = size
+            return
+        }
         var frame = panel.frame
         let dy = frame.height - size.height
         frame.origin.y += dy
@@ -260,6 +282,13 @@ struct FloatingPanelController {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(frame, display: true)
         }
+    }
+
+    private static func finishTransition(_ panel: FloatingPanel) {
+        panel.isFloatingTransitioning = false
+        guard let size = panel.deferredContentSize else { return }
+        panel.deferredContentSize = nil
+        resizeToContent(panel, size: size)
     }
 
     static func isPresented(_ panel: FloatingPanel) -> Bool {

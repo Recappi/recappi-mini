@@ -237,14 +237,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         hiddenPanelAutoPromptTask?.cancel()
         hiddenPanelAutoPromptTask = nil
         NSApp.setActivationPolicy(.regular)
-        bringPanelToFront(panel, activateApp: activateApp)
+        if activateApp {
+            NSApp.unhide(nil)
+            NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+            NSApp.activate(ignoringOtherApps: true)
+        }
         if FloatingPanelController.isPresented(panel) {
+            bringPanelToFront(panel, activateApp: false)
             syncPanelVisibility()
         } else {
+            panelVisible = true
             FloatingPanelController.present(panel) { [weak self] in
                 guard let self else { return }
                 guard self.panelTransitionToken == transitionToken else { return }
-                self.bringPanelToFront(panel, activateApp: activateApp)
+                self.bringPanelToFront(panel, activateApp: false)
                 self.syncPanelVisibility()
             }
         }
