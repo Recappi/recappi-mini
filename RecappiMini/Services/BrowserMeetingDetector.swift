@@ -119,6 +119,7 @@ enum BrowserMeetingDetector {
         switch kind {
         case .arc:
             return [
+                arcWindowTabsScript(),
                 arcSpacesScript(),
                 script(for: bundleID, kind: .chromium),
                 arcActiveTabScript(),
@@ -126,6 +127,37 @@ enum BrowserMeetingDetector {
         case .safari, .chromium:
             return [script(for: bundleID, kind: kind)]
         }
+    }
+
+    private static func arcWindowTabsScript() -> BrowserScript {
+        // Arc's AppleScript support is closer to its own dictionary than to
+        // Chromium's. This mirrors the stable approach used by Raycast's Arc
+        // extension: ask Arc directly for every tab's properties, then extract
+        // URL/title from those records.
+        BrowserScript(source: """
+        if application "Arc" is not running then return ""
+        tell application "Arc"
+            if (count of windows) is 0 then return ""
+            set previousDelimiters to AppleScript's text item delimiters
+            set AppleScript's text item delimiters to linefeed
+            set tabRows to {}
+            repeat with windowRef in windows
+                try
+                    set allTabs to properties of every tab of windowRef
+                    repeat with tabRecord in allTabs
+                        try
+                            set tabURL to URL of tabRecord as text
+                            set tabTitle to title of tabRecord as text
+                            if tabURL is not "" then set end of tabRows to tabURL & (ASCII character 9) & tabTitle
+                        end try
+                    end repeat
+                end try
+            end repeat
+            set output to tabRows as text
+            set AppleScript's text item delimiters to previousDelimiters
+            return output
+        end tell
+        """)
     }
 
     private static func arcSpacesScript() -> BrowserScript {
@@ -182,8 +214,8 @@ enum BrowserMeetingDetector {
         if application "Arc" is not running then return ""
         tell application "Arc"
             if (count of windows) is 0 then return ""
-            set activeTabRef to active tab of front window
-            return (URL of activeTabRef as text) & tab & (title of activeTabRef as text)
+            set activeTabRef to properties of active tab of front window
+            return (URL of activeTabRef as text) & (ASCII character 9) & (title of activeTabRef as text)
         end tell
         """)
     }
@@ -204,7 +236,7 @@ enum BrowserMeetingDetector {
                     repeat with tabRef in tabs of windowRef
                         set tabURL to URL of tabRef as text
                         set tabTitle to name of tabRef as text
-                        if tabURL is not "" then set end of tabRows to tabURL & tab & tabTitle
+                        if tabURL is not "" then set end of tabRows to tabURL & (ASCII character 9) & tabTitle
                     end repeat
                 end repeat
                 set output to tabRows as text
@@ -224,7 +256,7 @@ enum BrowserMeetingDetector {
                     repeat with tabRef in tabs of windowRef
                         set tabURL to URL of tabRef as text
                         set tabTitle to title of tabRef as text
-                        if tabURL is not "" then set end of tabRows to tabURL & tab & tabTitle
+                        if tabURL is not "" then set end of tabRows to tabURL & (ASCII character 9) & tabTitle
                     end repeat
                 end repeat
                 set output to tabRows as text

@@ -202,48 +202,41 @@ private struct IdleState: View {
             if !isStarting {
                 if let suggestion = recorder.recordingSuggestion {
                     Button(action: onRecordSuggestion) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "speaker.wave.2.fill")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(DT.waveformLit)
-                            Text(meetingHintText(title: suggestion.promptTitle, appName: suggestion.appName))
-                                .font(.system(size: 10.5, weight: .medium))
-                                .foregroundStyle(Color.dtLabelSecondary)
-                                .lineLimit(1)
-                            Spacer(minLength: 4)
+                        HStack(spacing: 8) {
+                            hintContent(
+                                title: suggestion.promptTitle,
+                                appName: suggestion.appName,
+                                appID: suggestion.appID
+                            )
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .layoutPriority(1)
+
                             Text("Record app")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(DT.waveformLit)
                                 .padding(.horizontal, 6)
                                 .frame(height: 16)
+                                .fixedSize(horizontal: true, vertical: false)
                                 .background(
                                     Capsule()
                                         .fill(DT.waveformLit.opacity(0.13))
                                 )
                         }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 2)
+                    .padding(.leading, 2)
+                    .padding(.trailing, hintTrailingInset)
                     .accessibilityLabel(meetingHintText(title: suggestion.promptTitle, appName: suggestion.appName))
                     .accessibilityIdentifier(AccessibilityIDs.Panel.recordingSuggestion)
                     .help("Record only \(suggestion.appName). Use the source menu to keep recording all system audio.")
                 } else if let prompt = recorder.meetingPrompt {
-                    HStack(spacing: 5) {
-                        Image(systemName: "video.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(DT.waveformLit)
-                        Text(meetingHintText(title: prompt.promptTitle, appName: prompt.appName))
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(Color.dtLabelSecondary)
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                    }
-                    .padding(.horizontal, 2)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel(meetingHintText(title: prompt.promptTitle, appName: prompt.appName))
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.meetingPrompt)
-                    .help("Recappi Mini selected \(prompt.appName) because it looks like a meeting is active.")
+                    hintRow(title: prompt.promptTitle, appName: prompt.appName, appID: prompt.appID)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(meetingHintText(title: prompt.promptTitle, appName: prompt.appName))
+                        .accessibilityIdentifier(AccessibilityIDs.Panel.meetingPrompt)
+                        .help("Recappi Mini selected \(prompt.appName) because it looks like a meeting is active.")
                 }
             }
         }
@@ -251,6 +244,79 @@ private struct IdleState: View {
             guard recorder.runningApps.isEmpty else { return }
             await recorder.refreshApps()
         }
+    }
+
+    private func hintRow(title: String, appName: String, appID: String) -> some View {
+        HStack(spacing: 0) {
+            hintContent(title: title, appName: appName, appID: appID)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.leading, 2)
+        .padding(.trailing, hintTrailingInset)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func hintContent(title: String, appName: String, appID: String) -> some View {
+        let parts = meetingHintParts(title: title, appName: appName)
+        return HStack(spacing: 4) {
+            Text(parts.prefix)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(Color.dtLabelSecondary)
+                .lineLimit(1)
+
+            if let source = parts.source {
+                if let icon = icon(for: appID) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 12, height: 12)
+                        .clipShape(RoundedRectangle(cornerRadius: 2.5, style: .continuous))
+                        .accessibilityHidden(true)
+                }
+                Text(source)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .lineLimit(1)
+        .multilineTextAlignment(.trailing)
+    }
+
+    private var hintTrailingInset: CGFloat {
+        // Right-align meeting hints so the CTA and hint read as one compact
+        // cluster instead of competing with the logo/source-picker columns.
+        2
+    }
+
+    private func icon(for appID: String) -> NSImage? {
+        recorder.runningApps.first(where: { $0.id == appID })?.icon
+    }
+
+    private func meetingHintParts(title: String, appName: String) -> (prefix: String, source: String?) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedApp = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            return (
+                trimmedApp.isEmpty ? "Meeting audio detected" : "\(trimmedApp) may be in a meeting",
+                nil
+            )
+        }
+
+        if trimmedTitle.compare(trimmedApp, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame {
+            return ("\(trimmedApp) may be in a meeting", nil)
+        }
+
+        if let range = trimmedTitle.range(of: " in ", options: [.caseInsensitive, .backwards]) {
+            let service = trimmedTitle[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+            let source = trimmedTitle[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !service.isEmpty && !source.isEmpty {
+                return ("\(service) detected in", source)
+            }
+        }
+
+        guard !trimmedApp.isEmpty else { return ("\(trimmedTitle) detected", nil) }
+        return ("\(trimmedTitle) detected in", trimmedApp)
     }
 
     private func meetingHintText(title: String, appName: String) -> String {
@@ -356,10 +422,7 @@ private struct RecordingState: View {
                 Text("·")
                     .font(.system(size: 11))
                     .foregroundStyle(Color.white.opacity(0.35))
-                Text(recordingSourceLabel)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.white.opacity(0.62))
-                    .lineLimit(1)
+                recordingSourceView
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 2)
@@ -404,6 +467,40 @@ private struct RecordingState: View {
 
     private var recordingSourceLabel: String {
         recorder.recordingAppName ?? recorder.selectedApp?.name ?? "All system audio"
+    }
+
+    @ViewBuilder
+    private var recordingSourceView: some View {
+        HStack(spacing: 4) {
+            if let icon = recordingSourceIcon {
+                ZStack(alignment: .bottomTrailing) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .frame(width: 12, height: 12)
+                        .clipShape(RoundedRectangle(cornerRadius: 2.5, style: .continuous))
+                    Circle()
+                        .fill(DT.waveformLit)
+                        .frame(width: 4.5, height: 4.5)
+                        .overlay(
+                            Circle()
+                                .stroke(Color(red: 0.179, green: 0.179, blue: 0.179), lineWidth: 1)
+                        )
+                        .offset(x: 1.5, y: 1.5)
+                }
+                .frame(width: 14, height: 12)
+                .accessibilityHidden(true)
+            }
+
+            Text(recordingSourceLabel)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.white.opacity(0.62))
+                .lineLimit(1)
+        }
+        .help(recordingSourceIcon == nil ? "Recording all system audio" : "Recording \(recordingSourceLabel)")
+    }
+
+    private var recordingSourceIcon: NSImage? {
+        recorder.selectedApp?.icon
     }
 
     private var waveformMode: WaveformMode {

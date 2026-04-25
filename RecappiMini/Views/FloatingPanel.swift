@@ -276,6 +276,7 @@ struct FloatingPanelController {
             panelSize: NSSize(width: windowWidth, height: windowHeight)
         )
         panel.ignoresMouseEvents = false
+        panel.contentView?.setAccessibilityHidden(false)
         panel.setFrame(frame, display: true)
     }
 
@@ -288,6 +289,7 @@ struct FloatingPanelController {
         if isPresented(panel) {
             panel.setFrame(visible, display: false)
             panel.ignoresMouseEvents = false
+            panel.contentView?.setAccessibilityHidden(false)
             shell?.resetTransition()
             panel.orderFrontRegardless()
             finishTransition(panel)
@@ -298,6 +300,7 @@ struct FloatingPanelController {
             // the layer contents instead.
             panel.setFrame(visible, display: false)
             panel.ignoresMouseEvents = false
+            panel.contentView?.setAccessibilityHidden(false)
             panel.alphaValue = 1
             shell?.prepareTransition(offsetX: shell?.notificationTransitionOffset ?? 0, opacity: 1)
             if !panel.isVisible {
@@ -332,6 +335,8 @@ struct FloatingPanelController {
         guard let shell else {
             panel.setFrame(hidden, display: false)
             panel.ignoresMouseEvents = true
+            panel.contentView?.setAccessibilityHidden(true)
+            panel.orderOut(nil)
             finishTransition(panel)
             completion?()
             return
@@ -345,6 +350,8 @@ struct FloatingPanelController {
         ) {
             panel.setFrame(hidden, display: false)
             panel.ignoresMouseEvents = true
+            panel.contentView?.setAccessibilityHidden(true)
+            panel.orderOut(nil)
             shell.resetTransition()
             finishTransition(panel)
             completion?()
@@ -388,6 +395,7 @@ struct FloatingPanelController {
     static func snapToVisible(_ panel: FloatingPanel) {
         let frame = visibleFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
         panel.ignoresMouseEvents = false
+        panel.contentView?.setAccessibilityHidden(false)
         (panel.contentView as? PillShellView)?.resetTransition()
         guard !framesNearlyMatch(panel.frame, frame) else { return }
         panel.setFrame(frame, display: true)
@@ -396,8 +404,13 @@ struct FloatingPanelController {
     static func snapToHidden(_ panel: FloatingPanel) {
         let frame = hiddenFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
         panel.ignoresMouseEvents = true
-        guard !framesNearlyMatch(panel.frame, frame) else { return }
+        panel.contentView?.setAccessibilityHidden(true)
+        guard !framesNearlyMatch(panel.frame, frame) else {
+            panel.orderOut(nil)
+            return
+        }
         panel.setFrame(frame, display: true)
+        panel.orderOut(nil)
     }
 
     private static func framesNearlyMatch(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
