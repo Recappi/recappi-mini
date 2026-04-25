@@ -214,13 +214,19 @@ final class PillShellView: NSView {
             return
         }
 
-        let fromTransform = layer.presentation()?.transform ?? layer.transform
-        let fromOpacity = layer.presentation()?.opacity ?? layer.opacity
+        let animationKey = "recappi.panelContentTransition"
+        let isInterruptingTransition = layer.animation(forKey: animationKey) != nil
+        let fromTransform = isInterruptingTransition
+            ? (layer.presentation()?.transform ?? layer.transform)
+            : layer.transform
+        let fromOpacity = isInterruptingTransition
+            ? (layer.presentation()?.opacity ?? layer.opacity)
+            : layer.opacity
         let toTransform = CATransform3DMakeTranslation(offsetX, 0, 0)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.removeAnimation(forKey: "recappi.panelContentTransition")
+        layer.removeAnimation(forKey: animationKey)
         layer.transform = toTransform
         layer.opacity = opacity
         CATransaction.commit()
@@ -242,7 +248,7 @@ final class PillShellView: NSView {
 
         CATransaction.begin()
         CATransaction.setCompletionBlock(completion)
-        layer.add(group, forKey: "recappi.panelContentTransition")
+        layer.add(group, forKey: animationKey)
         CATransaction.commit()
     }
 
@@ -383,13 +389,22 @@ struct FloatingPanelController {
         let frame = visibleFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
         panel.ignoresMouseEvents = false
         (panel.contentView as? PillShellView)?.resetTransition()
+        guard !framesNearlyMatch(panel.frame, frame) else { return }
         panel.setFrame(frame, display: true)
     }
 
     static func snapToHidden(_ panel: FloatingPanel) {
         let frame = hiddenFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
         panel.ignoresMouseEvents = true
+        guard !framesNearlyMatch(panel.frame, frame) else { return }
         panel.setFrame(frame, display: true)
+    }
+
+    private static func framesNearlyMatch(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) < 0.5
+            && abs(lhs.origin.y - rhs.origin.y) < 0.5
+            && abs(lhs.size.width - rhs.size.width) < 0.5
+            && abs(lhs.size.height - rhs.size.height) < 0.5
     }
 
     private static func visibleFrame(screen: NSScreen?, panelSize: NSSize) -> NSRect {

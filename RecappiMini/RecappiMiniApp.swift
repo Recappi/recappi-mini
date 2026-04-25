@@ -105,14 +105,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var runningAppsRefreshGeneration = 0
     private var recorderStateObserver: AnyCancellable?
     private var workspaceObservers: [NSObjectProtocol] = []
+    private var screenParametersObserver: NSObjectProtocol?
     private var panelTransitionToken: Int = 0
     private var uiTestCommandPollTimer: Timer?
     private var didFinishLaunching = false
     private var uiTestMeetingLabelByBundleID: [String: String] = [:]
+    private var panelTargetVisible = true {
+        didSet {
+            panelVisible = panelTargetVisible
+        }
+    }
 
-    /// Tracks whether the floating panel is currently on-screen so the
-    /// MenuBarExtra can flip its label between Show / Hide. Published so
-    /// the SwiftUI menu re-renders when we toggle.
+    /// Tracks whether the user wants the floating panel shown so tray menus
+    /// don't mistake a warm offscreen panel for an interactive one.
     @Published var panelVisible: Bool = true
     @Published private(set) var isRecording: Bool = false
 
@@ -180,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         schedulePanelPresentationVerification(for: panelTransitionToken, activateApp: false)
 
         installWorkspaceObservers()
+        installScreenParameterObserver()
         installUITestCommandPollingIfNeeded()
         recorder.refreshAppsFromWorkspaceSnapshot()
 
@@ -224,6 +230,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             center.removeObserver(observer)
         }
         workspaceObservers.removeAll()
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
+            self.screenParametersObserver = nil
+        }
         uiTestCommandPollTimer?.invalidate()
         uiTestCommandPollTimer = nil
         if let statusItem {
@@ -404,6 +414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let transitionToken = panelTransitionToken
         hiddenPanelAutoPromptTask?.cancel()
         hiddenPanelAutoPromptTask = nil
+        panelTargetVisible = true
         // Showing the lightweight recorder panel should not flip the app into
         // regular activation mode. That transition is surprisingly expensive
         // and makes the slide feel hitchy; reserve it for Settings/Cloud/OAuth.
@@ -431,14 +442,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     func hidePanel() {
         guard let panel else { return }
-        guard panelVisible || panel.isVisible || FloatingPanelController.isPresented(panel) else { return }
+        guard panelTargetVisible || panel.isVisible || FloatingPanelController.isPresented(panel) else { return }
         panelTransitionToken += 1
         let transitionToken = panelTransitionToken
+        panelTargetVisible = false
         panelVisible = false
         FloatingPanelController.dismiss(panel) { [weak self] in
             guard let self else { return }
             guard self.panelTransitionToken == transitionToken else { return }
-            guard self.panelVisible == false else { return }
+            guard self.panelTargetVisible == false else { return }
             self.syncPanelVisibility()
             self.restoreAccessoryActivationPolicyIfPossible()
             self.scheduleHiddenPanelAutoPromptIfNeeded()
@@ -446,7 +458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func togglePanel() {
-        if panelVisible || (panel.map(FloatingPanelController.isPresented) ?? false) {
+        if panelTargetVisible {
             hidePanel()
         } else {
             showPanel()
@@ -501,6 +513,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                     self?.refreshRunningApps()
                 }
             }
+        }
+    }
+
+    private func installScreenParameterObserver() {
+        guard screenParametersObserver == nil else { return }
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleScreenParametersChanged()
+            }
+        }
+    }
+
+    private func handleScreenParametersChanged() {
+        guard let panel else { return }
+        if panelTargetVisible {
+            FloatingPanelController.snapToVisible(panel)
+            bringPanelToFront(panel, activateApp: false)
+            syncPanelVisibility()
+        } else {
+            FloatingPanelController.snapToHidden(panel)
+            panelVisible = false
         }
     }
 
@@ -793,7 +830,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             guard let self else { return }
             try? await Task.sleep(for: .seconds(snoozeDuration))
             guard !Task.isCancelled else { return }
-            guard self.panelVisible == false else { return }
+            guard self.panelTargetVisible == false else { return }
             guard AppConfig.shared.autoPromptForActiveAudioApps else { return }
             guard self.recorder.state == .idle else { return }
 
@@ -822,12 +859,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         }
         guard !panel.isFloatingTransitioning else { return }
 
+        guard panelTargetVisible else {
+            FloatingPanelController.snapToHidden(panel)
+            panelVisible = false
+            return
+        }
+
         let isShown = FloatingPanelController.isPresented(panel)
-        let isUserVisible = isShown && (panel.occlusionState.contains(.visible) || panel.isKeyWindow)
         if isShown && panel.ignoresMouseEvents {
             panel.ignoresMouseEvents = false
         }
-        panelVisible = isUserVisible
+        panelVisible = panelTargetVisible
     }
 
     private func bringPanelToFront(_ panel: FloatingPanel, activateApp: Bool) {
@@ -855,6 +897,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             guard let self else { return }
             guard self.panelTransitionToken == token else { return }
             guard !panel.isFloatingTransitioning else { return }
+            guard self.panelTargetVisible else {
+                FloatingPanelController.snapToHidden(panel)
+                self.panelVisible = false
+                return
+            }
             let isShown = FloatingPanelController.isPresented(panel)
             let isOccluded = !panel.occlusionState.contains(.visible) && !panel.isKeyWindow
             guard !isShown || (activateApp && isOccluded) else {
