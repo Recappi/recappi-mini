@@ -88,7 +88,13 @@ struct RecordingPanel: View {
                 onRecordSuggestion: startSuggestedRecording,
                 onClose: onClosePanel
             )
-        case .recording: RecordingState(recorder: recorder, onDiscard: discardRecording, onStop: stopRecording)
+        case .recording:
+            RecordingState(
+                recorder: recorder,
+                onDiscard: discardRecording,
+                onStop: stopRecording,
+                onClose: onClosePanel
+            )
         case .processing(let phase): ProcessingState(phase: phase)
         case .done(let r):
             DoneState(
@@ -402,6 +408,7 @@ private struct RecordingState: View {
     @AppStorage("recappi.panel.recordingWaveformMode") private var waveformModeRaw = WaveformMode.spectrum.rawValue
     var onDiscard: () -> Void
     var onStop: () -> Void
+    var onClose: () -> Void
 
     var body: some View {
         // Caption (red dot + timer + source) sits above the main control row.
@@ -424,18 +431,25 @@ private struct RecordingState: View {
                     .foregroundStyle(Color.white.opacity(0.35))
                 recordingSourceView
                 Spacer(minLength: 0)
+                Button(action: onClose) {
+                    Image(systemName: "minus")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .buttonStyle(PanelIconButtonStyle(size: 14))
+                .help("Hide panel")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
             }
             .padding(.horizontal, 2)
 
             HStack(spacing: 6) {
-                Button(action: toggleWaveformMode) {
+                Button(action: handleWaveformTap) {
                     waveformView
                         .frame(maxWidth: .infinity, maxHeight: 28)
                         .padding(.leading, 4)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(waveformMode.helpText)
+                .help(waveformHelpText)
                 .accessibilityIdentifier(AccessibilityIDs.Panel.waveformToggle)
 
                 Button(action: onDiscard) {
@@ -503,6 +517,11 @@ private struct RecordingState: View {
         recorder.selectedApp?.icon
     }
 
+    private var waveformHelpText: String {
+        guard recorder.selectedApp != nil else { return waveformMode.helpText }
+        return "Bring \(recordingSourceLabel) to front"
+    }
+
     private var waveformMode: WaveformMode {
         get { WaveformMode(rawValue: waveformModeRaw) ?? .spectrum }
         nonmutating set { waveformModeRaw = newValue.rawValue }
@@ -510,6 +529,11 @@ private struct RecordingState: View {
 
     private func toggleWaveformMode() {
         waveformMode = waveformMode.next
+    }
+
+    private func handleWaveformTap() {
+        if recorder.focusRecordingSourceIfAvailable() { return }
+        toggleWaveformMode()
     }
 
     private func formatTime(_ seconds: Int) -> String {

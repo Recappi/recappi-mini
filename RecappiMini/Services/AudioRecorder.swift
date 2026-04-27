@@ -907,6 +907,47 @@ final class AudioRecorder: NSObject, ObservableObject {
         autoStopRequest = AutoStopRecordingRequest(context: context)
     }
 
+    @discardableResult
+    func focusRecordingSourceIfAvailable() -> Bool {
+        guard state == .recording else { return false }
+        guard let bundleID = selectedApp?.id ?? detectedMeetingRecordingContext?.appID else { return false }
+
+        Task { [bundleID] in
+            if BrowserMeetingDetector.supports(bundleID: bundleID),
+               await BrowserMeetingDetector.focusMeetingTab(bundleID: bundleID) {
+                return
+            }
+
+            _ = await MainActor.run {
+                Self.activateApplication(bundleID: bundleID)
+            }
+        }
+
+        return true
+    }
+
+    @discardableResult
+    private static func activateApplication(bundleID: String) -> Bool {
+        let canonicalBundleID = BundleCollapser.parent(of: bundleID)
+        let runningApps = NSWorkspace.shared.runningApplications.filter { app in
+            guard let runningBundleID = app.bundleIdentifier else { return false }
+            return BundleCollapser.matches(runningBundleID, selected: canonicalBundleID)
+        }
+
+        let app = runningApps.first { $0.bundleIdentifier == canonicalBundleID }
+            ?? runningApps.first
+        if let app {
+            _ = app.unhide()
+            return app.activate(options: [.activateAllWindows])
+        }
+
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: canonicalBundleID) else {
+            return false
+        }
+        NSWorkspace.shared.open(url)
+        return true
+    }
+
     private func startUITestRecording(
         metadata: RecordingSessionMetadata,
         autoStopContext: DetectedMeetingRecordingContext?

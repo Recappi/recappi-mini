@@ -12,7 +12,7 @@ struct BrowserMeetingMatch: Equatable, Sendable {
 }
 
 enum BrowserMeetingDetector {
-    private enum ScriptKind {
+    private enum ScriptKind: Sendable {
         case arc
         case safari
         case chromium
@@ -43,6 +43,25 @@ enum BrowserMeetingDetector {
         }
 
         return nil
+    }
+
+    static func focusMeetingTab(bundleID: String) async -> Bool {
+        let canonicalBundleID = BundleCollapser.parent(of: bundleID)
+        guard let scriptKind = supportedBrowsers[canonicalBundleID] else { return false }
+
+        return await Task.detached(priority: .userInitiated) {
+            for script in focusScripts(for: canonicalBundleID, kind: scriptKind) {
+                do {
+                    let output = try runScript(script.source, language: script.language)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if output == "1" { return true }
+                } catch {
+                    continue
+                }
+            }
+
+            return false
+        }.value
     }
 
     static func classify(
@@ -115,6 +134,17 @@ enum BrowserMeetingDetector {
         }.value
     }
 
+    private static func focusScripts(for bundleID: String, kind: ScriptKind) -> [BrowserScript] {
+        switch kind {
+        case .arc:
+            return [arcFocusMeetingTabScript()]
+        case .safari:
+            return [safariFocusMeetingTabScript(for: bundleID)]
+        case .chromium:
+            return [chromiumFocusMeetingTabScript(for: bundleID)]
+        }
+    }
+
     private static func scripts(for bundleID: String, kind: ScriptKind) -> [BrowserScript] {
         switch kind {
         case .arc:
@@ -128,6 +158,123 @@ enum BrowserMeetingDetector {
             return [script(for: bundleID, kind: kind)]
         }
     }
+
+    private static func arcFocusMeetingTabScript() -> BrowserScript {
+        BrowserScript(source: """
+        if application "Arc" is not running then return "0"
+        tell application "Arc"
+            if (count of windows) is 0 then return "0"
+            repeat with windowRef in windows
+                try
+                    repeat with spaceRef in spaces of windowRef
+                        try
+                            repeat with tabRef in tabs of spaceRef
+                                try
+                                    set tabURL to URL of tabRef as text
+                                    if my recappiIsMeetingURL(tabURL) then
+                                        focus spaceRef
+                                        select tabRef
+                                        set index of windowRef to 1
+                                        activate
+                                        return "1"
+                                    end if
+                                end try
+                            end repeat
+                        end try
+                    end repeat
+                end try
+
+                try
+                    repeat with tabRef in tabs of windowRef
+                        try
+                            set tabURL to URL of tabRef as text
+                            if my recappiIsMeetingURL(tabURL) then
+                                select tabRef
+                                set index of windowRef to 1
+                                activate
+                                return "1"
+                            end if
+                        end try
+                    end repeat
+                end try
+            end repeat
+            activate
+        end tell
+        return "0"
+
+        \(meetingURLAppleScriptHandler)
+        """)
+    }
+
+    private static func safariFocusMeetingTabScript(for bundleID: String) -> BrowserScript {
+        BrowserScript(source: """
+        if application id "\(bundleID)" is not running then return "0"
+        tell application id "\(bundleID)"
+            if (count of windows) is 0 then return "0"
+            repeat with windowRef in windows
+                repeat with tabRef in tabs of windowRef
+                    try
+                        set tabURL to URL of tabRef as text
+                        if my recappiIsMeetingURL(tabURL) then
+                            set current tab of windowRef to tabRef
+                            set index of windowRef to 1
+                            activate
+                            return "1"
+                        end if
+                    end try
+                end repeat
+            end repeat
+            activate
+        end tell
+        return "0"
+
+        \(meetingURLAppleScriptHandler)
+        """)
+    }
+
+    private static func chromiumFocusMeetingTabScript(for bundleID: String) -> BrowserScript {
+        BrowserScript(source: """
+        if application id "\(bundleID)" is not running then return "0"
+        tell application id "\(bundleID)"
+            if (count of windows) is 0 then return "0"
+            repeat with windowRef in windows
+                set tabIndex to 0
+                repeat with tabRef in tabs of windowRef
+                    set tabIndex to tabIndex + 1
+                    try
+                        set tabURL to URL of tabRef as text
+                        if my recappiIsMeetingURL(tabURL) then
+                            set active tab index of windowRef to tabIndex
+                            set index of windowRef to 1
+                            activate
+                            return "1"
+                        end if
+                    end try
+                end repeat
+            end repeat
+            activate
+        end tell
+        return "0"
+
+        \(meetingURLAppleScriptHandler)
+        """)
+    }
+
+    private static let meetingURLAppleScriptHandler = """
+    on recappiIsMeetingURL(tabURL)
+        set tabURLText to tabURL as text
+        return tabURLText contains "://meet.google.com" ¬
+            or tabURLText contains ".meet.google.com" ¬
+            or tabURLText contains "://teams.microsoft.com" ¬
+            or tabURLText contains ".teams.microsoft.com" ¬
+            or tabURLText contains "://teams.live.com" ¬
+            or tabURLText contains ".teams.live.com" ¬
+            or tabURLText contains "://zoom.us" ¬
+            or tabURLText contains ".zoom.us" ¬
+            or tabURLText contains "://webex.com" ¬
+            or tabURLText contains ".webex.com"
+    end recappiIsMeetingURL
+    """
 
     private static func arcWindowTabsScript() -> BrowserScript {
         // Arc's AppleScript support is closer to its own dictionary than to
