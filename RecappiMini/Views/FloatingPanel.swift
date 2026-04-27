@@ -72,8 +72,8 @@ final class FloatingPanel: NSPanel {
 final class PillShellView: NSView {
     /// Transparent window-space around the visible pill so SwiftUI shadows
     /// are not clipped by the NSPanel bounds.
-    static let shadowMargin: CGFloat = 24
-    static let cornerRadius: CGFloat = 14
+    nonisolated static let shadowMargin: CGFloat = 24
+    nonisolated static let cornerRadius: CGFloat = 14
 
     private(set) var contentView: NSView?
     private var pendingContentSync = false
@@ -127,6 +127,13 @@ final class PillShellView: NSView {
         updateShadowPath()
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard Self.visiblePillContains(point, in: bounds) else {
+            return nil
+        }
+        return super.hitTest(point)
+    }
+
     @objc private func contentFrameChanged(_ note: Notification) {
         scheduleWindowSync()
     }
@@ -163,8 +170,7 @@ final class PillShellView: NSView {
     }
 
     private func updateShadowPath() {
-        let m = Self.shadowMargin
-        let pillRect = bounds.insetBy(dx: m, dy: m)
+        let pillRect = Self.visiblePillRect(in: bounds)
         guard pillRect.width > 0, pillRect.height > 0 else { return }
         layer?.shadowPath = CGPath(
             roundedRect: pillRect,
@@ -172,6 +178,22 @@ final class PillShellView: NSView {
             cornerHeight: Self.cornerRadius,
             transform: nil
         )
+    }
+
+    nonisolated static func visiblePillRect(in bounds: NSRect) -> NSRect {
+        bounds.insetBy(dx: shadowMargin, dy: shadowMargin)
+    }
+
+    nonisolated static func visiblePillContains(_ point: NSPoint, in bounds: NSRect) -> Bool {
+        let rect = visiblePillRect(in: bounds)
+        guard rect.width > 0, rect.height > 0 else { return false }
+        let path = CGPath(
+            roundedRect: rect,
+            cornerWidth: cornerRadius,
+            cornerHeight: cornerRadius,
+            transform: nil
+        )
+        return path.contains(point)
     }
 
     private func measuredContentSize(for view: NSView) -> NSSize {

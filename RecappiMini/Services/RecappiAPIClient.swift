@@ -652,4 +652,123 @@ struct TranscriptionJob: Decodable {
 struct TranscriptResponse: Decodable, Equatable, Sendable {
     let id: String
     let text: String
+    let segments: [TranscriptSegment]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case text
+        case segments
+        case segmentsJson
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+
+        let decodedSegments = try container.decodeIfPresent([TranscriptSegment].self, forKey: .segments)
+            ?? Self.decodeSegmentsJSON(try container.decodeIfPresent(String.self, forKey: .segmentsJson))
+            ?? []
+        segments = Self.normalizeSegmentTimeline(
+            decodedSegments.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        )
+
+        let decodedText = try container.decodeIfPresent(String.self, forKey: .text)
+        text = decodedText ?? segments.map(\.text).joined(separator: "\n")
+    }
+
+    private static func decodeSegmentsJSON(_ raw: String?) -> [TranscriptSegment]? {
+        guard let raw,
+              let data = raw.data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONDecoder().decode([TranscriptSegment].self, from: data)
+    }
+
+    private static func normalizeSegmentTimeline(_ segments: [TranscriptSegment]) -> [TranscriptSegment] {
+        let durations = segments.compactMap { segment -> Int? in
+            guard let start = segment.startMs, let end = segment.endMs, end > start else { return nil }
+            return end - start
+        }
+        guard let maxEnd = segments.compactMap(\.endMs).max(),
+              let medianDuration = durations.sorted().dropFirst(durations.count / 2).first,
+              maxEnd < 24 * 60 * 60,
+              medianDuration <= 120 else {
+            return segments
+        }
+
+        return segments.map { $0.scalingTimeline(by: 1000) }
+    }
+}
+
+struct TranscriptSegment: Decodable, Equatable, Sendable {
+    let startMs: Int?
+    let endMs: Int?
+    let text: String
+    let speaker: String?
+
+    enum CodingKeys: String, CodingKey {
+        case start
+        case end
+        case startMs
+        case endMs
+        case startTimeMs
+        case endTimeMs
+        case text
+        case speaker
+        case speakerLabel
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        startMs = Self.decodeMilliseconds(from: container, keys: [.startMs, .startTimeMs, .start])
+        endMs = Self.decodeMilliseconds(from: container, keys: [.endMs, .endTimeMs, .end])
+        text = (try container.decodeIfPresent(String.self, forKey: .text)) ?? ""
+        speaker = container.decodeFirstString(forKeys: [.speaker, .speakerLabel])
+    }
+
+    private init(startMs: Int?, endMs: Int?, text: String, speaker: String?) {
+        self.startMs = startMs
+        self.endMs = endMs
+        self.text = text
+        self.speaker = speaker
+    }
+
+    func scalingTimeline(by factor: Int) -> TranscriptSegment {
+        TranscriptSegment(
+            startMs: startMs.map { $0 * factor },
+            endMs: endMs.map { $0 * factor },
+            text: text,
+            speaker: speaker
+        )
+    }
+
+    private static func decodeMilliseconds(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) -> Int? {
+        for key in keys {
+            if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
+                return Int(value.rounded())
+            }
+            if let raw = try? container.decodeIfPresent(String.self, forKey: key),
+               let value = Double(raw) {
+                return Int(value.rounded())
+            }
+        }
+        return nil
+    }
+}
+
+private extension KeyedDecodingContainer where Key == TranscriptSegment.CodingKeys {
+    func decodeFirstString(forKeys keys: [Key]) -> String? {
+        for key in keys {
+            if let value = try? decodeIfPresent(String.self, forKey: key) {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return nil
+    }
 }

@@ -23,12 +23,17 @@ final class CloudLibraryStore: ObservableObject {
     @Published private(set) var isTranscriptLoading = false
     @Published private(set) var isDownloading = false
     @Published private(set) var isDeleting = false
+    @Published private(set) var isSyncingToLocal = false
     @Published private(set) var lastDownloadedAudioURL: URL?
     @Published private(set) var transcriptErrorMessage: String?
     @Published private(set) var billingStatus: BillingStatus?
     @Published private(set) var billingErrorMessage: String?
     @Published private(set) var isLoadingBilling = false
     @Published private(set) var isOpeningBilling = false
+    @Published private(set) var localSessionURLsByRecordingID: [String: URL] = [:]
+    @Published private(set) var playbackAudioURLsByRecordingID: [String: URL] = [:]
+    @Published private(set) var isPreparingPlaybackAudio = false
+    @Published private(set) var playbackErrorMessage: String?
 
     private let config: AppConfig
     private let sessionStore: AuthSessionStore
@@ -54,6 +59,27 @@ final class CloudLibraryStore: ObservableObject {
         return transcriptCache[selectedRecordingID]
     }
 
+    var selectedLocalSessionURL: URL? {
+        guard let selectedRecordingID else { return nil }
+        return localSessionURLsByRecordingID[selectedRecordingID]
+    }
+
+    var selectedPlaybackAudioURL: URL? {
+        guard let recording = selectedRecording else { return nil }
+        return localRecordingAudioURL(for: recording) ?? playbackAudioURLsByRecordingID[recording.id]
+    }
+
+    var selectedPlaybackSourceDescription: String {
+        guard let recording = selectedRecording else { return "No recording selected" }
+        if localRecordingAudioURL(for: recording) != nil {
+            return "Using local audio"
+        }
+        if playbackAudioURLsByRecordingID[recording.id] != nil {
+            return "Using cached cloud audio"
+        }
+        return "Cloud audio preview"
+    }
+
     var hasMorePages: Bool {
         nextCursor?.isEmpty == false
     }
@@ -76,6 +102,7 @@ final class CloudLibraryStore: ObservableObject {
             recordings = page.items
             nextCursor = page.nextCursor
             selectDefaultRecordingIfNeeded()
+            await refreshLocalSessionLinks()
             state = recordings.isEmpty ? .empty : .loaded
         } catch {
             apply(error: error)
@@ -115,6 +142,7 @@ final class CloudLibraryStore: ObservableObject {
             recordings.append(contentsOf: page.items.filter { !existingIDs.contains($0.id) })
             nextCursor = page.nextCursor
             selectDefaultRecordingIfNeeded()
+            await refreshLocalSessionLinks()
             state = recordings.isEmpty ? .empty : .loaded
         } catch {
             apply(error: error)
@@ -186,9 +214,75 @@ final class CloudLibraryStore: ObservableObject {
         isDownloading = false
     }
 
+    func preparePlaybackAudioForSelection() async {
+        guard let recording = selectedRecording else { return }
+        guard selectedPlaybackAudioURL == nil else { return }
+        isPreparingPlaybackAudio = true
+        playbackErrorMessage = nil
+
+        do {
+            let destination = try playbackCacheDestination(for: recording)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                playbackAudioURLsByRecordingID[recording.id] = destination
+            } else {
+                playbackAudioURLsByRecordingID[recording.id] = try await runAuthorized { client in
+                    try await client.downloadRecordingAudio(id: recording.id, destination: destination)
+                }
+            }
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            apply(error: error)
+        } catch {
+            playbackErrorMessage = error.localizedDescription
+        }
+
+        isPreparingPlaybackAudio = false
+    }
+
+    func syncSelectedRecordingToLocal() async {
+        guard let recording = selectedRecording else { return }
+        if localSessionURLsByRecordingID[recording.id] != nil { return }
+
+        isSyncingToLocal = true
+        transcriptErrorMessage = nil
+        playbackErrorMessage = nil
+
+        do {
+            let transcript = try await transcriptForSyncIfAvailable(recording)
+            let sessionDir = try createSyncedSessionDirectory(for: recording)
+            let audioURL = RecordingStore.audioFileURL(in: sessionDir)
+                .deletingPathExtension()
+                .appendingPathExtension(audioFileExtension(for: recording))
+
+            _ = try await runAuthorized { client in
+                try await client.downloadRecordingAudio(id: recording.id, destination: audioURL)
+            }
+
+            if let transcript {
+                try RecordingStore.saveTranscript(transcript.text, in: sessionDir)
+            }
+            RecordingStore.saveSessionMetadata(metadata(for: recording), in: sessionDir)
+            _ = RecordingStore.saveRemoteManifest(remoteManifest(for: recording, transcript: transcript), in: sessionDir)
+
+            localSessionURLsByRecordingID[recording.id] = sessionDir
+            playbackAudioURLsByRecordingID[recording.id] = audioURL
+            lastDownloadedAudioURL = audioURL
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            apply(error: error)
+        } catch {
+            playbackErrorMessage = error.localizedDescription
+        }
+
+        isSyncingToLocal = false
+    }
+
     func revealLastDownloadedAudio() {
         guard let lastDownloadedAudioURL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([lastDownloadedAudioURL])
+    }
+
+    func revealSelectedLocalSession() {
+        guard let selectedLocalSessionURL else { return }
+        NSWorkspace.shared.open(selectedLocalSessionURL)
     }
 
     func openBillingPortalOrPlans() async {
@@ -237,6 +331,7 @@ final class CloudLibraryStore: ObservableObject {
             }
             recordings.removeAll { $0.id == recording.id }
             transcriptCache.removeValue(forKey: recording.id)
+            playbackAudioURLsByRecordingID.removeValue(forKey: recording.id)
             if selectedRecordingID == recording.id {
                 selectedRecordingID = recordings.first?.id
             }
@@ -352,6 +447,103 @@ final class CloudLibraryStore: ObservableObject {
         recordings[index] = recording
     }
 
+    private func refreshLocalSessionLinks() async {
+        let links = await Task.detached(priority: .utility) {
+            Self.localSessionLinks(in: RecordingStore.baseDirectory)
+        }.value
+        localSessionURLsByRecordingID = links
+    }
+
+    nonisolated static func localSessionLinks(
+        in baseDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> [String: URL] {
+        guard let sessionDirs = try? fileManager.contentsOfDirectory(
+            at: baseDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return [:]
+        }
+
+        var links: [String: URL] = [:]
+        for sessionDir in sessionDirs.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }) {
+            let values = try? sessionDir.resourceValues(forKeys: [.isDirectoryKey])
+            guard values?.isDirectory == true,
+                  let recordingId = RecordingStore.loadRemoteManifest(in: sessionDir)?.recordingId?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !recordingId.isEmpty,
+                  links[recordingId] == nil else {
+                continue
+            }
+            links[recordingId] = sessionDir
+        }
+        return links
+    }
+
+    private func localRecordingAudioURL(for recording: CloudRecording) -> URL? {
+        guard let sessionURL = localSessionURLsByRecordingID[recording.id] else { return nil }
+        let candidates = [
+            RecordingStore.audioFileURL(in: sessionURL),
+            RecordingStore.uploadAudioFileURL(in: sessionURL),
+            sessionURL.appendingPathComponent("recording.wav"),
+            sessionURL.appendingPathComponent("recording.mp3"),
+            sessionURL.appendingPathComponent("recording.audio"),
+        ]
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private func transcriptForSyncIfAvailable(_ recording: CloudRecording) async throws -> TranscriptResponse? {
+        if let cached = transcriptCache[recording.id] {
+            return cached
+        }
+        do {
+            let transcript = try await runAuthorized { client in
+                try await client.getRecordingTranscript(id: recording.id)
+            }
+            transcriptCache[recording.id] = transcript
+            return transcript
+        } catch let error as RecappiAPIError {
+            if case .http(let statusCode, _) = error, statusCode == 404 {
+                return nil
+            }
+            throw error
+        }
+    }
+
+    private func createSyncedSessionDirectory(for recording: CloudRecording) throws -> URL {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        let date = recording.createdAt ?? Date()
+        let baseName = formatter.string(from: date)
+        var candidate = RecordingStore.baseDirectory.appendingPathComponent(baseName, isDirectory: true)
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = RecordingStore.baseDirectory.appendingPathComponent("\(baseName)-cloud-\(suffix)", isDirectory: true)
+            suffix += 1
+        }
+        try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: true)
+        return candidate
+    }
+
+    private func metadata(for recording: CloudRecording) -> RecordingSessionMetadata {
+        var metadata = RecordingSessionMetadata.capture(
+            sourceTitle: recording.sourceTitle ?? recording.title ?? "Recappi Cloud",
+            sourceAppName: recording.sourceAppName,
+            sourceBundleID: recording.sourceAppBundleID
+        )
+        metadata.summaryTitle = recording.summaryTitle ?? recording.title
+        return metadata
+    }
+
+    private func remoteManifest(for recording: CloudRecording, transcript: TranscriptResponse?) -> RemoteSessionManifest {
+        var manifest = RemoteSessionManifest.stage("synced")
+        manifest.recordingId = recording.id
+        manifest.transcriptId = transcript?.id
+        manifest.uploadFilename = "recording.\(audioFileExtension(for: recording))"
+        return manifest
+    }
+
     private func downloadDestination(for recording: CloudRecording) throws -> URL {
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
@@ -359,6 +551,16 @@ final class CloudLibraryStore: ObservableObject {
         let basename = sanitizedFilename(recording.title ?? "recording-\(recording.id)")
         let ext = audioFileExtension(for: recording)
         return directory.appendingPathComponent("\(basename).\(ext)", isDirectory: false)
+    }
+
+    private func playbackCacheDestination(for recording: CloudRecording) throws -> URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let directory = caches
+            .appendingPathComponent("Recappi Mini", isDirectory: true)
+            .appendingPathComponent("Cloud Audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("\(recording.id).\(audioFileExtension(for: recording))")
     }
 
     private func audioFileExtension(for recording: CloudRecording) -> String {

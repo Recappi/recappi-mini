@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+@preconcurrency import UserNotifications
 
 @main
 struct RecappiMiniApp: App {
@@ -70,7 +71,7 @@ struct MenuBarContents: View {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWindowDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWindowDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     static let shared = AppDelegate()
 
     private struct UITestAutoPromptCommand: Decodable {
@@ -104,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var runningAppsRefreshTask: Task<Void, Never>?
     private var runningAppsRefreshGeneration = 0
     private var recorderStateObserver: AnyCancellable?
+    private var previousRecorderState: RecorderState = .idle
     private var workspaceObservers: [NSObjectProtocol] = []
     private var screenParametersObserver: NSObjectProtocol?
     private var panelTransitionToken: Int = 0
@@ -153,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             }
         }
         appUpdater.start()
+        configureNotifications()
 
         let m = PillShellView.shadowMargin
         let pillWidth = DT.panelWidth
@@ -208,13 +211,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                     self.handleActiveAudioChanged(self.effectiveActiveAudioBundleIDs)
                 }
             }
+        previousRecorderState = recorder.state
         recorderStateObserver = recorder.$state
-            .map(\.isRecording)
-            .removeDuplicates()
-            .sink { [weak self] isRecording in
+            .sink { [weak self] state in
                 guard let self else { return }
-                self.isRecording = isRecording
-                self.updateStatusItemRecordingState(isRecording)
+                let previous = self.previousRecorderState
+                self.previousRecorderState = state
+
+                let isRecording = state.isRecording
+                if self.isRecording != isRecording {
+                    self.isRecording = isRecording
+                    self.updateStatusItemRecordingState(isRecording)
+                }
+
+                self.notifyHiddenProcessingTransitionIfNeeded(from: previous, to: state)
             }
     }
 
@@ -443,6 +453,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     func hidePanel() {
         guard let panel else { return }
         guard panelTargetVisible || panel.isVisible || FloatingPanelController.isPresented(panel) else { return }
+        if recorder.state.isProcessing {
+            requestNotificationAuthorizationIfNeeded()
+        }
         panelTransitionToken += 1
         let transitionToken = panelTransitionToken
         panelTargetVisible = false
@@ -484,7 +497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         hostingView.autoresizingMask = [.width, .height]
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 680),
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -492,7 +505,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         window.title = "Recappi Cloud"
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 700, height: 600)
+        window.contentMinSize = NSSize(width: 840, height: 680)
         window.contentView = hostingView
         window.delegate = self
         window.center()
@@ -890,6 +903,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         NSApp.setActivationPolicy(.accessory)
     }
 
+    private func configureNotifications() {
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    private func requestNotificationAuthorizationIfNeeded(_ completion: (@Sendable (Bool) -> Void)? = nil) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized, .provisional:
+                completion?(true)
+            case .notDetermined:
+                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                    completion?(granted)
+                }
+            default:
+                completion?(false)
+            }
+        }
+    }
+
+    private func notifyHiddenProcessingTransitionIfNeeded(from previous: RecorderState, to current: RecorderState) {
+        guard previous.isProcessing, panelTargetVisible == false else { return }
+
+        switch current {
+        case .done(let result):
+            let transcript = (result.transcript ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\n", with: " ")
+            let body = transcript.isEmpty
+                ? "Your recording has been transcribed."
+                : String(transcript.prefix(140))
+            postProcessingNotification(
+                title: "Transcription complete",
+                body: body,
+                playSound: false
+            )
+        case .error(let message):
+            postProcessingNotification(
+                title: "Processing failed",
+                body: message,
+                playSound: true
+            )
+        default:
+            return
+        }
+    }
+
+    private func postProcessingNotification(title: String, body: String, playSound: Bool) {
+        requestNotificationAuthorizationIfNeeded { granted in
+            guard granted else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.threadIdentifier = "recappi.processing"
+            content.userInfo = ["action": "showPanel"]
+            if playSound {
+                content.sound = .default
+            }
+
+            let request = UNNotificationRequest(
+                identifier: "recappi.processing.\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request)
+        }
+    }
+
     private func schedulePanelPresentationVerification(for token: Int, activateApp: Bool) {
         guard let panel else { return }
         Task { @MainActor [weak self] in
@@ -944,5 +1026,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             cloudWindow = nil
             restoreAccessoryActivationPolicyIfPossible()
         }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        Task { @MainActor in
+            AppDelegate.shared.showPanel(activateApp: true)
+        }
+        completionHandler()
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
     }
 }

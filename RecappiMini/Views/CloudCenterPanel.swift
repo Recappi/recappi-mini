@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 struct CloudCenterPanel: View {
@@ -17,7 +18,7 @@ struct CloudCenterPanel: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 760, height: 680)
+        .frame(width: 920, height: 760)
         .background(DT.recordingShell)
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
@@ -126,7 +127,7 @@ struct CloudCenterPanel: View {
     private var libraryView: some View {
         HStack(spacing: 0) {
             recordingsList
-                .frame(width: 280)
+                .frame(width: 300)
 
             Divider().overlay(Color.white.opacity(0.08))
 
@@ -197,12 +198,21 @@ struct CloudCenterPanel: View {
                 recording: recording,
                 transcript: store.selectedTranscript,
                 transcriptErrorMessage: store.transcriptErrorMessage,
+                localSessionURL: store.selectedLocalSessionURL,
+                playbackAudioURL: store.selectedPlaybackAudioURL,
+                playbackSourceDescription: store.selectedPlaybackSourceDescription,
+                playbackErrorMessage: store.playbackErrorMessage,
                 isTranscriptLoading: store.isTranscriptLoading,
+                isPreparingPlaybackAudio: store.isPreparingPlaybackAudio,
                 isDownloading: store.isDownloading,
                 isDeleting: store.isDeleting,
+                isSyncingToLocal: store.isSyncingToLocal,
                 hasDownloadedAudio: store.lastDownloadedAudioURL != nil,
                 onLoadTranscript: { Task { await store.loadTranscriptForSelection() } },
                 onCopyTranscript: store.copySelectedTranscript,
+                onPreparePlaybackAudio: { Task { await store.preparePlaybackAudioForSelection() } },
+                onRevealLocalSession: store.revealSelectedLocalSession,
+                onSyncToLocal: { Task { await store.syncSelectedRecordingToLocal() } },
                 onDownloadAudio: { Task { await store.downloadSelectedAudio() } },
                 onRevealAudio: store.revealLastDownloadedAudio,
                 onDelete: { showingDeleteConfirmation = true }
@@ -612,79 +622,45 @@ private struct CloudRecordingRow: View {
 }
 
 private struct CloudRecordingDetail: View {
+    @StateObject private var audioPlayer = CloudMeetingAudioPlayer()
+    @State private var pendingAutoplayAfterPrepare = false
+    @State private var pendingSeekAfterPrepare: Double?
+    @State private var pinnedSegmentID: String?
+    @State private var pendingPinnedSegmentIDAfterPrepare: String?
+
     let recording: CloudRecording
     let transcript: TranscriptResponse?
     let transcriptErrorMessage: String?
+    let localSessionURL: URL?
+    let playbackAudioURL: URL?
+    let playbackSourceDescription: String
+    let playbackErrorMessage: String?
     let isTranscriptLoading: Bool
+    let isPreparingPlaybackAudio: Bool
     let isDownloading: Bool
     let isDeleting: Bool
+    let isSyncingToLocal: Bool
     let hasDownloadedAudio: Bool
     let onLoadTranscript: () -> Void
     let onCopyTranscript: () -> Void
+    let onPreparePlaybackAudio: () -> Void
+    let onRevealLocalSession: () -> Void
+    let onSyncToLocal: () -> Void
     let onDownloadAudio: () -> Void
     let onRevealAudio: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .top, spacing: 12) {
-                            CloudSourceIcon(recording: recording, size: 38)
-
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(recording.presentationTitle)
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(Color.dtLabel)
-                                    .lineLimit(2)
-
-                                HStack(spacing: 7) {
-                                    Image(systemName: recording.sourceIconName)
-                                        .font(.system(size: 10, weight: .semibold))
-                                    Text(recording.sourceLine)
-                                        .lineLimit(1)
-                                }
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Color.dtLabelSecondary)
-
-                                Text(recording.createdDateText)
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Color.dtLabelTertiary)
-                            }
-
-                            Spacer(minLength: 0)
-
-                            CloudStatusChip(status: recording.status, prominent: true)
-                        }
-                    }
-
-                    metadataStrip
-
-                    VStack(alignment: .leading, spacing: 9) {
-                        HStack {
-                            Text("Transcript")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color.dtLabelSecondary)
-                                .textCase(.uppercase)
-                                .tracking(1.2)
-                            Spacer(minLength: 0)
-                            ZStack {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .scaleEffect(0.72)
-                                    .opacity(isTranscriptLoading ? 1 : 0)
-                            }
-                            .frame(width: 16, height: 16)
-                        }
-
-                        transcriptCard
-                    }
-                }
-                .padding(18)
-                .padding(.bottom, 12)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 12) {
+                detailHeader
+                metadataStrip
+                contextAndPlayback
+                segmentsHeader
+                transcriptCard
             }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             Divider().overlay(Color.white.opacity(0.08))
 
@@ -694,18 +670,76 @@ private struct CloudRecordingDetail: View {
                 .background(Color.black.opacity(0.10))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear {
+            audioPlayer.load(url: playbackAudioURL)
+        }
+        .onChange(of: playbackAudioURL) { _, url in
+            audioPlayer.load(url: url)
+            if let pendingSeekAfterPrepare, url != nil {
+                self.pendingSeekAfterPrepare = nil
+                audioPlayer.seek(to: pendingSeekAfterPrepare)
+            }
+            if let pendingPinnedSegmentIDAfterPrepare, url != nil {
+                pinnedSegmentID = pendingPinnedSegmentIDAfterPrepare
+                self.pendingPinnedSegmentIDAfterPrepare = nil
+            }
+            if pendingAutoplayAfterPrepare, url != nil {
+                pendingAutoplayAfterPrepare = false
+                audioPlayer.play()
+            }
+        }
+        .onChange(of: recording.id) { _, _ in
+            pendingAutoplayAfterPrepare = false
+            pendingSeekAfterPrepare = nil
+            pendingPinnedSegmentIDAfterPrepare = nil
+            pinnedSegmentID = nil
+            audioPlayer.load(url: playbackAudioURL)
+        }
+        .onDisappear {
+            audioPlayer.close()
+        }
+    }
+
+    private var detailHeader: some View {
+        HStack(alignment: .top, spacing: 16) {
+            CloudSourceIcon(recording: recording, size: 44)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(recording.presentationTitle)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
+                    .lineLimit(2)
+
+                HStack(spacing: 7) {
+                    Image(systemName: recording.sourceIconName)
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(recording.sourceLine)
+                        .lineLimit(1)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.dtLabelSecondary)
+
+                Text(recording.createdDateText)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Color.dtLabelTertiary)
+            }
+
+            Spacer(minLength: 0)
+
+            CloudStatusChip(status: recording.status, prominent: true)
+        }
     }
 
     private var metadataStrip: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 CloudMetadataPill(iconName: "clock", title: "Duration", value: recording.durationText ?? "Unknown")
                 CloudMetadataPill(iconName: "internaldrive", title: "Size", value: recording.sizeText ?? "Unknown")
                 CloudMetadataPill(iconName: "waveform", title: "Audio", value: recording.audioShapeCompactText)
                 CloudMetadataPill(iconName: "doc", title: "Format", value: recording.formatText)
             }
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 6)], spacing: 6) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
                 CloudMetadataPill(iconName: "clock", title: "Duration", value: recording.durationText ?? "Unknown")
                 CloudMetadataPill(iconName: "internaldrive", title: "Size", value: recording.sizeText ?? "Unknown")
                 CloudMetadataPill(iconName: "waveform", title: "Audio", value: recording.audioShapeCompactText)
@@ -714,21 +748,186 @@ private struct CloudRecordingDetail: View {
         }
     }
 
+    private var contextAndPlayback: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                if localSessionURL != nil {
+                    localSessionLink
+                        .frame(maxWidth: .infinity)
+                }
+                meetingPlaybackStrip
+                    .frame(maxWidth: .infinity)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                if localSessionURL != nil {
+                    localSessionLink
+                }
+                meetingPlaybackStrip
+            }
+        }
+    }
+
+    private var segmentsHeader: some View {
+        HStack {
+            Text("Segments")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.dtLabelSecondary)
+                .textCase(.uppercase)
+                .tracking(1.2)
+            if let transcript {
+                Text("\(transcript.displaySegmentRows.count)")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule(style: .continuous).fill(Color.white.opacity(0.055)))
+            }
+            Spacer(minLength: 0)
+            ZStack {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.72)
+                    .opacity(isTranscriptLoading ? 1 : 0)
+            }
+            .frame(width: 16, height: 16)
+        }
+    }
+
+    @ViewBuilder
+    private var localSessionLink: some View {
+        if let localSessionURL {
+            HStack(spacing: 8) {
+                Image(systemName: "folder")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(DT.waveformLit)
+                    .frame(width: 14)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Linked local session")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                        .textCase(.uppercase)
+                        .tracking(0.7)
+                    Text(localSessionURL.lastPathComponent)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.dtLabelSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 0)
+
+                Button("Open folder", action: onRevealLocalSession)
+                    .buttonStyle(PanelPushButtonStyle())
+                    .frame(width: 92)
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.revealLocalSessionButton)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.045))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.055), lineWidth: 1)
+            )
+        }
+    }
+
+    private var syncButton: some View {
+        Button {
+            if localSessionURL != nil {
+                onRevealLocalSession()
+            } else {
+                onSyncToLocal()
+            }
+        } label: {
+            if isSyncingToLocal {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Syncing…")
+                }
+            } else {
+                Text(localSessionURL == nil ? "Sync to local" : "Open local")
+            }
+        }
+        .buttonStyle(PanelPushButtonStyle())
+        .disabled(isSyncingToLocal)
+    }
+
+    private var meetingPlaybackStrip: some View {
+        CloudMeetingPlaybackStrip(
+            isPlaying: audioPlayer.isPlaying,
+            currentTime: audioPlayer.currentTime,
+            duration: audioPlayer.duration,
+            sourceDescription: playbackSourceDescription,
+            errorMessage: playbackErrorMessage,
+            isPreparingAudio: isPreparingPlaybackAudio,
+            hasAudio: playbackAudioURL != nil,
+            onPlayPause: handlePlayPause,
+            onSeek: audioPlayer.seek(to:)
+        )
+    }
+
+    private func handlePlayPause() {
+        guard playbackAudioURL != nil else {
+            pendingAutoplayAfterPrepare = true
+            onPreparePlaybackAudio()
+            return
+        }
+
+        audioPlayer.load(url: playbackAudioURL)
+        audioPlayer.togglePlayback()
+    }
+
+    private func jumpToSegment(_ row: CloudTranscriptSegmentDisplayRow) {
+        guard let milliseconds = row.startMs ?? row.endMs else { return }
+        pinnedSegmentID = row.id
+        pendingPinnedSegmentIDAfterPrepare = nil
+        let seconds = max(0, Double(milliseconds) / 1000.0 + 0.03)
+        guard playbackAudioURL != nil else {
+            pendingSeekAfterPrepare = seconds
+            pendingPinnedSegmentIDAfterPrepare = row.id
+            onPreparePlaybackAudio()
+            return
+        }
+        audioPlayer.load(url: playbackAudioURL)
+        audioPlayer.seek(to: seconds)
+    }
+
     @ViewBuilder
     private var transcriptCard: some View {
+        let segmentRows = transcript?.displaySegmentRows ?? []
+        let activeSegmentID = activeSegmentID(in: segmentRows)
         ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(transcript?.text.isEmpty == false ? 0.22 : 0.18))
+                .fill(Color.black.opacity(segmentRows.isEmpty ? 0.18 : 0.22))
 
-            if let transcript, !transcript.text.isEmpty {
-                ScrollView {
-                    Text(transcript.text)
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.dtLabel)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+            if !segmentRows.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 7) {
+                            ForEach(segmentRows) { row in
+                                CloudTranscriptSegmentRow(
+                                    row: row,
+                                    isActive: row.id == activeSegmentID,
+                                    onSelect: { jumpToSegment(row) }
+                                )
+                                    .id(row.id)
+                            }
+                        }
                         .padding(12)
+                        .textSelection(.enabled)
                         .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptText)
+                    }
+                    .onChange(of: activeSegmentID) { _, id in
+                        guard let id else { return }
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
+                    }
                 }
             } else {
                 VStack(spacing: 9) {
@@ -764,7 +963,7 @@ private struct CloudRecordingDetail: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 190)
+        .frame(minHeight: 240, maxHeight: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -775,12 +974,49 @@ private struct CloudRecordingDetail: View {
         }
     }
 
+    private func activeSegmentID(in rows: [CloudTranscriptSegmentDisplayRow]) -> String? {
+        let timeMs = Int((audioPlayer.currentTime * 1000).rounded())
+        let timedRows = rows.filter { $0.startMs != nil || $0.endMs != nil }
+        guard !timedRows.isEmpty else { return pinnedSegmentID }
+
+        if let pinnedSegmentID,
+           let pinned = timedRows.first(where: { $0.id == pinnedSegmentID }),
+           segment(pinned, contains: timeMs, within: timedRows) {
+            return pinnedSegmentID
+        }
+
+        return timedRows
+            .filter { ($0.startMs ?? $0.endMs ?? Int.max) <= timeMs + 250 }
+            .max {
+                ($0.startMs ?? $0.endMs ?? 0) < ($1.startMs ?? $1.endMs ?? 0)
+            }?
+            .id
+        ?? timedRows.min {
+            abs(($0.startMs ?? $0.endMs ?? 0) - timeMs) < abs(($1.startMs ?? $1.endMs ?? 0) - timeMs)
+        }?
+        .id
+    }
+
+    private func segment(
+        _ row: CloudTranscriptSegmentDisplayRow,
+        contains timeMs: Int,
+        within rows: [CloudTranscriptSegmentDisplayRow]
+    ) -> Bool {
+        guard let start = row.startMs ?? row.endMs else { return false }
+        let nextStart = rows
+            .compactMap(\.startMs)
+            .filter { $0 > start }
+            .min()
+        let end = max(row.endMs ?? nextStart ?? (start + 60_000), start + 500)
+        return timeMs >= start - 750 && timeMs < end
+    }
+
     private var transcriptPlaceholderText: String {
         if isTranscriptLoading {
             return "Loading transcript…"
         }
 
-        return transcriptErrorMessage ?? "Transcript is not available for this recording yet."
+        return transcriptErrorMessage ?? "Segments are not available for this recording yet."
     }
 
     private var actionBar: some View {
@@ -789,6 +1025,8 @@ private struct CloudRecordingDetail: View {
                 .buttonStyle(PanelPushButtonStyle())
                 .disabled(transcript?.text.isEmpty != false)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.copyTranscriptButton)
+
+            syncButton
 
             Button {
                 if hasDownloadedAudio {
@@ -826,6 +1064,259 @@ private struct CloudRecordingDetail: View {
             .disabled(isDeleting)
             .accessibilityIdentifier(AccessibilityIDs.Cloud.deleteButton)
         }
+    }
+}
+
+@MainActor
+private final class CloudMeetingAudioPlayer: ObservableObject {
+    @Published private(set) var isPlaying = false
+    @Published private(set) var currentTime: Double = 0
+    @Published private(set) var duration: Double = 0
+
+    private var player: AVPlayer?
+    private var currentURL: URL?
+    private var timeObserver: Any?
+    private var endObserver: NSObjectProtocol?
+
+    func load(url: URL?) {
+        guard currentURL != url else {
+            refreshDuration()
+            return
+        }
+
+        removeObservers()
+        player?.pause()
+        player = nil
+        currentURL = url
+        currentTime = 0
+        duration = 0
+        isPlaying = false
+
+        guard let url else { return }
+
+        let item = AVPlayerItem(url: url)
+        let nextPlayer = AVPlayer(playerItem: item)
+        player = nextPlayer
+        refreshDuration()
+
+        timeObserver = nextPlayer.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.18, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] time in
+            Task { @MainActor in
+                self?.currentTime = max(0, time.seconds.isFinite ? time.seconds : 0)
+                self?.refreshDuration()
+            }
+        }
+
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.isPlaying = false
+                self?.seek(to: 0)
+            }
+        }
+    }
+
+    func play() {
+        guard let player else { return }
+        player.play()
+        isPlaying = true
+        refreshDuration()
+    }
+
+    func togglePlayback() {
+        if isPlaying {
+            pause()
+        } else {
+            play()
+        }
+    }
+
+    func close() {
+        removeObservers()
+        player?.pause()
+        player = nil
+        currentURL = nil
+        currentTime = 0
+        duration = 0
+        isPlaying = false
+    }
+
+    func seek(to seconds: Double) {
+        let clamped = max(0, min(seconds, max(duration, seconds)))
+        currentTime = clamped
+        player?.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    private func pause() {
+        player?.pause()
+        isPlaying = false
+    }
+
+    private func refreshDuration() {
+        let seconds = player?.currentItem?.duration.seconds ?? 0
+        if seconds.isFinite, seconds > 0 {
+            duration = seconds
+        }
+    }
+
+    private func removeObservers() {
+        if let timeObserver, let player {
+            player.removeTimeObserver(timeObserver)
+        }
+        timeObserver = nil
+
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+        endObserver = nil
+    }
+}
+
+private struct CloudMeetingPlaybackStrip: View {
+    let isPlaying: Bool
+    let currentTime: Double
+    let duration: Double
+    let sourceDescription: String
+    let errorMessage: String?
+    let isPreparingAudio: Bool
+    let hasAudio: Bool
+    let onPlayPause: () -> Void
+    let onSeek: (Double) -> Void
+
+    private var sliderUpperBound: Double {
+        max(duration, currentTime, 1)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 9) {
+                Button(action: onPlayPause) {
+                    ZStack {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .opacity(isPreparingAudio ? 0 : 1)
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.7)
+                            .opacity(isPreparingAudio ? 1 : 0)
+                    }
+                    .frame(width: 24, height: 24)
+                }
+                .buttonStyle(PanelIconButtonStyle(size: 24))
+                .disabled(isPreparingAudio)
+                .help(hasAudio ? "Play meeting audio" : "Download audio preview")
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Meeting playback")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                    Text(errorMessage ?? sourceDescription)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(errorMessage == nil ? Color.dtLabelSecondary : DT.systemOrange)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 0)
+
+                Text("\(Self.timeText(currentTime)) / \(duration > 0 ? Self.timeText(duration) : "--:--")")
+                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.dtLabelTertiary)
+            }
+
+            Slider(
+                value: Binding(
+                    get: { min(max(0, currentTime), sliderUpperBound) },
+                    set: { value in onSeek(value) }
+                ),
+                in: 0...sliderUpperBound
+            )
+            .tint(DT.waveformLit)
+            .disabled(!hasAudio || isPreparingAudio)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.black.opacity(0.18))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.065), lineWidth: 1)
+        )
+    }
+
+    private static func timeText(_ seconds: Double) -> String {
+        let totalSeconds = max(0, Int(seconds.rounded(.down)))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+private struct CloudTranscriptSegmentDisplayRow: Identifiable {
+    let id: String
+    let marker: String
+    let startMs: Int?
+    let endMs: Int?
+    let speaker: String?
+    let text: String
+}
+
+private struct CloudTranscriptSegmentRow: View {
+    let row: CloudTranscriptSegmentDisplayRow
+    let isActive: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(alignment: .top, spacing: 12) {
+                Text(row.marker)
+                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isActive ? DT.waveformLit : Color.dtLabelTertiary)
+                    .frame(width: 70, alignment: .leading)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    if let speaker = row.speaker {
+                        Text(speaker)
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundStyle(DT.waveformLit)
+                            .lineLimit(1)
+                    }
+
+                    Text(row.text)
+                        .font(.system(size: 13.5))
+                        .foregroundStyle(Color.dtLabel)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isActive ? DT.waveformLit.opacity(0.12) : Color.white.opacity(0.032))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(isActive ? DT.waveformLit.opacity(0.34) : Color.white.opacity(0.035), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
+        .disabled(row.startMs == nil && row.endMs == nil)
     }
 }
 
@@ -915,6 +1406,68 @@ private struct CloudSourceIcon: View {
             RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
         )
+    }
+}
+
+private extension TranscriptResponse {
+    var displaySegmentRows: [CloudTranscriptSegmentDisplayRow] {
+        let decodedRows = segments.enumerated().compactMap { index, segment -> CloudTranscriptSegmentDisplayRow? in
+            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+
+            return CloudTranscriptSegmentDisplayRow(
+                id: "segment-\(index)-\(segment.startMs ?? -1)-\(segment.endMs ?? -1)",
+                marker: Self.timeMarker(startMs: segment.startMs, endMs: segment.endMs) ?? "#\(index + 1)",
+                startMs: segment.startMs,
+                endMs: segment.endMs,
+                speaker: segment.speaker,
+                text: text
+            )
+        }
+
+        if !decodedRows.isEmpty {
+            return decodedRows
+        }
+
+        return text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .enumerated()
+            .map { index, line in
+                CloudTranscriptSegmentDisplayRow(
+                    id: "line-\(index)",
+                    marker: "#\(index + 1)",
+                    startMs: nil,
+                    endMs: nil,
+                    speaker: nil,
+                    text: line
+                )
+            }
+    }
+
+    private static func timeMarker(startMs: Int?, endMs: Int?) -> String? {
+        switch (startMs, endMs) {
+        case (.some(let start), .some(let end)):
+            return "\(timecode(start))-\(timecode(end))"
+        case (.some(let start), .none):
+            return timecode(start)
+        case (.none, .some(let end)):
+            return timecode(end)
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    private static func timecode(_ milliseconds: Int) -> String {
+        let totalSeconds = max(0, milliseconds / 1000)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
     }
 }
 

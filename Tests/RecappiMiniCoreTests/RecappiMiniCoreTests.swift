@@ -114,6 +114,57 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testTranscriptResponseDecodesBackendSegmentsJSON() throws {
+        let data = """
+        {
+          "id": "tr_123",
+          "text": "Hello there.\\nWelcome back.",
+          "segmentsJson": "[{\\"start\\":0,\\"end\\":1300,\\"text\\":\\"Hello there.\\",\\"speaker\\":\\"Speaker 1\\"},{\\"start\\":1300,\\"end\\":2500,\\"text\\":\\"Welcome back.\\"}]"
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertEqual(transcript.id, "tr_123")
+        XCTAssertEqual(transcript.segments.count, 2)
+        XCTAssertEqual(transcript.segments[0].startMs, 0)
+        XCTAssertEqual(transcript.segments[0].endMs, 1_300)
+        XCTAssertEqual(transcript.segments[0].speaker, "Speaker 1")
+        XCTAssertEqual(transcript.segments[1].text, "Welcome back.")
+    }
+
+    func testTranscriptResponseBuildsTextWhenOnlySegmentsArePresent() throws {
+        let data = """
+        {
+          "id": "tr_123",
+          "segments": [
+            { "startMs": 0, "endMs": 900, "text": "First line." },
+            { "startMs": 900, "endMs": 1800, "text": "Second line." }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertEqual(transcript.text, "First line.\nSecond line.")
+        XCTAssertEqual(transcript.segments.count, 2)
+    }
+
+    func testTranscriptResponseNormalizesSecondBasedSegmentsForPlayback() throws {
+        let data = """
+        {
+          "id": "tr_123",
+          "segmentsJson": "[{\\"start\\":62,\\"end\\":68,\\"text\\":\\"A timed line.\\"},{\\"start\\":68,\\"end\\":73,\\"text\\":\\"Another line.\\"}]"
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertEqual(transcript.segments[0].startMs, 62_000)
+        XCTAssertEqual(transcript.segments[0].endMs, 68_000)
+        XCTAssertEqual(transcript.segments[1].startMs, 68_000)
+    }
+
     func testBillingStatusRequestUsesBearerAndOrigin() throws {
         let client = RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123")
         let request = try client.makeRequest(path: "/api/billing/status")
@@ -367,6 +418,44 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(loaded.recordingId, "rec_123")
         XCTAssertEqual(loaded.jobId, "job_123")
         XCTAssertEqual(loaded.stage, "uploading")
+    }
+
+    func testCloudLibraryIndexesLocalSessionsByRemoteRecordingID() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let older = temp.appendingPathComponent("2026-04-23_110000", isDirectory: true)
+        let newer = temp.appendingPathComponent("2026-04-23_120000", isDirectory: true)
+        try FileManager.default.createDirectory(at: older, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: newer, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        var olderManifest = RemoteSessionManifest.stage("done")
+        olderManifest.recordingId = "rec_123"
+        _ = RecordingStore.saveRemoteManifest(olderManifest, in: older)
+
+        var newerManifest = RemoteSessionManifest.stage("done")
+        newerManifest.recordingId = "rec_123"
+        _ = RecordingStore.saveRemoteManifest(newerManifest, in: newer)
+
+        let links = CloudLibraryStore.localSessionLinks(in: temp)
+
+        XCTAssertEqual(
+            links["rec_123"]?.standardizedFileURL,
+            newer.standardizedFileURL
+        )
+    }
+
+    func testFloatingPanelHitTestMatchesVisiblePillOnly() {
+        let bounds = NSRect(
+            x: 0,
+            y: 0,
+            width: DT.panelWidth + PillShellView.shadowMargin * 2,
+            height: 96
+        )
+        let visibleRect = PillShellView.visiblePillRect(in: bounds)
+
+        XCTAssertFalse(PillShellView.visiblePillContains(NSPoint(x: 4, y: bounds.midY), in: bounds))
+        XCTAssertFalse(PillShellView.visiblePillContains(NSPoint(x: visibleRect.minX + 1, y: visibleRect.minY + 1), in: bounds))
+        XCTAssertTrue(PillShellView.visiblePillContains(NSPoint(x: visibleRect.midX, y: visibleRect.midY), in: bounds))
     }
 
     func testUploadAudioExporterProducesWaveSidecar() async throws {

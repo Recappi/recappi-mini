@@ -44,8 +44,8 @@ struct RecordingPanel: View {
             50
         case .done(let result):
             doneContentHeight(for: result)
-        case .error:
-            82
+        case .error(let message):
+            errorContentHeight(for: message)
         }
     }
 
@@ -65,6 +65,29 @@ struct RecordingPanel: View {
         default:
             return 134
         }
+    }
+
+    private func errorContentHeight(for message: String) -> CGFloat {
+        let flattened = message
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        let estimatedLines = max(1, min(2, Int(ceil(Double(flattened.count) / 44.0))))
+        let headerHeight: CGFloat = estimatedLines == 1 ? 31 : 45
+        let hasActions = recorder.lastSessionDir != nil || Self.isConfigRelatedError(message)
+        return headerHeight + (hasActions ? 30 : 0)
+    }
+
+    private static func isConfigRelatedError(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        return lower.contains("api")
+            || lower.contains("key")
+            || lower.contains("auth")
+            || lower.contains("oauth")
+            || lower.contains("token")
+            || lower.contains("bearer")
+            || lower.contains("session")
+            || lower.contains("sign in")
+            || lower.contains("language not supported")
     }
 
     @ViewBuilder
@@ -95,7 +118,11 @@ struct RecordingPanel: View {
                 onStop: stopRecording,
                 onClose: onClosePanel
             )
-        case .processing(let phase): ProcessingState(phase: phase)
+        case .processing(let phase):
+            ProcessingState(
+                phase: phase,
+                onClose: onClosePanel
+            )
         case .done(let r):
             DoneState(
                 result: r,
@@ -547,6 +574,7 @@ private struct RecordingState: View {
 
 private struct ProcessingState: View {
     let phase: ProcessingPhase
+    var onClose: () -> Void
     @State private var spin = false
     @State private var shimmerPhase = false
 
@@ -574,6 +602,14 @@ private struct ProcessingState: View {
                 }
 
                 Spacer(minLength: 0)
+
+                Button(action: onClose) {
+                    Image(systemName: "minus")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .buttonStyle(PanelIconButtonStyle(size: 16))
+                .help("Hide panel and continue processing")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
             }
 
             GeometryReader { geo in

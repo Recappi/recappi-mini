@@ -52,6 +52,7 @@ enum AccessibilityIDs {
         static let transcriptText = "recappi.cloud.transcriptText"
         static let loadTranscriptButton = "recappi.cloud.loadTranscriptButton"
         static let copyTranscriptButton = "recappi.cloud.copyTranscriptButton"
+        static let revealLocalSessionButton = "recappi.cloud.revealLocalSessionButton"
         static let downloadAudioButton = "recappi.cloud.downloadAudioButton"
         static let deleteButton = "recappi.cloud.deleteButton"
         static let confirmDeleteButton = "recappi.cloud.confirmDeleteButton"
