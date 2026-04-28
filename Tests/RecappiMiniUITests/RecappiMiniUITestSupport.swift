@@ -8,6 +8,7 @@ enum UITestIDs {
         static let autoPromptToggle = "recappi.settings.autoPromptToggle"
         static let signInGoogleButton = "recappi.settings.signInGoogleButton"
         static let signInGitHubButton = "recappi.settings.signInGitHubButton"
+        static let accountActionsMenu = "recappi.settings.accountActionsMenu"
         static let reconnectButton = "recappi.settings.reconnectButton"
         static let signOutButton = "recappi.settings.signOutButton"
         static let openCloudButton = "recappi.settings.openCloudButton"
@@ -260,6 +261,11 @@ extension XCTestCase {
     }
 
     func signOut(in app: XCUIApplication) {
+        if app.buttons[UITestIDs.Settings.signOutButton].exists == false {
+            let menu = app.buttons[UITestIDs.Settings.accountActionsMenu]
+            XCTAssertTrue(menu.waitForExistence(timeout: 10), "Expected account actions menu.")
+            menu.click()
+        }
         let button = app.buttons[UITestIDs.Settings.signOutButton]
         XCTAssertTrue(button.waitForExistence(timeout: 10), "Expected Sign out button.")
         button.click()

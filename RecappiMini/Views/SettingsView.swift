@@ -55,19 +55,16 @@ struct SettingsView: View {
     @ViewBuilder
     private var accountSection: some View {
         Section {
-            Toggle("Cloud transcription", isOn: cloudEnabledBinding)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.cloudToggle)
-
-            statusView
-                .accessibilityLabel(authStatusText)
-                .accessibilityValue(authStatusText)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.authStatus)
-
-            authActions
+            accountStatusStrip
 
             if let currentSession = sessionStore.currentSession {
-                accountSummary(session: currentSession)
+                accountIdentityRow(session: currentSession)
+            } else {
+                signedOutAuthRow
             }
+
+            Toggle("Cloud transcription", isOn: cloudEnabledBinding)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.cloudToggle)
 
             billingUsageView
 
@@ -294,100 +291,179 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private var statusView: some View {
-        if let phase = sessionStore.authFlowPhase {
-            statusLabel(icon: "arrow.triangle.2.circlepath", color: DT.waveformLit, text: phase.statusText)
-        } else {
-            switch sessionStore.authStatus {
-            case .signedOut:
-                statusLabel(icon: "person.crop.circle.badge.xmark", color: DT.systemOrange, text: signedOutText)
-            case .authenticating:
-                statusLabel(icon: "arrow.triangle.2.circlepath", color: DT.waveformLit, text: "Authenticating with Recappi Cloud…")
-            case .signedIn(let session):
-                statusLabel(icon: "checkmark.circle.fill", color: DT.systemGreen, text: signedInText(for: session))
-            case .expired:
-                statusLabel(
-                    icon: "clock.arrow.circlepath",
-                    color: DT.systemOrange,
-                    text: sessionStore.authStatusDetail ?? "Session expired. Reconnect to continue."
-                )
-            case .failed:
-                statusLabel(
-                    icon: "xmark.circle.fill",
-                    color: DT.systemOrange,
-                    text: sessionStore.authStatusDetail ?? "Authentication failed. Try signing in again."
-                )
-            }
+    private var accountStatusStrip: some View {
+        HStack(spacing: 8) {
+            settingsStatusPill(
+                title: "Account",
+                value: accountPillValue,
+                systemImage: accountPillIcon,
+                tint: accountPillTint
+            )
+            settingsStatusPill(
+                title: "Permissions",
+                value: permissionsPillValue,
+                systemImage: permissionsReady ? "checkmark.circle.fill" : "exclamationmark.circle.fill",
+                tint: permissionsReady ? DT.systemGreen : DT.systemOrange
+            )
+            settingsStatusPill(
+                title: "Cloud",
+                value: config.cloudEnabled ? "On" : "Off",
+                systemImage: config.cloudEnabled ? "icloud.fill" : "icloud.slash.fill",
+                tint: config.cloudEnabled ? DT.waveformLit : Color.dtLabelTertiary
+            )
         }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(authStatusText)
+        .accessibilityValue(authStatusText)
+        .accessibilityIdentifier(AccessibilityIDs.Settings.authStatus)
     }
 
     @ViewBuilder
-    private var authActions: some View {
+    private func accountIdentityRow(session: UserSession) -> some View {
         HStack(spacing: 10) {
-            if sessionStore.currentSession == nil {
+            providerBadge(for: sessionStore.lastOAuthProvider)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sessionDisplayName(for: session))
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Color.dtLabel)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(accountConnectionText(for: session))
+                    .font(.caption)
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
+            }
+
+            Spacer(minLength: 0)
+
+            Text("Active")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(DT.systemGreen)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(DT.systemGreen.opacity(0.14))
+                )
+
+            Menu {
+                Button(signOutButtonTitle, action: signOut)
+                    .disabled(signOutDisabled)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.signOutButton)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .imageScale(.large)
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .frame(width: 28, height: 28)
+            }
+            .menuIndicator(.hidden)
+            .disabled(sessionStore.isAuthBusy)
+            .accessibilityLabel("Account actions")
+            .accessibilityIdentifier(AccessibilityIDs.Settings.accountActionsMenu)
+        }
+        .padding(.vertical, 3)
+    }
+
+    @ViewBuilder
+    private var signedOutAuthRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                providerBadge(for: sessionStore.lastOAuthProvider)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(signedOutTitle)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(Color.dtLabel)
+                    Text(authStatusText)
+                        .font(.caption)
+                        .foregroundStyle(Color.dtLabelSecondary)
+                        .lineLimit(2)
+                        .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                if shouldShowSignInAgainButton {
+                    Button(signInAgainButtonTitle, action: reconnect)
+                        .controlSize(.small)
+                        .disabled(isAuthActionDisabled)
+                        .accessibilityIdentifier(AccessibilityIDs.Settings.reconnectButton)
+                }
+
                 signInButton(for: .google)
                     .accessibilityIdentifier(AccessibilityIDs.Settings.signInGoogleButton)
 
                 signInButton(for: .github)
                     .accessibilityIdentifier(AccessibilityIDs.Settings.signInGitHubButton)
-            } else {
-                Button(reconnectButtonTitle, action: reconnect)
-                    .disabled(isAuthActionDisabled)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.reconnectButton)
 
-                if let alternate = alternateProvider {
-                    Button("Use \(alternate.displayName)") {
-                        signIn(with: alternate)
-                    }
-                    .disabled(isAuthActionDisabled)
-                }
-
-                Button(signOutButtonTitle, action: signOut)
-                    .disabled(signOutDisabled)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.signOutButton)
+                Spacer(minLength: 0)
             }
-
-            Spacer(minLength: 0)
         }
+        .padding(.vertical, 3)
     }
 
     @ViewBuilder
     private func signInButton(for provider: OAuthProvider) -> some View {
         Button(action: { signIn(with: provider) }) {
-            if sessionStore.authFlowPhase?.activeProvider == provider {
-                HStack(spacing: 6) {
+            HStack(spacing: 6) {
+                if sessionStore.authFlowPhase?.activeProvider == provider {
                     ProgressView().controlSize(.small)
                     Text(sessionStore.authFlowPhase?.buttonLabel ?? "Connecting…")
+                } else {
+                    providerBadge(for: provider, size: 16)
+                    Text(provider.displayName)
                 }
-            } else {
-                Text("Sign in with \(provider.displayName)")
             }
         }
+        .controlSize(.small)
         .disabled(isAuthActionDisabled)
     }
 
     @ViewBuilder
-    private func accountSummary(session: UserSession) -> some View {
-        LabeledContent("Connected as") {
-            Text(session.email)
-                .foregroundStyle(Color.dtLabelSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+    private func settingsStatusPill(
+        title: String,
+        value: String,
+        systemImage: String,
+        tint: Color
+    ) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.caption)
+                .foregroundStyle(tint)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption2)
+                    .foregroundStyle(Color.dtLabelTertiary)
+                Text(value)
+                    .font(.caption)
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.white.opacity(0.055))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
+                )
+        )
     }
 
     @ViewBuilder
-    private func statusLabel(icon: String, color: Color, text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-            Text(text)
-                .font(.footnote)
-                .foregroundStyle(Color.dtLabelSecondary)
-                .lineLimit(2)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
-            Spacer(minLength: 0)
-        }
+    private func providerBadge(for provider: OAuthProvider?, size: CGFloat = 28) -> some View {
+        ProviderLogoMark(provider: provider, size: size)
     }
 
     @ViewBuilder
@@ -428,6 +504,121 @@ struct SettingsView: View {
         return "\(session.email), expires \(expiresPrefix)."
     }
 
+    private var accountPillValue: String {
+        if sessionStore.authFlowPhase != nil {
+            return "Working"
+        }
+
+        switch sessionStore.authStatus {
+        case .signedOut:
+            return "Sign in"
+        case .authenticating:
+            return "Working"
+        case .signedIn:
+            return "Active"
+        case .expired:
+            return "Expired"
+        case .failed:
+            return "Issue"
+        }
+    }
+
+    private var accountPillIcon: String {
+        if sessionStore.authFlowPhase != nil {
+            return "arrow.triangle.2.circlepath"
+        }
+
+        switch sessionStore.authStatus {
+        case .signedOut:
+            return "person.crop.circle.badge.xmark"
+        case .authenticating:
+            return "arrow.triangle.2.circlepath"
+        case .signedIn:
+            return "checkmark.circle.fill"
+        case .expired:
+            return "clock.arrow.circlepath"
+        case .failed:
+            return "xmark.circle.fill"
+        }
+    }
+
+    private var accountPillTint: Color {
+        if sessionStore.authFlowPhase != nil {
+            return DT.waveformLit
+        }
+
+        switch sessionStore.authStatus {
+        case .signedIn:
+            return DT.systemGreen
+        case .authenticating:
+            return DT.waveformLit
+        case .signedOut:
+            return Color.dtLabelTertiary
+        case .expired, .failed:
+            return DT.systemOrange
+        }
+    }
+
+    private var permissionsReady: Bool {
+        capturePermissions.microphone == .authorized && capturePermissions.screenCapture == .authorized
+    }
+
+    private var permissionsPillValue: String {
+        if permissionsReady {
+            return "Ready"
+        }
+        if capturePermissions.microphone != .authorized && capturePermissions.screenCapture != .authorized {
+            return "Needs setup"
+        }
+        if capturePermissions.microphone != .authorized {
+            return "Mic"
+        }
+        return "Screen"
+    }
+
+    private var signedOutTitle: String {
+        switch sessionStore.authStatus {
+        case .expired, .failed:
+            return "Sign in again"
+        default:
+            return "Sign in to Recappi Cloud"
+        }
+    }
+
+    private var signInAgainButtonTitle: String {
+        if let provider = sessionStore.lastOAuthProvider {
+            return "Sign in with \(provider.displayName)"
+        }
+        return "Sign in again"
+    }
+
+    private var shouldShowSignInAgainButton: Bool {
+        switch sessionStore.authStatus {
+        case .expired, .failed:
+            return sessionStore.lastOAuthProvider != nil
+        default:
+            return false
+        }
+    }
+
+    private func sessionDisplayName(for session: UserSession) -> String {
+        let trimmedName = session.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? session.email : trimmedName
+    }
+
+    private func accountConnectionText(for session: UserSession) -> String {
+        let providerText: String
+        if let provider = sessionStore.lastOAuthProvider {
+            providerText = "Connected with \(provider.displayName)"
+        } else {
+            providerText = "Connected"
+        }
+        if sessionDisplayName(for: session) == session.email {
+            return providerText
+        }
+        return "\(providerText) · \(session.email)"
+    }
+
     private var billingUsageTitle: String {
         if let billingStatus {
             return "\(billingStatus.tier.displayName) usage"
@@ -453,21 +644,6 @@ struct SettingsView: View {
             return DT.systemOrange
         }
         return DT.waveformLit
-    }
-
-    private var alternateProvider: OAuthProvider? {
-        guard let last = sessionStore.lastOAuthProvider else { return nil }
-        return OAuthProvider.allCases.first(where: { $0 != last })
-    }
-
-    private var reconnectButtonTitle: String {
-        if sessionStore.authFlowPhase == .signingOut {
-            return "Reconnect"
-        }
-        if let provider = sessionStore.lastOAuthProvider {
-            return "Reconnect with \(provider.displayName)"
-        }
-        return "Reconnect"
     }
 
     private var signOutButtonTitle: String {
@@ -683,6 +859,106 @@ struct SettingsView: View {
             get: { AppConfig.shared.autoPromptForActiveAudioApps },
             set: { AppConfig.shared.autoPromptForActiveAudioApps = $0 }
         )
+    }
+}
+
+private struct ProviderLogoMark: View {
+    let provider: OAuthProvider?
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            switch provider {
+            case .google:
+                Circle()
+                    .fill(Color.white.opacity(0.96))
+                GoogleGMark()
+                    .frame(width: size * 0.68, height: size * 0.68)
+            case .github:
+                Circle()
+                    .fill(Color.white.opacity(0.94))
+                GitHubMark()
+                    .fill(Color.black.opacity(0.86))
+                    .frame(width: size * 0.70, height: size * 0.70)
+            case nil:
+                Circle()
+                    .fill(Color.white.opacity(0.08))
+                Image(systemName: "person.crop.circle")
+                    .font(.system(size: size * 0.54, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+private struct GoogleGMark: View {
+    var body: some View {
+        Canvas { context, size in
+            let diameter = min(size.width, size.height)
+            let lineWidth = diameter * 0.20
+            let radius = (diameter - lineWidth) / 2
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+
+            func strokeArc(_ start: Double, _ end: Double, color: Color) {
+                var path = Path()
+                path.addArc(
+                    center: center,
+                    radius: radius,
+                    startAngle: .degrees(start),
+                    endAngle: .degrees(end),
+                    clockwise: false
+                )
+                context.stroke(
+                    path,
+                    with: .color(color),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+            }
+
+            strokeArc(-35, 42, color: Color(red: 66/255, green: 133/255, blue: 244/255))
+            strokeArc(42, 142, color: Color(red: 52/255, green: 168/255, blue: 83/255))
+            strokeArc(142, 205, color: Color(red: 251/255, green: 188/255, blue: 5/255))
+            strokeArc(205, 315, color: Color(red: 234/255, green: 67/255, blue: 53/255))
+
+            var crossbar = Path()
+            crossbar.move(to: CGPoint(x: center.x, y: center.y))
+            crossbar.addLine(to: CGPoint(x: size.width * 0.92, y: center.y))
+            context.stroke(
+                crossbar,
+                with: .color(Color(red: 66/255, green: 133/255, blue: 244/255)),
+                style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt)
+            )
+        }
+    }
+}
+
+private struct GitHubMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width
+        let h = rect.height
+        let x = rect.minX
+        let y = rect.minY
+        var path = Path()
+
+        path.addEllipse(in: CGRect(x: x + w * 0.17, y: y + h * 0.22, width: w * 0.66, height: h * 0.56))
+
+        path.move(to: CGPoint(x: x + w * 0.25, y: y + h * 0.36))
+        path.addLine(to: CGPoint(x: x + w * 0.26, y: y + h * 0.08))
+        path.addLine(to: CGPoint(x: x + w * 0.45, y: y + h * 0.22))
+        path.closeSubpath()
+
+        path.move(to: CGPoint(x: x + w * 0.55, y: y + h * 0.22))
+        path.addLine(to: CGPoint(x: x + w * 0.74, y: y + h * 0.08))
+        path.addLine(to: CGPoint(x: x + w * 0.75, y: y + h * 0.36))
+        path.closeSubpath()
+
+        path.addRoundedRect(
+            in: CGRect(x: x + w * 0.37, y: y + h * 0.64, width: w * 0.26, height: h * 0.24),
+            cornerSize: CGSize(width: w * 0.08, height: h * 0.08)
+        )
+
+        return path
     }
 }
 
