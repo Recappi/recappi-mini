@@ -109,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var workspaceObservers: [NSObjectProtocol] = []
     private var screenParametersObserver: NSObjectProtocol?
     private var panelTransitionToken: Int = 0
+    private var isSyncingPanelVisibility = false
     private var uiTestCommandPollTimer: Timer?
     private var didFinishLaunching = false
     private var uiTestMeetingLabelByBundleID: [String: String] = [:]
@@ -870,11 +871,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func syncPanelVisibility() {
+        guard !isSyncingPanelVisibility else { return }
         guard let panel else {
             panelVisible = false
             return
         }
         guard !panel.isFloatingTransitioning else { return }
+
+        isSyncingPanelVisibility = true
+        defer { isSyncingPanelVisibility = false }
 
         guard panelTargetVisible else {
             FloatingPanelController.snapToHidden(panel)
