@@ -420,6 +420,34 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(loaded.stage, "uploading")
     }
 
+    func testRecordingStoreLoadsSavedTranscriptBody() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        try RecordingStore.saveTranscript("Hello from Recappi.", in: temp)
+
+        XCTAssertEqual(RecordingStore.loadTranscript(in: temp), "Hello from Recappi.")
+    }
+
+    func testSessionProcessorReusesCompletedRemoteManifest() {
+        var manifest = RemoteSessionManifest.stage("startingTranscription")
+        manifest.recordingId = " rec_123 "
+        manifest.jobId = " job_123 "
+
+        XCTAssertEqual(SessionProcessor.reusableRecordingID(in: manifest), "rec_123")
+        XCTAssertEqual(SessionProcessor.reusableJobID(in: manifest), "job_123")
+        XCTAssertNil(SessionProcessor.reusableTranscriptID(in: manifest))
+
+        manifest.transcriptId = " tr_123 "
+        XCTAssertEqual(SessionProcessor.reusableTranscriptID(in: manifest), "tr_123")
+
+        manifest.stage = "transcriptionFailed"
+        XCTAssertEqual(SessionProcessor.reusableRecordingID(in: manifest), "rec_123")
+        XCTAssertNil(SessionProcessor.reusableJobID(in: manifest))
+        XCTAssertNil(SessionProcessor.reusableTranscriptID(in: manifest))
+    }
+
     func testCloudLibraryIndexesLocalSessionsByRemoteRecordingID() throws {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let older = temp.appendingPathComponent("2026-04-23_110000", isDirectory: true)

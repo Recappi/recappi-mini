@@ -47,30 +47,75 @@ final class SessionProcessor {
 
         var manifest = RecordingStore.loadRemoteManifest(in: sessionDir) ?? .stage("verifyingSession")
         manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+        if manifest.stage == "done",
+           let transcript = RecordingStore.loadTranscript(in: sessionDir) {
+            return RecordingResult(
+                folderURL: sessionDir,
+                transcript: transcript,
+                duration: duration
+            )
+        }
         let recordingURL = RecordingStore.audioFileURL(in: sessionDir)
 
-        let uploadedRecording = try await uploadRecordingAsset(
-            primaryURL: recordingURL,
-            sessionDir: sessionDir,
-            client: client,
-            manifest: manifest,
-            updatePhase: updatePhase
-        )
+        let uploadedRecording: UploadedRecordingAsset
+        if let recordingId = Self.reusableRecordingID(in: manifest) {
+            uploadedRecording = UploadedRecordingAsset(recordingId: recordingId, manifest: manifest)
+        } else {
+            uploadedRecording = try await uploadRecordingAsset(
+                primaryURL: recordingURL,
+                sessionDir: sessionDir,
+                client: client,
+                manifest: manifest,
+                updatePhase: updatePhase
+            )
+        }
         manifest = uploadedRecording.manifest
 
-        let language = config.normalizedCloudLanguage
-        updatePhase(.startingTranscription)
-        let start = try await client.startTranscription(recordingId: uploadedRecording.recordingId, language: language)
-        manifest.jobId = start.jobId
-        manifest.stage = "startingTranscription"
-        manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+        if Self.reusableTranscriptID(in: manifest) != nil {
+            updatePhase(.fetchingTranscript)
+            let transcript = try await client.getRecordingTranscript(id: uploadedRecording.recordingId)
+            try RecordingStore.saveTranscript(transcript.text, in: sessionDir)
+            manifest.stage = "done"
+            manifest.errorMessage = nil
+            manifest.transcriptId = transcript.id
+            _ = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+            return RecordingResult(
+                folderURL: sessionDir,
+                transcript: transcript.text,
+                duration: duration
+            )
+        }
 
-        let job = try await pollForCompletion(
-            client: client,
-            recordingId: uploadedRecording.recordingId,
-            initial: start,
-            updatePhase: updatePhase
-        )
+        let language = config.normalizedCloudLanguage
+        let start: StartTranscriptionResponse
+        if let jobId = Self.reusableJobID(in: manifest) {
+            start = StartTranscriptionResponse(
+                jobId: jobId,
+                status: .queued,
+                transcriptId: manifest.transcriptId
+            )
+        } else {
+            updatePhase(.startingTranscription)
+            start = try await client.startTranscription(recordingId: uploadedRecording.recordingId, language: language)
+            manifest.jobId = start.jobId
+            manifest.stage = "startingTranscription"
+            manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+        }
+
+        let job: TranscriptionJob
+        do {
+            job = try await pollForCompletion(
+                client: client,
+                recordingId: uploadedRecording.recordingId,
+                initial: start,
+                updatePhase: updatePhase
+            )
+        } catch {
+            manifest.errorMessage = error.localizedDescription
+            manifest.stage = "transcriptionFailed"
+            _ = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+            throw error
+        }
 
         manifest.provider = job.provider
         manifest.model = job.model
@@ -92,6 +137,37 @@ final class SessionProcessor {
             transcript: transcript.text,
             duration: duration
         )
+    }
+
+    nonisolated static func reusableRecordingID(in manifest: RemoteSessionManifest) -> String? {
+        guard let recordingId = cleanID(manifest.recordingId) else { return nil }
+        if cleanID(manifest.jobId) != nil || cleanID(manifest.transcriptId) != nil {
+            return recordingId
+        }
+
+        switch manifest.stage {
+        case "completingUpload", "startingTranscription", "fetchingTranscript", "done", "synced":
+            return recordingId
+        default:
+            return nil
+        }
+    }
+
+    nonisolated static func reusableJobID(in manifest: RemoteSessionManifest) -> String? {
+        guard manifest.stage != "transcriptionFailed" else { return nil }
+        return cleanID(manifest.jobId)
+    }
+
+    nonisolated static func reusableTranscriptID(in manifest: RemoteSessionManifest) -> String? {
+        guard manifest.stage != "transcriptionFailed" else { return nil }
+        return cleanID(manifest.transcriptId)
+    }
+
+    private nonisolated static func cleanID(_ value: String?) -> String? {
+        guard let text = value?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return nil
+        }
+        return text
     }
 
     private func uploadRecordingAsset(

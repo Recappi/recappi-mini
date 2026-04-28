@@ -11,6 +11,7 @@ enum UITestIDs {
         static let reconnectButton = "recappi.settings.reconnectButton"
         static let signOutButton = "recappi.settings.signOutButton"
         static let openCloudButton = "recappi.settings.openCloudButton"
+        static let billingUsage = "recappi.settings.billingUsage"
     }
 
     enum Panel {

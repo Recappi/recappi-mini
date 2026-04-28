@@ -41,6 +41,19 @@ struct RecordingStore {
         try content.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    static func loadTranscript(in sessionDir: URL) -> String? {
+        let url = transcriptFileURL(in: sessionDir)
+        guard var text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        if text.hasPrefix("# Transcript") {
+            let parts = text.components(separatedBy: "\n\n")
+            if parts.count > 1 {
+                text = parts.dropFirst().joined(separator: "\n\n")
+            }
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     @discardableResult
     static func saveRemoteManifest(_ manifest: RemoteSessionManifest, in sessionDir: URL) -> RemoteSessionManifest {
         var next = manifest

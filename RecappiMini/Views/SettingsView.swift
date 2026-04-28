@@ -7,6 +7,9 @@ struct SettingsView: View {
     @ObservedObject private var appUpdater = AppUpdater.shared
     @State private var capturePermissions = CapturePermissionSnapshot.placeholder
     @State private var permissionsBusy = false
+    @State private var billingStatus: BillingStatus?
+    @State private var billingErrorMessage: String?
+    @State private var isLoadingBilling = false
 
     private static let updateCheckDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -34,7 +37,16 @@ struct SettingsView: View {
         .containerBackground(DT.recordingShell, for: .window)
         .navigationTitle("Recappi Mini Settings")
         .frame(minWidth: 520, idealWidth: 560, maxWidth: 620)
-        .task { refreshPermissionStatus() }
+        .task {
+            refreshPermissionStatus()
+            await refreshBillingStatusIfNeeded()
+        }
+        .onChange(of: sessionStore.currentSession?.userId) { _, _ in
+            Task { await refreshBillingStatusIfNeeded() }
+        }
+        .onChange(of: config.cloudEnabled) { _, _ in
+            Task { await refreshBillingStatusIfNeeded() }
+        }
         .onDisappear {
             NSApp.setActivationPolicy(.accessory)
         }
@@ -57,6 +69,8 @@ struct SettingsView: View {
                 accountSummary(session: currentSession)
             }
 
+            billingUsageView
+
             HStack {
                 Button("Open Recappi Cloud", action: openCloudCenter)
                     .disabled(!config.cloudEnabled)
@@ -65,6 +79,94 @@ struct SettingsView: View {
             }
         } header: {
             Text("Account")
+        }
+    }
+
+    @ViewBuilder
+    private var billingUsageView: some View {
+        if config.cloudEnabled, sessionStore.currentSession != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Label(billingUsageTitle, systemImage: billingUsageIcon)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(billingUsageTint)
+
+                    Spacer(minLength: 0)
+
+                    Button {
+                        Task { await refreshBillingStatus(force: true) }
+                    } label: {
+                        if isLoadingBilling {
+                            ProgressView()
+                                .controlSize(.small)
+                                .scaleEffect(0.72)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(isLoadingBilling)
+                    .help("Refresh usage")
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.billingRefreshButton)
+                }
+
+                if let billingStatus {
+                    VStack(alignment: .leading, spacing: 6) {
+                        usageLine(
+                            title: "Storage",
+                            value: settingsStorageUsageText(for: billingStatus),
+                            progress: settingsStorageProgress(for: billingStatus),
+                            isOverLimit: billingStatus.isOverStorage
+                        )
+                        usageLine(
+                            title: "Minutes",
+                            value: settingsMinutesUsageText(for: billingStatus),
+                            progress: settingsMinutesProgress(for: billingStatus),
+                            isOverLimit: billingStatus.isOverMinutes
+                        )
+                    }
+                } else {
+                    Text(billingErrorMessage ?? (isLoadingBilling ? "Loading usage…" : "Usage unavailable"))
+                        .font(.caption)
+                        .foregroundStyle(Color.dtLabelSecondary)
+                        .lineLimit(2)
+                }
+            }
+            .padding(.vertical, 2)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(AccessibilityIDs.Settings.billingUsage)
+        }
+    }
+
+    private func usageLine(
+        title: String,
+        value: String,
+        progress: Double,
+        isOverLimit: Bool
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(Color.dtLabelSecondary)
+                .frame(width: 52, alignment: .leading)
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                    Capsule(style: .continuous)
+                        .fill((isOverLimit ? DT.systemOrange : DT.waveformLit).opacity(0.72))
+                        .frame(width: proxy.size.width * max(0, min(1, progress)))
+                }
+            }
+            .frame(height: 4)
+
+            Text(value)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(isOverLimit ? DT.systemOrange : Color.dtLabelTertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(width: 132, alignment: .trailing)
         }
     }
 
@@ -326,6 +428,33 @@ struct SettingsView: View {
         return "\(session.email), expires \(expiresPrefix)."
     }
 
+    private var billingUsageTitle: String {
+        if let billingStatus {
+            return "\(billingStatus.tier.displayName) usage"
+        }
+        if isLoadingBilling {
+            return "Loading usage"
+        }
+        return "Cloud usage"
+    }
+
+    private var billingUsageIcon: String {
+        if isLoadingBilling {
+            return "arrow.triangle.2.circlepath"
+        }
+        if billingStatus.map(settingsIsOverAnyLimit) == true {
+            return "exclamationmark.triangle.fill"
+        }
+        return "chart.bar.xaxis"
+    }
+
+    private var billingUsageTint: Color {
+        if billingStatus.map(settingsIsOverAnyLimit) == true || billingErrorMessage != nil {
+            return DT.systemOrange
+        }
+        return DT.waveformLit
+    }
+
     private var alternateProvider: OAuthProvider? {
         guard let last = sessionStore.lastOAuthProvider else { return nil }
         return OAuthProvider.allCases.first(where: { $0 != last })
@@ -402,6 +531,7 @@ struct SettingsView: View {
         Task { @MainActor in
             do {
                 _ = try await sessionStore.startOAuth(provider: provider, origin: origin)
+                await refreshBillingStatus(force: true)
             } catch {
                 NSSound.beep()
             }
@@ -413,6 +543,7 @@ struct SettingsView: View {
         Task { @MainActor in
             do {
                 _ = try await sessionStore.reconnect(origin: origin)
+                await refreshBillingStatus(force: true)
             } catch {
                 NSSound.beep()
             }
@@ -423,6 +554,8 @@ struct SettingsView: View {
         let origin = config.effectiveBackendBaseURL
         Task { @MainActor in
             await sessionStore.signOut(origin: origin)
+            billingStatus = nil
+            billingErrorMessage = nil
         }
     }
 
@@ -452,6 +585,83 @@ struct SettingsView: View {
 
     private func openRecordingsFolder() {
         NSWorkspace.shared.open(RecordingStore.baseDirectory)
+    }
+
+    private func refreshBillingStatusIfNeeded() async {
+        guard config.cloudEnabled, sessionStore.currentSession != nil else {
+            billingStatus = nil
+            billingErrorMessage = nil
+            isLoadingBilling = false
+            return
+        }
+        guard billingStatus == nil else { return }
+        await refreshBillingStatus(force: false)
+    }
+
+    private func refreshBillingStatus(force: Bool) async {
+        guard config.cloudEnabled, sessionStore.currentSession != nil else {
+            billingStatus = nil
+            billingErrorMessage = nil
+            isLoadingBilling = false
+            return
+        }
+        guard force || billingStatus == nil else { return }
+
+        isLoadingBilling = true
+        billingErrorMessage = nil
+        do {
+            let origin = config.effectiveBackendBaseURL
+            _ = try await sessionStore.ensureAuthorized(origin: origin)
+            guard let token = sessionStore.bearerToken() else {
+                throw RecappiSessionError.notSignedIn
+            }
+            let client = RecappiAPIClient(origin: origin, bearerToken: token)
+            billingStatus = try await client.getBillingStatus()
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            do {
+                let origin = config.effectiveBackendBaseURL
+                _ = try await sessionStore.handleUnauthorized(origin: origin)
+            } catch {
+                // `handleUnauthorized` already updates the visible auth state.
+            }
+            billingStatus = nil
+            billingErrorMessage = nil
+        } catch {
+            billingStatus = nil
+            billingErrorMessage = error.localizedDescription
+        }
+        isLoadingBilling = false
+    }
+
+    private func settingsStorageProgress(for status: BillingStatus) -> Double {
+        guard status.storageCapBytes > 0 else { return 0 }
+        return Double(status.storageBytes) / Double(status.storageCapBytes)
+    }
+
+    private func settingsMinutesProgress(for status: BillingStatus) -> Double {
+        guard status.minutesCap > 0 else { return 0 }
+        return status.minutesUsed / status.minutesCap
+    }
+
+    private func settingsIsOverAnyLimit(_ status: BillingStatus) -> Bool {
+        status.isOverStorage || status.isOverMinutes
+    }
+
+    private func settingsStorageUsageText(for status: BillingStatus) -> String {
+        let used = ByteCountFormatter.string(fromByteCount: status.storageBytes, countStyle: .file)
+        let cap = ByteCountFormatter.string(fromByteCount: status.storageCapBytes, countStyle: .file)
+        return "\(used) / \(cap)"
+    }
+
+    private func settingsMinutesUsageText(for status: BillingStatus) -> String {
+        "\(settingsFormattedMinutes(status.minutesUsed)) / \(settingsFormattedMinutes(status.minutesCap)) min"
+    }
+
+    private func settingsFormattedMinutes(_ value: Double) -> String {
+        if value.rounded() == value {
+            return String(Int(value))
+        }
+        return String(format: "%.1f", value)
     }
 
     private var languageBinding: Binding<String> {

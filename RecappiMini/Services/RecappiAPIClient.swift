@@ -389,6 +389,15 @@ enum CloudRecordingStatus: Equatable, Sendable, Decodable {
         case .unknown(let value): return value.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
+
+    var allowsTranscriptionRequest: Bool {
+        switch self {
+        case .uploading, .aborted:
+            return false
+        case .ready, .failed, .unknown:
+            return true
+        }
+    }
 }
 
 struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {

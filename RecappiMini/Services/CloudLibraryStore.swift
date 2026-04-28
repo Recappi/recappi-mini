@@ -24,6 +24,7 @@ final class CloudLibraryStore: ObservableObject {
     @Published private(set) var isDownloading = false
     @Published private(set) var isDeleting = false
     @Published private(set) var isSyncingToLocal = false
+    @Published private(set) var isRetranscribing = false
     @Published private(set) var lastDownloadedAudioURL: URL?
     @Published private(set) var transcriptErrorMessage: String?
     @Published private(set) var billingStatus: BillingStatus?
@@ -190,6 +191,34 @@ final class CloudLibraryStore: ObservableObject {
         }
 
         isTranscriptLoading = false
+    }
+
+    func retranscribeSelectedRecording() async {
+        guard let recording = selectedRecording, recording.status.allowsTranscriptionRequest else { return }
+        guard !isRetranscribing else { return }
+
+        isRetranscribing = true
+        transcriptErrorMessage = nil
+
+        do {
+            let language = config.normalizedCloudLanguage
+            let start = try await runAuthorized { client in
+                try await client.startTranscription(recordingId: recording.id, language: language)
+            }
+            let job = try await pollForCompletion(recordingId: recording.id, initial: start)
+            let transcript = try await runAuthorized { client in
+                try await client.getRecordingTranscript(id: recording.id, jobId: job.id)
+            }
+            transcriptCache[recording.id] = transcript
+            try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript, job: job)
+            await refreshSelectedDetailIfNeeded()
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            apply(error: error)
+        } catch {
+            transcriptErrorMessage = transcriptMessage(for: error)
+        }
+
+        isRetranscribing = false
     }
 
     func copySelectedTranscript() {
@@ -391,6 +420,31 @@ final class CloudLibraryStore: ObservableObject {
         }
     }
 
+    private func pollForCompletion(
+        recordingId: String,
+        initial: StartTranscriptionResponse
+    ) async throws -> TranscriptionJob {
+        if initial.status == .succeeded {
+            return try await runAuthorized { client in
+                try await client.getJob(jobId: initial.jobId)
+            }
+        }
+
+        while true {
+            let job = try await runAuthorized { client in
+                try await client.getJob(jobId: initial.jobId)
+            }
+            switch job.status {
+            case .queued, .running:
+                try await Task.sleep(for: .seconds(2))
+            case .succeeded:
+                return job
+            case .failed:
+                throw CloudLibraryError.transcriptionFailed(job.error ?? "Transcription failed")
+            }
+        }
+    }
+
     private var plansURL: URL {
         URL(string: config.effectiveBackendBaseURL + "/plans") ?? URL(string: "https://recordmeet.ing/plans")!
     }
@@ -421,6 +475,9 @@ final class CloudLibraryStore: ObservableObject {
     }
 
     private func transcriptMessage(for error: Error) -> String {
+        if let cloudError = error as? CloudLibraryError {
+            return cloudError.localizedDescription
+        }
         if let apiError = error as? RecappiAPIError {
             switch apiError {
             case .http(let statusCode, _) where statusCode == 404:
@@ -511,6 +568,20 @@ final class CloudLibraryStore: ObservableObject {
         }
     }
 
+    private func syncTranscriptToLocalSessionIfLinked(
+        recording: CloudRecording,
+        transcript: TranscriptResponse,
+        job: TranscriptionJob
+    ) throws {
+        guard let sessionDir = localSessionURLsByRecordingID[recording.id] else { return }
+        try RecordingStore.saveTranscript(transcript.text, in: sessionDir)
+        RecordingStore.saveSessionMetadata(metadata(for: recording), in: sessionDir)
+        _ = RecordingStore.saveRemoteManifest(
+            remoteManifest(for: recording, transcript: transcript, job: job),
+            in: sessionDir
+        )
+    }
+
     private func createSyncedSessionDirectory(for recording: CloudRecording) throws -> URL {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
@@ -541,6 +612,19 @@ final class CloudLibraryStore: ObservableObject {
         manifest.recordingId = recording.id
         manifest.transcriptId = transcript?.id
         manifest.uploadFilename = "recording.\(audioFileExtension(for: recording))"
+        return manifest
+    }
+
+    private func remoteManifest(
+        for recording: CloudRecording,
+        transcript: TranscriptResponse,
+        job: TranscriptionJob
+    ) -> RemoteSessionManifest {
+        var manifest = remoteManifest(for: recording, transcript: transcript)
+        manifest.jobId = job.id
+        manifest.provider = job.provider
+        manifest.model = job.model
+        manifest.stage = "done"
         return manifest
     }
 
@@ -585,5 +669,16 @@ final class CloudLibraryStore: ObservableObject {
             .joined(separator: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty ? "recording" : String(cleaned.prefix(96))
+    }
+}
+
+private enum CloudLibraryError: LocalizedError {
+    case transcriptionFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .transcriptionFailed(let message):
+            return "Recappi transcription failed: \(message)"
+        }
     }
 }

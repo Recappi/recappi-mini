@@ -6,19 +6,16 @@ struct CloudCenterPanel: View {
     @StateObject private var store = CloudLibraryStore()
     @ObservedObject private var sessionStore = AuthSessionStore.shared
     @State private var showingDeleteConfirmation = false
+    @State private var showingRetranscribeConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider().overlay(Color.white.opacity(0.08))
-            if shouldShowBillingSummary {
-                billingSummary
-                Divider().overlay(Color.white.opacity(0.08))
-            }
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 920, height: 760)
+        .frame(width: 1160, height: 760)
         .background(DT.recordingShell)
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
@@ -40,6 +37,20 @@ struct CloudCenterPanel: View {
         } message: {
             Text("This removes the remote recording and cannot be undone.")
         }
+        .confirmationDialog(
+            "Retranscribe this recording?",
+            isPresented: $showingRetranscribeConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Retranscribe Audio") {
+                Task { await store.retranscribeSelectedRecording() }
+            }
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.confirmRetranscribeButton)
+
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This starts a new cloud transcription job for the selected audio. The current transcript stays visible until the new one finishes.")
+        }
     }
 
     private var shouldShowBillingSummary: Bool {
@@ -48,7 +59,7 @@ struct CloudCenterPanel: View {
     }
 
     private var billingSummary: some View {
-        CloudBillingSummary(
+        CloudSidebarBillingSummary(
             status: store.billingStatus,
             errorMessage: store.billingErrorMessage,
             isLoading: store.isLoadingBilling,
@@ -56,8 +67,6 @@ struct CloudCenterPanel: View {
             onOpenBilling: { Task { await store.openBillingPortalOrPlans() } },
             onOpenPlans: store.openPlansPage
         )
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
     }
 
     private var header: some View {
@@ -127,7 +136,7 @@ struct CloudCenterPanel: View {
     private var libraryView: some View {
         HStack(spacing: 0) {
             recordingsList
-                .frame(width: 300)
+                .frame(width: 292)
 
             Divider().overlay(Color.white.opacity(0.08))
 
@@ -187,6 +196,12 @@ struct CloudCenterPanel: View {
                 .padding(.bottom, 14)
             }
             .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingsList)
+
+            if shouldShowBillingSummary {
+                Divider().overlay(Color.white.opacity(0.08))
+                billingSummary
+                    .padding(12)
+            }
         }
         .background(Color.black.opacity(0.12))
     }
@@ -207,9 +222,11 @@ struct CloudCenterPanel: View {
                 isDownloading: store.isDownloading,
                 isDeleting: store.isDeleting,
                 isSyncingToLocal: store.isSyncingToLocal,
+                isRetranscribing: store.isRetranscribing,
                 hasDownloadedAudio: store.lastDownloadedAudioURL != nil,
                 onLoadTranscript: { Task { await store.loadTranscriptForSelection() } },
                 onCopyTranscript: store.copySelectedTranscript,
+                onRetranscribe: { showingRetranscribeConfirmation = true },
                 onPreparePlaybackAudio: { Task { await store.preparePlaybackAudioForSelection() } },
                 onRevealLocalSession: store.revealSelectedLocalSession,
                 onSyncToLocal: { Task { await store.syncSelectedRecordingToLocal() } },
@@ -412,7 +429,7 @@ struct CloudCenterPanel: View {
     }
 }
 
-private struct CloudBillingSummary: View {
+private struct CloudSidebarBillingSummary: View {
     let status: BillingStatus?
     let errorMessage: String?
     let isLoading: Bool
@@ -421,37 +438,28 @@ private struct CloudBillingSummary: View {
     let onOpenPlans: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Text("Plan")
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Cloud usage")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Color.dtLabelTertiary)
                         .textCase(.uppercase)
                         .tracking(1.1)
 
-                    if let status {
-                        Text(status.tier.displayName)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(status.isOverAnyLimit ? DT.systemOrange : DT.waveformLit)
-                    } else if isLoading {
-                        Text("Loading…")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color.dtLabelSecondary)
-                    } else {
-                        Text("Unavailable")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(DT.systemOrange)
-                    }
+                    Text(planText)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(planColor)
+                        .lineLimit(1)
                 }
 
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.dtLabelSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+
+                Button("Plans", action: onOpenPlans)
+                    .buttonStyle(PanelPushButtonStyle())
+                    .frame(width: 68)
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.plansButton)
             }
-            .frame(width: 180, alignment: .leading)
 
             if let status {
                 CloudLimitMeter(
@@ -473,43 +481,53 @@ private struct CloudBillingSummary: View {
                     .redacted(reason: isLoading ? .placeholder : [])
             }
 
-            Spacer(minLength: 0)
+            Text(subtitle)
+                .font(.system(size: 10.5))
+                .foregroundStyle(Color.dtLabelTertiary)
+                .lineLimit(2)
 
-            VStack(spacing: 7) {
-                Button {
-                    onOpenBilling()
-                } label: {
-                    if isOpeningBilling {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Opening…")
-                        }
-                    } else {
-                        Text("Billing")
+            Button {
+                onOpenBilling()
+            } label: {
+                if isOpeningBilling {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Opening…")
                     }
+                } else {
+                    Text("Manage billing")
                 }
-                .buttonStyle(PanelPushButtonStyle(primary: true))
-                .disabled(isOpeningBilling)
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.billingButton)
-
-                Button("Plans", action: onOpenPlans)
-                    .buttonStyle(PanelPushButtonStyle())
-                    .accessibilityIdentifier(AccessibilityIDs.Cloud.plansButton)
             }
-            .frame(width: 112)
+            .buttonStyle(PanelPushButtonStyle(primary: true))
+            .disabled(isOpeningBilling)
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.billingButton)
         }
-        .padding(12)
+        .padding(11)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.black.opacity(0.18))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.075), lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Cloud billing and limits")
         .accessibilityIdentifier(AccessibilityIDs.Cloud.billingStatus)
+    }
+
+    private var planText: String {
+        if let status {
+            return status.tier.displayName
+        }
+        return isLoading ? "Loading…" : "Unavailable"
+    }
+
+    private var planColor: Color {
+        if let status {
+            return status.isOverAnyLimit ? DT.systemOrange : DT.waveformLit
+        }
+        return isLoading ? Color.dtLabelSecondary : DT.systemOrange
     }
 
     private var subtitle: String {
@@ -559,7 +577,7 @@ private struct CloudLimitMeter: View {
             }
             .frame(height: 5)
         }
-        .frame(width: 150)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -640,9 +658,11 @@ private struct CloudRecordingDetail: View {
     let isDownloading: Bool
     let isDeleting: Bool
     let isSyncingToLocal: Bool
+    let isRetranscribing: Bool
     let hasDownloadedAudio: Bool
     let onLoadTranscript: () -> Void
     let onCopyTranscript: () -> Void
+    let onRetranscribe: () -> Void
     let onPreparePlaybackAudio: () -> Void
     let onRevealLocalSession: () -> Void
     let onSyncToLocal: () -> Void
@@ -651,25 +671,16 @@ private struct CloudRecordingDetail: View {
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                detailHeader
-                metadataStrip
-                contextAndPlayback
-                segmentsHeader
-                transcriptCard
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        HStack(spacing: 0) {
+            readerPane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider().overlay(Color.white.opacity(0.08))
 
-            actionBar
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
-                .background(Color.black.opacity(0.10))
+            inspectorPane
+                .frame(width: 276)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             audioPlayer.load(url: playbackAudioURL)
         }
@@ -700,13 +711,168 @@ private struct CloudRecordingDetail: View {
         }
     }
 
+    private var readerPane: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 13) {
+                detailHeader
+                meetingPlaybackStrip
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 20)
+            .padding(.bottom, 14)
+
+            Divider().overlay(Color.white.opacity(0.08))
+
+            VStack(alignment: .leading, spacing: 12) {
+                segmentsHeader
+                transcriptCard
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 16)
+            .padding(.bottom, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var inspectorPane: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            inspectorSection("Details") {
+                CloudInspectorMetric(iconName: "clock", title: "Duration", value: recording.durationText ?? "Unknown")
+                CloudInspectorMetric(iconName: "internaldrive", title: "Size", value: recording.sizeText ?? "Unknown")
+                CloudInspectorMetric(iconName: "waveform", title: "Audio", value: recording.audioShapeCompactText)
+                CloudInspectorMetric(iconName: "doc", title: "Format", value: recording.formatText)
+            }
+
+            inspectorSection("Source") {
+                CloudInspectorMetric(iconName: recording.sourceIconName, title: "Captured from", value: recording.sourceLine)
+                CloudInspectorMetric(iconName: "calendar", title: "Created", value: recording.shortDateText)
+                if localSessionURL != nil {
+                    localSessionLink
+                }
+            }
+
+            inspectorSection("Export") {
+                inspectorButton("Copy transcript", systemImage: "doc.on.doc", action: onCopyTranscript)
+                    .disabled(transcript?.text.isEmpty != false)
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.copyTranscriptButton)
+
+                syncButton
+
+                Button {
+                    if hasDownloadedAudio {
+                        onRevealAudio()
+                    } else {
+                        onDownloadAudio()
+                    }
+                } label: {
+                    inspectorButtonLabel(
+                        isBusy: isDownloading,
+                        title: hasDownloadedAudio ? "Reveal audio" : "Download audio",
+                        busyTitle: "Downloading…",
+                        systemImage: hasDownloadedAudio ? "waveform.path.ecg.rectangle" : "arrow.down.circle"
+                    )
+                }
+                .buttonStyle(CloudInspectorButtonStyle())
+                .disabled(isDownloading)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.downloadAudioButton)
+
+                Button(action: onRetranscribe) {
+                    inspectorButtonLabel(
+                        isBusy: isRetranscribing,
+                        title: "Retranscribe audio…",
+                        busyTitle: "Retranscribing…",
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .buttonStyle(CloudInspectorButtonStyle(tint: Color.dtLabelTertiary))
+                .disabled(isRetranscribing || isTranscriptLoading || !recording.status.allowsTranscriptionRequest)
+                .opacity(0.72)
+                .help("Start a new cloud transcription job")
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                onDelete()
+            } label: {
+                inspectorButtonLabel(
+                    isBusy: isDeleting,
+                    title: "Delete recording",
+                    busyTitle: "Deleting…",
+                    systemImage: "trash"
+                )
+            }
+            .buttonStyle(CloudInspectorButtonStyle(tint: DT.systemOrange, destructive: true))
+            .disabled(isDeleting)
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.deleteButton)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 18)
+        .background(Color.black.opacity(0.10))
+    }
+
+    private func inspectorSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color.dtLabelTertiary)
+                .textCase(.uppercase)
+                .tracking(1.1)
+
+            VStack(alignment: .leading, spacing: 7) {
+                content()
+            }
+        }
+    }
+
+    private func inspectorButton(
+        _ title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            inspectorButtonLabel(isBusy: false, title: title, busyTitle: title, systemImage: systemImage)
+        }
+        .buttonStyle(CloudInspectorButtonStyle())
+    }
+
+    private func inspectorButtonLabel(
+        isBusy: Bool,
+        title: String,
+        busyTitle: String,
+        systemImage: String
+    ) -> some View {
+        HStack(spacing: 8) {
+            ZStack {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                    .opacity(isBusy ? 0 : 1)
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.68)
+                    .opacity(isBusy ? 1 : 0)
+            }
+            .frame(width: 15)
+
+            Text(isBusy ? busyTitle : title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+
+            Spacer(minLength: 0)
+        }
+    }
+
     private var detailHeader: some View {
-        HStack(alignment: .top, spacing: 16) {
-            CloudSourceIcon(recording: recording, size: 44)
+        HStack(alignment: .top, spacing: 12) {
+            CloudSourceIcon(recording: recording, size: 34)
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(recording.presentationTitle)
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
                     .lineLimit(2)
 
@@ -720,51 +886,13 @@ private struct CloudRecordingDetail: View {
                 .foregroundStyle(Color.dtLabelSecondary)
 
                 Text(recording.createdDateText)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: 11.5))
                     .foregroundStyle(Color.dtLabelTertiary)
             }
 
             Spacer(minLength: 0)
 
             CloudStatusChip(status: recording.status, prominent: true)
-        }
-    }
-
-    private var metadataStrip: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
-                CloudMetadataPill(iconName: "clock", title: "Duration", value: recording.durationText ?? "Unknown")
-                CloudMetadataPill(iconName: "internaldrive", title: "Size", value: recording.sizeText ?? "Unknown")
-                CloudMetadataPill(iconName: "waveform", title: "Audio", value: recording.audioShapeCompactText)
-                CloudMetadataPill(iconName: "doc", title: "Format", value: recording.formatText)
-            }
-
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], spacing: 8) {
-                CloudMetadataPill(iconName: "clock", title: "Duration", value: recording.durationText ?? "Unknown")
-                CloudMetadataPill(iconName: "internaldrive", title: "Size", value: recording.sizeText ?? "Unknown")
-                CloudMetadataPill(iconName: "waveform", title: "Audio", value: recording.audioShapeCompactText)
-                CloudMetadataPill(iconName: "doc", title: "Format", value: recording.formatText)
-            }
-        }
-    }
-
-    private var contextAndPlayback: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 12) {
-                if localSessionURL != nil {
-                    localSessionLink
-                        .frame(maxWidth: .infinity)
-                }
-                meetingPlaybackStrip
-                    .frame(maxWidth: .infinity)
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                if localSessionURL != nil {
-                    localSessionLink
-                }
-                meetingPlaybackStrip
-            }
         }
     }
 
@@ -844,16 +972,14 @@ private struct CloudRecordingDetail: View {
                 onSyncToLocal()
             }
         } label: {
-            if isSyncingToLocal {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Syncing…")
-                }
-            } else {
-                Text(localSessionURL == nil ? "Sync to local" : "Open local")
-            }
+            inspectorButtonLabel(
+                isBusy: isSyncingToLocal,
+                title: localSessionURL == nil ? "Sync to local" : "Open local",
+                busyTitle: "Syncing…",
+                systemImage: localSessionURL == nil ? "arrow.down.doc" : "folder"
+            )
         }
-        .buttonStyle(PanelPushButtonStyle())
+        .buttonStyle(CloudInspectorButtonStyle())
         .disabled(isSyncingToLocal)
     }
 
@@ -1019,52 +1145,6 @@ private struct CloudRecordingDetail: View {
         return transcriptErrorMessage ?? "Segments are not available for this recording yet."
     }
 
-    private var actionBar: some View {
-        HStack(spacing: 10) {
-            Button("Copy transcript", action: onCopyTranscript)
-                .buttonStyle(PanelPushButtonStyle())
-                .disabled(transcript?.text.isEmpty != false)
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.copyTranscriptButton)
-
-            syncButton
-
-            Button {
-                if hasDownloadedAudio {
-                    onRevealAudio()
-                } else {
-                    onDownloadAudio()
-                }
-            } label: {
-                if isDownloading {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Downloading…")
-                    }
-                } else {
-                    Text(hasDownloadedAudio ? "Reveal audio" : "Download audio")
-                }
-            }
-            .buttonStyle(PanelPushButtonStyle())
-            .disabled(isDownloading)
-            .accessibilityIdentifier(AccessibilityIDs.Cloud.downloadAudioButton)
-
-            Button {
-                onDelete()
-            } label: {
-                if isDeleting {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Deleting…")
-                    }
-                } else {
-                    Text("Delete")
-                }
-            }
-            .buttonStyle(PanelPushButtonStyle(primary: false))
-            .disabled(isDeleting)
-            .accessibilityIdentifier(AccessibilityIDs.Cloud.deleteButton)
-        }
-    }
 }
 
 @MainActor
@@ -1280,10 +1360,15 @@ private struct CloudTranscriptSegmentRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(alignment: .top, spacing: 12) {
+                Capsule(style: .continuous)
+                    .fill(isActive ? DT.waveformLit : Color.white.opacity(0.055))
+                    .frame(width: 3)
+                    .padding(.vertical, 2)
+
                 Text(row.marker)
                     .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(isActive ? DT.waveformLit : Color.dtLabelTertiary)
-                    .frame(width: 70, alignment: .leading)
+                    .frame(width: 64, alignment: .leading)
                     .padding(.top, 2)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -1302,17 +1387,17 @@ private struct CloudTranscriptSegmentRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isActive ? DT.waveformLit.opacity(0.12) : Color.white.opacity(0.032))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isActive ? DT.waveformLit.opacity(0.105) : Color.white.opacity(0.018))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isActive ? DT.waveformLit.opacity(0.34) : Color.white.opacity(0.035), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isActive ? DT.waveformLit.opacity(0.26) : Color.white.opacity(0.025), lineWidth: 1)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .help(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
@@ -1320,30 +1405,73 @@ private struct CloudTranscriptSegmentRow: View {
     }
 }
 
-private struct CloudMetadataPill: View {
+private struct CloudInspectorMetric: View {
     let iconName: String
     let title: String
     let value: String
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: iconName)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(DT.waveformLit.opacity(0.85))
-                .frame(width: 12)
-            Text(value)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.dtLabelSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(DT.waveformLit.opacity(0.82))
+                .frame(width: 14)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .textCase(.uppercase)
+                    .tracking(0.6)
+                    .lineLimit(1)
+
+                Text(value)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 0)
         }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title): \(value)")
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Color.white.opacity(0.045))
-        )
+    }
+}
+
+private struct CloudInspectorButtonStyle: ButtonStyle {
+    var tint: Color = DT.waveformLit
+    var destructive = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11.5, weight: .semibold))
+            .foregroundStyle(destructive ? tint : Color.dtLabel)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(backgroundOpacity(isPressed: configuration.isPressed))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(DT.ease(0.10), value: configuration.isPressed)
+    }
+
+    private func backgroundOpacity(isPressed: Bool) -> Color {
+        if destructive {
+            return tint.opacity(isPressed ? 0.16 : 0.08)
+        }
+        return Color.white.opacity(isPressed ? 0.11 : 0.055)
+    }
+
+    private var borderColor: Color {
+        destructive ? tint.opacity(0.18) : Color.white.opacity(0.065)
     }
 }
 

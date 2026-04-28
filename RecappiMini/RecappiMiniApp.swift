@@ -157,6 +157,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         appUpdater.start()
         configureNotifications()
 
+        if uiTestMode.openCloudWindowOnLaunch {
+            return
+        }
+
         let m = PillShellView.shadowMargin
         let pillWidth = DT.panelWidth
         let panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: pillWidth + m * 2, height: 56 + m * 2))
