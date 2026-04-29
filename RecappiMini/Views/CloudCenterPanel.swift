@@ -1585,14 +1585,14 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
         }
 
         isLoadingWaveform = true
-        waveformTask = Task.detached(priority: .utility) { [weak self] in
-            let peaks = (try? PlaybackWaveformExtractor.cachedPeaks(from: url)) ?? []
-            await MainActor.run {
-                guard let self, self.currentURL == url, !Task.isCancelled else { return }
-                self.waveformCache[url] = peaks
-                self.waveformPeaks = peaks
-                self.isLoadingWaveform = false
-            }
+        waveformTask = Task { [url] in
+            let peaks = await Task.detached(priority: .utility) {
+                (try? PlaybackWaveformExtractor.cachedPeaks(from: url)) ?? []
+            }.value
+            guard currentURL == url, !Task.isCancelled else { return }
+            waveformCache[url] = peaks
+            waveformPeaks = peaks
+            isLoadingWaveform = false
         }
     }
 
