@@ -17,10 +17,12 @@ final class CloudLibraryStore: ObservableObject {
     @Published private(set) var recordings: [CloudRecording] = []
     @Published private(set) var selectedRecordingID: String?
     @Published private(set) var transcriptCache: [String: TranscriptResponse] = [:]
+    @Published private(set) var transcriptionJobsByRecordingID: [String: [TranscriptionJob]] = [:]
     @Published private(set) var nextCursor: String?
     @Published private(set) var isLoadingMore = false
     @Published private(set) var isRefreshing = false
     @Published private(set) var isTranscriptLoading = false
+    @Published private(set) var isJobHistoryLoading = false
     @Published private(set) var isDownloading = false
     @Published private(set) var isDeleting = false
     @Published private(set) var isSyncingToLocal = false
@@ -65,6 +67,22 @@ final class CloudLibraryStore: ObservableObject {
     var selectedTranscript: TranscriptResponse? {
         guard let selectedRecordingID else { return nil }
         return transcriptCache[selectedRecordingID]
+    }
+
+    var selectedTranscriptionJobs: [TranscriptionJob] {
+        guard let selectedRecordingID else { return [] }
+        return transcriptionJobsByRecordingID[selectedRecordingID] ?? []
+    }
+
+    var selectedLatestTranscriptionJob: TranscriptionJob? {
+        selectedTranscriptionJobs.first
+    }
+
+    var selectedActiveJobPollingKey: String {
+        selectedTranscriptionJobs
+            .filter { $0.status.isActive }
+            .map(\.id)
+            .joined(separator: ",")
     }
 
     var selectedLocalSessionURL: URL? {
@@ -232,6 +250,43 @@ final class CloudLibraryStore: ObservableObject {
         }
     }
 
+    func loadJobHistoryForSelection() async {
+        guard let recording = selectedRecording else { return }
+        isJobHistoryLoading = true
+
+        do {
+            let page = try await runAuthorized { client in
+                try await client.listRecordingJobs(recordingId: recording.id)
+            }
+            transcriptionJobsByRecordingID[recording.id] = page.items
+            cacheWarningMessage = nil
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            apply(error: error)
+        } catch RecappiAPIError.http(let statusCode, _) where statusCode == 404 {
+            // Older backend deployments do not expose recording job history yet.
+            // Jobs started from this app are still tracked via POST /transcribe
+            // + GET /api/jobs/:id.
+            transcriptionJobsByRecordingID[recording.id] = transcriptionJobsByRecordingID[recording.id] ?? []
+        } catch {
+            cacheWarningMessage = "Showing cached data · Job status refresh failed"
+            isShowingCachedData = true
+        }
+
+        isJobHistoryLoading = false
+    }
+
+    func pollSelectedActiveJobsUntilTerminal() async {
+        while !Task.isCancelled {
+            guard let recording = selectedRecording else { return }
+            let activeJobs = (transcriptionJobsByRecordingID[recording.id] ?? [])
+                .filter { $0.status.isActive }
+            guard !activeJobs.isEmpty else { return }
+
+            await refreshJobs(recordingID: recording.id, jobIDs: activeJobs.map(\.id))
+            try? await Task.sleep(for: .seconds(2))
+        }
+    }
+
     func loadTranscriptForSelection() async {
         guard let recording = selectedRecording else { return }
         guard transcriptCache[recording.id] == nil else { return }
@@ -277,13 +332,13 @@ final class CloudLibraryStore: ObservableObject {
                     provider: "gemini"
                 )
             }
-            let job = try await pollForCompletion(recordingId: recording.id, initial: start)
-            let transcript = try await runAuthorized { client in
-                try await client.getRecordingTranscript(id: recording.id, jobId: job.id)
+            let job = try await runAuthorized { client in
+                try await client.getJob(jobId: start.jobId)
             }
-            transcriptCache[recording.id] = transcript
-            try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript, job: job)
-            await refreshSelectedDetailIfNeeded()
+            upsertJob(job, for: recording.id)
+            if job.status == .succeeded {
+                try await refreshTranscriptAfterJobSucceeded(recording: recording, job: job)
+            }
             await persistCacheSnapshot()
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)
@@ -296,10 +351,10 @@ final class CloudLibraryStore: ObservableObject {
 
     var retranscriptionLimitMessage: String? {
         guard let billingStatus else { return nil }
-        if billingStatus.isOverMinutes {
+        if billingStatus.effectiveIsOverMinutes {
             return "Cloud minutes limit reached. Upgrade your plan or free usage before retranscribing."
         }
-        if billingStatus.isOverStorage {
+        if billingStatus.effectiveIsOverStorage {
             return "Cloud storage limit reached. Delete recordings or upgrade before retranscribing."
         }
         return nil
@@ -444,6 +499,7 @@ final class CloudLibraryStore: ObservableObject {
             }
             recordings.removeAll { $0.id == recording.id }
             transcriptCache.removeValue(forKey: recording.id)
+            transcriptionJobsByRecordingID.removeValue(forKey: recording.id)
             playbackAudioURLsByRecordingID.removeValue(forKey: recording.id)
             if selectedRecordingID == recording.id {
                 selectedRecordingID = recordings.first?.id
@@ -507,31 +563,6 @@ final class CloudLibraryStore: ObservableObject {
             }
             let refreshedClient = RecappiAPIClient(origin: origin, bearerToken: refreshedToken)
             return try await operation(refreshedClient)
-        }
-    }
-
-    private func pollForCompletion(
-        recordingId: String,
-        initial: StartTranscriptionResponse
-    ) async throws -> TranscriptionJob {
-        if initial.status == .succeeded {
-            return try await runAuthorized { client in
-                try await client.getJob(jobId: initial.jobId)
-            }
-        }
-
-        while true {
-            let job = try await runAuthorized { client in
-                try await client.getJob(jobId: initial.jobId)
-            }
-            switch job.status {
-            case .queued, .running:
-                try await Task.sleep(for: .seconds(2))
-            case .succeeded:
-                return job
-            case .failed:
-                throw CloudLibraryError.transcriptionFailed(job.error ?? "Transcription failed")
-            }
         }
     }
 
@@ -677,6 +708,49 @@ final class CloudLibraryStore: ObservableObject {
             return
         }
         recordings[index] = recording
+    }
+
+    private func refreshJobs(recordingID: String, jobIDs: [String]) async {
+        for jobID in jobIDs {
+            guard !Task.isCancelled else { return }
+            do {
+                let previousStatus = transcriptionJobsByRecordingID[recordingID]?
+                    .first(where: { $0.id == jobID })?
+                    .status
+                let job = try await runAuthorized { client in
+                    try await client.getJob(jobId: jobID)
+                }
+                upsertJob(job, for: recordingID)
+                if previousStatus != .succeeded, job.status == .succeeded,
+                   let recording = recordings.first(where: { $0.id == recordingID }) {
+                    try await refreshTranscriptAfterJobSucceeded(recording: recording, job: job)
+                }
+            } catch let error as RecappiAPIError where error == .unauthorized {
+                apply(error: error)
+                return
+            } catch {
+                cacheWarningMessage = "Showing cached data · Job status refresh failed"
+                isShowingCachedData = true
+            }
+        }
+    }
+
+    private func upsertJob(_ job: TranscriptionJob, for recordingID: String) {
+        var jobs = transcriptionJobsByRecordingID[recordingID] ?? []
+        jobs.removeAll { $0.id == job.id }
+        jobs.insert(job, at: 0)
+        jobs.sort { ($0.enqueuedAt ?? 0) > ($1.enqueuedAt ?? 0) }
+        transcriptionJobsByRecordingID[recordingID] = Array(jobs.prefix(10))
+    }
+
+    private func refreshTranscriptAfterJobSucceeded(recording: CloudRecording, job: TranscriptionJob) async throws {
+        let transcript = try await runAuthorized { client in
+            try await client.getRecordingTranscript(id: recording.id, jobId: job.id)
+        }
+        transcriptCache[recording.id] = transcript
+        try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript, job: job)
+        await refreshSelectedDetailIfNeeded()
+        await persistCacheSnapshot()
     }
 
     private func refreshLocalSessionLinks() async {

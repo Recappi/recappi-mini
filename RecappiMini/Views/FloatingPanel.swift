@@ -27,6 +27,8 @@ struct FloatingPanelChromeView<Content: View>: View {
 final class FloatingPanel: NSPanel {
     var isFloatingTransitioning = false
     fileprivate var deferredContentSize: NSSize?
+    private nonisolated(unsafe) var localMouseMonitor: Any?
+    private nonisolated(unsafe) var globalMouseMonitor: Any?
 
     init(contentRect: NSRect) {
         super.init(
@@ -40,15 +42,11 @@ final class FloatingPanel: NSPanel {
         level = .floating
         isOpaque = false
         backgroundColor = .clear
-        // SwiftUI owns the rounded chrome and drop shadow. The AppKit shell
-        // only provides a transparent safety margin so that shadow can render
-        // outside the visible pill without being clipped by the window bounds.
+        // SwiftUI owns the rounded chrome and drop shadow. The transparent
+        // shadow margin is made click-through by the mouse-location monitor
+        // below, so only the visible pill receives events.
         hasShadow = false
-        // Keep transparent shadow margins click-through. Dragging by the
-        // NSWindow background makes AppKit treat the full transparent window
-        // frame as interactive even when `PillShellView.hitTest` rejects
-        // points outside the visible rounded pill.
-        isMovableByWindowBackground = false
+        isMovableByWindowBackground = true
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         titlebarAppearsTransparent = true
         titleVisibility = .hidden
@@ -56,6 +54,7 @@ final class FloatingPanel: NSPanel {
 
         // Don't steal focus from other apps
         becomesKeyOnlyIfNeeded = true
+        installMousePassthroughMonitors()
     }
 
     // Only become key when a text field in settings needs input.
@@ -67,6 +66,61 @@ final class FloatingPanel: NSPanel {
         super.mouseDown(with: event)
         // Don't call makeKeyAndOrderFront
     }
+
+    deinit {
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+        }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+        }
+    }
+
+    fileprivate func updateMousePassthrough() {
+        guard isVisible else {
+            ignoresMouseEvents = true
+            return
+        }
+
+        // If a drag began inside the pill, keep receiving events until mouse-up
+        // even if the cursor briefly leaves the rounded shape.
+        if NSEvent.pressedMouseButtons != 0, ignoresMouseEvents == false {
+            return
+        }
+
+        let localPoint = convertPoint(fromScreen: NSEvent.mouseLocation)
+        let bounds = NSRect(origin: .zero, size: frame.size)
+        ignoresMouseEvents = !PillShellView.visiblePillContains(localPoint, in: bounds)
+    }
+
+    private func installMousePassthroughMonitors() {
+        let mask: NSEvent.EventTypeMask = [
+            .mouseMoved,
+            .leftMouseDown,
+            .leftMouseUp,
+            .leftMouseDragged,
+            .rightMouseDown,
+            .rightMouseUp,
+            .rightMouseDragged,
+            .otherMouseDown,
+            .otherMouseUp,
+            .otherMouseDragged,
+        ]
+
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            self?.updateMousePassthrough()
+            return event
+        }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.updateMousePassthrough()
+            }
+        }
+    }
+}
+
+final class FloatingPanelHostingView<Root: View>: NSHostingView<Root> {
+    override var mouseDownCanMoveWindow: Bool { true }
 }
 
 /// Sizing bridge between SwiftUI's intrinsic content size and the transparent
@@ -289,10 +343,9 @@ final class PillShellView: NSView {
 
 @MainActor
 struct FloatingPanelController {
-    /// Positions the window so the *visible* pill sits 16pt from the
-    /// top-right. The window extends `PillShellView.shadowMargin` past
-    /// each pill edge (so the CALayer shadow has room); origin is
-    /// offset accordingly.
+    /// Positions the visible pill 16pt from the top-right. The surrounding
+    /// shadow margin is included in the window frame, but mouse events are
+    /// only enabled while the pointer is inside the visible rounded pill.
     static func positionAtTopRight(_ panel: FloatingPanel, width: CGFloat, height: CGFloat) {
         let m = PillShellView.shadowMargin
         let windowWidth = width + m * 2
@@ -304,6 +357,7 @@ struct FloatingPanelController {
         panel.ignoresMouseEvents = false
         panel.contentView?.setAccessibilityHidden(false)
         panel.setFrame(frame, display: true)
+        panel.updateMousePassthrough()
     }
 
     static func present(_ panel: FloatingPanel, completion: (() -> Void)? = nil) {
@@ -318,6 +372,7 @@ struct FloatingPanelController {
             panel.contentView?.setAccessibilityHidden(false)
             shell?.resetTransition()
             panel.orderFrontRegardless()
+            panel.updateMousePassthrough()
             finishTransition(panel)
             completion?()
         } else {
@@ -332,6 +387,7 @@ struct FloatingPanelController {
             if !panel.isVisible {
                 panel.orderFrontRegardless()
             }
+            panel.updateMousePassthrough()
 
             guard let shell else {
                 finishTransition(panel)
@@ -399,6 +455,7 @@ struct FloatingPanelController {
         frame.origin.y += dy
         frame.size = size
         panel.setFrame(frame, display: false)
+        panel.updateMousePassthrough()
     }
 
     private static func finishTransition(_ panel: FloatingPanel) {
@@ -423,8 +480,12 @@ struct FloatingPanelController {
         panel.ignoresMouseEvents = false
         panel.contentView?.setAccessibilityHidden(false)
         (panel.contentView as? PillShellView)?.resetTransition()
-        guard !framesNearlyMatch(panel.frame, frame) else { return }
+        guard !framesNearlyMatch(panel.frame, frame) else {
+            panel.updateMousePassthrough()
+            return
+        }
         panel.setFrame(frame, display: true)
+        panel.updateMousePassthrough()
     }
 
     static func snapToHidden(_ panel: FloatingPanel) {

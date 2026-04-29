@@ -129,10 +129,10 @@ struct PanelIconButtonStyle: ButtonStyle {
                 .frame(width: size, height: size)
                 .foregroundStyle(hovered || isPressed ? Color.dtLabel : Color.dtLabelSecondary)
                 .background(
-                    RoundedRectangle(cornerRadius: DT.R.control)
+                    RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
                         .fill(Color.white.opacity(isPressed ? 0.12 : (hovered ? 0.08 : 0)))
                 )
-                .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
+                .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
                 .onHover { hovered = $0 }
                 .animation(DT.ease(0.12), value: hovered)
                 .animation(DT.ease(0.08), value: isPressed)
@@ -197,7 +197,7 @@ struct PrimaryRecordButton: View {
                         .fill(Color.white)
                         .frame(width: size * 0.36, height: size * 0.36)
                 case .stop:
-                    RoundedRectangle(cornerRadius: size * 0.08)
+                    RoundedRectangle(cornerRadius: size * 0.08, style: .continuous)
                         .fill(Color.white)
                         .frame(width: size * 0.30, height: size * 0.30)
                 case .loading:
@@ -368,7 +368,7 @@ struct DarkChipButtonStyle: ButtonStyle {
                     RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
+                .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
                 .onHover { hovered = $0 }
                 .animation(DT.ease(0.12), value: hovered)
                 .animation(DT.ease(0.08), value: isPressed)

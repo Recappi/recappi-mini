@@ -92,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var showHidePanelMenuItem: NSMenuItem?
     private var checkForUpdatesMenuItem: NSMenuItem?
     private var panel: FloatingPanel?
+    private var settingsWindow: NSWindow?
     private var cloudWindow: NSWindow?
     private let cloudStore = CloudLibraryStore()
     private let recorder = AudioRecorder()
@@ -174,7 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             onClosePanel: { [weak self] in self?.hidePanel() }
         )
 
-        let hostingView = NSHostingView(
+        let hostingView = FloatingPanelHostingView(
             rootView: FloatingPanelChromeView {
                 contentView
             }
@@ -407,9 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     @objc private func openSettingsFromStatusMenu() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        showSettingsWindow()
     }
 
     @objc private func checkForUpdatesFromStatusMenu() {
@@ -487,6 +486,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    func showSettingsWindow() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.unhide(nil)
+        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+        NSApp.activate(ignoringOtherApps: true)
+
+        if let settingsWindow {
+            settingsWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let hostingView = NSHostingView(rootView: SettingsView())
+        hostingView.autoresizingMask = [.width, .height]
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Recappi Mini Settings"
+        window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 520, height: 620)
+        window.contentView = hostingView
+        window.delegate = self
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        settingsWindow = window
     }
 
     func showCloudCenter() {
@@ -906,7 +936,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func restoreAccessoryActivationPolicyIfPossible() {
-        let hasVisibleSettingsWindow = NSApp.windows.contains { window in
+        let hasVisibleSettingsWindow = settingsWindow?.isVisible == true || NSApp.windows.contains { window in
             window.isVisible && window.title.localizedCaseInsensitiveContains("settings")
         }
         let hasVisibleCloudWindow = cloudWindow?.isVisible == true
@@ -1033,7 +1063,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func windowWillClose(_ notification: Notification) {
-        if let closingWindow = notification.object as? NSWindow, closingWindow === cloudWindow {
+        if let closingWindow = notification.object as? NSWindow, closingWindow === settingsWindow {
+            settingsWindow = nil
+            restoreAccessoryActivationPolicyIfPossible()
+        } else if let closingWindow = notification.object as? NSWindow, closingWindow === cloudWindow {
             cloudWindow = nil
             restoreAccessoryActivationPolicyIfPossible()
         }

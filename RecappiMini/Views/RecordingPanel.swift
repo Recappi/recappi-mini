@@ -882,7 +882,7 @@ struct AudioSourcePill: View {
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
                     .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
             )
-            .contentShape(RoundedRectangle(cornerRadius: DT.R.control))
+            .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }

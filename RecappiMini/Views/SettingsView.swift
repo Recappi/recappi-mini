@@ -93,13 +93,16 @@ struct SettingsView: View {
                     Button {
                         Task { await refreshBillingStatus(force: true) }
                     } label: {
-                        if isLoadingBilling {
+                        ZStack {
+                            Image(systemName: "arrow.clockwise")
+                                .opacity(isLoadingBilling ? 0 : 1)
+
                             ProgressView()
                                 .controlSize(.small)
                                 .scaleEffect(0.72)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
+                                .opacity(isLoadingBilling ? 1 : 0)
                         }
+                        .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.borderless)
                     .disabled(isLoadingBilling)
@@ -113,13 +116,13 @@ struct SettingsView: View {
                             title: "Storage",
                             value: settingsStorageUsageText(for: billingStatus),
                             progress: settingsStorageProgress(for: billingStatus),
-                            isOverLimit: billingStatus.isOverStorage
+                            isOverLimit: billingStatus.effectiveIsOverStorage
                         )
                         usageLine(
                             title: "Minutes",
                             value: settingsMinutesUsageText(for: billingStatus),
                             progress: settingsMinutesProgress(for: billingStatus),
-                            isOverLimit: billingStatus.isOverMinutes
+                            isOverLimit: billingStatus.effectiveIsOverMinutes
                         )
                     }
                 } else {
@@ -834,27 +837,31 @@ struct SettingsView: View {
     }
 
     private func settingsStorageProgress(for status: BillingStatus) -> Double {
+        guard !status.hasUnlimitedStorage else { return 0 }
         guard status.storageCapBytes > 0 else { return 0 }
         return Double(status.storageBytes) / Double(status.storageCapBytes)
     }
 
     private func settingsMinutesProgress(for status: BillingStatus) -> Double {
+        guard !status.hasUnlimitedMinutes else { return 0 }
         guard status.minutesCap > 0 else { return 0 }
         return status.minutesUsed / status.minutesCap
     }
 
     private func settingsIsOverAnyLimit(_ status: BillingStatus) -> Bool {
-        status.isOverStorage || status.isOverMinutes
+        status.effectiveIsOverAnyLimit
     }
 
     private func settingsStorageUsageText(for status: BillingStatus) -> String {
         let used = ByteCountFormatter.string(fromByteCount: status.storageBytes, countStyle: .file)
+        guard !status.hasUnlimitedStorage else { return "\(used) used" }
         let cap = ByteCountFormatter.string(fromByteCount: status.storageCapBytes, countStyle: .file)
         return "\(used) / \(cap)"
     }
 
     private func settingsMinutesUsageText(for status: BillingStatus) -> String {
-        "\(settingsFormattedMinutes(status.minutesUsed)) / \(settingsFormattedMinutes(status.minutesCap)) min"
+        guard !status.hasUnlimitedMinutes else { return "\(settingsFormattedMinutes(status.minutesUsed)) min used" }
+        return "\(settingsFormattedMinutes(status.minutesUsed)) / \(settingsFormattedMinutes(status.minutesCap)) min"
     }
 
     private func settingsFormattedMinutes(_ value: Double) -> String {

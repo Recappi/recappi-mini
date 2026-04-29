@@ -104,6 +104,75 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testCloudRecordingJobsRequestUsesRecordingScope() throws {
+        let client = RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123")
+        let request = try client.makeRequest(
+            path: "/api/recordings/rec_123/jobs",
+            queryItems: [URLQueryItem(name: "limit", value: "10")]
+        )
+
+        XCTAssertEqual(
+            request.url?.absoluteString,
+            "https://recordmeet.ing/api/recordings/rec_123/jobs?limit=10"
+        )
+    }
+
+    func testCloudRecordingWebURLUsesBackendOrigin() throws {
+        let url = try XCTUnwrap(
+            cloudRecordingWebURL(
+                recordingID: "84adb431-a50a-4432-95a0-d879a956df49",
+                backendBaseURL: "https://recordmeet.ing/"
+            )
+        )
+
+        XCTAssertEqual(
+            url.absoluteString,
+            "https://recordmeet.ing/recordings/84adb431-a50a-4432-95a0-d879a956df49"
+        )
+    }
+
+    func testCloudRecordingWebURLDropsBackendPathQueryAndFragment() throws {
+        let url = try XCTUnwrap(
+            cloudRecordingWebURL(
+                recordingID: "rec_123",
+                backendBaseURL: "https://staging.recordmeet.ing/api?foo=bar#cloud"
+            )
+        )
+
+        XCTAssertEqual(url.absoluteString, "https://staging.recordmeet.ing/recordings/rec_123")
+    }
+
+    func testRecordingJobsResponseDecodesLatestJobState() throws {
+        let data = """
+        {
+          "items": [
+            {
+              "id": "job_123",
+              "recordingId": "rec_123",
+              "userId": "user_123",
+              "provider": "gemini",
+              "model": "gemini-2.5-flash",
+              "language": "en",
+              "status": "running",
+              "error": null,
+              "prompt": null,
+              "attempts": 1,
+              "enqueuedAt": 1777460000000,
+              "startedAt": 1777460001000,
+              "finishedAt": null,
+              "transcriptId": null
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(RecordingJobsResponse.self, from: data)
+
+        XCTAssertEqual(response.items.first?.id, "job_123")
+        XCTAssertEqual(response.items.first?.status, .running)
+        XCTAssertTrue(response.items.first?.status.isActive == true)
+    }
+
     func testCloudLibraryLatestTranscriptRequestDoesNotUseActiveTranscriptIdAsJobId() throws {
         let client = RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123")
         let request = try client.makeRequest(path: "/api/recordings/rec_123/transcript")
@@ -238,6 +307,34 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertFalse(status.isOverStorage)
         XCTAssertFalse(status.isOverMinutes)
         XCTAssertEqual(Int(status.periodEnd?.timeIntervalSince1970 ?? 0), 1_779_426_706)
+    }
+
+    func testBillingStatusDecodingAcceptsUnlimitedTier() throws {
+        let data = """
+        {
+          "tier": "unlimited",
+          "periodStart": "2026-04-01T00:00:00.000Z",
+          "periodEnd": null,
+          "storageBytes": 162472166,
+          "storageCapBytes": null,
+          "minutesUsed": 131,
+          "minutesCap": null,
+          "isOverStorage": true,
+          "isOverMinutes": true
+        }
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(BillingStatus.self, from: data)
+
+        XCTAssertEqual(status.tier, .unlimited)
+        XCTAssertEqual(status.tier.displayName, "Unlimited")
+        XCTAssertEqual(status.storageCapBytes, 0)
+        XCTAssertEqual(status.minutesCap, 0)
+        XCTAssertTrue(status.hasUnlimitedStorage)
+        XCTAssertTrue(status.hasUnlimitedMinutes)
+        XCTAssertFalse(status.effectiveIsOverStorage)
+        XCTAssertFalse(status.effectiveIsOverMinutes)
+        XCTAssertFalse(status.effectiveIsOverAnyLimit)
     }
 
     func testCloudRecordingListDecoding() throws {

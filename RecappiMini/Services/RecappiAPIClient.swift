@@ -117,6 +117,16 @@ struct RecappiAPIClient: Sendable {
         return try JSONDecoder().decode(TranscriptionJob.self, from: data)
     }
 
+    func listRecordingJobs(recordingId: String, limit: Int = 10) async throws -> RecordingJobsResponse {
+        let request = try makeRequest(
+            path: "/api/recordings/\(recordingId)/jobs",
+            queryItems: [URLQueryItem(name: "limit", value: String(limit))]
+        )
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        return try JSONDecoder().decode(RecordingJobsResponse.self, from: data)
+    }
+
     func getTranscript(recordingId: String, jobId: String) async throws -> TranscriptResponse {
         return try await getRecordingTranscript(id: recordingId, jobId: jobId)
     }
@@ -582,6 +592,7 @@ enum BillingTier: String, CaseIterable, Codable, Equatable, Sendable {
     case starter
     case pro
     case business
+    case unlimited
 
     var displayName: String {
         switch self {
@@ -589,6 +600,7 @@ enum BillingTier: String, CaseIterable, Codable, Equatable, Sendable {
         case .starter: return "Starter"
         case .pro: return "Pro"
         case .business: return "Business"
+        case .unlimited: return "Unlimited"
         }
     }
 }
@@ -622,11 +634,31 @@ struct BillingStatus: Decodable, Equatable, Sendable {
         periodStart = RecappiDateDecoder.decodeDateIfPresent(from: container, forKey: .periodStart)
         periodEnd = RecappiDateDecoder.decodeDateIfPresent(from: container, forKey: .periodEnd)
         storageBytes = try container.decode(Int64.self, forKey: .storageBytes)
-        storageCapBytes = try container.decode(Int64.self, forKey: .storageCapBytes)
+        storageCapBytes = try container.decodeIfPresent(Int64.self, forKey: .storageCapBytes) ?? 0
         minutesUsed = try container.decode(Double.self, forKey: .minutesUsed)
-        minutesCap = try container.decode(Double.self, forKey: .minutesCap)
+        minutesCap = try container.decodeIfPresent(Double.self, forKey: .minutesCap) ?? 0
         isOverStorage = try container.decode(Bool.self, forKey: .isOverStorage)
         isOverMinutes = try container.decode(Bool.self, forKey: .isOverMinutes)
+    }
+
+    var hasUnlimitedStorage: Bool {
+        tier == .unlimited || storageCapBytes <= 0
+    }
+
+    var hasUnlimitedMinutes: Bool {
+        tier == .unlimited || minutesCap <= 0
+    }
+
+    var effectiveIsOverStorage: Bool {
+        !hasUnlimitedStorage && isOverStorage
+    }
+
+    var effectiveIsOverMinutes: Bool {
+        !hasUnlimitedMinutes && isOverMinutes
+    }
+
+    var effectiveIsOverAnyLimit: Bool {
+        effectiveIsOverStorage || effectiveIsOverMinutes
     }
 }
 
@@ -652,6 +684,10 @@ enum RemoteJobStatus: String, Decodable, Equatable {
     case running
     case succeeded
     case failed
+
+    var isActive: Bool {
+        self == .queued || self == .running
+    }
 }
 
 struct StartTranscriptionResponse: Decodable {
@@ -660,13 +696,23 @@ struct StartTranscriptionResponse: Decodable {
     let transcriptId: String?
 }
 
-struct TranscriptionJob: Decodable {
+struct RecordingJobsResponse: Decodable, Equatable, Sendable {
+    let items: [TranscriptionJob]
+}
+
+struct TranscriptionJob: Decodable, Equatable, Sendable {
     let id: String
     let status: RemoteJobStatus
     let transcriptId: String?
     let provider: String
     let model: String
+    let language: String?
+    let prompt: String?
     let error: String?
+    let attempts: Int?
+    let enqueuedAt: Int?
+    let startedAt: Int?
+    let finishedAt: Int?
 }
 
 struct TranscriptResponse: Decodable, Equatable, Sendable {

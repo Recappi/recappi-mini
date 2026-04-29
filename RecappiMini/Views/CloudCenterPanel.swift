@@ -231,6 +231,11 @@ struct CloudCenterPanel: View {
         if let recording = store.selectedRecording {
             CloudRecordingDetail(
                 recording: recording,
+                recordingWebURL: cloudRecordingWebURL(
+                    recordingID: recording.id,
+                    backendBaseURL: AppConfig.shared.effectiveBackendBaseURL
+                ),
+                latestJob: store.selectedLatestTranscriptionJob,
                 transcript: store.selectedTranscript,
                 transcriptErrorMessage: store.transcriptErrorMessage,
                 retranscriptionLimitMessage: store.retranscriptionLimitMessage,
@@ -239,6 +244,7 @@ struct CloudCenterPanel: View {
                 playbackSourceDescription: store.selectedPlaybackSourceDescription,
                 playbackErrorMessage: store.playbackErrorMessage,
                 isTranscriptLoading: store.isTranscriptLoading,
+                isJobHistoryLoading: store.isJobHistoryLoading,
                 isPreparingPlaybackAudio: store.isPreparingPlaybackAudio,
                 isDownloading: store.isDownloading,
                 isDeleting: store.isDeleting,
@@ -257,6 +263,10 @@ struct CloudCenterPanel: View {
             )
             .task(id: recording.id) {
                 await store.loadTranscriptForSelection()
+                await store.loadJobHistoryForSelection()
+            }
+            .task(id: store.selectedActiveJobPollingKey) {
+                await store.pollSelectedActiveJobsUntilTerminal()
             }
         } else {
             VStack(spacing: 10) {
@@ -518,11 +528,13 @@ private struct CloudSidebarBillingSummary: View {
     var body: some View {
         HStack(spacing: 14) {
             Text(planText)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(planColor)
                 .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .frame(width: 48, height: 24)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 7)
+                .frame(minWidth: 54)
+                .frame(height: 24)
                 .background(
                     Capsule(style: .continuous)
                         .fill(planColor.opacity(0.10))
@@ -541,14 +553,14 @@ private struct CloudSidebarBillingSummary: View {
                     title: "Storage",
                     valueText: status?.storageUsageText ?? "Loading",
                     progress: status?.storageProgress ?? 0,
-                    isOverLimit: status?.isOverStorage ?? false
+                    isOverLimit: status?.effectiveIsOverStorage ?? false
                 )
 
                 headerUsageMetric(
                     title: "Minutes",
                     valueText: status?.minutesUsageText ?? (errorMessage ?? "Loading"),
                     progress: status?.minutesProgress ?? 0,
-                    isOverLimit: status?.isOverMinutes ?? false
+                    isOverLimit: status?.effectiveIsOverMinutes ?? false
                 )
             }
             .redacted(reason: status == nil && isLoading ? .placeholder : [])
@@ -619,7 +631,7 @@ private struct CloudSidebarBillingSummary: View {
 
     private var planColor: Color {
         if let status {
-            return status.isOverAnyLimit ? DT.systemOrange : DT.waveformLit
+            return status.effectiveIsOverAnyLimit ? DT.systemOrange : DT.waveformLit
         }
         return isLoading ? Color.dtLabelSecondary : DT.systemOrange
     }
@@ -629,7 +641,7 @@ private struct CloudSidebarBillingSummary: View {
             return errorMessage
         }
         if let status {
-            if status.isOverAnyLimit {
+            if status.effectiveIsOverAnyLimit {
                 return "Limit reached. Delete recordings or upgrade to continue."
             }
             return status.periodEndText.map { "Quota resets \($0)" } ?? "Current billing window"
@@ -760,6 +772,8 @@ private struct CloudRecordingDetail: View {
     @State private var pendingPinnedSegmentIDAfterPrepare: String?
 
     let recording: CloudRecording
+    let recordingWebURL: URL?
+    let latestJob: TranscriptionJob?
     let transcript: TranscriptResponse?
     let transcriptErrorMessage: String?
     let retranscriptionLimitMessage: String?
@@ -768,6 +782,7 @@ private struct CloudRecordingDetail: View {
     let playbackSourceDescription: String
     let playbackErrorMessage: String?
     let isTranscriptLoading: Bool
+    let isJobHistoryLoading: Bool
     let isPreparingPlaybackAudio: Bool
     let isDownloading: Bool
     let isDeleting: Bool
@@ -829,6 +844,7 @@ private struct CloudRecordingDetail: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 13) {
                 detailHeader
+                latestJobStrip
                 meetingPlaybackStrip
             }
             .padding(.horizontal, 22)
@@ -1015,10 +1031,11 @@ private struct CloudRecordingDetail: View {
                 .disabled(
                     isRetranscribing ||
                     isTranscriptLoading ||
+                    latestJob?.status.isActive == true ||
                     retranscriptionLimitMessage != nil ||
                     !recording.status.allowsTranscriptionRequest
                 )
-                .help(retranscriptionLimitMessage ?? "Start a new cloud transcription job")
+                .help(retranscriptionHelpText)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
             }
 
@@ -1061,6 +1078,16 @@ private struct CloudRecordingDetail: View {
                 content()
             }
         }
+    }
+
+    private var retranscriptionHelpText: String {
+        if let retranscriptionLimitMessage {
+            return retranscriptionLimitMessage
+        }
+        if latestJob?.status.isActive == true {
+            return "A transcription job is already in progress."
+        }
+        return "Start a new cloud transcription job"
     }
 
     private func inspectorButton(
@@ -1142,7 +1169,82 @@ private struct CloudRecordingDetail: View {
 
             Spacer(minLength: 0)
 
-            CloudStatusChip(status: recording.status, prominent: true)
+            HStack(spacing: 6) {
+                if let recordingWebURL {
+                    Button {
+                        NSWorkspace.shared.open(recordingWebURL)
+                    } label: {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: 12.5, weight: .semibold))
+                    }
+                    .buttonStyle(PanelIconButtonStyle(size: 28))
+                    .help("Open in browser")
+                    .accessibilityLabel("Open in browser")
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.openRecordingInBrowserButton)
+                }
+
+                CloudStatusChip(status: recording.status, prominent: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var latestJobStrip: some View {
+        if let latestJob {
+            HStack(spacing: 9) {
+                Image(systemName: latestJob.status.isActive ? "hourglass" : "waveform.badge.checkmark")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(latestJob.status.detailColor)
+                    .frame(width: 15)
+
+                Text("Latest transcription")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+
+                CloudJobStatusChip(status: latestJob.status)
+
+                Text(latestJob.providerModelText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                if let error = latestJob.trimmedError {
+                    Text(error)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(DT.systemOrange)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(latestJob.status.detailColor.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(latestJob.status.detailColor.opacity(0.14), lineWidth: 1)
+            )
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.latestJobStatus)
+        } else if isJobHistoryLoading {
+            HStack(spacing: 9) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(DT.waveformLit)
+                Text("Checking transcription jobs…")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.white.opacity(0.045))
+            )
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.latestJobStatus)
         }
     }
 
@@ -1727,10 +1829,12 @@ private struct CloudPlaybackWaveformScrubber: View {
             let clampedProgress = min(max(progress, 0), 1)
             let inset = min(horizontalInset, max(width / 2 - 1, 0))
             let contentWidth = max(width - inset * 2, 1)
-            let playheadX = inset + contentWidth * clampedProgress
             let spacing: CGFloat = 2.4
             let barCount = Self.barCount(for: contentWidth)
             let barWidth = Self.barWidth(for: contentWidth, barCount: barCount, spacing: spacing)
+            let timelineStartX = inset + barWidth / 2
+            let timelineWidth = max(contentWidth - barWidth, 1)
+            let playheadX = timelineStartX + timelineWidth * clampedProgress
 
             ZStack(alignment: .leading) {
                 HStack(alignment: .center, spacing: spacing) {
@@ -1749,12 +1853,14 @@ private struct CloudPlaybackWaveformScrubber: View {
                     .offset(x: playheadX - playheadWidth / 2)
                 .allowsHitTesting(false)
             }
+            .frame(width: width, height: trackHeight, alignment: .leading)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         guard isEnabled else { return }
-                        onSeekProgress(min(max((value.location.x - inset) / contentWidth, 0), 1))
+                        let progress = (value.location.x - timelineStartX) / timelineWidth
+                        onSeekProgress(min(max(progress, 0), 1))
                     }
             )
         }
@@ -1977,6 +2083,21 @@ private struct CloudInspectorSourceMetric: View {
     }
 }
 
+func cloudRecordingWebURL(recordingID: String, backendBaseURL: String) -> URL? {
+    let trimmedID = recordingID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedID.isEmpty else { return nil }
+
+    let rawBaseURL = backendBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !rawBaseURL.isEmpty, var components = URLComponents(string: rawBaseURL) else {
+        return nil
+    }
+
+    components.path = "/recordings/\(trimmedID)"
+    components.query = nil
+    components.fragment = nil
+    return components.url
+}
+
 private struct CloudInspectorButtonStyle: ButtonStyle {
     enum Chrome {
         case always
@@ -2057,6 +2178,70 @@ private struct CloudStatusChip: View {
         case .unknown:
             return Color.dtLabelTertiary
         }
+    }
+}
+
+private struct CloudJobStatusChip: View {
+    let status: RemoteJobStatus
+
+    var body: some View {
+        Text(status.displayName)
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(status.detailColor)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(status.detailColor.opacity(0.12))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(status.detailColor.opacity(0.22), lineWidth: 0.5)
+            )
+    }
+}
+
+private extension RemoteJobStatus {
+    var displayName: String {
+        switch self {
+        case .queued:
+            return "Queued"
+        case .running:
+            return "Running"
+        case .succeeded:
+            return "Completed"
+        case .failed:
+            return "Failed"
+        }
+    }
+
+    var detailColor: Color {
+        switch self {
+        case .queued:
+            return DT.waveformLit
+        case .running:
+            return DT.statusUploading
+        case .succeeded:
+            return DT.statusReady
+        case .failed:
+            return DT.systemOrange
+        }
+    }
+}
+
+private extension TranscriptionJob {
+    var providerModelText: String {
+        [provider, model, language]
+            .compactMap { value in
+                let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed?.isEmpty == false ? trimmed : nil
+            }
+            .joined(separator: " · ")
+    }
+
+    var trimmedError: String? {
+        let trimmed = error?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
 
@@ -2376,27 +2561,31 @@ private struct CloudRecordingSource {
 
 private extension BillingStatus {
     var storageProgress: Double {
+        guard !hasUnlimitedStorage else { return 0 }
         guard storageCapBytes > 0 else { return 0 }
         return Double(storageBytes) / Double(storageCapBytes)
     }
 
     var minutesProgress: Double {
+        guard !hasUnlimitedMinutes else { return 0 }
         guard minutesCap > 0 else { return 0 }
         return minutesUsed / minutesCap
     }
 
     var isOverAnyLimit: Bool {
-        isOverStorage || isOverMinutes
+        effectiveIsOverAnyLimit
     }
 
     var storageUsageText: String {
         let used = ByteCountFormatter.string(fromByteCount: storageBytes, countStyle: .file)
+        guard !hasUnlimitedStorage else { return "\(used) used" }
         let cap = ByteCountFormatter.string(fromByteCount: storageCapBytes, countStyle: .file)
         return "\(used) / \(cap)"
     }
 
     var minutesUsageText: String {
-        "\(formattedMinutes(minutesUsed)) / \(formattedMinutes(minutesCap)) min"
+        guard !hasUnlimitedMinutes else { return "\(formattedMinutes(minutesUsed)) min used" }
+        return "\(formattedMinutes(minutesUsed)) / \(formattedMinutes(minutesCap)) min"
     }
 
     var periodEndText: String? {
