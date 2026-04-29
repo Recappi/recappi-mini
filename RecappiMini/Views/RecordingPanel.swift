@@ -8,6 +8,7 @@ struct RecordingPanel: View {
     @Environment(\.openSettings) private var openSettings
 
     let onOpenFolder: (URL) -> Void
+    let onOpenCloud: () -> Void
     let onClosePanel: () -> Void
 
     var body: some View {
@@ -126,7 +127,7 @@ struct RecordingPanel: View {
         case .done(let r):
             DoneState(
                 result: r,
-                onShow: { onOpenFolder(r.folderURL) },
+                onShow: onOpenCloud,
                 onCopy: { copyTranscript(r) },
                 onNew: { recorder.reset() }
             )

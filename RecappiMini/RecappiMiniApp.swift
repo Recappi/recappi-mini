@@ -169,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let contentView = RecordingPanel(
             recorder: recorder,
             onOpenFolder: { folderURL in NSWorkspace.shared.open(folderURL) },
+            onOpenCloud: { [weak self] in self?.showCloudCenter() },
             onClosePanel: { [weak self] in self?.hidePanel() }
         )
 
