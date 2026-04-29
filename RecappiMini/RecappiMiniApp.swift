@@ -93,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var checkForUpdatesMenuItem: NSMenuItem?
     private var panel: FloatingPanel?
     private var cloudWindow: NSWindow?
+    private let cloudStore = CloudLibraryStore()
     private let recorder = AudioRecorder()
     private let appUpdater = AppUpdater.shared
     private let uiTestMode = UITestModeConfiguration.shared
@@ -499,7 +500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             return
         }
 
-        let hostingView = NSHostingView(rootView: CloudCenterPanel())
+        let hostingView = NSHostingView(rootView: CloudCenterPanel(store: cloudStore))
         hostingView.autoresizingMask = [.width, .height]
 
         let window = NSWindow(

@@ -98,7 +98,7 @@ struct RecordingPanel: View {
             IdleState(
                 recorder: recorder,
                 isStarting: false,
-                onGear: presentSettings,
+                onCloud: onOpenCloud,
                 onRecord: startRecording,
                 onRecordSuggestion: startSuggestedRecording,
                 onClose: onClosePanel
@@ -107,7 +107,7 @@ struct RecordingPanel: View {
             IdleState(
                 recorder: recorder,
                 isStarting: true,
-                onGear: presentSettings,
+                onCloud: onOpenCloud,
                 onRecord: startRecording,
                 onRecordSuggestion: startSuggestedRecording,
                 onClose: onClosePanel
@@ -224,7 +224,7 @@ struct RecordingPanel: View {
 private struct IdleState: View {
     @ObservedObject var recorder: AudioRecorder
     let isStarting: Bool
-    var onGear: () -> Void
+    var onCloud: () -> Void
     var onRecord: () -> Void
     var onRecordSuggestion: () -> Void
     var onClose: () -> Void
@@ -386,14 +386,19 @@ private struct IdleState: View {
                 .opacity(isStarting ? 0.72 : 1)
 
             if recorder.recordingSuggestion == nil {
-                Button(action: onGear) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 13))
+                Rectangle()
+                    .fill(Color.white.opacity(0.16))
+                    .frame(width: 1, height: 20)
+                    .padding(.horizontal, 1)
+
+                Button(action: onCloud) {
+                    Image(systemName: "cloud")
+                        .font(.system(size: 13, weight: .medium))
                 }
-                .buttonStyle(PanelIconButtonStyle())
+                .buttonStyle(PanelUtilityButtonStyle())
                 .disabled(isStarting)
-                .help("Settings (⌘,)")
-                .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
+                .help("Open Recappi Cloud")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.cloudButton)
             }
 
             Button(action: onClose) {

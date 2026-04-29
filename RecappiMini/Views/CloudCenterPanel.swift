@@ -4,10 +4,14 @@ import AVFoundation
 import SwiftUI
 
 struct CloudCenterPanel: View {
-    @StateObject private var store = CloudLibraryStore()
+    @StateObject private var store: CloudLibraryStore
     @ObservedObject private var sessionStore = AuthSessionStore.shared
     @State private var showingDeleteConfirmation = false
     @State private var showingRetranscribeConfirmation = false
+
+    init(store: CloudLibraryStore = CloudLibraryStore()) {
+        _store = StateObject(wrappedValue: store)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1714,15 +1718,19 @@ private struct CloudPlaybackWaveformScrubber: View {
     let onSeekProgress: (Double) -> Void
 
     private let trackHeight: CGFloat = 32
+    private let horizontalInset: CGFloat = 7
+    private let playheadWidth: CGFloat = 7
 
     var body: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 1)
             let clampedProgress = min(max(progress, 0), 1)
-            let playheadX = width * clampedProgress
+            let inset = min(horizontalInset, max(width / 2 - 1, 0))
+            let contentWidth = max(width - inset * 2, 1)
+            let playheadX = inset + contentWidth * clampedProgress
             let spacing: CGFloat = 2.4
-            let barCount = Self.barCount(for: width)
-            let barWidth = Self.barWidth(for: width, barCount: barCount, spacing: spacing)
+            let barCount = Self.barCount(for: contentWidth)
+            let barWidth = Self.barWidth(for: contentWidth, barCount: barCount, spacing: spacing)
 
             ZStack(alignment: .leading) {
                 HStack(alignment: .center, spacing: spacing) {
@@ -1732,12 +1740,13 @@ private struct CloudPlaybackWaveformScrubber: View {
                             .frame(width: barWidth, height: barHeight(index: index, count: barCount))
                     }
                 }
-                .frame(width: width, height: trackHeight, alignment: .center)
+                .frame(width: contentWidth, height: trackHeight, alignment: .center)
+                .offset(x: inset)
                 .opacity(isEnabled ? (isLoadingPeaks ? 0.58 : 1) : 0.46)
 
                 CloudPlaybackPlayhead(color: playheadColor, isEnabled: isEnabled)
-                    .frame(width: 6, height: trackHeight)
-                    .offset(x: min(max(playheadX, 3), max(width - 3, 3)) - 3)
+                    .frame(width: playheadWidth, height: trackHeight)
+                    .offset(x: playheadX - playheadWidth / 2)
                 .allowsHitTesting(false)
             }
             .contentShape(Rectangle())
@@ -1745,7 +1754,7 @@ private struct CloudPlaybackWaveformScrubber: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         guard isEnabled else { return }
-                        onSeekProgress(min(max(value.location.x / width, 0), 1))
+                        onSeekProgress(min(max((value.location.x - inset) / contentWidth, 0), 1))
                     }
             )
         }
@@ -1768,8 +1777,8 @@ private struct CloudPlaybackWaveformScrubber: View {
     }
 
     private func barColor(index: Int, count: Int) -> Color {
-        let threshold = Int((Double(count - 1) * min(max(progress, 0), 1)).rounded(.down))
-        if index <= threshold {
+        let playedCount = Int((Double(count) * min(max(progress, 0), 1)).rounded(.down))
+        if index < playedCount {
             return DT.waveformLit.opacity(isEnabled ? 0.92 : 0.42)
         }
         return Color.white.opacity(isEnabled ? 0.22 : 0.12)
@@ -1837,7 +1846,7 @@ private struct CloudPlaybackPlayhead: View {
             Circle()
                 .strokeBorder(Color.black.opacity(isEnabled ? 0.45 : 0.22), lineWidth: 0.8)
         }
-        .frame(width: 5.5, height: 5.5)
+        .frame(width: 5, height: 5)
     }
 }
 

@@ -140,6 +140,36 @@ struct PanelIconButtonStyle: ButtonStyle {
     }
 }
 
+/// Lightweight utility shortcut for the idle panel. It keeps Cloud visible
+/// without competing with the red Record primary action.
+struct PanelUtilityButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Chrome(isPressed: configuration.isPressed) {
+            configuration.label
+        }
+    }
+
+    private struct Chrome<Content: View>: View {
+        let isPressed: Bool
+        @ViewBuilder let content: () -> Content
+        @State private var hovered = false
+
+        var body: some View {
+            content()
+                .frame(width: 28, height: 28)
+                .foregroundStyle(hovered || isPressed ? Color.dtLabel : Color.dtLabelSecondary)
+                .background(
+                    RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                        .fill(Color.white.opacity(isPressed ? 0.10 : (hovered ? 0.07 : 0)))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
+                .onHover { hovered = $0 }
+                .animation(DT.ease(0.12), value: hovered)
+                .animation(DT.ease(0.08), value: isPressed)
+        }
+    }
+}
+
 /// Flat red Record/Stop button. Solid fill + thin rim + inner mark —
 /// no gradients or glow so it sits flush on the charcoal pill.
 struct PrimaryRecordButton: View {

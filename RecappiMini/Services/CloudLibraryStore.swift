@@ -43,6 +43,7 @@ final class CloudLibraryStore: ObservableObject {
     private let sessionStore: AuthSessionStore
     private let cache: CloudLibraryCache
     private let pageLimit: Int
+    private var isRemoteRefreshInFlight = false
 
     init(
         config: AppConfig = .shared,
@@ -92,9 +93,9 @@ final class CloudLibraryStore: ObservableObject {
     }
 
     func loadInitialIfNeeded() async {
-        guard recordings.isEmpty else { return }
-        let restoredCache = await restoreCacheIfAvailable()
-        await refreshFromRemote(preserveVisibleDataOnFailure: restoredCache)
+        guard !isRemoteRefreshInFlight else { return }
+        let restoredCache = recordings.isEmpty ? await restoreCacheIfAvailable() : false
+        await refreshFromRemote(preserveVisibleDataOnFailure: restoredCache || hasVisibleLibraryData)
     }
 
     func refresh() async {
@@ -103,6 +104,13 @@ final class CloudLibraryStore: ObservableObject {
     }
 
     private func refreshFromRemote(preserveVisibleDataOnFailure: Bool) async {
+        guard !isRemoteRefreshInFlight else { return }
+        isRemoteRefreshInFlight = true
+        defer {
+            isRemoteRefreshInFlight = false
+            isRefreshing = false
+        }
+
         guard await prepareForAuthenticatedRequest() else { return }
         isRefreshing = hasVisibleLibraryData
         if recordings.isEmpty {
@@ -135,8 +143,6 @@ final class CloudLibraryStore: ObservableObject {
         } catch {
             handleRefreshFailure(error, preserveVisibleData: preserveVisibleDataOnFailure || hasVisibleLibraryData)
         }
-
-        isRefreshing = false
     }
 
     func refreshBillingStatus() async {

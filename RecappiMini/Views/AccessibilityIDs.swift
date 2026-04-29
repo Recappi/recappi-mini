@@ -36,6 +36,7 @@ enum AccessibilityIDs {
         static let errorTitle = "recappi.panel.errorTitle"
         static let retryButton = "recappi.panel.retryButton"
         static let settingsButton = "recappi.panel.settingsButton"
+        static let cloudButton = "recappi.panel.cloudButton"
         static let showButton = "recappi.panel.showButton"
     }
 
