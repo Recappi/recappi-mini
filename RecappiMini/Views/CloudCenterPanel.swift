@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+@preconcurrency import MediaPlayer
 import SwiftUI
 
 struct CloudCenterPanel: View {
@@ -791,10 +792,10 @@ private struct CloudRecordingDetail: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            audioPlayer.load(url: playbackAudioURL)
+            audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle)
         }
         .onChange(of: playbackAudioURL) { _, url in
-            audioPlayer.load(url: url)
+            audioPlayer.load(url: url, title: recording.presentationTitle)
             if let pendingSeekAfterPrepare, url != nil {
                 self.pendingSeekAfterPrepare = nil
                 audioPlayer.seek(to: pendingSeekAfterPrepare)
@@ -813,7 +814,7 @@ private struct CloudRecordingDetail: View {
             pendingSeekAfterPrepare = nil
             pendingPinnedSegmentIDAfterPrepare = nil
             pinnedSegmentID = nil
-            audioPlayer.load(url: playbackAudioURL)
+            audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle)
         }
         .onDisappear {
             audioPlayer.close()
@@ -949,7 +950,7 @@ private struct CloudRecordingDetail: View {
     }
 
     private var inspectorPane: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
             inspectorSection("Details") {
                 CloudInspectorMetric(iconName: "clock", title: "Duration", value: recording.durationText ?? "Unknown")
                 CloudInspectorMetric(iconName: "internaldrive", title: "Size", value: recording.sizeText ?? "Unknown")
@@ -958,7 +959,7 @@ private struct CloudRecordingDetail: View {
             }
 
             inspectorSection("Source") {
-                CloudInspectorMetric(iconName: recording.sourceIconName, title: "Captured from", value: recording.sourceLine)
+                CloudInspectorSourceMetric(recording: recording)
                 CloudInspectorMetric(iconName: "calendar", title: "Created", value: recording.shortDateText)
                 if localSessionURL != nil {
                     localSessionLink
@@ -976,7 +977,9 @@ private struct CloudRecordingDetail: View {
                     .disabled(transcript?.text.isEmpty != false)
                     .accessibilityIdentifier(AccessibilityIDs.Cloud.copyTranscriptButton)
 
-                syncButton
+                if localSessionURL == nil {
+                    syncButton
+                }
 
                 Button {
                     if hasDownloadedAudio {
@@ -1011,7 +1014,6 @@ private struct CloudRecordingDetail: View {
                     retranscriptionLimitMessage != nil ||
                     !recording.status.allowsTranscriptionRequest
                 )
-                .opacity(0.72)
                 .help(retranscriptionLimitMessage ?? "Start a new cloud transcription job")
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
             }
@@ -1032,8 +1034,8 @@ private struct CloudRecordingDetail: View {
             .disabled(isDeleting)
             .accessibilityIdentifier(AccessibilityIDs.Cloud.deleteButton)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 18)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 16)
         .background {
             Rectangle()
                 .fill(.ultraThinMaterial)
@@ -1047,11 +1049,11 @@ private struct CloudRecordingDetail: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(title)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(Color.dtLabelTertiary)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(Color.dtLabelSecondary)
                 .tracking(0.35)
 
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 9) {
                 content()
             }
         }
@@ -1129,15 +1131,6 @@ private struct CloudRecordingDetail: View {
                     .foregroundStyle(Color.dtLabel)
                     .lineLimit(2)
 
-                HStack(spacing: 7) {
-                    Image(systemName: recording.sourceIconName)
-                        .font(.system(size: 10, weight: .medium))
-                    Text(recording.sourceLine)
-                        .lineLimit(1)
-                }
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.dtLabelSecondary)
-
                 Text(recording.createdDateText)
                     .font(.system(size: 11.5))
                     .foregroundStyle(Color.dtLabelTertiary)
@@ -1177,17 +1170,17 @@ private struct CloudRecordingDetail: View {
     @ViewBuilder
     private var localSessionLink: some View {
         if let localSessionURL {
-            HStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 9) {
                 Image(systemName: "folder")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(DT.statusReady)
                     .frame(width: 14)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Linked local session")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 9.5, weight: .medium))
                         .foregroundStyle(Color.dtLabelTertiary)
-                        .tracking(0.35)
+                        .tracking(0.2)
                     Text(localSessionURL.lastPathComponent)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Color.dtLabelSecondary)
@@ -1197,20 +1190,20 @@ private struct CloudRecordingDetail: View {
 
                 Spacer(minLength: 0)
 
-                Button("Open folder", action: onRevealLocalSession)
+                Button("Open", action: onRevealLocalSession)
                     .buttonStyle(PanelPushButtonStyle())
-                    .frame(width: 92)
+                    .frame(width: 54)
                     .accessibilityIdentifier(AccessibilityIDs.Cloud.revealLocalSessionButton)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.045))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(0.026))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.055), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
             )
         }
     }
@@ -1243,6 +1236,8 @@ private struct CloudRecordingDetail: View {
             errorMessage: playbackErrorMessage,
             isPreparingAudio: isPreparingPlaybackAudio,
             hasAudio: playbackAudioURL != nil,
+            waveformPeaks: audioPlayer.waveformPeaks,
+            isLoadingWaveform: audioPlayer.isLoadingWaveform,
             onPlayPause: handlePlayPause,
             onSeek: audioPlayer.seek(to:)
         )
@@ -1255,7 +1250,7 @@ private struct CloudRecordingDetail: View {
             return
         }
 
-        audioPlayer.load(url: playbackAudioURL)
+        audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle)
         audioPlayer.togglePlayback()
     }
 
@@ -1270,7 +1265,7 @@ private struct CloudRecordingDetail: View {
             onPreparePlaybackAudio()
             return
         }
-        audioPlayer.load(url: playbackAudioURL)
+        audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle)
         audioPlayer.seek(to: seconds)
     }
 
@@ -1403,15 +1398,27 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
+    @Published private(set) var waveformPeaks: [Float] = []
+    @Published private(set) var isLoadingWaveform = false
 
     private var player: AVPlayer?
     private var currentURL: URL?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var waveformTask: Task<Void, Never>?
+    private var waveformCache: [URL: [Float]] = [:]
+    private var currentTitle = "Meeting playback"
+    private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
 
-    func load(url: URL?) {
+    init() {
+        configureRemoteCommands()
+    }
+
+    func load(url: URL?, title: String) {
+        currentTitle = title
         guard currentURL != url else {
             refreshDuration()
+            updateNowPlayingInfo()
             return
         }
 
@@ -1422,6 +1429,10 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
         currentTime = 0
         duration = 0
         isPlaying = false
+        waveformTask?.cancel()
+        waveformPeaks = []
+        isLoadingWaveform = false
+        updateNowPlayingInfo()
 
         guard let url else { return }
 
@@ -1429,6 +1440,7 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
         let nextPlayer = AVPlayer(playerItem: item)
         player = nextPlayer
         refreshDuration()
+        loadWaveform(for: url)
 
         timeObserver = nextPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.18, preferredTimescale: 600),
@@ -1437,6 +1449,7 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
             Task { @MainActor in
                 self?.currentTime = max(0, time.seconds.isFinite ? time.seconds : 0)
                 self?.refreshDuration()
+                self?.updateNowPlayingInfo()
             }
         }
 
@@ -1448,8 +1461,10 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
             Task { @MainActor in
                 self?.isPlaying = false
                 self?.seek(to: 0)
+                self?.updateNowPlayingInfo()
             }
         }
+        updateNowPlayingInfo()
     }
 
     func play() {
@@ -1457,6 +1472,7 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
         player.play()
         isPlaying = true
         refreshDuration()
+        updateNowPlayingInfo()
     }
 
     func togglePlayback() {
@@ -1469,29 +1485,114 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
 
     func close() {
         removeObservers()
+        waveformTask?.cancel()
+        waveformTask = nil
         player?.pause()
         player = nil
         currentURL = nil
         currentTime = 0
         duration = 0
         isPlaying = false
+        waveformPeaks = []
+        isLoadingWaveform = false
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
     func seek(to seconds: Double) {
         let clamped = max(0, min(seconds, max(duration, seconds)))
         currentTime = clamped
         player?.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        updateNowPlayingInfo()
     }
 
     private func pause() {
         player?.pause()
         isPlaying = false
+        updateNowPlayingInfo()
     }
 
     private func refreshDuration() {
         let seconds = player?.currentItem?.duration.seconds ?? 0
         if seconds.isFinite, seconds > 0 {
             duration = seconds
+        }
+    }
+
+    private func updateNowPlayingInfo() {
+        guard currentURL != nil else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: currentTitle,
+            MPMediaItemPropertyArtist: "Recappi",
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+        ]
+        if duration > 0 {
+            info[MPMediaItemPropertyPlaybackDuration] = duration
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    private func configureRemoteCommands() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.playCommand.isEnabled = true
+        commandCenter.pauseCommand.isEnabled = true
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+        commandCenter.changePlaybackPositionCommand.isEnabled = true
+
+        remoteCommandTargets = [
+            (
+                commandCenter.playCommand,
+                commandCenter.playCommand.addTarget { [weak self] _ in
+                    Task { @MainActor in self?.play() }
+                    return .success
+                }
+            ),
+            (
+                commandCenter.pauseCommand,
+                commandCenter.pauseCommand.addTarget { [weak self] _ in
+                    Task { @MainActor in self?.pause() }
+                    return .success
+                }
+            ),
+            (
+                commandCenter.togglePlayPauseCommand,
+                commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+                    Task { @MainActor in self?.togglePlayback() }
+                    return .success
+                }
+            ),
+            (
+                commandCenter.changePlaybackPositionCommand,
+                commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+                    guard let event = event as? MPChangePlaybackPositionCommandEvent else {
+                        return .commandFailed
+                    }
+                    Task { @MainActor in self?.seek(to: event.positionTime) }
+                    return .success
+                }
+            ),
+        ]
+    }
+
+    private func loadWaveform(for url: URL) {
+        if let cached = waveformCache[url] {
+            waveformPeaks = cached
+            return
+        }
+
+        isLoadingWaveform = true
+        waveformTask = Task.detached(priority: .utility) { [weak self] in
+            let peaks = (try? PlaybackWaveformExtractor.cachedPeaks(from: url)) ?? []
+            await MainActor.run {
+                guard let self, self.currentURL == url, !Task.isCancelled else { return }
+                self.waveformCache[url] = peaks
+                self.waveformPeaks = peaks
+                self.isLoadingWaveform = false
+            }
         }
     }
 
@@ -1516,6 +1617,8 @@ private struct CloudMeetingPlaybackStrip: View {
     let errorMessage: String?
     let isPreparingAudio: Bool
     let hasAudio: Bool
+    let waveformPeaks: [Float]
+    let isLoadingWaveform: Bool
     let onPlayPause: () -> Void
     let onSeek: (Double) -> Void
 
@@ -1560,15 +1663,15 @@ private struct CloudMeetingPlaybackStrip: View {
                     .foregroundStyle(Color.dtLabelTertiary)
             }
 
-            Slider(
-                value: Binding(
-                    get: { min(max(0, currentTime), sliderUpperBound) },
-                    set: { value in onSeek(value) }
-                ),
-                in: 0...sliderUpperBound
+            CloudPlaybackWaveformScrubber(
+                progress: sliderProgress,
+                isEnabled: hasAudio && !isPreparingAudio,
+                peaks: waveformPeaks,
+                isLoadingPeaks: isLoadingWaveform,
+                onSeekProgress: { progress in
+                    onSeek(progress * sliderUpperBound)
+                }
             )
-            .tint(DT.waveformLit)
-            .disabled(!hasAudio || isPreparingAudio)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
@@ -1586,6 +1689,11 @@ private struct CloudMeetingPlaybackStrip: View {
         )
     }
 
+    private var sliderProgress: Double {
+        guard sliderUpperBound > 0 else { return 0 }
+        return min(max(0, currentTime / sliderUpperBound), 1)
+    }
+
     private static func timeText(_ seconds: Double) -> String {
         let totalSeconds = max(0, Int(seconds.rounded(.down)))
         let hours = totalSeconds / 3600
@@ -1595,6 +1703,141 @@ private struct CloudMeetingPlaybackStrip: View {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+private struct CloudPlaybackWaveformScrubber: View {
+    let progress: Double
+    let isEnabled: Bool
+    let peaks: [Float]
+    let isLoadingPeaks: Bool
+    let onSeekProgress: (Double) -> Void
+
+    private let trackHeight: CGFloat = 32
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = max(proxy.size.width, 1)
+            let clampedProgress = min(max(progress, 0), 1)
+            let playheadX = width * clampedProgress
+            let spacing: CGFloat = 2.4
+            let barCount = Self.barCount(for: width)
+            let barWidth = Self.barWidth(for: width, barCount: barCount, spacing: spacing)
+
+            ZStack(alignment: .leading) {
+                HStack(alignment: .center, spacing: spacing) {
+                    ForEach(0..<barCount, id: \.self) { index in
+                        Capsule(style: .continuous)
+                            .fill(barColor(index: index, count: barCount))
+                            .frame(width: barWidth, height: barHeight(index: index, count: barCount))
+                    }
+                }
+                .frame(width: width, height: trackHeight, alignment: .center)
+                .opacity(isEnabled ? (isLoadingPeaks ? 0.58 : 1) : 0.46)
+
+                CloudPlaybackPlayhead(color: playheadColor, isEnabled: isEnabled)
+                    .frame(width: 6, height: trackHeight)
+                    .offset(x: min(max(playheadX, 3), max(width - 3, 3)) - 3)
+                .allowsHitTesting(false)
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard isEnabled else { return }
+                        onSeekProgress(min(max(value.location.x / width, 0), 1))
+                    }
+            )
+        }
+        .frame(height: trackHeight + 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Playback position")
+    }
+
+    private static func barCount(for width: CGFloat) -> Int {
+        max(18, min(128, Int(width / 5.2)))
+    }
+
+    private static func barWidth(for width: CGFloat, barCount: Int, spacing: CGFloat) -> CGFloat {
+        let availableWidth = width - spacing * CGFloat(max(barCount - 1, 0))
+        return max(1.8, availableWidth / CGFloat(max(barCount, 1)))
+    }
+
+    private var playheadColor: Color {
+        Color.white.opacity(0.88)
+    }
+
+    private func barColor(index: Int, count: Int) -> Color {
+        let threshold = Int((Double(count - 1) * min(max(progress, 0), 1)).rounded(.down))
+        if index <= threshold {
+            return DT.waveformLit.opacity(isEnabled ? 0.92 : 0.42)
+        }
+        return Color.white.opacity(isEnabled ? 0.22 : 0.12)
+    }
+
+    private func barHeight(index: Int, count: Int) -> CGFloat {
+        let normalizedPeak = peakValue(index: index, count: count)
+        let height = 5 + (trackHeight - 5) * CGFloat(normalizedPeak)
+        return max(5, min(trackHeight, height))
+    }
+
+    private func peakValue(index: Int, count: Int) -> Float {
+        guard !peaks.isEmpty else {
+            return isLoadingPeaks ? 0.18 : 0.08
+        }
+
+        guard peaks.count > 1, count > 1 else {
+            return min(max(peaks.first ?? 0, 0), 1)
+        }
+
+        let sourcePosition = Double(index) * Double(peaks.count - 1) / Double(count - 1)
+        let lowerIndex = min(max(Int(sourcePosition.rounded(.down)), 0), peaks.count - 1)
+        let upperIndex = min(lowerIndex + 1, peaks.count - 1)
+        let fraction = Float(sourcePosition - Double(lowerIndex))
+        let lower = min(max(peaks[lowerIndex], 0), 1)
+        let upper = min(max(peaks[upperIndex], 0), 1)
+        return lower + ((upper - lower) * fraction)
+    }
+}
+
+private struct CloudPlaybackPlayhead: View {
+    let color: Color
+    let isEnabled: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            handleDot
+            Capsule(style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            color.opacity(lineOpacity * 0.50),
+                            color.opacity(lineOpacity),
+                            color.opacity(lineOpacity * 0.50),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+            handleDot
+        }
+        .shadow(color: color.opacity(isEnabled ? 0.22 : 0.06), radius: 2.5, y: 0.5)
+    }
+
+    private var lineOpacity: Double {
+        isEnabled ? 0.72 : 0.30
+    }
+
+    private var handleDot: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(isEnabled ? 0.92 : 0.40))
+            Circle()
+                .strokeBorder(Color.black.opacity(isEnabled ? 0.45 : 0.22), lineWidth: 0.8)
+        }
+        .frame(width: 5.5, height: 5.5)
     }
 }
 
@@ -1646,11 +1889,11 @@ private struct CloudTranscriptSegmentRow: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isActive ? DT.waveformLit.opacity(0.105) : Color.white.opacity(0.018))
+                    .fill(isActive ? DT.waveformLit.opacity(0.105) : Color.white.opacity(0.012))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isActive ? DT.statusReady.opacity(0.24) : Color.white.opacity(0.025), lineWidth: 1)
+                    .strokeBorder(isActive ? DT.statusReady.opacity(0.24) : Color.white.opacity(0.018), lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
@@ -1666,11 +1909,12 @@ private struct CloudInspectorMetric: View {
     let value: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: iconName)
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(Color.dtLabelTertiary)
                 .frame(width: 14)
+                .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -1690,6 +1934,37 @@ private struct CloudInspectorMetric: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title): \(value)")
+    }
+}
+
+private struct CloudInspectorSourceMetric: View {
+    let recording: CloudRecording
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            CloudSourceIcon(recording: recording, size: 16)
+                .opacity(0.92)
+                .frame(width: 14, height: 16)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Captured from")
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .tracking(0.2)
+                    .lineLimit(1)
+
+                Text(recording.sourceLine)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Captured from: \(recording.sourceLine)")
     }
 }
 

@@ -788,6 +788,27 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertGreaterThan(upperPeak, 0.3)
     }
 
+    func testPlaybackWaveformExtractorUsesAudioAmplitudeShape() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let url = temp.appendingPathComponent("shape.caf")
+        try writeAmplitudeSteps(
+            to: url,
+            amplitudes: [0.12, 0.82, 0.28, 0.64],
+            sampleRate: 16_000,
+            frequency: 440
+        )
+
+        let peaks = try PlaybackWaveformExtractor.peaks(from: url, bucketCount: 4)
+
+        XCTAssertEqual(peaks.count, 4)
+        XCTAssertGreaterThan(peaks[1], peaks[0] + 0.35)
+        XCTAssertGreaterThan(peaks[3], peaks[2] + 0.18)
+        XCTAssertGreaterThan(peaks[1], peaks[3])
+    }
+
     func testDotMatrixKeepsUpperHalfVisibleForMusicTilt() {
         let sampleRate = 48_000.0
         let components: [(Double, Float)] = [
@@ -1050,6 +1071,39 @@ final class RecappiMiniCoreTests: XCTestCase {
             for channel in 0..<Int(channels) {
                 channelData[channel][frame] = sample
             }
+        }
+
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        try file.write(from: buffer)
+    }
+
+    private func writeAmplitudeSteps(
+        to url: URL,
+        amplitudes: [Float],
+        sampleRate: Double,
+        frequency: Double
+    ) throws {
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
+            XCTFail("Failed to create amplitude-step format")
+            return
+        }
+
+        let framesPerStep = Int(sampleRate * 0.08)
+        let frameCount = max(framesPerStep * amplitudes.count, 1)
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(frameCount)
+        ),
+        let channelData = buffer.floatChannelData else {
+            XCTFail("Failed to create amplitude-step buffer")
+            return
+        }
+
+        buffer.frameLength = buffer.frameCapacity
+        for frame in 0..<frameCount {
+            let step = min(frame / max(framesPerStep, 1), max(amplitudes.count - 1, 0))
+            let amplitude = amplitudes[step]
+            channelData[0][frame] = amplitude * Float(sin(2 * .pi * frequency * Double(frame) / sampleRate))
         }
 
         let file = try AVAudioFile(forWriting: url, settings: format.settings)

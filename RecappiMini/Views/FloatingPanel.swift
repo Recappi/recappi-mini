@@ -44,7 +44,11 @@ final class FloatingPanel: NSPanel {
         // only provides a transparent safety margin so that shadow can render
         // outside the visible pill without being clipped by the window bounds.
         hasShadow = false
-        isMovableByWindowBackground = true
+        // Keep transparent shadow margins click-through. Dragging by the
+        // NSWindow background makes AppKit treat the full transparent window
+        // frame as interactive even when `PillShellView.hitTest` rejects
+        // points outside the visible rounded pill.
+        isMovableByWindowBackground = false
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         titlebarAppearsTransparent = true
         titleVisibility = .hidden
