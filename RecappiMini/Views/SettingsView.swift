@@ -322,7 +322,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func accountIdentityRow(session: UserSession) -> some View {
         HStack(spacing: 10) {
-            providerBadge(for: sessionStore.lastOAuthProvider)
+            accountBadge()
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(sessionDisplayName(for: session))
@@ -355,11 +355,13 @@ struct SettingsView: View {
                     .disabled(signOutDisabled)
                     .accessibilityIdentifier(AccessibilityIDs.Settings.signOutButton)
             } label: {
-                Image(systemName: "ellipsis.circle")
-                    .imageScale(.large)
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.dtLabelSecondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
+            .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .disabled(sessionStore.isAuthBusy)
             .accessibilityLabel("Account actions")
@@ -372,7 +374,7 @@ struct SettingsView: View {
     private var signedOutAuthRow: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                providerBadge(for: sessionStore.lastOAuthProvider)
+                accountBadge()
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(signedOutTitle)
@@ -416,7 +418,6 @@ struct SettingsView: View {
                     ProgressView().controlSize(.small)
                     Text(sessionStore.authFlowPhase?.buttonLabel ?? "Connecting…")
                 } else {
-                    providerBadge(for: provider, size: 16)
                     Text(provider.displayName)
                 }
             }
@@ -462,8 +463,12 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func providerBadge(for provider: OAuthProvider?, size: CGFloat = 28) -> some View {
-        ProviderLogoMark(provider: provider, size: size)
+    private func accountBadge(size: CGFloat = 28) -> some View {
+        Image(systemName: "person.crop.circle.fill")
+            .font(.system(size: size, weight: .regular))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(Color.dtLabelSecondary)
+            .frame(width: size, height: size)
     }
 
     @ViewBuilder
@@ -859,106 +864,6 @@ struct SettingsView: View {
             get: { AppConfig.shared.autoPromptForActiveAudioApps },
             set: { AppConfig.shared.autoPromptForActiveAudioApps = $0 }
         )
-    }
-}
-
-private struct ProviderLogoMark: View {
-    let provider: OAuthProvider?
-    let size: CGFloat
-
-    var body: some View {
-        ZStack {
-            switch provider {
-            case .google:
-                Circle()
-                    .fill(Color.white.opacity(0.96))
-                GoogleGMark()
-                    .frame(width: size * 0.68, height: size * 0.68)
-            case .github:
-                Circle()
-                    .fill(Color.white.opacity(0.94))
-                GitHubMark()
-                    .fill(Color.black.opacity(0.86))
-                    .frame(width: size * 0.70, height: size * 0.70)
-            case nil:
-                Circle()
-                    .fill(Color.white.opacity(0.08))
-                Image(systemName: "person.crop.circle")
-                    .font(.system(size: size * 0.54, weight: .medium))
-                    .foregroundStyle(Color.dtLabelSecondary)
-            }
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-private struct GoogleGMark: View {
-    var body: some View {
-        Canvas { context, size in
-            let diameter = min(size.width, size.height)
-            let lineWidth = diameter * 0.20
-            let radius = (diameter - lineWidth) / 2
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-
-            func strokeArc(_ start: Double, _ end: Double, color: Color) {
-                var path = Path()
-                path.addArc(
-                    center: center,
-                    radius: radius,
-                    startAngle: .degrees(start),
-                    endAngle: .degrees(end),
-                    clockwise: false
-                )
-                context.stroke(
-                    path,
-                    with: .color(color),
-                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-                )
-            }
-
-            strokeArc(-35, 42, color: Color(red: 66/255, green: 133/255, blue: 244/255))
-            strokeArc(42, 142, color: Color(red: 52/255, green: 168/255, blue: 83/255))
-            strokeArc(142, 205, color: Color(red: 251/255, green: 188/255, blue: 5/255))
-            strokeArc(205, 315, color: Color(red: 234/255, green: 67/255, blue: 53/255))
-
-            var crossbar = Path()
-            crossbar.move(to: CGPoint(x: center.x, y: center.y))
-            crossbar.addLine(to: CGPoint(x: size.width * 0.92, y: center.y))
-            context.stroke(
-                crossbar,
-                with: .color(Color(red: 66/255, green: 133/255, blue: 244/255)),
-                style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt)
-            )
-        }
-    }
-}
-
-private struct GitHubMark: Shape {
-    func path(in rect: CGRect) -> Path {
-        let w = rect.width
-        let h = rect.height
-        let x = rect.minX
-        let y = rect.minY
-        var path = Path()
-
-        path.addEllipse(in: CGRect(x: x + w * 0.17, y: y + h * 0.22, width: w * 0.66, height: h * 0.56))
-
-        path.move(to: CGPoint(x: x + w * 0.25, y: y + h * 0.36))
-        path.addLine(to: CGPoint(x: x + w * 0.26, y: y + h * 0.08))
-        path.addLine(to: CGPoint(x: x + w * 0.45, y: y + h * 0.22))
-        path.closeSubpath()
-
-        path.move(to: CGPoint(x: x + w * 0.55, y: y + h * 0.22))
-        path.addLine(to: CGPoint(x: x + w * 0.74, y: y + h * 0.08))
-        path.addLine(to: CGPoint(x: x + w * 0.75, y: y + h * 0.36))
-        path.closeSubpath()
-
-        path.addRoundedRect(
-            in: CGRect(x: x + w * 0.37, y: y + h * 0.64, width: w * 0.26, height: h * 0.24),
-            cornerSize: CGSize(width: w * 0.08, height: h * 0.08)
-        )
-
-        return path
     }
 }
 
