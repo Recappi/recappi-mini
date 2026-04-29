@@ -75,7 +75,7 @@ struct CloudCenterPanel: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Recappi Cloud")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(Color.dtLabel)
                 Text(headerSubtitle)
                     .font(.system(size: 12))
@@ -84,7 +84,12 @@ struct CloudCenterPanel: View {
                     .truncationMode(.middle)
             }
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 24)
+
+            if shouldShowBillingSummary {
+                billingSummary
+                    .frame(width: 520, height: 34)
+            }
 
             authStatusChip
 
@@ -106,6 +111,17 @@ struct CloudCenterPanel: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
+        .background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.055), Color.white.opacity(0.018)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+        }
         .accessibilityElement(children: .contain)
     }
 
@@ -150,10 +166,9 @@ struct CloudCenterPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Recordings")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.dtLabelSecondary)
-                    .textCase(.uppercase)
-                    .tracking(1.2)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .tracking(0.45)
                 Spacer(minLength: 0)
                 Text("\(store.recordings.count)")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -163,7 +178,7 @@ struct CloudCenterPanel: View {
             .padding(.top, 14)
 
             ScrollView {
-                LazyVStack(spacing: 7) {
+                LazyVStack(spacing: 8) {
                     ForEach(store.recordings) { recording in
                         CloudRecordingRow(
                             recording: recording,
@@ -197,12 +212,6 @@ struct CloudCenterPanel: View {
             }
             .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingsList)
 
-            if shouldShowBillingSummary {
-                Divider().overlay(Color.white.opacity(0.08))
-                billingSummary
-                    .padding(12)
-            }
-
             if let cacheWarningMessage = store.cacheWarningMessage {
                 cacheWarning(cacheWarningMessage)
                     .padding(.horizontal, 12)
@@ -219,6 +228,7 @@ struct CloudCenterPanel: View {
                 recording: recording,
                 transcript: store.selectedTranscript,
                 transcriptErrorMessage: store.transcriptErrorMessage,
+                retranscriptionLimitMessage: store.retranscriptionLimitMessage,
                 localSessionURL: store.selectedLocalSessionURL,
                 playbackAudioURL: store.selectedPlaybackAudioURL,
                 playbackSourceDescription: store.selectedPlaybackSourceDescription,
@@ -249,7 +259,7 @@ struct CloudCenterPanel: View {
                     .font(.system(size: 28))
                     .foregroundStyle(Color.dtLabelTertiary)
                 Text("Select a recording")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Color.dtLabel)
                 Text("Choose a cloud recording to inspect metadata, preview transcript, or download audio.")
                     .font(.system(size: 12))
@@ -267,7 +277,7 @@ struct CloudCenterPanel: View {
                 .controlSize(.regular)
                 .tint(DT.waveformLit)
             Text("Loading Recappi Cloud…")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color.dtLabel)
             Text("Fetching your remote recordings.")
                 .font(.system(size: 12))
@@ -282,7 +292,7 @@ struct CloudCenterPanel: View {
                 .font(.system(size: 34))
                 .foregroundStyle(DT.waveformLit)
             Text(store.isRefreshing ? "Checking cloud recordings…" : "No cloud recordings yet")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Color.dtLabel)
             Text(emptyDetailText)
                 .font(.system(size: 12))
@@ -309,7 +319,7 @@ struct CloudCenterPanel: View {
                 .font(.system(size: 30))
                 .foregroundStyle(DT.systemOrange)
             Text("Couldn’t load Recappi Cloud")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Color.dtLabel)
             Text(message)
                 .font(.system(size: 12))
@@ -337,7 +347,7 @@ struct CloudCenterPanel: View {
                 .font(.system(size: 34))
                 .foregroundStyle(DT.waveformLit)
             Text(title)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Color.dtLabel)
             Text(detail)
                 .font(.system(size: 12))
@@ -399,7 +409,7 @@ struct CloudCenterPanel: View {
                 .fill(chip.color)
                 .frame(width: 7, height: 7)
             Text(chip.text)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.dtLabelSecondary)
                 .lineLimit(1)
         }
@@ -471,7 +481,7 @@ struct CloudCenterPanel: View {
     private func cacheWarning(_ message: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(DT.systemOrange)
             Text(message)
                 .font(.system(size: 10.5, weight: .medium))
@@ -501,53 +511,46 @@ private struct CloudSidebarBillingSummary: View {
     let onOpenPlans: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Cloud usage")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.dtLabelTertiary)
-                        .textCase(.uppercase)
-                        .tracking(1.1)
+        HStack(spacing: 14) {
+            Text(planText)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(planColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(width: 48, height: 24)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(planColor.opacity(0.10))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(planColor.opacity(0.16), lineWidth: 0.7)
+                )
 
-                    Text(planText)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(planColor)
-                        .lineLimit(1)
-                }
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(width: 1, height: 24)
 
-                Spacer(minLength: 0)
-
-                Button("Plans", action: onOpenPlans)
-                    .buttonStyle(PanelPushButtonStyle())
-                    .frame(width: 68)
-                    .accessibilityIdentifier(AccessibilityIDs.Cloud.plansButton)
-            }
-
-            if let status {
-                CloudLimitMeter(
+            HStack(spacing: 14) {
+                headerUsageMetric(
                     title: "Storage",
-                    valueText: status.storageUsageText,
-                    progress: status.storageProgress,
-                    isOverLimit: status.isOverStorage
+                    valueText: status?.storageUsageText ?? "Loading",
+                    progress: status?.storageProgress ?? 0,
+                    isOverLimit: status?.isOverStorage ?? false
                 )
-                CloudLimitMeter(
-                    title: "Minutes",
-                    valueText: status.minutesUsageText,
-                    progress: status.minutesProgress,
-                    isOverLimit: status.isOverMinutes
-                )
-            } else {
-                CloudLimitMeter(title: "Storage", valueText: "Loading limits", progress: 0, isOverLimit: false)
-                    .redacted(reason: isLoading ? .placeholder : [])
-                CloudLimitMeter(title: "Minutes", valueText: errorMessage ?? "Loading limits", progress: 0, isOverLimit: false)
-                    .redacted(reason: isLoading ? .placeholder : [])
-            }
 
-            Text(subtitle)
-                .font(.system(size: 10.5))
-                .foregroundStyle(Color.dtLabelTertiary)
-                .lineLimit(2)
+                headerUsageMetric(
+                    title: "Minutes",
+                    valueText: status?.minutesUsageText ?? (errorMessage ?? "Loading"),
+                    progress: status?.minutesProgress ?? 0,
+                    isOverLimit: status?.isOverMinutes ?? false
+                )
+            }
+            .redacted(reason: status == nil && isLoading ? .placeholder : [])
+
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(width: 1, height: 24)
 
             Button {
                 onOpenBilling()
@@ -558,25 +561,48 @@ private struct CloudSidebarBillingSummary: View {
                         Text("Opening…")
                     }
                 } else {
-                    Text("Manage billing")
+                    Label("Billing", systemImage: "creditcard")
                 }
             }
-            .buttonStyle(PanelPushButtonStyle(primary: true))
+            .buttonStyle(HeaderGlassButtonStyle())
+            .frame(width: 82)
             .disabled(isOpeningBilling)
             .accessibilityIdentifier(AccessibilityIDs.Cloud.billingButton)
         }
-        .padding(11)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(0.18))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.075), lineWidth: 1)
-        )
+        .padding(.horizontal, 2)
+        .frame(height: 34)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Cloud billing and limits")
+        .accessibilityLabel(subtitle)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.billingStatus)
+    }
+
+    private func headerUsageMetric(title: String, valueText: String, progress: Double, isOverLimit: Bool) -> some View {
+        let clampedProgress = max(0, min(1, progress))
+
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(isOverLimit ? DT.systemOrange.opacity(0.92) : Color.dtLabelTertiary)
+                    .tracking(0.18)
+
+                Text(valueText)
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(isOverLimit ? DT.systemOrange : Color.dtLabelSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.74)
+            }
+
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.11))
+                Capsule(style: .continuous)
+                    .fill(isOverLimit ? DT.systemOrange : DT.waveformLit)
+                    .frame(width: 132 * clampedProgress)
+            }
+            .frame(width: 132, height: 3)
+        }
+        .frame(width: 142, alignment: .leading)
     }
 
     private var planText: String {
@@ -614,13 +640,12 @@ private struct CloudLimitMeter: View {
     let isOverLimit: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(title)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(Color.dtLabelTertiary)
-                    .textCase(.uppercase)
-                    .tracking(0.8)
+                    .tracking(0.3)
                 Spacer(minLength: 0)
                 Text(valueText)
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -640,7 +665,27 @@ private struct CloudLimitMeter: View {
             }
             .frame(height: 5)
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: 124)
+    }
+}
+
+private struct HeaderGlassButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color.dtLabel)
+            .labelStyle(.titleAndIcon)
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.105 : 0.07))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(Color.white.opacity(configuration.isPressed ? 0.22 : 0.12), lineWidth: 0.75)
+            )
+            .opacity(configuration.isPressed ? 0.86 : 1)
     }
 }
 
@@ -658,7 +703,7 @@ private struct CloudRecordingRow: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(recording.presentationTitle)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 13, weight: isSelected ? .medium : .regular))
                             .foregroundStyle(Color.dtLabel)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -689,11 +734,11 @@ private struct CloudRecordingRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isSelected ? DT.recordingChip.opacity(0.92) : Color.white.opacity(0.045))
+                    .fill(isSelected ? DT.recordingChip.opacity(0.82) : Color.white.opacity(0.035))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isSelected ? DT.waveformLit.opacity(0.42) : Color.white.opacity(0.055), lineWidth: 1)
+                    .strokeBorder(isSelected ? DT.statusReady.opacity(0.34) : Color.white.opacity(0.045), lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
@@ -712,6 +757,7 @@ private struct CloudRecordingDetail: View {
     let recording: CloudRecording
     let transcript: TranscriptResponse?
     let transcriptErrorMessage: String?
+    let retranscriptionLimitMessage: String?
     let localSessionURL: URL?
     let playbackAudioURL: URL?
     let playbackSourceDescription: String
@@ -787,6 +833,7 @@ private struct CloudRecordingDetail: View {
             Divider().overlay(Color.white.opacity(0.08))
 
             VStack(alignment: .leading, spacing: 12) {
+                transcriptInsightStack
                 segmentsHeader
                 transcriptCard
             }
@@ -795,6 +842,110 @@ private struct CloudRecordingDetail: View {
             .padding(.bottom, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+    }
+
+    @ViewBuilder
+    private var transcriptInsightStack: some View {
+        if let summaryInsightText {
+            transcriptInsightCard(
+                title: "Summary",
+                systemImage: "text.alignleft",
+                accessibilityID: AccessibilityIDs.Cloud.summaryText
+            ) {
+                Text(summaryInsightText)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .lineLimit(5)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+
+        if !visibleActionItems.isEmpty {
+            transcriptInsightCard(
+                title: "Action items",
+                systemImage: "checklist",
+                trailingText: "\(visibleActionItems.count) open",
+                accessibilityID: AccessibilityIDs.Cloud.actionItemsText
+            ) {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(Array(visibleActionItems.enumerated()), id: \.offset) { entry in
+                        HStack(alignment: .top, spacing: 8) {
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .strokeBorder(DT.statusReady.opacity(0.58), lineWidth: 1)
+                                .frame(width: 13, height: 13)
+                                .padding(.top, 2)
+                            Text(entry.element)
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(Color.dtLabelSecondary)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func transcriptInsightCard<Content: View>(
+        title: String,
+        systemImage: String,
+        trailingText: String? = nil,
+        accessibilityID: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(DT.statusReady)
+                    .frame(width: 13)
+
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .tracking(0.35)
+
+                Spacer(minLength: 0)
+
+                if let trailingText {
+                    Text(trailingText)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                }
+            }
+
+            content()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.black.opacity(0.24))
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
+        )
+        .accessibilityIdentifier(accessibilityID)
+    }
+
+    private var summaryInsightText: String? {
+        guard let summary = transcript?.summary else { return nil }
+        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var visibleActionItems: [String] {
+        transcript?.actionItems?
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        ?? []
     }
 
     private var inspectorPane: some View {
@@ -815,6 +966,12 @@ private struct CloudRecordingDetail: View {
             }
 
             inspectorSection("Export") {
+                if let retranscriptionLimitMessage {
+                    inspectorNotice(retranscriptionLimitMessage)
+                } else if let transcriptErrorMessage {
+                    inspectorNotice(transcriptErrorMessage)
+                }
+
                 inspectorButton("Copy transcript", systemImage: "doc.on.doc", action: onCopyTranscript)
                     .disabled(transcript?.text.isEmpty != false)
                     .accessibilityIdentifier(AccessibilityIDs.Cloud.copyTranscriptButton)
@@ -847,10 +1004,15 @@ private struct CloudRecordingDetail: View {
                         systemImage: "arrow.clockwise"
                     )
                 }
-                .buttonStyle(CloudInspectorButtonStyle(tint: Color.dtLabelTertiary))
-                .disabled(isRetranscribing || isTranscriptLoading || !recording.status.allowsTranscriptionRequest)
+                .buttonStyle(CloudInspectorButtonStyle(tint: Color.dtLabelTertiary, chrome: .hover))
+                .disabled(
+                    isRetranscribing ||
+                    isTranscriptLoading ||
+                    retranscriptionLimitMessage != nil ||
+                    !recording.status.allowsTranscriptionRequest
+                )
                 .opacity(0.72)
-                .help("Start a new cloud transcription job")
+                .help(retranscriptionLimitMessage ?? "Start a new cloud transcription job")
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
             }
 
@@ -872,7 +1034,11 @@ private struct CloudRecordingDetail: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 18)
-        .background(Color.black.opacity(0.10))
+        .background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(Color.black.opacity(0.26))
+        }
     }
 
     private func inspectorSection<Content: View>(
@@ -881,10 +1047,9 @@ private struct CloudRecordingDetail: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(title)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(Color.dtLabelTertiary)
-                .textCase(.uppercase)
-                .tracking(1.1)
+                .tracking(0.35)
 
             VStack(alignment: .leading, spacing: 7) {
                 content()
@@ -903,6 +1068,31 @@ private struct CloudRecordingDetail: View {
         .buttonStyle(CloudInspectorButtonStyle())
     }
 
+    private func inspectorNotice(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(DT.systemOrange)
+                .padding(.top, 1)
+
+            Text(message)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(Color.dtLabelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(3)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(DT.systemOrange.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(DT.systemOrange.opacity(0.20), lineWidth: 1)
+        )
+    }
+
     private func inspectorButtonLabel(
         isBusy: Bool,
         title: String,
@@ -912,7 +1102,7 @@ private struct CloudRecordingDetail: View {
         HStack(spacing: 8) {
             ZStack {
                 Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 11, weight: .medium))
                     .opacity(isBusy ? 0 : 1)
                 ProgressView()
                     .controlSize(.small)
@@ -935,13 +1125,13 @@ private struct CloudRecordingDetail: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(recording.presentationTitle)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(Color.dtLabel)
                     .lineLimit(2)
 
                 HStack(spacing: 7) {
                     Image(systemName: recording.sourceIconName)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 10, weight: .medium))
                     Text(recording.sourceLine)
                         .lineLimit(1)
                 }
@@ -961,14 +1151,13 @@ private struct CloudRecordingDetail: View {
 
     private var segmentsHeader: some View {
         HStack {
-            Text("Segments")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.dtLabelSecondary)
-                .textCase(.uppercase)
-                .tracking(1.2)
+            Text("Transcript")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.dtLabelTertiary)
+                .tracking(0.45)
             if let transcript {
                 Text("\(transcript.displaySegmentRows.count)")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.dtLabelTertiary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -990,16 +1179,15 @@ private struct CloudRecordingDetail: View {
         if let localSessionURL {
             HStack(spacing: 8) {
                 Image(systemName: "folder")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(DT.waveformLit)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(DT.statusReady)
                     .frame(width: 14)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Linked local session")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(Color.dtLabelTertiary)
-                        .textCase(.uppercase)
-                        .tracking(0.7)
+                        .tracking(0.35)
                     Text(localSessionURL.lastPathComponent)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Color.dtLabelSecondary)
@@ -1092,12 +1280,12 @@ private struct CloudRecordingDetail: View {
         let activeSegmentID = activeSegmentID(in: segmentRows)
         ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(segmentRows.isEmpty ? 0.18 : 0.22))
+                .fill(Color.black.opacity(segmentRows.isEmpty ? 0.18 : 0.24))
 
             if !segmentRows.isEmpty {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 7) {
+                        LazyVStack(alignment: .leading, spacing: 8) {
                             ForEach(segmentRows) { row in
                                 CloudTranscriptSegmentRow(
                                     row: row,
@@ -1156,7 +1344,7 @@ private struct CloudRecordingDetail: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
         )
         .transaction { transaction in
             transaction.animation = nil
@@ -1341,7 +1529,7 @@ private struct CloudMeetingPlaybackStrip: View {
                 Button(action: onPlayPause) {
                     ZStack {
                         Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.system(size: 12, weight: .medium))
                             .opacity(isPreparingAudio ? 0 : 1)
                         ProgressView()
                             .controlSize(.small)
@@ -1356,7 +1544,7 @@ private struct CloudMeetingPlaybackStrip: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Meeting playback")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Color.dtLabel)
                     Text(errorMessage ?? sourceDescription)
                         .font(.system(size: 10.5, weight: .medium))
@@ -1386,11 +1574,15 @@ private struct CloudMeetingPlaybackStrip: View {
         .padding(.vertical, 9)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.black.opacity(0.18))
+                .fill(.thinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.black.opacity(0.24))
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.065), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.085), lineWidth: 1)
         )
     }
 
@@ -1437,15 +1629,15 @@ private struct CloudTranscriptSegmentRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     if let speaker = row.speaker {
                         Text(speaker)
-                            .font(.system(size: 10.5, weight: .bold))
-                            .foregroundStyle(DT.waveformLit)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(isActive ? DT.statusReady : Color.dtLabelSecondary)
                             .lineLimit(1)
                     }
 
                     Text(row.text)
-                        .font(.system(size: 13.5))
+                        .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(Color.dtLabel)
-                        .lineSpacing(2)
+                        .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1458,7 +1650,7 @@ private struct CloudTranscriptSegmentRow: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isActive ? DT.waveformLit.opacity(0.26) : Color.white.opacity(0.025), lineWidth: 1)
+                    .strokeBorder(isActive ? DT.statusReady.opacity(0.24) : Color.white.opacity(0.025), lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
@@ -1476,16 +1668,15 @@ private struct CloudInspectorMetric: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: iconName)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(DT.waveformLit.opacity(0.82))
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(Color.dtLabelTertiary)
                 .frame(width: 14)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 9.5, weight: .semibold))
+                    .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(Color.dtLabelTertiary)
-                    .textCase(.uppercase)
-                    .tracking(0.6)
+                    .tracking(0.2)
                     .lineLimit(1)
 
                 Text(value)
@@ -1503,30 +1694,43 @@ private struct CloudInspectorMetric: View {
 }
 
 private struct CloudInspectorButtonStyle: ButtonStyle {
+    enum Chrome {
+        case always
+        case hover
+    }
+
     var tint: Color = DT.waveformLit
     var destructive = false
+    var chrome: Chrome = .always
+    @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
+        let showChrome = chrome == .always || isHovered || configuration.isPressed
         configuration.label
-            .font(.system(size: 11.5, weight: .semibold))
+            .font(.system(size: 11.5, weight: .medium))
             .foregroundStyle(destructive ? tint : Color.dtLabel)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(backgroundOpacity(isPressed: configuration.isPressed))
+                    .fill(backgroundOpacity(isPressed: configuration.isPressed, showChrome: showChrome))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(borderColor, lineWidth: 1)
+                    .strokeBorder(showChrome ? borderColor : Color.clear, lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(DT.ease(0.10), value: configuration.isPressed)
+            .animation(DT.ease(0.12), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+            }
     }
 
-    private func backgroundOpacity(isPressed: Bool) -> Color {
+    private func backgroundOpacity(isPressed: Bool, showChrome: Bool) -> Color {
+        guard showChrome else { return Color.clear }
         if destructive {
             return tint.opacity(isPressed ? 0.16 : 0.08)
         }
@@ -1544,7 +1748,7 @@ private struct CloudStatusChip: View {
 
     var body: some View {
         Text(status.displayName)
-            .font(.system(size: prominent ? 11 : 9, weight: .bold))
+            .font(.system(size: prominent ? 11 : 9, weight: .medium))
             .foregroundStyle(color)
             .padding(.horizontal, prominent ? 9 : 6)
             .padding(.vertical, prominent ? 5 : 3)
@@ -1561,11 +1765,11 @@ private struct CloudStatusChip: View {
     private var color: Color {
         switch status {
         case .ready:
-            return DT.waveformLit
+            return DT.statusReady
         case .uploading:
-            return DT.systemBlue
+            return DT.statusUploading
         case .failed, .aborted:
-            return DT.systemOrange
+            return DT.statusWarning
         case .unknown:
             return Color.dtLabelTertiary
         }
@@ -1579,7 +1783,7 @@ private struct CloudSourceIcon: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .fill(DT.waveformLit.opacity(0.14))
+                .fill(DT.statusReady.opacity(0.10))
 
             if let icon = recording.sourceAppIcon {
                 Image(nsImage: icon)
@@ -1588,8 +1792,8 @@ private struct CloudSourceIcon: View {
                     .frame(width: size * 0.72, height: size * 0.72)
             } else {
                 Image(systemName: recording.sourceIconName)
-                    .font(.system(size: size * 0.42, weight: .semibold))
-                    .foregroundStyle(DT.waveformLit)
+                    .font(.system(size: size * 0.42, weight: .medium))
+                    .foregroundStyle(DT.statusReady)
             }
         }
         .frame(width: size, height: size)

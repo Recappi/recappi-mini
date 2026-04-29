@@ -114,11 +114,33 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testTranscriptionRequestBodyCanForceFreshRun() throws {
+        let body = try JSONEncoder().encode(
+            StartTranscriptionRequest(
+                provider: "gemini",
+                language: "en",
+                force: true,
+                prompt: "Run a fresh transcription pass with the default Recappi instructions."
+            )
+        )
+        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+
+        XCTAssertEqual(json?["provider"] as? String, "gemini")
+        XCTAssertEqual(json?["language"] as? String, "en")
+        XCTAssertEqual(json?["force"] as? Bool, true)
+        XCTAssertEqual(
+            json?["prompt"] as? String,
+            "Run a fresh transcription pass with the default Recappi instructions."
+        )
+    }
+
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {
         let data = """
         {
           "id": "tr_123",
           "text": "Hello there.\\nWelcome back.",
+          "summary": "Two people greeted each other.",
+          "actionItemsJson": "[\\"Follow up with the launch notes.\\",\\"  \\"]",
           "segmentsJson": "[{\\"start\\":0,\\"end\\":1300,\\"text\\":\\"Hello there.\\",\\"speaker\\":\\"Speaker 1\\"},{\\"start\\":1300,\\"end\\":2500,\\"text\\":\\"Welcome back.\\"}]"
         }
         """.data(using: .utf8)!
@@ -131,6 +153,22 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(transcript.segments[0].endMs, 1_300)
         XCTAssertEqual(transcript.segments[0].speaker, "Speaker 1")
         XCTAssertEqual(transcript.segments[1].text, "Welcome back.")
+        XCTAssertEqual(transcript.summary, "Two people greeted each other.")
+        XCTAssertEqual(transcript.actionItems, ["Follow up with the launch notes."])
+    }
+
+    func testTranscriptResponseKeepsUnavailableSummaryAndActionItemsNil() throws {
+        let data = """
+        {
+          "id": "tr_123",
+          "text": "Transcript only."
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertNil(transcript.summary)
+        XCTAssertNil(transcript.actionItems)
     }
 
     func testTranscriptResponseBuildsTextWhenOnlySegmentsArePresent() throws {
@@ -349,6 +387,8 @@ final class RecappiMiniCoreTests: XCTestCase {
             {
               "id": "tr_123",
               "text": "Hello from cache.",
+              "summary": "Cached summary.",
+              "actionItemsJson": "[\\"Ship the cache fixture.\\"]",
               "segments": [
                 { "startMs": 0, "endMs": 1200, "text": "Hello from cache.", "speaker": "Peng" }
               ]
@@ -389,6 +429,8 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(decoded.decodedRecordings.first?.summaryTitle, "Product review")
         XCTAssertEqual(decoded.decodedRecordings.first?.status, .ready)
         XCTAssertEqual(decoded.decodedBillingStatus?.tier, .pro)
+        XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.summary, "Cached summary.")
+        XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.actionItems, ["Ship the cache fixture."])
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.segments.first?.speaker, "Peng")
         XCTAssertEqual(decoded.nextCursor, "next_456")
         XCTAssertEqual(decoded.selectedRecordingID, "rec_123")

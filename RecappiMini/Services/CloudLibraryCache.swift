@@ -210,11 +210,15 @@ struct BillingStatusSnapshot: Codable, Equatable, Sendable {
 struct TranscriptResponseSnapshot: Codable, Equatable, Sendable {
     let id: String
     let text: String
+    let summary: String?
+    let actionItems: [String]?
     let segments: [TranscriptSegmentSnapshot]
 
     init(_ transcript: TranscriptResponse) {
         id = transcript.id
         text = transcript.text
+        summary = transcript.summary
+        actionItems = transcript.actionItems
         segments = transcript.segments.map(TranscriptSegmentSnapshot.init)
     }
 

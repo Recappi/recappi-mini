@@ -93,10 +93,18 @@ struct RecappiAPIClient: Sendable {
         return try JSONDecoder().decode(CompletedRecording.self, from: data)
     }
 
-    func startTranscription(recordingId: String, language: String) async throws -> StartTranscriptionResponse {
+    func startTranscription(
+        recordingId: String,
+        language: String,
+        force: Bool = false,
+        provider: String? = nil
+    ) async throws -> StartTranscriptionResponse {
         var request = try makeRequest(path: "/api/recordings/\(recordingId)/transcribe", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(StartTranscriptionRequest(language: language))
+        let prompt = force ? "Run a fresh transcription pass with the default Recappi instructions." : nil
+        request.httpBody = try JSONEncoder().encode(
+            StartTranscriptionRequest(provider: provider, language: language, force: force, prompt: prompt)
+        )
         let (data, response) = try await session.data(for: request)
         try Self.validate(response: response, data: data)
         return try JSONDecoder().decode(StartTranscriptionResponse.self, from: data)
@@ -632,8 +640,11 @@ private struct BillingCheckoutRequest: Encodable {
     let cancelPath: String?
 }
 
-private struct StartTranscriptionRequest: Encodable {
+struct StartTranscriptionRequest: Encodable {
+    let provider: String?
     let language: String
+    let force: Bool
+    let prompt: String?
 }
 
 enum RemoteJobStatus: String, Decodable, Equatable {
@@ -661,11 +672,16 @@ struct TranscriptionJob: Decodable {
 struct TranscriptResponse: Decodable, Equatable, Sendable {
     let id: String
     let text: String
+    let summary: String?
+    let actionItems: [String]?
     let segments: [TranscriptSegment]
 
     enum CodingKeys: String, CodingKey {
         case id
         case text
+        case summary
+        case actionItems
+        case actionItemsJson
         case segments
         case segmentsJson
     }
@@ -683,6 +699,10 @@ struct TranscriptResponse: Decodable, Equatable, Sendable {
 
         let decodedText = try container.decodeIfPresent(String.self, forKey: .text)
         text = decodedText ?? segments.map(\.text).joined(separator: "\n")
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        let decodedActionItems = try container.decodeIfPresent([String].self, forKey: .actionItems)
+            ?? Self.decodeActionItemsJSON(try container.decodeIfPresent(String.self, forKey: .actionItemsJson))
+        actionItems = decodedActionItems.map(Self.normalizeActionItems)
     }
 
     private static func decodeSegmentsJSON(_ raw: String?) -> [TranscriptSegment]? {
@@ -691,6 +711,21 @@ struct TranscriptResponse: Decodable, Equatable, Sendable {
             return nil
         }
         return try? JSONDecoder().decode([TranscriptSegment].self, from: data)
+    }
+
+    private static func decodeActionItemsJSON(_ raw: String?) -> [String]? {
+        guard let raw else { return nil }
+        guard let data = raw.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+        return normalizeActionItems(decoded)
+    }
+
+    private static func normalizeActionItems(_ items: [String]) -> [String] {
+        items
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private static func normalizeSegmentTimeline(_ segments: [TranscriptSegment]) -> [TranscriptSegment] {

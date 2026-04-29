@@ -253,6 +253,10 @@ final class CloudLibraryStore: ObservableObject {
     func retranscribeSelectedRecording() async {
         guard let recording = selectedRecording, recording.status.allowsTranscriptionRequest else { return }
         guard !isRetranscribing else { return }
+        if let limitMessage = retranscriptionLimitMessage {
+            transcriptErrorMessage = limitMessage
+            return
+        }
 
         isRetranscribing = true
         transcriptErrorMessage = nil
@@ -260,7 +264,12 @@ final class CloudLibraryStore: ObservableObject {
         do {
             let language = config.normalizedCloudLanguage
             let start = try await runAuthorized { client in
-                try await client.startTranscription(recordingId: recording.id, language: language)
+                try await client.startTranscription(
+                    recordingId: recording.id,
+                    language: language,
+                    force: true,
+                    provider: "gemini"
+                )
             }
             let job = try await pollForCompletion(recordingId: recording.id, initial: start)
             let transcript = try await runAuthorized { client in
@@ -277,6 +286,17 @@ final class CloudLibraryStore: ObservableObject {
         }
 
         isRetranscribing = false
+    }
+
+    var retranscriptionLimitMessage: String? {
+        guard let billingStatus else { return nil }
+        if billingStatus.isOverMinutes {
+            return "Cloud minutes limit reached. Upgrade your plan or free usage before retranscribing."
+        }
+        if billingStatus.isOverStorage {
+            return "Cloud storage limit reached. Delete recordings or upgrade before retranscribing."
+        }
+        return nil
     }
 
     func copySelectedTranscript() {
