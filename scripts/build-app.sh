@@ -49,6 +49,8 @@ fi
 # but Bundle.module lookup is flaky for executableTarget on macOS.)
 cp "$PROJECT_DIR/RecappiMini/Resources/Logo.png" "$APP_BUNDLE/Contents/Resources/Logo.png"
 cp "$PROJECT_DIR/RecappiMini/Resources/LogoTemplate.png" "$APP_BUNDLE/Contents/Resources/LogoTemplate.png"
+cp "$PROJECT_DIR/RecappiMini/Resources/GoogleG.png" "$APP_BUNDLE/Contents/Resources/GoogleG.png"
+cp "$PROJECT_DIR/RecappiMini/Resources/GitHubMark.png" "$APP_BUNDLE/Contents/Resources/GitHubMark.png"
 
 # Create Info.plist
 cat > "$APP_BUNDLE/Contents/Info.plist" << EOF

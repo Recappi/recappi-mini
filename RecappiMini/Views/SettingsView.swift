@@ -322,7 +322,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func accountIdentityRow(session: UserSession) -> some View {
         HStack(spacing: 10) {
-            accountBadge()
+            accountAvatar(for: session)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(sessionDisplayName(for: session))
@@ -330,12 +330,7 @@ struct SettingsView: View {
                     .foregroundStyle(Color.dtLabel)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(accountConnectionText(for: session))
-                    .font(.caption)
-                    .foregroundStyle(Color.dtLabelSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
+                accountConnectionRow(for: session)
             }
 
             Spacer(minLength: 0)
@@ -374,7 +369,7 @@ struct SettingsView: View {
     private var signedOutAuthRow: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                accountBadge()
+                fallbackAccountAvatar()
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(signedOutTitle)
@@ -463,12 +458,36 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func accountBadge(size: CGFloat = 28) -> some View {
-        Image(systemName: "person.crop.circle.fill")
-            .font(.system(size: size, weight: .regular))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(Color.dtLabelSecondary)
-            .frame(width: size, height: size)
+    private func accountAvatar(for session: UserSession, size: CGFloat = 28) -> some View {
+        AccountAvatar(session: session, size: size)
+    }
+
+    @ViewBuilder
+    private func fallbackAccountAvatar(size: CGFloat = 28) -> some View {
+        AccountAvatar(session: nil, size: size)
+    }
+
+    @ViewBuilder
+    private func accountConnectionRow(for session: UserSession) -> some View {
+        HStack(spacing: 4) {
+            if let provider = sessionStore.lastOAuthProvider {
+                Text("Connected with")
+                ProviderInlineMark(provider: provider, size: 12)
+                Text(provider.displayName)
+            } else {
+                Text("Connected")
+            }
+            if sessionDisplayName(for: session) != session.email {
+                Text("· \(session.email)")
+                    .truncationMode(.middle)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(Color.dtLabelSecondary)
+        .lineLimit(1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accountConnectionText(for: session))
+        .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
     }
 
     @ViewBuilder
@@ -864,6 +883,105 @@ struct SettingsView: View {
             get: { AppConfig.shared.autoPromptForActiveAudioApps },
             set: { AppConfig.shared.autoPromptForActiveAudioApps = $0 }
         )
+    }
+}
+
+private struct AccountAvatar: View {
+    let session: UserSession?
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let url = avatarURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .empty:
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: size, height: size)
+                    case .failure:
+                        fallback
+                    @unknown default:
+                        fallback
+                    }
+                }
+            } else {
+                fallback
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(
+            Circle()
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        )
+    }
+
+    private var avatarURL: URL? {
+        guard let raw = session?.imageURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return nil
+        }
+        return URL(string: raw)
+    }
+
+    private var fallback: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.08))
+
+            if let initials, !initials.isEmpty {
+                Text(initials)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.dtLabelSecondary)
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: size, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(Color.dtLabelSecondary)
+            }
+        }
+    }
+
+    private var initials: String? {
+        guard let session else { return nil }
+        let display = session.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = display.isEmpty ? session.email : display
+        let parts = source
+            .split { !$0.isLetter && !$0.isNumber }
+            .prefix(2)
+        let letters = parts.compactMap(\.first).map { String($0).uppercased() }
+        return letters.joined()
+    }
+}
+
+private struct ProviderInlineMark: View {
+    let provider: OAuthProvider
+    let size: CGFloat
+
+    var body: some View {
+        Image(nsImage: provider.logoImage)
+            .resizable()
+            .scaledToFit()
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+private extension OAuthProvider {
+    var logoImage: NSImage {
+        let resourceName: String
+        switch self {
+        case .google:
+            resourceName = "GoogleG"
+        case .github:
+            resourceName = "GitHubMark"
+        }
+        return NSImage(named: resourceName) ?? NSImage()
     }
 }
 
