@@ -320,6 +320,119 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(recording.status.displayName, "Processing Audio")
     }
 
+    func testCloudLibrarySnapshotRoundTripsLightweightData() throws {
+        let recording = try JSONDecoder().decode(
+            CloudRecording.self,
+            from: """
+            {
+              "id": "rec_123",
+              "userId": "user_123",
+              "title": "Weekly sync",
+              "summaryTitle": "Product review",
+              "sourceAppName": "Google Chrome",
+              "sourceAppBundleID": "com.google.Chrome",
+              "status": "ready",
+              "sizeBytes": 456789,
+              "durationMs": 123456,
+              "sampleRate": 48000,
+              "channels": 2,
+              "contentType": "audio/wav",
+              "activeTranscriptId": "tr_123",
+              "createdAt": "2026-04-24T08:00:00.000Z",
+              "updatedAt": "2026-04-24T08:03:00.000Z"
+            }
+            """.data(using: .utf8)!
+        )
+        let transcript = try JSONDecoder().decode(
+            TranscriptResponse.self,
+            from: """
+            {
+              "id": "tr_123",
+              "text": "Hello from cache.",
+              "segments": [
+                { "startMs": 0, "endMs": 1200, "text": "Hello from cache.", "speaker": "Peng" }
+              ]
+            }
+            """.data(using: .utf8)!
+        )
+        let billing = try JSONDecoder().decode(
+            BillingStatus.self,
+            from: """
+            {
+              "tier": "pro",
+              "periodStart": "2026-04-01T00:00:00.000Z",
+              "periodEnd": "2026-05-01T00:00:00.000Z",
+              "storageBytes": 1024,
+              "storageCapBytes": 2048,
+              "minutesUsed": 42,
+              "minutesCap": 120,
+              "isOverStorage": false,
+              "isOverMinutes": false
+            }
+            """.data(using: .utf8)!
+        )
+
+        let snapshot = CloudLibrarySnapshot(
+            userId: "user_123",
+            backendOrigin: "https://recordmeet.ing",
+            savedAt: Date(timeIntervalSince1970: 1_776_957_994),
+            recordings: [recording],
+            nextCursor: "next_456",
+            selectedRecordingID: "rec_123",
+            billingStatus: billing,
+            transcriptCache: ["rec_123": transcript]
+        )
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(CloudLibrarySnapshot.self, from: encoded)
+
+        XCTAssertTrue(decoded.matches(userId: "user_123", backendOrigin: "https://recordmeet.ing"))
+        XCTAssertEqual(decoded.decodedRecordings.first?.summaryTitle, "Product review")
+        XCTAssertEqual(decoded.decodedRecordings.first?.status, .ready)
+        XCTAssertEqual(decoded.decodedBillingStatus?.tier, .pro)
+        XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.segments.first?.speaker, "Peng")
+        XCTAssertEqual(decoded.nextCursor, "next_456")
+        XCTAssertEqual(decoded.selectedRecordingID, "rec_123")
+    }
+
+    func testCloudLibraryCachePartitionsByUserAndOrigin() async throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let recording = try JSONDecoder().decode(
+            CloudRecording.self,
+            from: """
+            {
+              "id": "rec_123",
+              "userId": "user_123",
+              "title": "Cached recording",
+              "status": "ready"
+            }
+            """.data(using: .utf8)!
+        )
+        let cache = CloudLibraryCache(directoryURL: temp)
+        let snapshot = CloudLibrarySnapshot(
+            userId: "user_123",
+            backendOrigin: "https://recordmeet.ing",
+            savedAt: Date(timeIntervalSince1970: 1_776_957_994),
+            recordings: [recording],
+            nextCursor: nil,
+            selectedRecordingID: "rec_123",
+            billingStatus: nil,
+            transcriptCache: [:]
+        )
+
+        await cache.saveSnapshot(snapshot)
+
+        let loaded = await cache.loadSnapshot(userId: "user_123", backendOrigin: "https://recordmeet.ing")
+        XCTAssertEqual(loaded?.decodedRecordings.first?.id, "rec_123")
+
+        let otherUser = await cache.loadSnapshot(userId: "user_456", backendOrigin: "https://recordmeet.ing")
+        XCTAssertNil(otherUser)
+
+        let otherOrigin = await cache.loadSnapshot(userId: "user_123", backendOrigin: "https://staging.recordmeet.ing")
+        XCTAssertNil(otherOrigin)
+    }
+
     func testUnauthorizedResponseMapsToExpiredAuthPath() throws {
         let response = try XCTUnwrap(
             HTTPURLResponse(

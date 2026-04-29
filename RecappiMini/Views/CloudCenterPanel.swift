@@ -202,6 +202,12 @@ struct CloudCenterPanel: View {
                 billingSummary
                     .padding(12)
             }
+
+            if let cacheWarningMessage = store.cacheWarningMessage {
+                cacheWarning(cacheWarningMessage)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+            }
         }
         .background(Color.black.opacity(0.12))
     }
@@ -272,17 +278,22 @@ struct CloudCenterPanel: View {
 
     private var emptyView: some View {
         VStack(spacing: 12) {
-            Image(systemName: "cloud")
+            Image(systemName: store.isRefreshing ? "cloud" : "cloud")
                 .font(.system(size: 34))
                 .foregroundStyle(DT.waveformLit)
-            Text("No cloud recordings yet")
+            Text(store.isRefreshing ? "Checking cloud recordings…" : "No cloud recordings yet")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color.dtLabel)
-            Text("Record a meeting from the main panel. Finished transcripts will appear here.")
+            Text(emptyDetailText)
                 .font(.system(size: 12))
                 .foregroundStyle(Color.dtLabelSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)
+            if store.isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(DT.waveformLit)
+            }
             Button("Refresh") {
                 Task { await store.refresh() }
             }
@@ -422,10 +433,62 @@ struct CloudCenterPanel: View {
     }
 
     private var headerSubtitle: String {
+        if let cacheWarningMessage = store.cacheWarningMessage {
+            return cacheWarningMessage
+        }
+        if store.isRefreshing {
+            if store.isShowingCachedData {
+                return updatedText(prefix: "Showing cached data · Refreshing")
+            }
+            return "Refreshing cloud recordings…"
+        }
+        if store.isShowingCachedData {
+            return updatedText(prefix: "Showing cached data")
+        }
+        if store.lastSuccessfulRefreshAt != nil {
+            return updatedText(prefix: "Updated")
+        }
         if sessionStore.currentSession != nil {
             return "Manage recordings, transcripts, billing, and limits"
         }
         return "Browse and manage remote recordings after sign-in"
+    }
+
+    private var emptyDetailText: String {
+        if store.isRefreshing {
+            return "Showing the last known empty library while Recappi checks the cloud."
+        }
+        return "Record a meeting from the main panel. Finished transcripts will appear here."
+    }
+
+    private func updatedText(prefix: String) -> String {
+        guard let date = store.lastSuccessfulRefreshAt else {
+            return prefix
+        }
+        return "\(prefix) \(date.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private func cacheWarning(_ message: String) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(DT.systemOrange)
+            Text(message)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(Color.dtLabelSecondary)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(DT.systemOrange.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(DT.systemOrange.opacity(0.20), lineWidth: 1)
+        )
     }
 }
 

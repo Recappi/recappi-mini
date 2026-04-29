@@ -35,18 +35,24 @@ final class CloudLibraryStore: ObservableObject {
     @Published private(set) var playbackAudioURLsByRecordingID: [String: URL] = [:]
     @Published private(set) var isPreparingPlaybackAudio = false
     @Published private(set) var playbackErrorMessage: String?
+    @Published private(set) var lastSuccessfulRefreshAt: Date?
+    @Published private(set) var isShowingCachedData = false
+    @Published private(set) var cacheWarningMessage: String?
 
     private let config: AppConfig
     private let sessionStore: AuthSessionStore
+    private let cache: CloudLibraryCache
     private let pageLimit: Int
 
     init(
         config: AppConfig = .shared,
         sessionStore: AuthSessionStore = .shared,
+        cache: CloudLibraryCache = .shared,
         pageLimit: Int = 20
     ) {
         self.config = config
         self.sessionStore = sessionStore
+        self.cache = cache
         self.pageLimit = pageLimit
     }
 
@@ -87,32 +93,57 @@ final class CloudLibraryStore: ObservableObject {
 
     func loadInitialIfNeeded() async {
         guard recordings.isEmpty else { return }
-        await refresh()
+        let restoredCache = await restoreCacheIfAvailable()
+        await refreshFromRemote(preserveVisibleDataOnFailure: restoredCache)
     }
 
     func refresh() async {
+        let restoredCache = recordings.isEmpty ? await restoreCacheIfAvailable() : false
+        await refreshFromRemote(preserveVisibleDataOnFailure: restoredCache || hasVisibleLibraryData)
+    }
+
+    private func refreshFromRemote(preserveVisibleDataOnFailure: Bool) async {
         guard await prepareForAuthenticatedRequest() else { return }
-        isRefreshing = !recordings.isEmpty
-        state = recordings.isEmpty ? .loading : .loaded
-        await refreshBillingStatus()
+        isRefreshing = hasVisibleLibraryData
+        if recordings.isEmpty {
+            state = .loading
+        } else if state != .empty {
+            state = .loaded
+        }
+
+        await refreshBillingStatus(allowStaleOnFailure: preserveVisibleDataOnFailure || hasVisibleLibraryData)
 
         do {
             let page = try await runAuthorized { client in
                 try await client.listRecordings(limit: pageLimit)
             }
+            let previousSelection = selectedRecordingID
             recordings = page.items
             nextCursor = page.nextCursor
+            if let previousSelection, recordings.contains(where: { $0.id == previousSelection }) {
+                selectedRecordingID = previousSelection
+            } else {
+                selectedRecordingID = recordings.first?.id
+            }
             selectDefaultRecordingIfNeeded()
             await refreshLocalSessionLinks()
+            lastSuccessfulRefreshAt = Date()
+            isShowingCachedData = false
+            cacheWarningMessage = nil
             state = recordings.isEmpty ? .empty : .loaded
+            await persistCacheSnapshot()
         } catch {
-            apply(error: error)
+            handleRefreshFailure(error, preserveVisibleData: preserveVisibleDataOnFailure || hasVisibleLibraryData)
         }
 
         isRefreshing = false
     }
 
     func refreshBillingStatus() async {
+        await refreshBillingStatus(allowStaleOnFailure: false)
+    }
+
+    private func refreshBillingStatus(allowStaleOnFailure: Bool) async {
         guard await prepareForAuthenticatedRequest() else { return }
         isLoadingBilling = true
         billingErrorMessage = nil
@@ -121,8 +152,16 @@ final class CloudLibraryStore: ObservableObject {
             billingStatus = try await runAuthorized { client in
                 try await client.getBillingStatus()
             }
+            if lastSuccessfulRefreshAt == nil {
+                lastSuccessfulRefreshAt = Date()
+            }
         } catch let error as RecappiAPIError where error == .unauthorized {
-            apply(error: error)
+            if allowStaleOnFailure, hasVisibleLibraryData {
+                billingErrorMessage = "Sign in again to refresh usage."
+                cacheWarningMessage = refreshFailureMessage(for: error, wasShowingCachedData: isShowingCachedData)
+            } else {
+                apply(error: error)
+            }
         } catch {
             billingErrorMessage = error.localizedDescription
         }
@@ -144,9 +183,18 @@ final class CloudLibraryStore: ObservableObject {
             nextCursor = page.nextCursor
             selectDefaultRecordingIfNeeded()
             await refreshLocalSessionLinks()
+            lastSuccessfulRefreshAt = Date()
+            isShowingCachedData = false
+            cacheWarningMessage = nil
             state = recordings.isEmpty ? .empty : .loaded
+            await persistCacheSnapshot()
         } catch {
-            apply(error: error)
+            if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
+                handleRefreshFailure(error, preserveVisibleData: hasVisibleLibraryData)
+            } else {
+                cacheWarningMessage = "Load more failed · Current list kept"
+                state = recordings.isEmpty ? .empty : .loaded
+            }
         }
 
         isLoadingMore = false
@@ -155,6 +203,7 @@ final class CloudLibraryStore: ObservableObject {
     func select(_ recording: CloudRecording) {
         selectedRecordingID = recording.id
         transcriptErrorMessage = nil
+        Task { await persistCacheSnapshot() }
         Task { await refreshSelectedDetailIfNeeded() }
     }
 
@@ -165,8 +214,15 @@ final class CloudLibraryStore: ObservableObject {
                 try await client.getRecording(id: selectedRecordingID)
             }
             replaceRecording(detail)
+            cacheWarningMessage = nil
+            await persistCacheSnapshot()
         } catch {
-            apply(error: error)
+            if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
+                handleRefreshFailure(error, preserveVisibleData: hasVisibleLibraryData)
+            } else {
+                cacheWarningMessage = "Showing cached data · Detail refresh failed"
+                isShowingCachedData = true
+            }
         }
     }
 
@@ -184,6 +240,7 @@ final class CloudLibraryStore: ObservableObject {
                 try await client.getRecordingTranscript(id: recording.id)
             }
             transcriptCache[recording.id] = transcript
+            await persistCacheSnapshot()
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)
         } catch {
@@ -212,6 +269,7 @@ final class CloudLibraryStore: ObservableObject {
             transcriptCache[recording.id] = transcript
             try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript, job: job)
             await refreshSelectedDetailIfNeeded()
+            await persistCacheSnapshot()
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)
         } catch {
@@ -365,8 +423,14 @@ final class CloudLibraryStore: ObservableObject {
                 selectedRecordingID = recordings.first?.id
             }
             state = recordings.isEmpty ? .empty : .loaded
+            await persistCacheSnapshot()
         } catch {
-            apply(error: error)
+            if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
+                handleRefreshFailure(error, preserveVisibleData: hasVisibleLibraryData)
+            } else {
+                cacheWarningMessage = "Delete failed · Current list kept"
+                state = recordings.isEmpty ? .empty : .loaded
+            }
         }
 
         isDeleting = false
@@ -460,18 +524,103 @@ final class CloudLibraryStore: ObservableObject {
     private func apply(error: Error) {
         if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
             state = .expired
+            cacheWarningMessage = nil
             return
         }
         if let sessionError = error as? RecappiSessionError {
             switch sessionError {
             case .notSignedIn:
                 state = .signedOut
+                cacheWarningMessage = nil
                 return
             default:
                 break
             }
         }
         state = .failed(error.localizedDescription)
+        cacheWarningMessage = nil
+    }
+
+    private var hasVisibleLibraryData: Bool {
+        !recordings.isEmpty || state == .empty || state == .loaded
+    }
+
+    private func handleRefreshFailure(_ error: Error, preserveVisibleData: Bool) {
+        guard preserveVisibleData, hasVisibleLibraryData else {
+            apply(error: error)
+            return
+        }
+        let wasShowingCachedData = isShowingCachedData
+        cacheWarningMessage = refreshFailureMessage(for: error, wasShowingCachedData: wasShowingCachedData)
+        isShowingCachedData = wasShowingCachedData
+        if recordings.isEmpty {
+            state = .empty
+        } else {
+            state = .loaded
+        }
+    }
+
+    private func refreshFailureMessage(for error: Error, wasShowingCachedData: Bool) -> String {
+        let prefix = wasShowingCachedData ? "Showing cached data" : "Refresh failed"
+        if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
+            return "\(prefix) · Sign in again to refresh"
+        }
+        if error is RecappiSessionError {
+            return "\(prefix) · Sign in again to refresh"
+        }
+        return wasShowingCachedData ? "Showing cached data · Refresh failed" : "Refresh failed · Current data kept"
+    }
+
+    private func restoreCacheIfAvailable() async -> Bool {
+        guard let context = cacheContext() else { return false }
+        guard let snapshot = await cache.loadSnapshot(
+            userId: context.userId,
+            backendOrigin: context.backendOrigin
+        ) else {
+            return false
+        }
+
+        recordings = snapshot.decodedRecordings
+        nextCursor = snapshot.nextCursor
+        billingStatus = snapshot.decodedBillingStatus
+        transcriptCache = snapshot.decodedTranscripts
+        lastSuccessfulRefreshAt = snapshot.savedAt
+        isShowingCachedData = true
+        cacheWarningMessage = nil
+
+        if let selectedID = snapshot.selectedRecordingID,
+           recordings.contains(where: { $0.id == selectedID }) {
+            selectedRecordingID = selectedID
+        } else {
+            selectedRecordingID = recordings.first?.id
+        }
+
+        await refreshLocalSessionLinks()
+        state = recordings.isEmpty ? .empty : .loaded
+        return true
+    }
+
+    private func persistCacheSnapshot() async {
+        guard let context = cacheContext() else { return }
+        let snapshot = CloudLibrarySnapshot(
+            userId: context.userId,
+            backendOrigin: context.backendOrigin,
+            savedAt: lastSuccessfulRefreshAt ?? Date(),
+            recordings: recordings,
+            nextCursor: nextCursor,
+            selectedRecordingID: selectedRecordingID,
+            billingStatus: billingStatus,
+            transcriptCache: transcriptCache
+        )
+        await cache.saveSnapshot(snapshot)
+    }
+
+    private func cacheContext() -> (userId: String, backendOrigin: String)? {
+        guard let session = sessionStore.currentSession else { return nil }
+        return (
+            userId: session.userId,
+            backendOrigin: AuthSessionStore.normalizeOrigin(config.effectiveBackendBaseURL)
+        )
     }
 
     private func transcriptMessage(for error: Error) -> String {
