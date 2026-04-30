@@ -3,26 +3,31 @@
     <channel>
         <title>RecappiMini</title>
         <item>
-            <title>1.0.33</title>
-            <pubDate>Thu, 30 Apr 2026 02:56:38 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.33</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.33</sparkle:fullReleaseNotesLink>
-            <sparkle:version>35</sparkle:version>
-            <sparkle:shortVersionString>1.0.33</sparkle:shortVersionString>
+            <title>1.0.34</title>
+            <pubDate>Thu, 30 Apr 2026 07:57:47 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.34</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.34</sparkle:fullReleaseNotesLink>
+            <sparkle:version>36</sparkle:version>
+            <sparkle:shortVersionString>1.0.34</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <description><![CDATA[<pre>## What&#x27;s Changed
 
-- Keep Cloud recording details stable while revalidating cached data, so billing, job status, transcript state, and the inspector no longer blank out while switching recordings.
-- Persist latest transcription job snapshots in the local Cloud cache and merge refreshed list rows with cached detail fields for a smoother SWR flow.
-- Allow a completed recording to keep uploading/transcribing in the background after the processing panel is hidden, while returning the main panel to a ready-to-record state.
-- Show a local notification when background processing finishes or fails.
+- Surface live Cloud processing state immediately after a recording enters post-processing, so locally-started uploads and transcription jobs appear in the Cloud library without waiting for a full remote refresh.
+- Prefer the latest known transcription job state over the recording file state in Cloud list rows and details, so queued, running, and failed jobs do not appear as `Ready`.
+- Persist known transcription job history in the local Cloud SWR cache for more stable status display across selection changes and restarts.
+- Improve manual `Check for Updates…` behavior from the menu bar by bringing Sparkle update UI to the foreground when needed.
+- Add larger Now Playing artwork for Cloud playback so macOS Control Center no longer shows a tiny Recappi/source icon.
+
+## Known Limitation
+
+- Full visibility for jobs started from the web app or another client depends on the backend `GET /api/recordings/:id/jobs` endpoint being deployed. The app is ready for that endpoint, but production backend deployment is currently blocked upstream.
 
 ## Validation
 
 - `git diff --check`
-- `swift test` (67 tests)
+- `swift test` (71 tests)
 - `CODESIGN_IDENTITY=- ./scripts/build-app.sh`</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.33/RecappiMini-1.0.33.dmg" length="2917855" type="application/octet-stream" sparkle:edSignature="kiRcwbGGFEFGSeduNEaT4IximWLmDg5TspJzqXaGg7AExg54ek4Oz6DtSnJDzDfB4HEn6249Cw9p/3/YZFjVBw=="/>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.34/RecappiMini-1.0.34.dmg" length="2947142" type="application/octet-stream" sparkle:edSignature="drnlVkeMrGzHXIh2ONAlKQOlUrtDy4l5yRjjU/STfrWbcbNUz2YuMpknL3j+tzmnn5EoPDyux8waI06JHQKDAw=="/>
         </item>
     </channel>
 </rss>
