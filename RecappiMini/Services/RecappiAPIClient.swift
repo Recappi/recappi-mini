@@ -418,6 +418,36 @@ enum CloudRecordingStatus: Equatable, Sendable, Decodable {
     }
 }
 
+enum CloudRecordingDisplayStatus: Equatable, Sendable {
+    case recording(CloudRecordingStatus)
+    case transcription(RemoteJobStatus)
+
+    static func resolve(
+        recordingStatus: CloudRecordingStatus,
+        latestJobStatus: RemoteJobStatus?
+    ) -> CloudRecordingDisplayStatus {
+        switch latestJobStatus {
+        case .queued?:
+            return .transcription(.queued)
+        case .running?:
+            return .transcription(.running)
+        case .failed?:
+            return .transcription(.failed)
+        case .succeeded, nil:
+            return .recording(recordingStatus)
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .recording(let status):
+            return status.displayName
+        case .transcription(let status):
+            return status.displayName
+        }
+    }
+}
+
 struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {
     let id: String
     let userId: String?
@@ -751,6 +781,19 @@ enum RemoteJobStatus: String, Codable, Equatable {
     var isActive: Bool {
         self == .queued || self == .running
     }
+
+    var displayName: String {
+        switch self {
+        case .queued:
+            return "Queued"
+        case .running:
+            return "Running"
+        case .succeeded:
+            return "Completed"
+        case .failed:
+            return "Failed"
+        }
+    }
 }
 
 struct StartTranscriptionResponse: Decodable {
@@ -764,6 +807,23 @@ struct RecordingJobsResponse: Decodable, Equatable, Sendable {
 }
 
 struct TranscriptionJob: Codable, Equatable, Sendable {
+    static func failedRecordingPlaceholder(recordingID: String) -> TranscriptionJob {
+        TranscriptionJob(
+            id: "recording-\(recordingID)-failed",
+            status: .failed,
+            transcriptId: nil,
+            provider: "Recappi Cloud",
+            model: "Recording processing",
+            language: nil,
+            prompt: nil,
+            error: "Recording processing failed before a transcription job became available.",
+            attempts: nil,
+            enqueuedAt: nil,
+            startedAt: nil,
+            finishedAt: nil
+        )
+    }
+
     let id: String
     let status: RemoteJobStatus
     let transcriptId: String?
@@ -776,6 +836,13 @@ struct TranscriptionJob: Codable, Equatable, Sendable {
     let enqueuedAt: Int?
     let startedAt: Int?
     let finishedAt: Int?
+
+    var isFailedRecordingPlaceholder: Bool {
+        provider == "Recappi Cloud" &&
+            model == "Recording processing" &&
+            id.hasPrefix("recording-") &&
+            id.hasSuffix("-failed")
+    }
 }
 
 struct TranscriptResponse: Decodable, Equatable, Sendable {

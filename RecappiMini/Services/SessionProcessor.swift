@@ -9,7 +9,8 @@ final class SessionProcessor {
     func process(
         sessionDir: URL,
         duration: Int,
-        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void
+        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
+        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void = { _, _ in }
     ) async throws -> RecordingResult {
         let origin = AppConfig.shared.effectiveBackendBaseURL
         var attemptedReauthentication = false
@@ -19,7 +20,8 @@ final class SessionProcessor {
                 return try await processOnce(
                     sessionDir: sessionDir,
                     duration: duration,
-                    updatePhase: updatePhase
+                    updatePhase: updatePhase,
+                    onCloudRecordingUpdated: onCloudRecordingUpdated
                 )
             } catch let error as RecappiAPIError where error == .unauthorized && !attemptedReauthentication {
                 attemptedReauthentication = true
@@ -34,7 +36,8 @@ final class SessionProcessor {
     private func processOnce(
         sessionDir: URL,
         duration: Int,
-        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void
+        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
+        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
     ) async throws -> RecordingResult {
         let config = AppConfig.shared
         guard config.cloudEnabled else {
@@ -59,14 +62,29 @@ final class SessionProcessor {
 
         let uploadedRecording: UploadedRecordingAsset
         if let recordingId = Self.reusableRecordingID(in: manifest) {
-            uploadedRecording = UploadedRecordingAsset(recordingId: recordingId, manifest: manifest)
+            let metadata = RecordingStore.loadSessionMetadata(in: sessionDir)
+            uploadedRecording = UploadedRecordingAsset(
+                recordingId: recordingId,
+                recording: Self.localCloudRecording(
+                    id: recordingId,
+                    title: metadata?.cloudRecordingTitle ?? sessionDir.lastPathComponent,
+                    r2Key: nil,
+                    status: Self.cloudRecordingStatus(fromManifestStage: manifest.stage),
+                    duration: duration,
+                    contentType: nil,
+                    sessionDir: sessionDir
+                ),
+                manifest: manifest
+            )
         } else {
             uploadedRecording = try await uploadRecordingAsset(
                 primaryURL: recordingURL,
                 sessionDir: sessionDir,
                 client: client,
                 manifest: manifest,
-                updatePhase: updatePhase
+                duration: duration,
+                updatePhase: updatePhase,
+                onCloudRecordingUpdated: onCloudRecordingUpdated
             )
         }
         manifest = uploadedRecording.manifest
@@ -100,6 +118,7 @@ final class SessionProcessor {
             manifest.jobId = start.jobId
             manifest.stage = "startingTranscription"
             manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+            onCloudRecordingUpdated(uploadedRecording.recording, Self.localJobPlaceholder(from: start))
         }
 
         let job: TranscriptionJob
@@ -108,7 +127,8 @@ final class SessionProcessor {
                 client: client,
                 recordingId: uploadedRecording.recordingId,
                 initial: start,
-                updatePhase: updatePhase
+                updatePhase: updatePhase,
+                onJobUpdate: { job in onCloudRecordingUpdated(uploadedRecording.recording, job) }
             )
         } catch {
             manifest.errorMessage = error.localizedDescription
@@ -175,14 +195,18 @@ final class SessionProcessor {
         sessionDir: URL,
         client: RecappiAPIClient,
         manifest: RemoteSessionManifest,
-        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void
+        duration: Int,
+        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
+        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
     ) async throws -> UploadedRecordingAsset {
         do {
             return try await uploadAndComplete(
                 fileURL: primaryURL,
                 client: client,
                 manifest: manifest,
-                updatePhase: updatePhase
+                duration: duration,
+                updatePhase: updatePhase,
+                onCloudRecordingUpdated: onCloudRecordingUpdated
             )
         } catch {
             guard shouldRetryWithWaveFallback(after: error, primaryURL: primaryURL) else {
@@ -201,7 +225,9 @@ final class SessionProcessor {
                     fileURL: fallbackURL,
                     client: client,
                     manifest: manifest,
-                    updatePhase: updatePhase
+                    duration: duration,
+                    updatePhase: updatePhase,
+                    onCloudRecordingUpdated: onCloudRecordingUpdated
                 )
             } catch {
                 var failedManifest = manifest
@@ -218,7 +244,9 @@ final class SessionProcessor {
         fileURL: URL,
         client: RecappiAPIClient,
         manifest: RemoteSessionManifest,
-        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void
+        duration: Int,
+        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
+        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
     ) async throws -> UploadedRecordingAsset {
         var nextManifest = manifest
         nextManifest.uploadFilename = fileURL.lastPathComponent
@@ -235,6 +263,16 @@ final class SessionProcessor {
         nextManifest.transcriptId = nil
         nextManifest.stage = "creatingRecording"
         nextManifest = RecordingStore.saveRemoteManifest(nextManifest, in: fileURL.deletingLastPathComponent())
+        var localRecording = Self.localCloudRecording(
+            id: created.id,
+            title: recordingTitle,
+            r2Key: created.r2Key,
+            status: .uploading,
+            duration: duration,
+            contentType: nil,
+            sessionDir: sessionDir
+        )
+        onCloudRecordingUpdated(localRecording, nil)
 
         do {
             updatePhase(.uploading(progress: 0))
@@ -247,12 +285,22 @@ final class SessionProcessor {
             }
 
             updatePhase(.completingUpload)
-            _ = try await client.completeRecording(recordingId: created.id, parts: parts)
+            let completed = try await client.completeRecording(recordingId: created.id, parts: parts)
             nextManifest.stage = "completingUpload"
             nextManifest.errorMessage = nil
             nextManifest = RecordingStore.saveRemoteManifest(nextManifest, in: fileURL.deletingLastPathComponent())
+            localRecording = Self.localCloudRecording(
+                id: created.id,
+                title: recordingTitle,
+                r2Key: created.r2Key,
+                status: Self.cloudRecordingStatus(from: completed.status),
+                duration: duration,
+                contentType: completed.contentType,
+                sessionDir: sessionDir
+            )
+            onCloudRecordingUpdated(localRecording, nil)
 
-            return UploadedRecordingAsset(recordingId: created.id, manifest: nextManifest)
+            return UploadedRecordingAsset(recordingId: created.id, recording: localRecording, manifest: nextManifest)
         } catch {
             await client.abortRecordingIfNeeded(recordingId: created.id)
             throw error
@@ -288,14 +336,18 @@ final class SessionProcessor {
         client: RecappiAPIClient,
         recordingId: String,
         initial: StartTranscriptionResponse,
-        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void
+        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
+        onJobUpdate: @escaping @MainActor @Sendable (TranscriptionJob) -> Void
     ) async throws -> TranscriptionJob {
         if initial.status == .succeeded {
-            return try await client.getJob(jobId: initial.jobId)
+            let job = try await client.getJob(jobId: initial.jobId)
+            onJobUpdate(job)
+            return job
         }
 
         while true {
             let job = try await client.getJob(jobId: initial.jobId)
+            onJobUpdate(job)
             updatePhase(.polling(jobStatus: job.status.rawValue))
             switch job.status {
             case .queued, .running:
@@ -308,6 +360,81 @@ final class SessionProcessor {
         }
     }
 
+    private nonisolated static func localCloudRecording(
+        id: String,
+        title: String,
+        r2Key: String?,
+        status: CloudRecordingStatus,
+        duration: Int,
+        contentType: String?,
+        sessionDir: URL
+    ) -> CloudRecording {
+        let metadata = RecordingStore.loadSessionMetadata(in: sessionDir)
+        return CloudRecording(
+            id: id,
+            userId: nil,
+            title: title,
+            summaryTitle: metadata?.summaryTitle,
+            sourceTitle: metadata?.sourceTitle,
+            sourceAppName: metadata?.sourceAppName,
+            sourceAppBundleID: metadata?.sourceBundleID,
+            r2Key: r2Key,
+            r2UploadId: nil,
+            status: status,
+            sizeBytes: nil,
+            durationMs: duration > 0 ? duration * 1000 : nil,
+            sampleRate: nil,
+            channels: nil,
+            contentType: contentType,
+            activeTranscriptId: nil,
+            createdAt: metadata.flatMap { ISO8601DateFormatter().date(from: $0.startedAt) } ?? Date(),
+            updatedAt: Date()
+        )
+    }
+
+    private nonisolated static func cloudRecordingStatus(from raw: String) -> CloudRecordingStatus {
+        switch raw {
+        case "uploading":
+            return .uploading
+        case "ready":
+            return .ready
+        case "failed":
+            return .failed
+        case "aborted":
+            return .aborted
+        default:
+            return .unknown(raw)
+        }
+    }
+
+    private nonisolated static func cloudRecordingStatus(fromManifestStage stage: String) -> CloudRecordingStatus {
+        switch stage {
+        case "creatingRecording", "uploading":
+            return .uploading
+        case "uploadFailed", "transcriptionFailed":
+            return .failed
+        default:
+            return .ready
+        }
+    }
+
+    private nonisolated static func localJobPlaceholder(from response: StartTranscriptionResponse) -> TranscriptionJob {
+        TranscriptionJob(
+            id: response.jobId,
+            status: response.status,
+            transcriptId: response.transcriptId,
+            provider: "Recappi Cloud",
+            model: "Transcription",
+            language: nil,
+            prompt: nil,
+            error: nil,
+            attempts: nil,
+            enqueuedAt: Int(Date().timeIntervalSince1970),
+            startedAt: nil,
+            finishedAt: nil
+        )
+    }
+
     private func bearerToken() throws -> String {
         guard let value = AuthSessionStore.shared.bearerToken() else {
             throw RecappiSessionError.notSignedIn
@@ -318,6 +445,7 @@ final class SessionProcessor {
 
 private struct UploadedRecordingAsset {
     let recordingId: String
+    let recording: CloudRecording
     let manifest: RemoteSessionManifest
 }
 

@@ -186,6 +186,7 @@ struct CloudCenterPanel: View {
                     ForEach(store.recordings) { recording in
                         CloudRecordingRow(
                             recording: recording,
+                            latestJobStatus: store.transcriptionJobsByRecordingID[recording.id]?.first?.status,
                             isSelected: store.selectedRecordingID == recording.id
                         ) {
                             store.select(recording)
@@ -696,6 +697,7 @@ private struct HeaderGlassButtonStyle: ButtonStyle {
 
 private struct CloudRecordingRow: View {
     let recording: CloudRecording
+    let latestJobStatus: RemoteJobStatus?
     let isSelected: Bool
     let action: () -> Void
 
@@ -715,7 +717,7 @@ private struct CloudRecordingRow: View {
 
                         Spacer(minLength: 0)
 
-                        CloudStatusChip(status: recording.status)
+                        CloudStatusChip(status: recording.status, latestJobStatus: latestJobStatus)
                     }
 
                     Text(recording.sourceLine)
@@ -799,10 +801,10 @@ private struct CloudRecordingDetail: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle)
+            audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
         }
         .onChange(of: playbackAudioURL) { _, url in
-            audioPlayer.load(url: url, title: recording.presentationTitle)
+            audioPlayer.load(url: url, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
             if let pendingSeekAfterPrepare, url != nil {
                 self.pendingSeekAfterPrepare = nil
                 audioPlayer.seek(to: pendingSeekAfterPrepare)
@@ -821,7 +823,7 @@ private struct CloudRecordingDetail: View {
             pendingSeekAfterPrepare = nil
             pendingPinnedSegmentIDAfterPrepare = nil
             pinnedSegmentID = nil
-            audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle)
+            audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
         }
         .onDisappear {
             audioPlayer.close()
@@ -1171,7 +1173,7 @@ private struct CloudRecordingDetail: View {
                     .accessibilityIdentifier(AccessibilityIDs.Cloud.openRecordingInBrowserButton)
                 }
 
-                CloudStatusChip(status: recording.status, prominent: true)
+                CloudStatusChip(status: recording.status, latestJobStatus: latestJob?.status, prominent: true)
             }
         }
     }
@@ -1180,7 +1182,7 @@ private struct CloudRecordingDetail: View {
     private var latestJobStrip: some View {
         if let latestJob {
             HStack(spacing: 9) {
-                Image(systemName: latestJob.status.isActive ? "hourglass" : "waveform.badge.checkmark")
+                Image(systemName: latestJob.status.detailIconName)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(latestJob.status.detailColor)
                     .frame(width: 15)
@@ -1208,6 +1210,7 @@ private struct CloudRecordingDetail: View {
                         .font(.system(size: 10.5))
                         .foregroundStyle(DT.systemOrange)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
             .padding(.horizontal, 10)
@@ -1332,7 +1335,7 @@ private struct CloudRecordingDetail: View {
             return
         }
 
-        audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle)
+        audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
         audioPlayer.togglePlayback()
     }
 
@@ -1347,7 +1350,7 @@ private struct CloudRecordingDetail: View {
             onPreparePlaybackAudio()
             return
         }
-        audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle)
+        audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
         audioPlayer.seek(to: seconds)
     }
 
@@ -1479,13 +1482,15 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
     private var waveformCache: [URL: [Float]] = [:]
     private var currentTitle = "Meeting playback"
     private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
+    private var currentArtwork: NSImage?
 
     init() {
         configureRemoteCommands()
     }
 
-    func load(url: URL?, title: String) {
+    func load(url: URL?, title: String, artwork: NSImage?) {
         currentTitle = title
+        currentArtwork = Self.normalizedArtwork(from: artwork)
         guard currentURL != url else {
             refreshDuration()
             updateNowPlayingInfo()
@@ -1603,7 +1608,34 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
         if duration > 0 {
             info[MPMediaItemPropertyPlaybackDuration] = duration
         }
+        if let currentArtwork {
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: currentArtwork.size) { _ in
+                currentArtwork
+            }
+        }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    private static func normalizedArtwork(from image: NSImage?) -> NSImage? {
+        guard let image else { return nil }
+
+        let canvasSize = NSSize(width: 256, height: 256)
+        let canvas = NSImage(size: canvasSize)
+        canvas.lockFocus()
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: canvasSize).fill()
+
+        let inset: CGFloat = 18
+        image.draw(
+            in: NSRect(x: inset, y: inset, width: canvasSize.width - inset * 2, height: canvasSize.height - inset * 2),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
+        canvas.unlockFocus()
+        return canvas
     }
 
     private func configureRemoteCommands() {
@@ -2112,11 +2144,23 @@ private struct CloudInspectorButtonStyle: ButtonStyle {
 }
 
 private struct CloudStatusChip: View {
-    let status: CloudRecordingStatus
+    private let displayStatus: CloudRecordingDisplayStatus
     var prominent: Bool = false
 
+    init(
+        status: CloudRecordingStatus,
+        latestJobStatus: RemoteJobStatus? = nil,
+        prominent: Bool = false
+    ) {
+        self.displayStatus = CloudRecordingDisplayStatus.resolve(
+            recordingStatus: status,
+            latestJobStatus: latestJobStatus
+        )
+        self.prominent = prominent
+    }
+
     var body: some View {
-        Text(status.displayName)
+        Text(displayStatus.displayName)
             .font(.system(size: prominent ? 11 : 9, weight: .medium))
             .foregroundStyle(color)
             .padding(.horizontal, prominent ? 9 : 6)
@@ -2132,15 +2176,20 @@ private struct CloudStatusChip: View {
     }
 
     private var color: Color {
-        switch status {
-        case .ready:
-            return DT.statusReady
-        case .uploading:
-            return DT.statusUploading
-        case .failed, .aborted:
-            return DT.statusWarning
-        case .unknown:
-            return Color.dtLabelTertiary
+        switch displayStatus {
+        case .transcription(let status):
+            return status.detailColor
+        case .recording(let status):
+            switch status {
+            case .ready:
+                return DT.statusReady
+            case .uploading:
+                return DT.statusUploading
+            case .failed, .aborted:
+                return DT.statusWarning
+            case .unknown:
+                return Color.dtLabelTertiary
+            }
         }
     }
 }
@@ -2166,19 +2215,6 @@ private struct CloudJobStatusChip: View {
 }
 
 private extension RemoteJobStatus {
-    var displayName: String {
-        switch self {
-        case .queued:
-            return "Queued"
-        case .running:
-            return "Running"
-        case .succeeded:
-            return "Completed"
-        case .failed:
-            return "Failed"
-        }
-    }
-
     var detailColor: Color {
         switch self {
         case .queued:
@@ -2189,6 +2225,17 @@ private extension RemoteJobStatus {
             return DT.statusReady
         case .failed:
             return DT.systemOrange
+        }
+    }
+
+    var detailIconName: String {
+        switch self {
+        case .queued, .running:
+            return "hourglass"
+        case .succeeded:
+            return "waveform.badge.checkmark"
+        case .failed:
+            return "exclamationmark.triangle.fill"
         }
     }
 }
@@ -2366,6 +2413,20 @@ private extension CloudRecording {
         let icon = NSWorkspace.shared.icon(forFile: url.path)
         icon.size = NSSize(width: 32, height: 32)
         return icon
+    }
+
+    var nowPlayingArtwork: NSImage? {
+        if let sourceAppIcon {
+            sourceAppIcon.size = NSSize(width: 256, height: 256)
+            return sourceAppIcon
+        }
+
+        if let logo = NSImage(named: "Logo") ?? NSImage(named: "LogoTemplate") {
+            logo.size = NSSize(width: 256, height: 256)
+            return logo
+        }
+
+        return NSImage(systemSymbolName: sourceIconName, accessibilityDescription: nil)
     }
 
     private var inferredSource: CloudRecordingSource? {

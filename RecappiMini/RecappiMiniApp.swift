@@ -151,6 +151,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         didFinishLaunching = true
         NSApp.setActivationPolicy(.accessory)
         installStatusItemIfNeeded()
+        appUpdater.prepareForUserInitiatedCheck = { [weak self] in
+            self?.prepareForForegroundUpdateCheck()
+        }
+        appUpdater.finishUserInitiatedCheck = { [weak self] in
+            self?.restoreAccessoryActivationPolicyIfPossible()
+        }
         Task { @MainActor in
             await AuthSessionStore.shared.bootstrapForUITestsIfNeeded()
             if self.uiTestMode.openCloudWindowOnLaunch {
@@ -172,7 +178,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             recorder: recorder,
             onOpenFolder: { folderURL in NSWorkspace.shared.open(folderURL) },
             onOpenCloud: { [weak self] in self?.showCloudCenter() },
-            onClosePanel: { [weak self] in self?.hidePanel() }
+            onClosePanel: { [weak self] in self?.hidePanel() },
+            onCloudRecordingUpdated: { [weak self] recording, latestJob in
+                self?.cloudStore.upsertLocalProcessingRecording(recording, latestJob: latestJob)
+            }
         )
 
         let hostingView = FloatingPanelHostingView(
@@ -548,6 +557,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         window.center()
         window.makeKeyAndOrderFront(nil)
         cloudWindow = window
+    }
+
+    private func prepareForForegroundUpdateCheck() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.unhide(nil)
+        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func installWorkspaceObservers() {
