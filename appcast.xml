@@ -3,28 +3,26 @@
     <channel>
         <title>RecappiMini</title>
         <item>
-            <title>1.0.32</title>
-            <pubDate>Wed, 29 Apr 2026 17:34:43 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.32</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.32</sparkle:fullReleaseNotesLink>
-            <sparkle:version>34</sparkle:version>
-            <sparkle:shortVersionString>1.0.32</sparkle:shortVersionString>
+            <title>1.0.33</title>
+            <pubDate>Thu, 30 Apr 2026 02:56:38 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.33</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.33</sparkle:fullReleaseNotesLink>
+            <sparkle:version>35</sparkle:version>
+            <sparkle:shortVersionString>1.0.33</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>## 更新内容
+            <description><![CDATA[<pre>## What&#x27;s Changed
 
-- 修复浮动面板拖拽与阴影点击穿透：保留跟随面板移动的阴影，同时阴影透明区域不再阻挡背后应用的鼠标事件。
-- Cloud 录音详情增加浏览器入口，可直接打开对应网页详情页。
-- Cloud 详情页展示最近一次 transcription job 状态，并在 queued/running 时持续刷新，完成后同步更新 transcript。
-- 改进 Cloud usage / unlimited 展示、Settings 刷新用量时的轻微跳动，以及 tray menu 打开 Settings 的稳定性。
-- 修复 waveform 最右侧点击/拖拽无法 seek 到末尾的问题。
-- 统一 Settings / Cloud / Panel 中自绘控件的 continuous corner 质感。
+- Keep Cloud recording details stable while revalidating cached data, so billing, job status, transcript state, and the inspector no longer blank out while switching recordings.
+- Persist latest transcription job snapshots in the local Cloud cache and merge refreshed list rows with cached detail fields for a smoother SWR flow.
+- Allow a completed recording to keep uploading/transcribing in the background after the processing panel is hidden, while returning the main panel to a ready-to-record state.
+- Show a local notification when background processing finishes or fails.
 
-## 验证
+## Validation
 
 - `git diff --check`
-- `swift test`：66 tests passed
+- `swift test` (67 tests)
 - `CODESIGN_IDENTITY=- ./scripts/build-app.sh`</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.32/RecappiMini-1.0.32.dmg" length="2918538" type="application/octet-stream" sparkle:edSignature="2u4Oe+xAgNxuvWPFU4Q//CSOHPimr1xkpPtWtUd2X1pP7VBWO1UejViZ+Y79M3tnPsMyrMXLrfo9zAvgGRGrAw=="/>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.33/RecappiMini-1.0.33.dmg" length="2917855" type="application/octet-stream" sparkle:edSignature="kiRcwbGGFEFGSeduNEaT4IximWLmDg5TspJzqXaGg7AExg54ek4Oz6DtSnJDzDfB4HEn6249Cw9p/3/YZFjVBw=="/>
         </item>
     </channel>
 </rss>
