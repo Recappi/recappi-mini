@@ -173,6 +173,49 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(response.items.first?.status.isActive == true)
     }
 
+    func testRecordingJobsResponseDecodesFailedJobStateAndError() throws {
+        let data = """
+        {
+          "items": [
+            {
+              "id": "job_failed",
+              "recordingId": "rec_123",
+              "userId": "user_123",
+              "provider": "gemini",
+              "model": "gemini-2.5-flash",
+              "language": "en",
+              "status": "failed",
+              "error": "ASR provider returned an empty transcript.",
+              "prompt": null,
+              "attempts": 2,
+              "enqueuedAt": 1777460000000,
+              "startedAt": 1777460001000,
+              "finishedAt": 1777460009000,
+              "transcriptId": null
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(RecordingJobsResponse.self, from: data)
+        let job = try XCTUnwrap(response.items.first)
+
+        XCTAssertEqual(job.id, "job_failed")
+        XCTAssertEqual(job.status, .failed)
+        XCTAssertFalse(job.status.isActive)
+        XCTAssertEqual(job.error, "ASR provider returned an empty transcript.")
+    }
+
+    func testFailedRecordingPlaceholderJobMakesRecordingFailureVisible() {
+        let job = TranscriptionJob.failedRecordingPlaceholder(recordingID: "rec_123")
+
+        XCTAssertEqual(job.status, .failed)
+        XCTAssertTrue(job.isFailedRecordingPlaceholder)
+        XCTAssertEqual(job.provider, "Recappi Cloud")
+        XCTAssertEqual(job.model, "Recording processing")
+        XCTAssertNotNil(job.error)
+    }
+
     func testCloudLibraryLatestTranscriptRequestDoesNotUseActiveTranscriptIdAsJobId() throws {
         let client = RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123")
         let request = try client.makeRequest(path: "/api/recordings/rec_123/transcript")

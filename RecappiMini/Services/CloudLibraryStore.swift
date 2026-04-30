@@ -169,6 +169,7 @@ final class CloudLibraryStore: ObservableObject {
             isShowingCachedData = false
             cacheWarningMessage = nil
             state = recordings.isEmpty ? .empty : .loaded
+            seedFailedRecordingJobPlaceholdersIfNeeded()
             await persistCacheSnapshot()
         } catch {
             handleRefreshFailure(error, preserveVisibleData: preserveVisibleDataOnFailure || hasVisibleLibraryData)
@@ -223,6 +224,7 @@ final class CloudLibraryStore: ObservableObject {
             isShowingCachedData = false
             cacheWarningMessage = nil
             state = recordings.isEmpty ? .empty : .loaded
+            seedFailedRecordingJobPlaceholdersIfNeeded()
             await persistCacheSnapshot()
         } catch {
             if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
@@ -272,6 +274,7 @@ final class CloudLibraryStore: ObservableObject {
             }
             transcriptionJobsByRecordingID[recording.id] = page.items
             cacheWarningMessage = nil
+            await persistCacheSnapshot()
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)
         } catch RecappiAPIError.http(let statusCode, _) where statusCode == 404 {
@@ -757,6 +760,7 @@ final class CloudLibraryStore: ObservableObject {
     }
 
     private func refreshJobs(recordingID: String, jobIDs: [String]) async {
+        var didUpdateJobs = false
         for jobID in jobIDs {
             guard !Task.isCancelled else { return }
             do {
@@ -767,6 +771,7 @@ final class CloudLibraryStore: ObservableObject {
                     try await client.getJob(jobId: jobID)
                 }
                 upsertJob(job, for: recordingID)
+                didUpdateJobs = true
                 if previousStatus != .succeeded, job.status == .succeeded,
                    let recording = recordings.first(where: { $0.id == recordingID }) {
                     try await refreshTranscriptAfterJobSucceeded(recording: recording, job: job)
@@ -779,6 +784,9 @@ final class CloudLibraryStore: ObservableObject {
                 isShowingCachedData = true
             }
         }
+        if didUpdateJobs {
+            await persistCacheSnapshot()
+        }
     }
 
     private func upsertJob(_ job: TranscriptionJob, for recordingID: String) {
@@ -787,6 +795,25 @@ final class CloudLibraryStore: ObservableObject {
         jobs.insert(job, at: 0)
         jobs.sort { ($0.enqueuedAt ?? 0) > ($1.enqueuedAt ?? 0) }
         transcriptionJobsByRecordingID[recordingID] = Array(jobs.prefix(10))
+    }
+
+    private func seedFailedRecordingJobPlaceholdersIfNeeded() {
+        let failedRecordingIDs = Set(recordings.filter { $0.status == .failed }.map(\.id))
+        let visibleRecordingIDs = Set(recordings.map(\.id))
+
+        for recordingID in failedRecordingIDs where transcriptionJobsByRecordingID[recordingID]?.isEmpty != false {
+            transcriptionJobsByRecordingID[recordingID] = [
+                TranscriptionJob.failedRecordingPlaceholder(recordingID: recordingID)
+            ]
+        }
+
+        for (recordingID, jobs) in transcriptionJobsByRecordingID {
+            guard !failedRecordingIDs.contains(recordingID),
+                  visibleRecordingIDs.contains(recordingID),
+                  jobs.count == 1,
+                  jobs.first?.isFailedRecordingPlaceholder == true else { continue }
+            transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
+        }
     }
 
     private func refreshTranscriptAfterJobSucceeded(recording: CloudRecording, job: TranscriptionJob) async throws {

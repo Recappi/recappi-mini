@@ -1180,7 +1180,7 @@ private struct CloudRecordingDetail: View {
     private var latestJobStrip: some View {
         if let latestJob {
             HStack(spacing: 9) {
-                Image(systemName: latestJob.status.isActive ? "hourglass" : "waveform.badge.checkmark")
+                Image(systemName: latestJob.status.detailIconName)
                     .font(.system(size: 11.5, weight: .semibold))
                     .foregroundStyle(latestJob.status.detailColor)
                     .frame(width: 15)
@@ -1208,6 +1208,7 @@ private struct CloudRecordingDetail: View {
                         .font(.system(size: 10.5))
                         .foregroundStyle(DT.systemOrange)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
             .padding(.horizontal, 10)
@@ -2189,6 +2190,17 @@ private extension RemoteJobStatus {
             return DT.statusReady
         case .failed:
             return DT.systemOrange
+        }
+    }
+
+    var detailIconName: String {
+        switch self {
+        case .queued, .running:
+            return "hourglass"
+        case .succeeded:
+            return "waveform.badge.checkmark"
+        case .failed:
+            return "exclamationmark.triangle.fill"
         }
     }
 }

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import AppKit
 @preconcurrency import Sparkle
 
 @MainActor
@@ -7,23 +8,28 @@ final class AppUpdater: NSObject, ObservableObject {
     static let shared = AppUpdater()
 
     let updaterController: SPUStandardUpdaterController
+    var prepareForUserInitiatedCheck: (() -> Void)?
+    var finishUserInitiatedCheck: (() -> Void)?
 
     @Published private(set) var canCheckForUpdates: Bool
     @Published private(set) var automaticallyChecksForUpdates: Bool
     @Published private(set) var automaticallyDownloadsUpdates: Bool
     @Published private(set) var lastUpdateCheckDate: Date?
 
+    private let userDriverDelegate: AppUpdaterUserDriverDelegate
     private var didStartUpdater = false
     private var cancellables: Set<AnyCancellable> = []
 
     var updater: SPUUpdater { updaterController.updater }
 
     private override init() {
+        let userDriverDelegate = AppUpdaterUserDriverDelegate()
         let updaterController = SPUStandardUpdaterController(
             startingUpdater: false,
             updaterDelegate: nil,
-            userDriverDelegate: nil
+            userDriverDelegate: userDriverDelegate
         )
+        self.userDriverDelegate = userDriverDelegate
         self.updaterController = updaterController
 
         let updater = updaterController.updater
@@ -34,6 +40,9 @@ final class AppUpdater: NSObject, ObservableObject {
 
         super.init()
 
+        userDriverDelegate.onWillFinishUpdateSession = { [weak self] in
+            self?.finishUserInitiatedCheck?()
+        }
         observe(updater)
     }
 
@@ -45,6 +54,7 @@ final class AppUpdater: NSObject, ObservableObject {
     }
 
     func checkForUpdates() {
+        prepareForUserInitiatedCheck?()
         updaterController.checkForUpdates(nil)
     }
 
@@ -95,5 +105,14 @@ final class AppUpdater: NSObject, ObservableObject {
         automaticallyChecksForUpdates = updater.automaticallyChecksForUpdates
         automaticallyDownloadsUpdates = updater.automaticallyDownloadsUpdates
         lastUpdateCheckDate = updater.lastUpdateCheckDate
+    }
+}
+
+@MainActor
+private final class AppUpdaterUserDriverDelegate: NSObject, @preconcurrency SPUStandardUserDriverDelegate {
+    var onWillFinishUpdateSession: (() -> Void)?
+
+    func standardUserDriverWillFinishUpdateSession() {
+        onWillFinishUpdateSession?()
     }
 }

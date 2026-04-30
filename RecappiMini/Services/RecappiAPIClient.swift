@@ -764,6 +764,23 @@ struct RecordingJobsResponse: Decodable, Equatable, Sendable {
 }
 
 struct TranscriptionJob: Codable, Equatable, Sendable {
+    static func failedRecordingPlaceholder(recordingID: String) -> TranscriptionJob {
+        TranscriptionJob(
+            id: "recording-\(recordingID)-failed",
+            status: .failed,
+            transcriptId: nil,
+            provider: "Recappi Cloud",
+            model: "Recording processing",
+            language: nil,
+            prompt: nil,
+            error: "Recording processing failed before a transcription job became available.",
+            attempts: nil,
+            enqueuedAt: nil,
+            startedAt: nil,
+            finishedAt: nil
+        )
+    }
+
     let id: String
     let status: RemoteJobStatus
     let transcriptId: String?
@@ -776,6 +793,13 @@ struct TranscriptionJob: Codable, Equatable, Sendable {
     let enqueuedAt: Int?
     let startedAt: Int?
     let finishedAt: Int?
+
+    var isFailedRecordingPlaceholder: Bool {
+        provider == "Recappi Cloud" &&
+            model == "Recording processing" &&
+            id.hasPrefix("recording-") &&
+            id.hasSuffix("-failed")
+    }
 }
 
 struct TranscriptResponse: Decodable, Equatable, Sendable {
