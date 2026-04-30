@@ -555,6 +555,68 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(merged.updatedAt, Date(timeIntervalSince1970: 300))
     }
 
+    func testCloudRecordingDisplayStatusPrefersLatestActiveOrFailedJob() {
+        XCTAssertEqual(
+            CloudRecordingDisplayStatus.resolve(recordingStatus: .ready, latestJobStatus: .running),
+            .transcription(.running)
+        )
+        XCTAssertEqual(
+            CloudRecordingDisplayStatus.resolve(recordingStatus: .ready, latestJobStatus: .failed),
+            .transcription(.failed)
+        )
+        XCTAssertEqual(
+            CloudRecordingDisplayStatus.resolve(recordingStatus: .ready, latestJobStatus: .succeeded),
+            .recording(.ready)
+        )
+    }
+
+    @MainActor
+    func testCloudLibraryUpsertsLocalProcessingRecording() {
+        let store = CloudLibraryStore()
+        let recording = CloudRecording(
+            id: "rec_processing",
+            userId: nil,
+            title: "Live meeting",
+            summaryTitle: nil,
+            sourceTitle: "Design sync",
+            sourceAppName: "Google Meet",
+            sourceAppBundleID: "com.google.Chrome",
+            r2Key: "recordings/user/rec_processing.wav",
+            r2UploadId: nil,
+            status: .uploading,
+            sizeBytes: nil,
+            durationMs: 120_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: nil,
+            activeTranscriptId: nil,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let job = TranscriptionJob(
+            id: "job_processing",
+            status: .running,
+            transcriptId: nil,
+            provider: "Recappi Cloud",
+            model: "Transcription",
+            language: nil,
+            prompt: nil,
+            error: nil,
+            attempts: nil,
+            enqueuedAt: 1_000,
+            startedAt: 1_001,
+            finishedAt: nil
+        )
+
+        store.upsertLocalProcessingRecording(recording, latestJob: job)
+
+        XCTAssertEqual(store.state, .loaded)
+        XCTAssertEqual(store.selectedRecordingID, "rec_processing")
+        XCTAssertEqual(store.recordings.first?.id, "rec_processing")
+        XCTAssertEqual(store.recordings.first?.status, .uploading)
+        XCTAssertEqual(store.transcriptionJobsByRecordingID["rec_processing"]?.first?.status, .running)
+    }
+
     func testCloudLibrarySnapshotRoundTripsLightweightData() throws {
         let recording = try JSONDecoder().decode(
             CloudRecording.self,

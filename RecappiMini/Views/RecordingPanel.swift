@@ -13,6 +13,7 @@ struct RecordingPanel: View {
     let onOpenFolder: (URL) -> Void
     let onOpenCloud: () -> Void
     let onClosePanel: () -> Void
+    let onCloudRecordingUpdated: @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
 
     var body: some View {
         mainView
@@ -205,10 +206,15 @@ struct RecordingPanel: View {
         }
 
         do {
-            let result = try await SessionProcessor.shared.process(sessionDir: sessionDir, duration: duration) { phase in
-                guard visibleProcessingSessionID == sessionID else { return }
-                recorder.state = .processing(phase)
-            }
+            let result = try await SessionProcessor.shared.process(
+                sessionDir: sessionDir,
+                duration: duration,
+                updatePhase: { phase in
+                    guard visibleProcessingSessionID == sessionID else { return }
+                    recorder.state = .processing(phase)
+                },
+                onCloudRecordingUpdated: onCloudRecordingUpdated
+            )
             if visibleProcessingSessionID == sessionID {
                 recorder.state = .done(result: result)
                 visibleProcessingSessionID = nil

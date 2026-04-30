@@ -178,7 +178,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             recorder: recorder,
             onOpenFolder: { folderURL in NSWorkspace.shared.open(folderURL) },
             onOpenCloud: { [weak self] in self?.showCloudCenter() },
-            onClosePanel: { [weak self] in self?.hidePanel() }
+            onClosePanel: { [weak self] in self?.hidePanel() },
+            onCloudRecordingUpdated: { [weak self] recording, latestJob in
+                self?.cloudStore.upsertLocalProcessingRecording(recording, latestJob: latestJob)
+            }
         )
 
         let hostingView = FloatingPanelHostingView(

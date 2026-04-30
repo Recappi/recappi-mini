@@ -245,6 +245,24 @@ final class CloudLibraryStore: ObservableObject {
         Task { await refreshSelectedDetailIfNeeded() }
     }
 
+    func upsertLocalProcessingRecording(_ recording: CloudRecording, latestJob: TranscriptionJob? = nil) {
+        replaceRecording(recording)
+        recordings.sort { lhs, rhs in
+            (lhs.createdAt ?? .distantPast) > (rhs.createdAt ?? .distantPast)
+        }
+        if let latestJob {
+            upsertJob(latestJob, for: recording.id)
+        }
+        if selectedRecordingID == nil {
+            selectedRecordingID = recording.id
+        }
+        state = recordings.isEmpty ? .empty : .loaded
+        lastSuccessfulRefreshAt = lastSuccessfulRefreshAt ?? Date()
+        cacheWarningMessage = nil
+        Task { await refreshLocalSessionLinks() }
+        Task { await persistCacheSnapshot() }
+    }
+
     func refreshSelectedDetailIfNeeded() async {
         guard let selectedRecordingID else { return }
         do {

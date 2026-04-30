@@ -418,6 +418,36 @@ enum CloudRecordingStatus: Equatable, Sendable, Decodable {
     }
 }
 
+enum CloudRecordingDisplayStatus: Equatable, Sendable {
+    case recording(CloudRecordingStatus)
+    case transcription(RemoteJobStatus)
+
+    static func resolve(
+        recordingStatus: CloudRecordingStatus,
+        latestJobStatus: RemoteJobStatus?
+    ) -> CloudRecordingDisplayStatus {
+        switch latestJobStatus {
+        case .queued?:
+            return .transcription(.queued)
+        case .running?:
+            return .transcription(.running)
+        case .failed?:
+            return .transcription(.failed)
+        case .succeeded, nil:
+            return .recording(recordingStatus)
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .recording(let status):
+            return status.displayName
+        case .transcription(let status):
+            return status.displayName
+        }
+    }
+}
+
 struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {
     let id: String
     let userId: String?
@@ -750,6 +780,19 @@ enum RemoteJobStatus: String, Codable, Equatable {
 
     var isActive: Bool {
         self == .queued || self == .running
+    }
+
+    var displayName: String {
+        switch self {
+        case .queued:
+            return "Queued"
+        case .running:
+            return "Running"
+        case .succeeded:
+            return "Completed"
+        case .failed:
+            return "Failed"
+        }
     }
 }
 
