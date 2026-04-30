@@ -59,15 +59,14 @@ struct CloudCenterPanel: View {
     }
 
     private var shouldShowBillingSummary: Bool {
-        sessionStore.currentSession != nil &&
-            (store.billingStatus != nil || store.isLoadingBilling || store.billingErrorMessage != nil)
+        store.billingStatus != nil || store.isLoadingBilling || store.billingErrorMessage != nil
     }
 
     private var billingSummary: some View {
         CloudSidebarBillingSummary(
             status: store.billingStatus,
             errorMessage: store.billingErrorMessage,
-            isLoading: store.isLoadingBilling,
+            isLoading: store.billingStatus == nil && store.isLoadingBilling,
             isOpeningBilling: store.isOpeningBilling,
             onOpenBilling: { Task { await store.openBillingPortalOrPlans() } },
             onOpenPlans: store.openPlansPage
@@ -217,11 +216,6 @@ struct CloudCenterPanel: View {
             }
             .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingsList)
 
-            if let cacheWarningMessage = store.cacheWarningMessage {
-                cacheWarning(cacheWarningMessage)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
-            }
         }
         .background(Color.black.opacity(0.12))
     }
@@ -243,8 +237,8 @@ struct CloudCenterPanel: View {
                 playbackAudioURL: store.selectedPlaybackAudioURL,
                 playbackSourceDescription: store.selectedPlaybackSourceDescription,
                 playbackErrorMessage: store.playbackErrorMessage,
-                isTranscriptLoading: store.isTranscriptLoading,
-                isJobHistoryLoading: store.isJobHistoryLoading,
+                isTranscriptLoading: store.isSelectedTranscriptLoading,
+                isJobHistoryLoading: store.isSelectedJobHistoryLoading,
                 isPreparingPlaybackAudio: store.isPreparingPlaybackAudio,
                 isDownloading: store.isDownloading,
                 isDeleting: store.isDeleting,
@@ -458,17 +452,11 @@ struct CloudCenterPanel: View {
     }
 
     private var headerSubtitle: String {
-        if let cacheWarningMessage = store.cacheWarningMessage {
-            return cacheWarningMessage
-        }
         if store.isRefreshing {
-            if store.isShowingCachedData {
-                return updatedText(prefix: "Showing cached data · Refreshing")
+            if store.lastSuccessfulRefreshAt != nil {
+                return updatedText(prefix: "Updated")
             }
             return "Refreshing cloud recordings…"
-        }
-        if store.isShowingCachedData {
-            return updatedText(prefix: "Showing cached data")
         }
         if store.lastSuccessfulRefreshAt != nil {
             return updatedText(prefix: "Updated")
@@ -1210,7 +1198,12 @@ private struct CloudRecordingDetail: View {
 
                 Spacer(minLength: 0)
 
-                if let error = latestJob.trimmedError {
+                if isJobHistoryLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.68)
+                        .tint(latestJob.status.detailColor)
+                } else if let error = latestJob.trimmedError {
                     Text(error)
                         .font(.system(size: 10.5))
                         .foregroundStyle(DT.systemOrange)
@@ -1226,23 +1219,6 @@ private struct CloudRecordingDetail: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .strokeBorder(latestJob.status.detailColor.opacity(0.14), lineWidth: 1)
-            )
-            .accessibilityIdentifier(AccessibilityIDs.Cloud.latestJobStatus)
-        } else if isJobHistoryLoading {
-            HStack(spacing: 9) {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(DT.waveformLit)
-                Text("Checking transcription jobs…")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(Color.dtLabelTertiary)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.white.opacity(0.045))
             )
             .accessibilityIdentifier(AccessibilityIDs.Cloud.latestJobStatus)
         }
@@ -1409,18 +1385,10 @@ private struct CloudRecordingDetail: View {
                 }
             } else {
                 VStack(spacing: 9) {
-                    ZStack {
-                        Image(systemName: "doc.text.magnifyingglass")
-                            .font(.system(size: 23))
-                            .foregroundStyle(Color.dtLabelTertiary)
-                            .opacity(isTranscriptLoading ? 0 : 1)
-
-                        ProgressView()
-                            .controlSize(.regular)
-                            .scaleEffect(0.82)
-                            .opacity(isTranscriptLoading ? 1 : 0)
-                    }
-                    .frame(width: 30, height: 30)
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 23))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                        .frame(width: 30, height: 30)
 
                     Text(transcriptPlaceholderText)
                         .font(.system(size: 12))
@@ -1429,7 +1397,7 @@ private struct CloudRecordingDetail: View {
                         .lineLimit(2)
                         .frame(height: 34)
 
-                    Button(isTranscriptLoading ? "Loading…" : "Load transcript") {
+                    Button("Load transcript") {
                         onLoadTranscript()
                     }
                     .buttonStyle(PanelPushButtonStyle())
@@ -1490,10 +1458,6 @@ private struct CloudRecordingDetail: View {
     }
 
     private var transcriptPlaceholderText: String {
-        if isTranscriptLoading {
-            return "Loading transcript…"
-        }
-
         return transcriptErrorMessage ?? "Segments are not available for this recording yet."
     }
 

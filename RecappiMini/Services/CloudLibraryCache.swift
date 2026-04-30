@@ -77,6 +77,7 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
     let selectedRecordingID: String?
     let billingStatus: BillingStatusSnapshot?
     let transcripts: [String: TranscriptResponseSnapshot]
+    let transcriptionJobsByRecordingID: [String: [TranscriptionJob]]?
 
     init(
         userId: String,
@@ -87,6 +88,7 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
         selectedRecordingID: String?,
         billingStatus: BillingStatus?,
         transcriptCache: [String: TranscriptResponse],
+        transcriptionJobsByRecordingID: [String: [TranscriptionJob]] = [:],
         transcriptLimit: Int = 20
     ) {
         self.version = Self.currentVersion
@@ -97,6 +99,7 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
         self.nextCursor = nextCursor
         self.selectedRecordingID = selectedRecordingID
         self.billingStatus = billingStatus.map(BillingStatusSnapshot.init)
+        self.transcriptionJobsByRecordingID = transcriptionJobsByRecordingID
 
         var orderedIDs: [String] = []
         if let selectedRecordingID {
@@ -130,6 +133,10 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
 
     var decodedTranscripts: [String: TranscriptResponse] {
         transcripts.compactMapValues(\.transcript)
+    }
+
+    var decodedTranscriptionJobsByRecordingID: [String: [TranscriptionJob]] {
+        transcriptionJobsByRecordingID ?? [:]
     }
 }
 

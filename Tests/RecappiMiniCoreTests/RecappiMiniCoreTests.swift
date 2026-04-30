@@ -455,6 +455,63 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(recording.status.displayName, "Processing Audio")
     }
 
+    func testCloudRecordingMergesCachedDetailForSWRListRefresh() {
+        let cached = CloudRecording(
+            id: "rec_123",
+            userId: "user_123",
+            title: "Cached title",
+            summaryTitle: "Cached summary",
+            sourceTitle: "Cached source",
+            sourceAppName: "Arc",
+            sourceAppBundleID: "company.thebrowser.Browser",
+            r2Key: "recordings/user_123/rec_123.wav",
+            r2UploadId: nil,
+            status: .ready,
+            sizeBytes: 41_700_000,
+            durationMs: 1_282_000,
+            sampleRate: 16_000,
+            channels: 1,
+            contentType: "audio/wav",
+            activeTranscriptId: "tr_cached",
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 200)
+        )
+        let refreshedListItem = CloudRecording(
+            id: "rec_123",
+            userId: "user_123",
+            title: "Server title",
+            summaryTitle: nil,
+            sourceTitle: nil,
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .failed,
+            sizeBytes: nil,
+            durationMs: nil,
+            sampleRate: nil,
+            channels: nil,
+            contentType: nil,
+            activeTranscriptId: nil,
+            createdAt: nil,
+            updatedAt: Date(timeIntervalSince1970: 300)
+        )
+
+        let merged = refreshedListItem.mergingCachedDetail(from: cached)
+
+        XCTAssertEqual(merged.status, .failed)
+        XCTAssertEqual(merged.title, "Server title")
+        XCTAssertEqual(merged.summaryTitle, "Cached summary")
+        XCTAssertEqual(merged.sourceAppName, "Arc")
+        XCTAssertEqual(merged.sizeBytes, 41_700_000)
+        XCTAssertEqual(merged.durationMs, 1_282_000)
+        XCTAssertEqual(merged.sampleRate, 16_000)
+        XCTAssertEqual(merged.channels, 1)
+        XCTAssertEqual(merged.contentType, "audio/wav")
+        XCTAssertEqual(merged.activeTranscriptId, "tr_cached")
+        XCTAssertEqual(merged.updatedAt, Date(timeIntervalSince1970: 300))
+    }
+
     func testCloudLibrarySnapshotRoundTripsLightweightData() throws {
         let recording = try JSONDecoder().decode(
             CloudRecording.self,
@@ -508,6 +565,23 @@ final class RecappiMiniCoreTests: XCTestCase {
             }
             """.data(using: .utf8)!
         )
+        let job = try JSONDecoder().decode(
+            TranscriptionJob.self,
+            from: """
+            {
+              "id": "job_123",
+              "status": "queued",
+              "transcriptId": null,
+              "provider": "gemini",
+              "model": "gemini-3-flash-preview",
+              "language": "en",
+              "prompt": null,
+              "error": null,
+              "attempts": 0,
+              "enqueuedAt": 1776957994
+            }
+            """.data(using: .utf8)!
+        )
 
         let snapshot = CloudLibrarySnapshot(
             userId: "user_123",
@@ -517,7 +591,8 @@ final class RecappiMiniCoreTests: XCTestCase {
             nextCursor: "next_456",
             selectedRecordingID: "rec_123",
             billingStatus: billing,
-            transcriptCache: ["rec_123": transcript]
+            transcriptCache: ["rec_123": transcript],
+            transcriptionJobsByRecordingID: ["rec_123": [job]]
         )
         let encoded = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(CloudLibrarySnapshot.self, from: encoded)
@@ -529,6 +604,8 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.summary, "Cached summary.")
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.actionItems, ["Ship the cache fixture."])
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.segments.first?.speaker, "Peng")
+        XCTAssertEqual(decoded.decodedTranscriptionJobsByRecordingID["rec_123"]?.first?.id, "job_123")
+        XCTAssertEqual(decoded.decodedTranscriptionJobsByRecordingID["rec_123"]?.first?.status, .queued)
         XCTAssertEqual(decoded.nextCursor, "next_456")
         XCTAssertEqual(decoded.selectedRecordingID, "rec_123")
     }

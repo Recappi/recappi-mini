@@ -46,6 +46,8 @@ final class CloudLibraryStore: ObservableObject {
     private let cache: CloudLibraryCache
     private let pageLimit: Int
     private var isRemoteRefreshInFlight = false
+    private var transcriptLoadingRecordingIDs: Set<String> = []
+    private var jobHistoryLoadingRecordingIDs: Set<String> = []
 
     init(
         config: AppConfig = .shared,
@@ -69,9 +71,19 @@ final class CloudLibraryStore: ObservableObject {
         return transcriptCache[selectedRecordingID]
     }
 
+    var isSelectedTranscriptLoading: Bool {
+        guard let selectedRecordingID else { return false }
+        return transcriptLoadingRecordingIDs.contains(selectedRecordingID)
+    }
+
     var selectedTranscriptionJobs: [TranscriptionJob] {
         guard let selectedRecordingID else { return [] }
         return transcriptionJobsByRecordingID[selectedRecordingID] ?? []
+    }
+
+    var isSelectedJobHistoryLoading: Bool {
+        guard let selectedRecordingID else { return false }
+        return jobHistoryLoadingRecordingIDs.contains(selectedRecordingID)
     }
 
     var selectedLatestTranscriptionJob: TranscriptionJob? {
@@ -144,7 +156,7 @@ final class CloudLibraryStore: ObservableObject {
                 try await client.listRecordings(limit: pageLimit)
             }
             let previousSelection = selectedRecordingID
-            recordings = page.items
+            recordings = mergeWithCachedRecordingDetails(page.items)
             nextCursor = page.nextCursor
             if let previousSelection, recordings.contains(where: { $0.id == previousSelection }) {
                 selectedRecordingID = previousSelection
@@ -203,7 +215,7 @@ final class CloudLibraryStore: ObservableObject {
                 try await client.listRecordings(limit: pageLimit, cursor: cursor)
             }
             let existingIDs = Set(recordings.map(\.id))
-            recordings.append(contentsOf: page.items.filter { !existingIDs.contains($0.id) })
+            recordings.append(contentsOf: mergeWithCachedRecordingDetails(page.items).filter { !existingIDs.contains($0.id) })
             nextCursor = page.nextCursor
             selectDefaultRecordingIfNeeded()
             await refreshLocalSessionLinks()
@@ -252,7 +264,7 @@ final class CloudLibraryStore: ObservableObject {
 
     func loadJobHistoryForSelection() async {
         guard let recording = selectedRecording else { return }
-        isJobHistoryLoading = true
+        setJobHistoryLoading(true, for: recording.id)
 
         do {
             let page = try await runAuthorized { client in
@@ -268,11 +280,13 @@ final class CloudLibraryStore: ObservableObject {
             // + GET /api/jobs/:id.
             transcriptionJobsByRecordingID[recording.id] = transcriptionJobsByRecordingID[recording.id] ?? []
         } catch {
-            cacheWarningMessage = "Showing cached data · Job status refresh failed"
-            isShowingCachedData = true
+            if selectedRecordingID == recording.id {
+                cacheWarningMessage = "Showing cached data · Job status refresh failed"
+                isShowingCachedData = true
+            }
         }
 
-        isJobHistoryLoading = false
+        setJobHistoryLoading(false, for: recording.id)
     }
 
     func pollSelectedActiveJobsUntilTerminal() async {
@@ -290,8 +304,10 @@ final class CloudLibraryStore: ObservableObject {
     func loadTranscriptForSelection() async {
         guard let recording = selectedRecording else { return }
         guard transcriptCache[recording.id] == nil else { return }
-        isTranscriptLoading = true
-        transcriptErrorMessage = nil
+        setTranscriptLoading(true, for: recording.id)
+        if selectedRecordingID == recording.id {
+            transcriptErrorMessage = nil
+        }
 
         do {
             let transcript = try await runAuthorized { client in
@@ -305,10 +321,12 @@ final class CloudLibraryStore: ObservableObject {
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)
         } catch {
-            transcriptErrorMessage = transcriptMessage(for: error)
+            if selectedRecordingID == recording.id {
+                transcriptErrorMessage = transcriptMessage(for: error)
+            }
         }
 
-        isTranscriptLoading = false
+        setTranscriptLoading(false, for: recording.id)
     }
 
     func retranscribeSelectedRecording() async {
@@ -641,6 +659,7 @@ final class CloudLibraryStore: ObservableObject {
         nextCursor = snapshot.nextCursor
         billingStatus = snapshot.decodedBillingStatus
         transcriptCache = snapshot.decodedTranscripts
+        transcriptionJobsByRecordingID = snapshot.decodedTranscriptionJobsByRecordingID
         lastSuccessfulRefreshAt = snapshot.savedAt
         isShowingCachedData = true
         cacheWarningMessage = nil
@@ -667,7 +686,8 @@ final class CloudLibraryStore: ObservableObject {
             nextCursor: nextCursor,
             selectedRecordingID: selectedRecordingID,
             billingStatus: billingStatus,
-            transcriptCache: transcriptCache
+            transcriptCache: transcriptCache,
+            transcriptionJobsByRecordingID: transcriptionJobsByRecordingID
         )
         await cache.saveSnapshot(snapshot)
     }
@@ -708,6 +728,32 @@ final class CloudLibraryStore: ObservableObject {
             return
         }
         recordings[index] = recording
+    }
+
+    private func mergeWithCachedRecordingDetails(_ incoming: [CloudRecording]) -> [CloudRecording] {
+        let cachedByID = Dictionary(uniqueKeysWithValues: recordings.map { ($0.id, $0) })
+        return incoming.map { recording in
+            guard let cached = cachedByID[recording.id] else { return recording }
+            return recording.mergingCachedDetail(from: cached)
+        }
+    }
+
+    private func setTranscriptLoading(_ loading: Bool, for recordingID: String) {
+        if loading {
+            transcriptLoadingRecordingIDs.insert(recordingID)
+        } else {
+            transcriptLoadingRecordingIDs.remove(recordingID)
+        }
+        isTranscriptLoading = !transcriptLoadingRecordingIDs.isEmpty
+    }
+
+    private func setJobHistoryLoading(_ loading: Bool, for recordingID: String) {
+        if loading {
+            jobHistoryLoadingRecordingIDs.insert(recordingID)
+        } else {
+            jobHistoryLoadingRecordingIDs.remove(recordingID)
+        }
+        isJobHistoryLoading = !jobHistoryLoadingRecordingIDs.isEmpty
     }
 
     private func refreshJobs(recordingID: String, jobIDs: [String]) async {

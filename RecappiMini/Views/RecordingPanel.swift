@@ -1,11 +1,14 @@
 import AppKit
 import SwiftUI
+@preconcurrency import UserNotifications
 
 // MARK: - Top-level panel
 
 struct RecordingPanel: View {
     @ObservedObject var recorder: AudioRecorder
     @Environment(\.openSettings) private var openSettings
+    @State private var visibleProcessingSessionID: UUID?
+    @State private var detachProcessingWhenReady = false
 
     let onOpenFolder: (URL) -> Void
     let onOpenCloud: () -> Void
@@ -122,7 +125,7 @@ struct RecordingPanel: View {
         case .processing(let phase):
             ProcessingState(
                 phase: phase,
-                onClose: onClosePanel
+                onClose: detachCurrentProcessingToBackground
             )
         case .done(let r):
             DoneState(
@@ -192,14 +195,45 @@ struct RecordingPanel: View {
     }
 
     private func processSession(_ sessionDir: URL, duration: Int) async {
+        let sessionID = UUID()
+        visibleProcessingSessionID = sessionID
+
+        if detachProcessingWhenReady {
+            detachProcessingWhenReady = false
+            visibleProcessingSessionID = nil
+            recorder.reset()
+        }
+
         do {
             let result = try await SessionProcessor.shared.process(sessionDir: sessionDir, duration: duration) { phase in
+                guard visibleProcessingSessionID == sessionID else { return }
                 recorder.state = .processing(phase)
             }
-            recorder.state = .done(result: result)
+            if visibleProcessingSessionID == sessionID {
+                recorder.state = .done(result: result)
+                visibleProcessingSessionID = nil
+            } else {
+                postBackgroundProcessingNotification(for: result)
+            }
         } catch {
-            recorder.state = .error(message: error.localizedDescription)
+            if visibleProcessingSessionID == sessionID {
+                recorder.state = .error(message: error.localizedDescription)
+                visibleProcessingSessionID = nil
+            } else {
+                postBackgroundProcessingFailureNotification(message: error.localizedDescription)
+            }
         }
+    }
+
+    private func detachCurrentProcessingToBackground() {
+        if visibleProcessingSessionID == nil {
+            detachProcessingWhenReady = true
+        } else {
+            visibleProcessingSessionID = nil
+            recorder.reset()
+        }
+        requestBackgroundNotificationAuthorizationIfNeeded()
+        onClosePanel()
     }
 
     private func discardRecording() {
@@ -215,6 +249,69 @@ struct RecordingPanel: View {
         guard !body.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(body, forType: .string)
+    }
+
+    private func postBackgroundProcessingNotification(for result: RecordingResult) {
+        let transcript = (result.transcript ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        let body = transcript.isEmpty
+            ? "Your recording has been processed in the background."
+            : String(transcript.prefix(140))
+        postBackgroundProcessingNotification(
+            title: "Transcription complete",
+            body: body,
+            playSound: false
+        )
+    }
+
+    private func postBackgroundProcessingFailureNotification(message: String) {
+        postBackgroundProcessingNotification(
+            title: "Processing failed",
+            body: message,
+            playSound: true
+        )
+    }
+
+    private func requestBackgroundNotificationAuthorizationIfNeeded() {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            guard settings.authorizationStatus == .notDetermined else { return }
+            center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
+    }
+
+    private func postBackgroundProcessingNotification(title: String, body: String, playSound: Bool) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            let post: @Sendable () -> Void = {
+                let content = UNMutableNotificationContent()
+                content.title = title
+                content.body = body
+                content.threadIdentifier = "recappi.processing"
+                content.userInfo = ["action": "showPanel"]
+                if playSound {
+                    content.sound = .default
+                }
+                let request = UNNotificationRequest(
+                    identifier: "recappi.processing.\(UUID().uuidString)",
+                    content: content,
+                    trigger: nil
+                )
+                center.add(request)
+            }
+
+            switch settings.authorizationStatus {
+            case .authorized, .provisional:
+                post()
+            case .notDetermined:
+                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                    if granted { post() }
+                }
+            default:
+                break
+            }
+        }
     }
 
 }

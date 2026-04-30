@@ -438,6 +438,46 @@ struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {
     let createdAt: Date?
     let updatedAt: Date?
 
+    init(
+        id: String,
+        userId: String?,
+        title: String?,
+        summaryTitle: String?,
+        sourceTitle: String?,
+        sourceAppName: String?,
+        sourceAppBundleID: String?,
+        r2Key: String?,
+        r2UploadId: String?,
+        status: CloudRecordingStatus,
+        sizeBytes: Int64?,
+        durationMs: Int?,
+        sampleRate: Int?,
+        channels: Int?,
+        contentType: String?,
+        activeTranscriptId: String?,
+        createdAt: Date?,
+        updatedAt: Date?
+    ) {
+        self.id = id
+        self.userId = userId
+        self.title = title
+        self.summaryTitle = summaryTitle
+        self.sourceTitle = sourceTitle
+        self.sourceAppName = sourceAppName
+        self.sourceAppBundleID = sourceAppBundleID
+        self.r2Key = r2Key
+        self.r2UploadId = r2UploadId
+        self.status = status
+        self.sizeBytes = sizeBytes
+        self.durationMs = durationMs
+        self.sampleRate = sampleRate
+        self.channels = channels
+        self.contentType = contentType
+        self.activeTranscriptId = activeTranscriptId
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case userId
@@ -520,6 +560,29 @@ struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {
         values.lazy
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
+    }
+
+    func mergingCachedDetail(from cached: CloudRecording) -> CloudRecording {
+        CloudRecording(
+            id: id,
+            userId: userId ?? cached.userId,
+            title: title ?? cached.title,
+            summaryTitle: summaryTitle ?? cached.summaryTitle,
+            sourceTitle: sourceTitle ?? cached.sourceTitle,
+            sourceAppName: sourceAppName ?? cached.sourceAppName,
+            sourceAppBundleID: sourceAppBundleID ?? cached.sourceAppBundleID,
+            r2Key: r2Key ?? cached.r2Key,
+            r2UploadId: r2UploadId ?? cached.r2UploadId,
+            status: status,
+            sizeBytes: sizeBytes ?? cached.sizeBytes,
+            durationMs: durationMs ?? cached.durationMs,
+            sampleRate: sampleRate ?? cached.sampleRate,
+            channels: channels ?? cached.channels,
+            contentType: contentType ?? cached.contentType,
+            activeTranscriptId: activeTranscriptId ?? cached.activeTranscriptId,
+            createdAt: createdAt ?? cached.createdAt,
+            updatedAt: updatedAt ?? cached.updatedAt
+        )
     }
 }
 
@@ -679,7 +742,7 @@ struct StartTranscriptionRequest: Encodable {
     let prompt: String?
 }
 
-enum RemoteJobStatus: String, Decodable, Equatable {
+enum RemoteJobStatus: String, Codable, Equatable {
     case queued
     case running
     case succeeded
@@ -700,7 +763,7 @@ struct RecordingJobsResponse: Decodable, Equatable, Sendable {
     let items: [TranscriptionJob]
 }
 
-struct TranscriptionJob: Decodable, Equatable, Sendable {
+struct TranscriptionJob: Codable, Equatable, Sendable {
     let id: String
     let status: RemoteJobStatus
     let transcriptId: String?
