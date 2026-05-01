@@ -174,7 +174,7 @@ struct CloudCenterPanel: View {
                     .foregroundStyle(Color.dtLabelTertiary)
                     .tracking(0.45)
                 Spacer(minLength: 0)
-                Text("\(store.recordings.count)")
+                Text(recordingsCountText)
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.dtLabelTertiary)
             }
@@ -183,13 +183,22 @@ struct CloudCenterPanel: View {
 
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    ForEach(store.recordings) { recording in
-                        CloudRecordingRow(
-                            recording: recording,
-                            latestJobStatus: store.transcriptionJobsByRecordingID[recording.id]?.first?.status,
-                            isSelected: store.selectedRecordingID == recording.id
-                        ) {
-                            store.select(recording)
+                    ForEach(recordingDateSections) { section in
+                        VStack(alignment: .leading, spacing: 8) {
+                            CloudRecordingDateSectionHeader(
+                                title: section.title,
+                                count: section.recordings.count
+                            )
+
+                            ForEach(section.recordings) { recording in
+                                CloudRecordingRow(
+                                    recording: recording,
+                                    latestJobStatus: store.transcriptionJobsByRecordingID[recording.id]?.first?.status,
+                                    isSelected: store.selectedRecordingID == recording.id
+                                ) {
+                                    store.select(recording)
+                                }
+                            }
                         }
                     }
 
@@ -204,6 +213,60 @@ struct CloudCenterPanel: View {
 
         }
         .background(Color.black.opacity(0.12))
+    }
+
+    private var recordingsCountText: String {
+        let count = store.recordings.count
+        return count == 1 ? "1 total" : "\(count) total"
+    }
+
+    private var recordingDateSections: [CloudRecordingDateSection] {
+        var sections: [CloudRecordingDateSection] = []
+        for recording in store.recordings {
+            let bucket = recordingDateBucket(for: recording.createdAt)
+            if sections.last?.id == bucket.id {
+                sections[sections.count - 1].recordings.append(recording)
+            } else {
+                sections.append(
+                    CloudRecordingDateSection(
+                        id: bucket.id,
+                        title: bucket.title,
+                        recordings: [recording]
+                    )
+                )
+            }
+        }
+        return sections
+    }
+
+    private func recordingDateBucket(for date: Date?) -> (id: String, title: String) {
+        guard let date else {
+            return ("unknown", "Unknown date")
+        }
+
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let today = calendar.startOfDay(for: Date())
+
+        if startOfDay == today {
+            return ("today", "Today")
+        }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: today), startOfDay == yesterday {
+            return ("yesterday", "Yesterday")
+        }
+
+        let idFormatter = DateFormatter()
+        idFormatter.calendar = calendar
+        idFormatter.locale = .current
+        idFormatter.dateFormat = "yyyy-MM-dd"
+
+        let titleFormatter = DateFormatter()
+        titleFormatter.calendar = calendar
+        titleFormatter.locale = .current
+        titleFormatter.dateStyle = .medium
+        titleFormatter.timeStyle = .none
+
+        return (idFormatter.string(from: startOfDay), titleFormatter.string(from: startOfDay))
     }
 
     private var loadMoreSentinel: some View {
@@ -761,6 +824,34 @@ private struct HeaderGlassButtonStyle: ButtonStyle {
                     .strokeBorder(Color.white.opacity(configuration.isPressed ? 0.22 : 0.12), lineWidth: 0.75)
             )
             .opacity(configuration.isPressed ? 0.86 : 1)
+    }
+}
+
+private struct CloudRecordingDateSection: Identifiable {
+    let id: String
+    let title: String
+    var recordings: [CloudRecording]
+}
+
+private struct CloudRecordingDateSectionHeader: View {
+    let title: String
+    let count: Int
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(Color.dtLabelTertiary)
+                .tracking(0.32)
+            Spacer(minLength: 0)
+            Text("\(count)")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.dtLabelQuaternary)
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(count) recordings")
     }
 }
 
