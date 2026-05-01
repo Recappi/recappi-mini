@@ -3,31 +3,30 @@
     <channel>
         <title>RecappiMini</title>
         <item>
-            <title>1.0.38</title>
-            <pubDate>Fri, 01 May 2026 10:19:59 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.38</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.38</sparkle:fullReleaseNotesLink>
-            <sparkle:version>40</sparkle:version>
-            <sparkle:shortVersionString>1.0.38</sparkle:shortVersionString>
+            <title>1.0.39</title>
+            <pubDate>Fri, 01 May 2026 11:05:01 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.39</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.39</sparkle:fullReleaseNotesLink>
+            <sparkle:version>41</sparkle:version>
+            <sparkle:shortVersionString>1.0.39</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <description><![CDATA[<pre>## What&#x27;s Changed
 
-- Transcript segments now use lazy rendering, reducing layout work when switching into large recordings with many transcript rows.
-- Transcript loads now ignore stale/cancelled responses when users switch recordings quickly, so network delays do not disturb the newly selected recording.
-- Added environment-gated performance diagnostics via `RECAPPI_PERF_LOG=1` with `[RecappiPerf]` logs that report counts and durations only.
+- Cloud detail now refreshes stale transcript caches when a recording&#x27;s `updatedAt` advances, covering the case where summary content arrives later while `activeTranscriptId` stays the same.
+- When this freshness heuristic triggers, Recappi drops the stale transcript/job caches and explicitly reloads transcript content instead of relying on `.task(id:)` to refire.
+- Added unit coverage for `updatedAt` advancement edge cases.
 
 ## Validation
 
-- `swift test` passed: 82/82 tests.
+- `swift test` passed: 87/87 tests.
 - `git diff --check` passed.
 - Local stable-signed `./scripts/build-app.sh` passed.
 - `codesign -dvv build/RecappiMini.app` confirmed `Authority=RecappiMini Dev`.
-- Perf logs showed selection-to-first-render mostly in the 5-18ms range after lazy rendering; remaining slow paths were network transcript loads rather than render/layout work.
 
 ## Known Limitations / Follow-up
 
-- Transcript cache TTL/background refresh behavior is unchanged and may be tuned separately.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.38/RecappiMini-1.0.38.dmg" length="3092204" type="application/octet-stream" sparkle:edSignature="8HAt6SaVXoIjTi2kF2uv+W/MDyrIxN2MCZdMymsTMrTpyb6Cu6GlvkxCl8PnVkOs6zHEch6HwUsg7EHpD6TOBg=="/>
+- `updatedAt` is used as a cloud detail freshness heuristic; non-transcript metadata changes may cause a harmless transcript refetch.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.39/RecappiMini-1.0.39.dmg" length="3093976" type="application/octet-stream" sparkle:edSignature="4rTx8IVF7UPZfYYQ+biervMtn2TmuAXvwVRfRG7UvxU6+j/ycKzU2HhU5Ese/f/AalR2pSPicK98OSdrv4avAw=="/>
         </item>
     </channel>
 </rss>
