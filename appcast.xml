@@ -3,31 +3,32 @@
     <channel>
         <title>RecappiMini</title>
         <item>
-            <title>1.0.34</title>
-            <pubDate>Thu, 30 Apr 2026 07:57:47 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.34</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.34</sparkle:fullReleaseNotesLink>
-            <sparkle:version>36</sparkle:version>
-            <sparkle:shortVersionString>1.0.34</sparkle:shortVersionString>
+            <title>1.0.35</title>
+            <pubDate>Fri, 01 May 2026 06:09:37 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.35</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.35</sparkle:fullReleaseNotesLink>
+            <sparkle:version>37</sparkle:version>
+            <sparkle:shortVersionString>1.0.35</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <description><![CDATA[<pre>## What&#x27;s Changed
 
-- Surface live Cloud processing state immediately after a recording enters post-processing, so locally-started uploads and transcription jobs appear in the Cloud library without waiting for a full remote refresh.
-- Prefer the latest known transcription job state over the recording file state in Cloud list rows and details, so queued, running, and failed jobs do not appear as `Ready`.
-- Persist known transcription job history in the local Cloud SWR cache for more stable status display across selection changes and restarts.
-- Improve manual `Check for Updates…` behavior from the menu bar by bringing Sparkle update UI to the foreground when needed.
-- Add larger Now Playing artwork for Cloud playback so macOS Control Center no longer shows a tiny Recappi/source icon.
-
-## Known Limitation
-
-- Full visibility for jobs started from the web app or another client depends on the backend `GET /api/recordings/:id/jobs` endpoint being deployed. The app is ready for that endpoint, but production backend deployment is currently blocked upstream.
+- Redesigned the Recappi Cloud detail view around a single-column Summary and Transcript reading flow.
+- Moved meeting playback into a bottom mini player with clearer local-audio, cloud-only, and error states.
+- Added compact header actions with recording metadata in an info popover and lower-frequency actions in a More menu.
+- Improved structured summaries with TL;DR, key points, decisions, action items, quotes, and compact adaptive topic tags.
+- Added Summary / Transcript jump controls and kept them available while scrolling long transcripts.
+- Fixed waveform playhead alignment by sharing one timeline between active bars, the playhead, and drag seeking.
+- Reduced normal completed transcription chrome while keeping failed or active transcription jobs visible as a thin status banner.
+- Hardened local development signing so ad-hoc builds cannot accidentally reset macOS Screen Recording permissions.
+- Kept the app foregrounded correctly when manually checking for updates.
 
 ## Validation
 
-- `git diff --check`
-- `swift test` (71 tests)
-- `CODESIGN_IDENTITY=- ./scripts/build-app.sh`</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.34/RecappiMini-1.0.34.dmg" length="2947142" type="application/octet-stream" sparkle:edSignature="drnlVkeMrGzHXIh2ONAlKQOlUrtDy4l5yRjjU/STfrWbcbNUz2YuMpknL3j+tzmnn5EoPDyux8waI06JHQKDAw=="/>
+- `swift test` passed: 72/72 tests.
+- `git diff --check` passed.
+- Local stable-signed `./scripts/build-app.sh` passed.
+- Manual Cloud detail verification was performed on the original local app bundle with clean screenshots for folded/expanded Topics, transcript sticky navigation, failed transcription status, audio-not-local state, and waveform mid-playhead alignment.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.35/RecappiMini-1.0.35.dmg" length="3068912" type="application/octet-stream" sparkle:edSignature="oo7R34uW8XHTX/oDkngHfFSy9sCfy/pACt/TJWQxY/4pp56rHYW/7VDvHAimPwIAmeNs3FRWChmaSABQFFTeAQ=="/>
         </item>
     </channel>
 </rss>
