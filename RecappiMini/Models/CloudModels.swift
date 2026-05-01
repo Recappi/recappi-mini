@@ -60,7 +60,10 @@ enum AuthFlowPhase: Equatable {
         case .starting:
             return "Preparing…"
         case .awaitingUserInteraction:
-            return "Continue in browser…"
+            // Keep this short enough to fit the fixed-width 168-pt OAuth
+            // button without truncation. The longer "Continue in browser…"
+            // string used to clip mid-word on the Cloud sign-in surface.
+            return "Opening browser…"
         case .exchangingCode:
             return "Finishing…"
         case .verifyingSession:

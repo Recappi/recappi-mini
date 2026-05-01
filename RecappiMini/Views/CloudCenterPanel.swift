@@ -442,16 +442,20 @@ struct CloudCenterPanel: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
 
-            // Each sign-in button gets a fixed width so the loading state
-            // (spinner + multi-word text) cannot squeeze the label into a
-            // truncated `Continue in browser…` (the other half of #32).
+            // Both sign-in buttons share the neutral panel-push style so
+            // the surface looks like one OAuth picker rather than a green
+            // "primary" Google CTA next to a grey GitHub fallback. The
+            // brand identity comes from the leading provider mark, not
+            // from the button background. Fixed width keeps the loading
+            // label ("Opening browser…") from squeezing the spinner off
+            // the button.
             HStack(spacing: 10) {
                 Button {
                     Task { await store.signIn(with: .google) }
                 } label: {
                     authButtonLabel(for: .google)
                 }
-                .buttonStyle(PanelPushButtonStyle(primary: true))
+                .buttonStyle(PanelPushButtonStyle())
                 .disabled(sessionStore.isAuthBusy)
                 .frame(width: 168)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.signInGoogleButton)
