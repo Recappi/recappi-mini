@@ -3,30 +3,15 @@
     <channel>
         <title>RecappiMini</title>
         <item>
-            <title>1.0.39</title>
-            <pubDate>Fri, 01 May 2026 11:05:01 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.39</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.39</sparkle:fullReleaseNotesLink>
-            <sparkle:version>41</sparkle:version>
-            <sparkle:shortVersionString>1.0.39</sparkle:shortVersionString>
+            <title>1.0.40</title>
+            <pubDate>Fri, 01 May 2026 11:50:28 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.40</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.40</sparkle:fullReleaseNotesLink>
+            <sparkle:version>43</sparkle:version>
+            <sparkle:shortVersionString>1.0.40</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>## What&#x27;s Changed
-
-- Cloud detail now refreshes stale transcript caches when a recording&#x27;s `updatedAt` advances, covering the case where summary content arrives later while `activeTranscriptId` stays the same.
-- When this freshness heuristic triggers, Recappi drops the stale transcript/job caches and explicitly reloads transcript content instead of relying on `.task(id:)` to refire.
-- Added unit coverage for `updatedAt` advancement edge cases.
-
-## Validation
-
-- `swift test` passed: 87/87 tests.
-- `git diff --check` passed.
-- Local stable-signed `./scripts/build-app.sh` passed.
-- `codesign -dvv build/RecappiMini.app` confirmed `Authority=RecappiMini Dev`.
-
-## Known Limitations / Follow-up
-
-- `updatedAt` is used as a cloud detail freshness heuristic; non-transcript metadata changes may cause a harmless transcript refetch.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.39/RecappiMini-1.0.39.dmg" length="3093976" type="application/octet-stream" sparkle:edSignature="4rTx8IVF7UPZfYYQ+biervMtn2TmuAXvwVRfRG7UvxU6+j/ycKzU2HhU5Ese/f/AalR2pSPicK98OSdrv4avAw=="/>
+            <description><![CDATA[<pre>Automated release for v1.0.40.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.40/RecappiMini-1.0.40.dmg" length="3101077" type="application/octet-stream" sparkle:edSignature="qimJqtxP/m3CRb2RoE61TMx13U0rs8Bjpe3M43yggkGYcGu8Imlyu/PL1capa3HH7T7jopQsBV1Oy7Buvo29DQ=="/>
         </item>
     </channel>
 </rss>
