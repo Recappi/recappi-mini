@@ -1561,4 +1561,59 @@ final class RecappiMiniCoreTests: XCTestCase {
         ))
     }
 
+    // MARK: - CloudLibraryStore.shouldFlagOnUpdatedAtAdvance
+
+    func test_shouldFlagOnUpdatedAtAdvance_returnsTrue_whenFreshIsLater() {
+        // The summary-arrived-after-transcribe scenario: same
+        // activeTranscriptId, but the recording row was amended later.
+        let cached = Date(timeIntervalSinceReferenceDate: 100)
+        let fresh = Date(timeIntervalSinceReferenceDate: 200)
+        XCTAssertTrue(CloudLibraryStore.shouldFlagOnUpdatedAtAdvance(
+            cachedUpdatedAt: cached,
+            freshUpdatedAt: fresh
+        ))
+    }
+
+    func test_shouldFlagOnUpdatedAtAdvance_returnsFalse_whenEqual() {
+        // No advancement: server hasn't touched the recording since we
+        // cached it. Nothing to surface.
+        let date = Date(timeIntervalSinceReferenceDate: 100)
+        XCTAssertFalse(CloudLibraryStore.shouldFlagOnUpdatedAtAdvance(
+            cachedUpdatedAt: date,
+            freshUpdatedAt: date
+        ))
+    }
+
+    func test_shouldFlagOnUpdatedAtAdvance_returnsFalse_whenFreshIsEarlier() {
+        // Defensive: clock skew or reordering — never produce a false
+        // positive when the cached snapshot somehow looks newer than the
+        // remote.
+        let cached = Date(timeIntervalSinceReferenceDate: 200)
+        let fresh = Date(timeIntervalSinceReferenceDate: 100)
+        XCTAssertFalse(CloudLibraryStore.shouldFlagOnUpdatedAtAdvance(
+            cachedUpdatedAt: cached,
+            freshUpdatedAt: fresh
+        ))
+    }
+
+    func test_shouldFlagOnUpdatedAtAdvance_returnsFalse_whenFreshIsNil() {
+        // Server didn't return updatedAt; cannot decide → don't flag.
+        let cached = Date(timeIntervalSinceReferenceDate: 100)
+        XCTAssertFalse(CloudLibraryStore.shouldFlagOnUpdatedAtAdvance(
+            cachedUpdatedAt: cached,
+            freshUpdatedAt: nil
+        ))
+    }
+
+    func test_shouldFlagOnUpdatedAtAdvance_returnsFalse_whenCachedIsNil() {
+        // First-time view of this recording — no previous timestamp to
+        // compare against. The metadata-id checks elsewhere handle the
+        // "first load" case; this helper should opt out.
+        let fresh = Date(timeIntervalSinceReferenceDate: 200)
+        XCTAssertFalse(CloudLibraryStore.shouldFlagOnUpdatedAtAdvance(
+            cachedUpdatedAt: nil,
+            freshUpdatedAt: fresh
+        ))
+    }
+
 }

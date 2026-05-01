@@ -282,9 +282,9 @@ final class CloudLibraryStore: ObservableObject {
         // whether the cloud-side `activeTranscriptId` advanced past whatever we
         // are currently rendering. Reading these after `replaceRecording` would
         // see the freshly fetched values and never produce a diff.
-        let cachedActiveTranscriptId = recordings
-            .first(where: { $0.id == recordingID })?
-            .activeTranscriptId
+        let cachedRecording = recordings.first(where: { $0.id == recordingID })
+        let cachedActiveTranscriptId = cachedRecording?.activeTranscriptId
+        let cachedUpdatedAt = cachedRecording?.updatedAt
         let cachedTranscriptResponseId = transcriptCache[recordingID]?.id
         do {
             let detail = try await runAuthorized { client in
@@ -294,13 +294,43 @@ final class CloudLibraryStore: ObservableObject {
             // while we awaited. Don't leak this banner state onto a different
             // recording.
             guard selectedRecordingID == recordingID else { return }
-            if Self.shouldFlagNewerVersion(
+            let isLoading = transcriptLoadingRecordingIDs.contains(recordingID)
+            let metadataStale = Self.shouldFlagNewerVersion(
                 cachedActiveTranscriptId: cachedActiveTranscriptId,
                 freshActiveTranscriptId: detail.activeTranscriptId,
                 cachedTranscriptResponseId: cachedTranscriptResponseId,
-                isTranscriptLoading: transcriptLoadingRecordingIDs.contains(recordingID)
-            ) {
+                isTranscriptLoading: isLoading
+            )
+            // Same-id-different-content case: backend may amend the existing
+            // transcript object with a summary later (transcribe is sync,
+            // summarize is async). `activeTranscriptId` stays the same but
+            // the recording's `updatedAt` advances. The previous detection
+            // missed this and left the user with a stale-content cache that
+            // never refreshed (no banner, no summary). Catch it via
+            // updatedAt diff.
+            let contentUpdatedSinceCache = !isLoading
+                && Self.shouldFlagOnUpdatedAtAdvance(
+                    cachedUpdatedAt: cachedUpdatedAt,
+                    freshUpdatedAt: detail.updatedAt
+                )
+            if metadataStale || contentUpdatedSinceCache {
                 hasNewerVersionForSelection = true
+            }
+            // When the staleness is specifically the "content updated for the
+            // same activeTranscriptId" case, the local transcript cache holds
+            // the pre-update body. Drop it and explicitly reload — we cannot
+            // rely on the detail view's `.task(id: recording.id)` to refire
+            // because the recording id has not changed; SwiftUI only restarts
+            // a `.task(id:)` when the bound id actually flips.
+            //
+            // Treating this as a "cloud detail freshness heuristic" rather
+            // than a precise transcript diff: `updatedAt` may advance for
+            // non-transcript reasons (billing/source metadata changes), in
+            // which case the worst we do is refetch a transcript that
+            // matches the local copy — idempotent and cheap.
+            if contentUpdatedSinceCache {
+                transcriptCache.removeValue(forKey: recordingID)
+                transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
             }
             // Test-only escape hatch: lets reviewers see the
             // `newerVersionStrip` banner without orchestrating a real
@@ -313,6 +343,13 @@ final class CloudLibraryStore: ObservableObject {
             replaceRecording(detail)
             cacheWarningMessage = nil
             await persistCacheSnapshot()
+            // After dropping the stale transcript cache above we must drive
+            // the reload ourselves — `.task(id: recording.id)` in the detail
+            // view will not refire while the recording id is unchanged.
+            if contentUpdatedSinceCache {
+                await loadTranscriptForSelection()
+                await loadJobHistoryForSelection()
+            }
         } catch {
             if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
                 handleRefreshFailure(error, preserveVisibleData: hasVisibleLibraryData)
@@ -321,6 +358,26 @@ final class CloudLibraryStore: ObservableObject {
                 isShowingCachedData = true
             }
         }
+    }
+
+    /// Pure decision for "did the recording's content advance even though
+    /// `activeTranscriptId` stayed the same?".
+    ///
+    /// Backend produces transcripts in two passes — `transcribe` is sync and
+    /// fixes the `activeTranscriptId`; `summarize` runs later and amends the
+    /// same transcript row with `summary` / `summaryInsights`. The local
+    /// `transcriptCache` is keyed by recording id and only refreshed when
+    /// `loadTranscriptForSelection` finds an empty slot, so a transcript
+    /// cached *before* the summary landed will sit forever showing only the
+    /// raw text. This helper detects that scenario by comparing
+    /// `recording.updatedAt` rather than `activeTranscriptId`.
+    nonisolated static func shouldFlagOnUpdatedAtAdvance(
+        cachedUpdatedAt: Date?,
+        freshUpdatedAt: Date?
+    ) -> Bool {
+        guard let fresh = freshUpdatedAt else { return false }
+        guard let cached = cachedUpdatedAt else { return false }
+        return fresh > cached
     }
 
     /// Pure decision for "should the newer-version banner show?".
