@@ -19,6 +19,18 @@ struct UITestModeConfiguration {
     let hiddenAutoPromptSnoozeSeconds: TimeInterval?
     let detectedMeetingAutoStopGraceSeconds: TimeInterval?
     let openCloudWindowOnLaunch: Bool
+    /// Test-only override: pretend the selected recording has a newer cloud
+    /// version after each detail refresh, so reviewers can see the
+    /// `newerVersionStrip` banner without orchestrating a real concurrent
+    /// retranscribe.
+    ///
+    /// **NOT A FEATURE FLAG.** This is strictly a UI regression / screenshot
+    /// fixture. It bypasses the real freshness comparison and forces the
+    /// banner on after every detail refresh. Do not call it from product
+    /// code paths and do not expose it to users. Gated by the
+    /// `RECAPPI_TEST_FORCE_NEWER_VERSION_BANNER=1` env var, which must be
+    /// set explicitly in a test launch.
+    let forceNewerVersionBannerForTesting: Bool
 
     private init(processInfo: ProcessInfo = .processInfo) {
         let env = processInfo.environment
@@ -31,6 +43,7 @@ struct UITestModeConfiguration {
         commandFilePath = env["RECAPPI_UI_TEST_COMMAND_FILE"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         manualAuthEnabled = env["RECAPPI_ENABLE_MANUAL_AUTH"] == "1"
         openCloudWindowOnLaunch = env["RECAPPI_TEST_OPEN_CLOUD_WINDOW"] == "1"
+        forceNewerVersionBannerForTesting = env["RECAPPI_TEST_FORCE_NEWER_VERSION_BANNER"] == "1"
         if let rawSnooze = env["RECAPPI_TEST_HIDDEN_AUTOPROMPT_SNOOZE_SECONDS"],
            let parsedSnooze = TimeInterval(rawSnooze) {
             hiddenAutoPromptSnoozeSeconds = max(parsedSnooze, 0)

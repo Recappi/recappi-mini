@@ -40,6 +40,7 @@ final class CloudLibraryStore: ObservableObject {
     @Published private(set) var lastSuccessfulRefreshAt: Date?
     @Published private(set) var isShowingCachedData = false
     @Published private(set) var cacheWarningMessage: String?
+    @Published private(set) var hasNewerVersionForSelection: Bool = false
 
     private let config: AppConfig
     private let sessionStore: AuthSessionStore
@@ -241,6 +242,7 @@ final class CloudLibraryStore: ObservableObject {
     func select(_ recording: CloudRecording) {
         selectedRecordingID = recording.id
         transcriptErrorMessage = nil
+        hasNewerVersionForSelection = false
         Task { await persistCacheSnapshot() }
         Task { await refreshSelectedDetailIfNeeded() }
     }
@@ -264,10 +266,37 @@ final class CloudLibraryStore: ObservableObject {
     }
 
     func refreshSelectedDetailIfNeeded() async {
-        guard let selectedRecordingID else { return }
+        guard let recordingID = selectedRecordingID else { return }
+        // Snapshot the comparison basis *before* the await so we can detect
+        // whether the cloud-side `activeTranscriptId` advanced past whatever we
+        // are currently rendering. Reading these after `replaceRecording` would
+        // see the freshly fetched values and never produce a diff.
+        let cachedActiveTranscriptId = recordings
+            .first(where: { $0.id == recordingID })?
+            .activeTranscriptId
+        let cachedTranscriptResponseId = transcriptCache[recordingID]?.id
         do {
             let detail = try await runAuthorized { client in
-                try await client.getRecording(id: selectedRecordingID)
+                try await client.getRecording(id: recordingID)
+            }
+            // Selection race guard: user may have selected another recording
+            // while we awaited. Don't leak this banner state onto a different
+            // recording.
+            guard selectedRecordingID == recordingID else { return }
+            if Self.shouldFlagNewerVersion(
+                cachedActiveTranscriptId: cachedActiveTranscriptId,
+                freshActiveTranscriptId: detail.activeTranscriptId,
+                cachedTranscriptResponseId: cachedTranscriptResponseId
+            ) {
+                hasNewerVersionForSelection = true
+            }
+            // Test-only escape hatch: lets reviewers see the
+            // `newerVersionStrip` banner without orchestrating a real
+            // concurrent retranscribe. Requires the explicit
+            // `RECAPPI_TEST_FORCE_NEWER_VERSION_BANNER=1` env var, so it
+            // cannot fire in normal operation.
+            if UITestModeConfiguration.shared.forceNewerVersionBannerForTesting {
+                hasNewerVersionForSelection = true
             }
             replaceRecording(detail)
             cacheWarningMessage = nil
@@ -280,6 +309,45 @@ final class CloudLibraryStore: ObservableObject {
                 isShowingCachedData = true
             }
         }
+    }
+
+    /// Pure decision for "should the newer-version banner show?".
+    /// Pulled out for unit-testable coverage of edge cases (nil cache,
+    /// matching ids, locally-cached fresh transcript, etc.).
+    nonisolated static func shouldFlagNewerVersion(
+        cachedActiveTranscriptId: String?,
+        freshActiveTranscriptId: String?,
+        cachedTranscriptResponseId: String?
+    ) -> Bool {
+        guard let fresh = freshActiveTranscriptId,
+              let cached = cachedActiveTranscriptId,
+              fresh != cached else {
+            return false
+        }
+        // Suppress the banner when the local transcript cache already holds
+        // the newer transcript (e.g., we just finished a retranscribe locally
+        // and the recording metadata is only now catching up).
+        if let cachedTranscriptResponseId, cachedTranscriptResponseId == fresh {
+            return false
+        }
+        return true
+    }
+
+    func acknowledgeNewerVersion() async {
+        guard let recordingID = selectedRecordingID else { return }
+        // Drop caches first so the next loaders fetch fresh content.
+        transcriptCache.removeValue(forKey: recordingID)
+        transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
+        await loadTranscriptForSelection()
+        await loadJobHistoryForSelection()
+        // Only clear the banner once we actually have fresh transcript content
+        // for the current selection. If reload silently failed (no transcript,
+        // selection changed, etc.) we keep the banner so the user can retry.
+        if selectedRecordingID == recordingID,
+           transcriptCache[recordingID] != nil {
+            hasNewerVersionForSelection = false
+        }
+        await persistCacheSnapshot()
     }
 
     func loadJobHistoryForSelection() async {

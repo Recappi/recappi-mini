@@ -1454,4 +1454,72 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    // MARK: - CloudLibraryStore.shouldFlagNewerVersion
+
+    func test_shouldFlagNewerVersion_returnsFalse_whenFreshIdIsNil() {
+        XCTAssertFalse(CloudLibraryStore.shouldFlagNewerVersion(
+            cachedActiveTranscriptId: "trans_v1",
+            freshActiveTranscriptId: nil,
+            cachedTranscriptResponseId: "trans_v1"
+        ))
+    }
+
+    func test_shouldFlagNewerVersion_returnsFalse_whenCachedIdIsNil() {
+        // First load / no prior cache: don't preemptively scare the user.
+        XCTAssertFalse(CloudLibraryStore.shouldFlagNewerVersion(
+            cachedActiveTranscriptId: nil,
+            freshActiveTranscriptId: "trans_v1",
+            cachedTranscriptResponseId: nil
+        ))
+    }
+
+    func test_shouldFlagNewerVersion_returnsFalse_whenIdsMatch() {
+        XCTAssertFalse(CloudLibraryStore.shouldFlagNewerVersion(
+            cachedActiveTranscriptId: "trans_v1",
+            freshActiveTranscriptId: "trans_v1",
+            cachedTranscriptResponseId: "trans_v1"
+        ))
+    }
+
+    func test_shouldFlagNewerVersion_returnsTrue_whenCloudHasNewerTranscript() {
+        XCTAssertTrue(CloudLibraryStore.shouldFlagNewerVersion(
+            cachedActiveTranscriptId: "trans_v1",
+            freshActiveTranscriptId: "trans_v2",
+            cachedTranscriptResponseId: "trans_v1"
+        ))
+    }
+
+    func test_shouldFlagNewerVersion_returnsFalse_whenLocalCacheAlreadyHasNewerTranscript() {
+        // Local retranscribe just finished: transcriptCache holds trans_v2,
+        // recording.activeTranscriptId still pointed at trans_v1 in our cache,
+        // and cloud detail catches up to trans_v2. Don't show the banner —
+        // the user is already viewing the latest content.
+        XCTAssertFalse(CloudLibraryStore.shouldFlagNewerVersion(
+            cachedActiveTranscriptId: "trans_v1",
+            freshActiveTranscriptId: "trans_v2",
+            cachedTranscriptResponseId: "trans_v2"
+        ))
+    }
+
+    func test_shouldFlagNewerVersion_returnsTrue_whenTranscriptCacheStillOnOldId() {
+        // Cloud advanced past local. transcriptCache happens to hold the old id.
+        XCTAssertTrue(CloudLibraryStore.shouldFlagNewerVersion(
+            cachedActiveTranscriptId: "trans_v1",
+            freshActiveTranscriptId: "trans_v2",
+            cachedTranscriptResponseId: "trans_old_unrelated"
+        ))
+    }
+
+    func test_shouldFlagNewerVersion_returnsTrue_whenTranscriptCacheIsAbsent() {
+        // We have a cached recording.activeTranscriptId but no transcript
+        // content cached yet. Cloud advanced — this is exactly the staleness
+        // we want to flag (user opens detail, sees old metadata, but cloud
+        // already has newer transcript).
+        XCTAssertTrue(CloudLibraryStore.shouldFlagNewerVersion(
+            cachedActiveTranscriptId: "trans_v1",
+            freshActiveTranscriptId: "trans_v2",
+            cachedTranscriptResponseId: nil
+        ))
+    }
+
 }

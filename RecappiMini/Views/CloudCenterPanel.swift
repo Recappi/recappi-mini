@@ -246,6 +246,7 @@ struct CloudCenterPanel: View {
                 isSyncingToLocal: store.isSyncingToLocal,
                 isRetranscribing: store.isRetranscribing,
                 hasDownloadedAudio: store.lastDownloadedAudioURL != nil,
+                hasNewerVersion: store.hasNewerVersionForSelection,
                 onLoadTranscript: { Task { await store.loadTranscriptForSelection() } },
                 onCopyTranscript: store.copySelectedTranscript,
                 onRetranscribe: { showingRetranscribeConfirmation = true },
@@ -254,7 +255,8 @@ struct CloudCenterPanel: View {
                 onSyncToLocal: { Task { await store.syncSelectedRecordingToLocal() } },
                 onDownloadAudio: { Task { await store.downloadSelectedAudio() } },
                 onRevealAudio: store.revealLastDownloadedAudio,
-                onDelete: { showingDeleteConfirmation = true }
+                onDelete: { showingDeleteConfirmation = true },
+                onAcknowledgeNewerVersion: { Task { await store.acknowledgeNewerVersion() } }
             )
             .task(id: recording.id) {
                 await store.loadTranscriptForSelection()
@@ -847,6 +849,7 @@ private struct CloudRecordingDetail: View {
     let isSyncingToLocal: Bool
     let isRetranscribing: Bool
     let hasDownloadedAudio: Bool
+    let hasNewerVersion: Bool
     let onLoadTranscript: () -> Void
     let onCopyTranscript: () -> Void
     let onRetranscribe: () -> Void
@@ -856,6 +859,7 @@ private struct CloudRecordingDetail: View {
     let onDownloadAudio: () -> Void
     let onRevealAudio: () -> Void
     let onDelete: () -> Void
+    let onAcknowledgeNewerVersion: () -> Void
 
     var body: some View {
         readerPane
@@ -896,7 +900,11 @@ private struct CloudRecordingDetail: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 13) {
                 detailHeader
+                // Failed/processing transcription banner (orange) sits above the
+                // newer-version banner (blue) so terminal errors stay closer to
+                // the header than informational refresh prompts.
                 latestJobStrip
+                newerVersionStrip
                 detailJumpBar
             }
             .padding(.horizontal, 22)
@@ -1712,6 +1720,60 @@ private struct CloudRecordingDetail: View {
                 .foregroundStyle(Color.dtLabelSecondary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var newerVersionStrip: some View {
+        if hasNewerVersion {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(DT.systemBlue)
+                    .frame(width: 13)
+
+                Text("Newer version available")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabel)
+
+                Text("Cloud has a newer transcript than the one you're viewing.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 0)
+
+                Button(action: onAcknowledgeNewerVersion) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10.5, weight: .semibold))
+                        Text("Refresh")
+                            .font(.system(size: 10.5, weight: .semibold))
+                    }
+                    .foregroundStyle(DT.systemBlue)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(DT.systemBlue.opacity(0.16))
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Refresh to load newer cloud version")
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionRefreshButton)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(DT.systemBlue.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(DT.systemBlue.opacity(0.18), lineWidth: 1)
+            )
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionBanner)
         }
     }
 
