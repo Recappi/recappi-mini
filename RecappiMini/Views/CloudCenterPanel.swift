@@ -21,6 +21,13 @@ struct CloudCenterPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 1160, height: 760)
+        // Break out of the top safe area so the SwiftUI header sits at
+        // window y=0 instead of being pushed below the now-hidden
+        // native title bar reserve. Without this, even a transparent
+        // `.fullSizeContentView` window leaves a small inset that
+        // makes the custom header look like it is "floating" with a
+        // dead strip above it.
+        .ignoresSafeArea(.container, edges: .top)
         .background(DT.recordingShell)
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
@@ -74,15 +81,15 @@ struct CloudCenterPanel: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            LogoTile(size: 36)
+        HStack(spacing: 10) {
+            LogoTile(size: 28)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text("Recappi Cloud")
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
                 Text(headerSubtitle)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                     .foregroundStyle(Color.dtLabelSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -126,8 +133,9 @@ struct CloudCenterPanel: View {
             .help("Close Cloud")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.closeWindowButton)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(height: 48)
         .background {
             // `WindowDragHandle` sits behind the visible header chrome
             // and turns every empty pixel into a window-move target,
