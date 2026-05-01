@@ -573,11 +573,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 920, height: 760),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            // `.fullSizeContentView` lets the SwiftUI panel draw under
+            // the macOS title bar so the Cloud window reads like an
+            // app surface rather than a Finder document — the SwiftUI
+            // header already shows "Recappi Cloud", a status chip, and
+            // a refresh button, which would be redundant alongside the
+            // native title text.
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "Recappi Cloud"
+        // Keep the underlying `.titled` mask (so the traffic-light
+        // controls render and the user can still drag the window from
+        // the title-bar strip), but make the bar transparent and hide
+        // the title text so only the SwiftUI header is visible.
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 840, height: 680)
         window.contentView = hostingView

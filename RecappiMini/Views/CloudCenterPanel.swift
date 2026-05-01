@@ -113,7 +113,15 @@ struct CloudCenterPanel: View {
             .help("Refresh cloud recordings")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.refreshButton)
         }
-        .padding(.horizontal, 18)
+        // Leading inset reserves space for the macOS traffic-light
+        // controls (close / minimize / zoom) that overlap the SwiftUI
+        // header now that the window draws under a transparent
+        // `.fullSizeContentView` title bar. 78pt covers the three
+        // 14pt buttons + 8pt inter-button gaps + native left margin
+        // without leaving a visible gap on builds where the title
+        // bar is not transparent.
+        .padding(.leading, 78)
+        .padding(.trailing, 18)
         .padding(.vertical, 14)
         .background {
             Rectangle()
