@@ -112,29 +112,57 @@ struct CloudCenterPanel: View {
             .disabled(store.isRefreshing || sessionStore.isAuthBusy)
             .help("Refresh cloud recordings")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.refreshButton)
+
+            // The Cloud window hides the macOS traffic-light controls
+            // so the SwiftUI header can render flush to the leading
+            // edge — surface an in-panel close affordance here so the
+            // user keeps an obvious "dismiss" action.
+            Button {
+                cloudHostWindow?.performClose(nil)
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(PanelIconButtonStyle())
+            .help("Close Cloud")
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.closeWindowButton)
         }
-        // Leading inset reserves space for the macOS traffic-light
-        // controls (close / minimize / zoom) that overlap the SwiftUI
-        // header now that the window draws under a transparent
-        // `.fullSizeContentView` title bar. 78pt covers the three
-        // 14pt buttons + 8pt inter-button gaps + native left margin
-        // without leaving a visible gap on builds where the title
-        // bar is not transparent.
-        .padding(.leading, 78)
-        .padding(.trailing, 18)
+        .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .background {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.055), Color.white.opacity(0.018)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+            // `WindowDragHandle` sits behind the visible header chrome
+            // and turns every empty pixel into a window-move target,
+            // restoring the affordance that the native title bar used
+            // to provide. The translucent visual chrome is pushed into
+            // an `.allowsHitTesting(false)` overlay so SwiftUI's hit
+            // testing falls through to the underlying `NSView`.
+            WindowDragHandle()
+                .overlay {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .overlay(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.055), Color.white.opacity(0.018)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .allowsHitTesting(false)
+                }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    /// Resolve the host `NSWindow` lazily. The panel does not get a
+    /// reference to its window at construction time, but `NSApp` keeps
+    /// the list of open windows and `RecappiMiniApp.showCloudCenter`
+    /// stamps `"Recappi Cloud"` on the window title. Falling back to
+    /// the key window covers cases where the title is briefly empty
+    /// during transitions.
+    private var cloudHostWindow: NSWindow? {
+        if let titled = NSApp.windows.first(where: { $0.title == "Recappi Cloud" }) {
+            return titled
+        }
+        return NSApp.keyWindow
     }
 
     @ViewBuilder
@@ -858,6 +886,21 @@ private struct HeaderGlassButtonStyle: ButtonStyle {
                     .strokeBorder(Color.white.opacity(configuration.isPressed ? 0.22 : 0.12), lineWidth: 0.75)
             )
             .opacity(configuration.isPressed ? 0.86 : 1)
+    }
+}
+
+/// Empty `NSView` whose only purpose is to opt into AppKit's
+/// "click-and-drag the background to move the window" behaviour. We
+/// drop one of these behind the Cloud header so the user can grab any
+/// non-interactive pixel of our SwiftUI chrome and reposition the
+/// window — replacing the affordance the native title bar used to
+/// provide before we hid the traffic lights.
+private struct WindowDragHandle: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { DraggableView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class DraggableView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
     }
 }
 

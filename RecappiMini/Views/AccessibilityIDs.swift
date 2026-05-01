@@ -55,6 +55,7 @@ enum AccessibilityIDs {
         static let window = "recappi.cloud.window"
         static let authStatus = "recappi.cloud.authStatus"
         static let refreshButton = "recappi.cloud.refreshButton"
+        static let closeWindowButton = "recappi.cloud.closeWindowButton"
         static let billingStatus = "recappi.cloud.billingStatus"
         static let billingButton = "recappi.cloud.billingButton"
         static let plansButton = "recappi.cloud.plansButton"

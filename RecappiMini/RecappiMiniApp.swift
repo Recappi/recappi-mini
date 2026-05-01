@@ -584,12 +584,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             defer: false
         )
         window.title = "Recappi Cloud"
-        // Keep the underlying `.titled` mask (so the traffic-light
-        // controls render and the user can still drag the window from
-        // the title-bar strip), but make the bar transparent and hide
-        // the title text so only the SwiftUI header is visible.
+        // Keep the underlying `.titled` mask (so the window registers
+        // as a real titled window and `performClose` from the SwiftUI
+        // header still does the right thing), but make the bar
+        // transparent, hide the title text, and pull the traffic-light
+        // controls out of the chrome so the SwiftUI header can render
+        // its logo flush to the leading edge.
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 840, height: 680)
         window.contentView = hostingView
