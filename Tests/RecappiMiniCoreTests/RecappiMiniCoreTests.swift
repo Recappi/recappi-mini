@@ -778,6 +778,138 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertNil(otherOrigin)
     }
 
+    func testCloudLibraryCachePersistsTranscriptFreshnessAnchorInSQLite() async throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let recording = try JSONDecoder().decode(
+            CloudRecording.self,
+            from: """
+            {
+              "id": "rec_123",
+              "userId": "user_123",
+              "title": "Cached recording",
+              "status": "ready",
+              "activeTranscriptId": "tr_123",
+              "updatedAt": "2026-04-24T08:03:00.000Z"
+            }
+            """.data(using: .utf8)!
+        )
+        let transcript = try JSONDecoder().decode(
+            TranscriptResponse.self,
+            from: """
+            {
+              "id": "tr_123",
+              "text": "Hello from cache.",
+              "summary": "Cached summary.",
+              "segments": []
+            }
+            """.data(using: .utf8)!
+        )
+        let anchor = Date(timeIntervalSince1970: 1_776_958_013.234)
+        let cache = CloudLibraryCache(directoryURL: temp)
+        let snapshot = CloudLibrarySnapshot(
+            userId: "user_123",
+            backendOrigin: "https://recordmeet.ing",
+            savedAt: Date(timeIntervalSince1970: 1_776_957_994),
+            recordings: [recording],
+            nextCursor: nil,
+            selectedRecordingID: "rec_123",
+            billingStatus: nil,
+            transcriptCache: ["rec_123": transcript],
+            transcriptCacheRecordingUpdatedAt: ["rec_123": anchor]
+        )
+
+        await cache.saveSnapshot(snapshot)
+
+        let loadedSnapshot = await cache.loadSnapshot(userId: "user_123", backendOrigin: "https://recordmeet.ing")
+        let loaded = try XCTUnwrap(loadedSnapshot)
+        XCTAssertEqual(loaded.decodedTranscripts["rec_123"]?.id, "tr_123")
+        XCTAssertEqual(
+            try XCTUnwrap(loaded.decodedTranscriptCacheRecordingUpdatedAt["rec_123"]).timeIntervalSince1970,
+            anchor.timeIntervalSince1970,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temp.appendingPathComponent("cloud-cache.sqlite3").path))
+    }
+
+    func testCloudLibraryCacheMigratesLegacyJSONSnapshotIntoSQLite() async throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+
+        let recording = try JSONDecoder().decode(
+            CloudRecording.self,
+            from: """
+            {
+              "id": "rec_legacy",
+              "userId": "user_123",
+              "title": "Legacy cached recording",
+              "status": "ready",
+              "activeTranscriptId": "tr_legacy",
+              "updatedAt": "2026-04-24T08:03:00.000Z"
+            }
+            """.data(using: .utf8)!
+        )
+        let transcript = try JSONDecoder().decode(
+            TranscriptResponse.self,
+            from: """
+            {
+              "id": "tr_legacy",
+              "text": "Legacy transcript.",
+              "summaryJson": "{\\"tldr\\":\\"Legacy TLDR.\\"}",
+              "segments": []
+            }
+            """.data(using: .utf8)!
+        )
+        let job = try JSONDecoder().decode(
+            TranscriptionJob.self,
+            from: """
+            {
+              "id": "job_legacy",
+              "status": "succeeded",
+              "transcriptId": "tr_legacy",
+              "provider": "gemini",
+              "model": "gemini-3-flash-preview"
+            }
+            """.data(using: .utf8)!
+        )
+        let anchor = Date(timeIntervalSince1970: 1_776_958_013.456)
+        let snapshot = CloudLibrarySnapshot(
+            userId: "user_123",
+            backendOrigin: "https://recordmeet.ing",
+            savedAt: Date(timeIntervalSince1970: 1_776_957_994),
+            recordings: [recording],
+            nextCursor: "next_legacy",
+            selectedRecordingID: "rec_legacy",
+            billingStatus: nil,
+            transcriptCache: ["rec_legacy": transcript],
+            transcriptionJobsByRecordingID: ["rec_legacy": [job]],
+            transcriptCacheRecordingUpdatedAt: ["rec_legacy": anchor]
+        )
+        let legacyURL = temp.appendingPathComponent(
+            CloudLibraryCache.cacheFilename(userId: "user_123", backendOrigin: "https://recordmeet.ing")
+        )
+        try JSONEncoder().encode(snapshot).write(to: legacyURL)
+
+        let cache = CloudLibraryCache(directoryURL: temp)
+        let migratedSnapshot = await cache.loadSnapshot(userId: "user_123", backendOrigin: "https://recordmeet.ing")
+        let migrated = try XCTUnwrap(migratedSnapshot)
+        XCTAssertEqual(migrated.decodedRecordings.first?.id, "rec_legacy")
+        XCTAssertEqual(migrated.decodedTranscripts["rec_legacy"]?.summary, "Legacy TLDR.")
+        XCTAssertEqual(migrated.decodedTranscriptionJobsByRecordingID["rec_legacy"]?.first?.id, "job_legacy")
+        XCTAssertEqual(migrated.decodedTranscriptCacheRecordingUpdatedAt["rec_legacy"], anchor)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temp.appendingPathComponent("cloud-cache.sqlite3").path))
+
+        try FileManager.default.removeItem(at: legacyURL)
+        let loadedFromSQLiteSnapshot = await cache.loadSnapshot(userId: "user_123", backendOrigin: "https://recordmeet.ing")
+        let loadedFromSQLite = try XCTUnwrap(loadedFromSQLiteSnapshot)
+        XCTAssertEqual(loadedFromSQLite.selectedRecordingID, "rec_legacy")
+        XCTAssertEqual(loadedFromSQLite.nextCursor, "next_legacy")
+        XCTAssertEqual(loadedFromSQLite.decodedTranscripts["rec_legacy"]?.id, "tr_legacy")
+        XCTAssertEqual(loadedFromSQLite.decodedTranscriptCacheRecordingUpdatedAt["rec_legacy"], anchor)
+    }
+
     func testUnauthorizedResponseMapsToExpiredAuthPath() throws {
         let response = try XCTUnwrap(
             HTTPURLResponse(

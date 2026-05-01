@@ -23,6 +23,7 @@ let package = Package(
                 .linkedFramework("AuthenticationServices"),
                 .linkedFramework("CoreMedia"),
                 .linkedFramework("Security"),
+                .linkedLibrary("sqlite3"),
                 .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", "RecappiMini/Info.plist"]),
             ]
         ),
