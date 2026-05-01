@@ -39,6 +39,20 @@ struct UITestModeConfiguration {
     /// default; gated by `RECAPPI_PERF_LOG=1`.
     let perfLogEnabled: Bool
 
+    /// Force the first-launch onboarding window to appear on every launch
+    /// regardless of `OnboardingState.didComplete`. Gated by
+    /// `RECAPPI_TEST_FORCE_ONBOARDING=1`. Used by UI automation tests
+    /// that want to drive the onboarding flow without resetting the
+    /// host's user defaults.
+    let forceOnboardingForTesting: Bool
+
+    /// Suppress the onboarding window even when the user defaults flag
+    /// would normally cause it to appear. Gated by
+    /// `RECAPPI_TEST_SUPPRESS_ONBOARDING=1`. Used by UI automation
+    /// fixtures that target later flows and don't want the welcome
+    /// window in their way.
+    let suppressOnboardingForTesting: Bool
+
     private init(processInfo: ProcessInfo = .processInfo) {
         let env = processInfo.environment
         let args = Set(processInfo.arguments)
@@ -52,6 +66,8 @@ struct UITestModeConfiguration {
         openCloudWindowOnLaunch = env["RECAPPI_TEST_OPEN_CLOUD_WINDOW"] == "1"
         forceNewerVersionBannerForTesting = env["RECAPPI_TEST_FORCE_NEWER_VERSION_BANNER"] == "1"
         perfLogEnabled = env["RECAPPI_PERF_LOG"] == "1"
+        forceOnboardingForTesting = env["RECAPPI_TEST_FORCE_ONBOARDING"] == "1"
+        suppressOnboardingForTesting = env["RECAPPI_TEST_SUPPRESS_ONBOARDING"] == "1"
         if let rawSnooze = env["RECAPPI_TEST_HIDDEN_AUTOPROMPT_SNOOZE_SECONDS"],
            let parsedSnooze = TimeInterval(rawSnooze) {
             hiddenAutoPromptSnoozeSeconds = max(parsedSnooze, 0)

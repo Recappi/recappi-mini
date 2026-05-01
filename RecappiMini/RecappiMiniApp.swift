@@ -94,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var panel: FloatingPanel?
     private var settingsWindow: NSWindow?
     private var cloudWindow: NSWindow?
+    private var onboardingWindow: NSWindow?
     private let cloudStore = CloudLibraryStore()
     private let recorder = AudioRecorder()
     private let appUpdater = AppUpdater.shared
@@ -165,6 +166,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         }
         appUpdater.start()
         configureNotifications()
+
+        // First-launch onboarding (intro → permissions → sign-in). Skipped
+        // on subsequent launches via `OnboardingState.didComplete`. Runs
+        // alongside the floating panel install so a returning user does
+        // not see any gating behavior. UI-automation env vars
+        // (`RECAPPI_TEST_FORCE_ONBOARDING` / `RECAPPI_TEST_SUPPRESS_ONBOARDING`)
+        // can override the persisted flag for fixture stability.
+        //
+        // Implicit suppression for Cloud-window UI smoke runs:
+        // `RECAPPI_TEST_OPEN_CLOUD_WINDOW=1` fixtures expect the Cloud
+        // window to be the foreground surface on launch. On a CI runner
+        // with empty UserDefaults the onboarding window would slot in
+        // front and break those tests. We only force-suppress here when
+        // the run did *not* explicitly set
+        // `RECAPPI_TEST_FORCE_ONBOARDING=1`, so a fixture that wants to
+        // test onboarding alongside cloud open can still opt in.
+        let implicitOnboardingSuppression =
+            uiTestMode.openCloudWindowOnLaunch
+            && !uiTestMode.forceOnboardingForTesting
+        if OnboardingState.shouldPresentOnLaunch(
+            uiTestModeForcesOnboarding: uiTestMode.forceOnboardingForTesting,
+            uiTestModeSuppressesOnboarding: uiTestMode.suppressOnboardingForTesting
+                || implicitOnboardingSuppression
+        ) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.showOnboardingWindow()
+            }
+        }
 
         if uiTestMode.openCloudWindowOnLaunch {
             return
@@ -556,6 +585,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         window.center()
         window.makeKeyAndOrderFront(nil)
         cloudWindow = window
+    }
+
+    /// Present the first-launch onboarding modal. Called by
+    /// `finishLaunchingIfNeeded` when `OnboardingState.shouldPresentOnLaunch`
+    /// is true. The window is its own NSWindow rather than a sheet so the
+    /// user can move it, see the menu bar status item appearing in the
+    /// background, and get a clear "complete this once" affordance.
+    func showOnboardingWindow() {
+        if let existing = onboardingWindow {
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        // Promote the app to a regular activation policy while the window is
+        // visible so it can become key (the floating panel uses
+        // `.accessory`, which would prevent that). We restore on close.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+
+        let view = OnboardingView(sessionStore: AuthSessionStore.shared) { [weak self] in
+            self?.completeOnboardingAndDismiss()
+        }
+        let hostingView = NSHostingView(rootView: view)
+        hostingView.autoresizingMask = [.width, .height]
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 440),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Welcome to Recappi"
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isReleasedWhenClosed = false
+        window.isMovableByWindowBackground = true
+        window.contentView = hostingView
+        window.delegate = self
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        onboardingWindow = window
+    }
+
+    /// Called when the onboarding view's `onFinish` fires (Skip / Done /
+    /// Get started). Persist completion, drop the window, and fall back to
+    /// the standard accessory activation policy if no other foreground
+    /// window is open.
+    private func completeOnboardingAndDismiss() {
+        OnboardingState.didComplete = true
+        if let window = onboardingWindow {
+            window.delegate = nil
+            window.close()
+            onboardingWindow = nil
+        }
+        restoreAccessoryActivationPolicyIfPossible()
     }
 
     private func prepareForForegroundUpdateCheck() {
@@ -955,7 +1039,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             window.isVisible && window.title.localizedCaseInsensitiveContains("settings")
         }
         let hasVisibleCloudWindow = cloudWindow?.isVisible == true
-        guard !hasVisibleSettingsWindow && !hasVisibleCloudWindow else { return }
+        // The onboarding window also needs `.regular` activation policy to
+        // become key. If a Sparkle update or some other path tries to drop
+        // the policy back to `.accessory` while onboarding is still on
+        // screen, the user would lose focus and see a half-presented
+        // window. Treat onboarding visibility as a hard guard against the
+        // policy switch.
+        let hasVisibleOnboardingWindow = onboardingWindow?.isVisible == true
+        guard !hasVisibleSettingsWindow,
+              !hasVisibleCloudWindow,
+              !hasVisibleOnboardingWindow else { return }
         NSApp.setActivationPolicy(.accessory)
     }
 
@@ -1078,11 +1171,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func windowWillClose(_ notification: Notification) {
-        if let closingWindow = notification.object as? NSWindow, closingWindow === settingsWindow {
+        guard let closingWindow = notification.object as? NSWindow else { return }
+        if closingWindow === settingsWindow {
             settingsWindow = nil
             restoreAccessoryActivationPolicyIfPossible()
-        } else if let closingWindow = notification.object as? NSWindow, closingWindow === cloudWindow {
+        } else if closingWindow === cloudWindow {
             cloudWindow = nil
+            restoreAccessoryActivationPolicyIfPossible()
+        } else if closingWindow === onboardingWindow {
+            // Title-bar X is *bookmark and exit*, not completion. The
+            // current step has already been persisted via
+            // `OnboardingState.lastStep` on every transition; we
+            // intentionally do NOT set `didComplete = true` here so that
+            // the user can come back to the same step on next launch.
+            // Only the in-view footer Skip / Get started buttons mark
+            // the flow as complete.
+            //
+            // We still drop the window reference (otherwise a future
+            // `showOnboardingWindow()` would try to bring back a
+            // deallocated window) and restore the accessory policy if no
+            // other foreground window is open.
+            onboardingWindow = nil
             restoreAccessoryActivationPolicyIfPossible()
         }
     }

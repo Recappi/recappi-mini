@@ -28,6 +28,7 @@ struct SettingsView: View {
                 transcriptionSection
                 storageSection
                 updatesSection
+                supportSection
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
@@ -291,6 +292,37 @@ struct SettingsView: View {
         } header: {
             Text("Updates")
         }
+    }
+
+    /// Surfaces less-frequent maintenance affordances. Currently this is
+    /// the "restart onboarding" entry — clears the persisted onboarding
+    /// flags and asks `AppDelegate` to re-present the welcome window so
+    /// the user can revisit the permission/sign-in walkthrough (useful
+    /// after wiping a permission in System Settings, or for re-running
+    /// the flow on a debug build).
+    @ViewBuilder
+    private var supportSection: some View {
+        Section {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Restart onboarding")
+                        .font(.body)
+                    Text("Replays the welcome screen, permission walkthrough, and sign-in step.")
+                        .font(.footnote)
+                        .foregroundStyle(Color.dtLabelSecondary)
+                }
+                Spacer(minLength: 12)
+                Button("Restart") { restartOnboarding() }
+            }
+        } header: {
+            Text("Help")
+        }
+    }
+
+    private func restartOnboarding() {
+        OnboardingState.didComplete = false
+        OnboardingState.lastStep = .welcome
+        AppDelegate.shared.showOnboardingWindow()
     }
 
     @ViewBuilder

@@ -355,9 +355,11 @@ struct CloudCenterPanel: View {
 
     private func authRequiredView(title: String, detail: String) -> some View {
         VStack(spacing: 14) {
-            Image(systemName: "person.crop.circle.badge.plus")
-                .font(.system(size: 34))
-                .foregroundStyle(DT.waveformLit)
+            // Brand `LogoTile` instead of a generic SF Symbol so the
+            // sign-in surface looks like Recappi rather than a stock
+            // contact-empty placeholder. Folds task #32's "central icon
+            // should match brand" requirement.
+            LogoTile(size: 56)
             Text(title)
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Color.dtLabel)
@@ -367,6 +369,9 @@ struct CloudCenterPanel: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
 
+            // Each sign-in button gets a fixed width so the loading state
+            // (spinner + multi-word text) cannot squeeze the label into a
+            // truncated `Continue in browser…` (the other half of #32).
             HStack(spacing: 10) {
                 Button {
                     Task { await store.signIn(with: .google) }
@@ -375,6 +380,7 @@ struct CloudCenterPanel: View {
                 }
                 .buttonStyle(PanelPushButtonStyle(primary: true))
                 .disabled(sessionStore.isAuthBusy)
+                .frame(width: 168)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.signInGoogleButton)
 
                 Button {
@@ -384,9 +390,9 @@ struct CloudCenterPanel: View {
                 }
                 .buttonStyle(PanelPushButtonStyle())
                 .disabled(sessionStore.isAuthBusy)
+                .frame(width: 168)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.signInGitHubButton)
             }
-            .frame(width: 300)
 
             if case .expired = sessionStore.authStatus {
                 Button("Reconnect") {

@@ -1708,4 +1708,58 @@ final class RecappiMiniCoreTests: XCTestCase {
         ))
     }
 
+    // MARK: - OnboardingState.shouldPresentOnLaunch
+
+    func test_shouldPresentOnLaunch_returnsTrue_onFirstLaunch() {
+        XCTAssertTrue(OnboardingState.shouldPresentOnLaunch(
+            didComplete: false,
+            uiTestModeForcesOnboarding: false,
+            uiTestModeSuppressesOnboarding: false
+        ))
+    }
+
+    func test_shouldPresentOnLaunch_returnsFalse_afterCompletion() {
+        XCTAssertFalse(OnboardingState.shouldPresentOnLaunch(
+            didComplete: true,
+            uiTestModeForcesOnboarding: false,
+            uiTestModeSuppressesOnboarding: false
+        ))
+    }
+
+    func test_shouldPresentOnLaunch_uiTestSuppressTakesPrecedence() {
+        // Suppression beats both the persistent flag and the force flag —
+        // UI tests need to be able to pin the launch behavior in either
+        // direction without depending on the user defaults state of the
+        // host machine.
+        XCTAssertFalse(OnboardingState.shouldPresentOnLaunch(
+            didComplete: false,
+            uiTestModeForcesOnboarding: true,
+            uiTestModeSuppressesOnboarding: true
+        ))
+    }
+
+    func test_shouldPresentOnLaunch_uiTestForceOverridesCompletion() {
+        XCTAssertTrue(OnboardingState.shouldPresentOnLaunch(
+            didComplete: true,
+            uiTestModeForcesOnboarding: true,
+            uiTestModeSuppressesOnboarding: false
+        ))
+    }
+
+    /// Smoke fixtures that open the Cloud window on launch
+    /// (`RECAPPI_TEST_OPEN_CLOUD_WINDOW=1`) should not be ambushed by
+    /// the onboarding window on a CI runner with fresh UserDefaults.
+    /// `AppDelegate` derives an implicit suppression in that case and
+    /// hands it down to `shouldPresentOnLaunch`; this test pins the
+    /// downstream contract: when the suppress flag is `true`, the
+    /// function returns `false` regardless of the persisted completion
+    /// state.
+    func test_shouldPresentOnLaunch_implicitSuppressionFromOpenCloudFixture() {
+        XCTAssertFalse(OnboardingState.shouldPresentOnLaunch(
+            didComplete: false,
+            uiTestModeForcesOnboarding: false,
+            uiTestModeSuppressesOnboarding: true
+        ))
+    }
+
 }
