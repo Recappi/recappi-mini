@@ -1511,14 +1511,53 @@ final class RecappiMiniCoreTests: XCTestCase {
     }
 
     func test_shouldFlagNewerVersion_returnsTrue_whenTranscriptCacheIsAbsent() {
-        // We have a cached recording.activeTranscriptId but no transcript
-        // content cached yet. Cloud advanced — this is exactly the staleness
-        // we want to flag (user opens detail, sees old metadata, but cloud
-        // already has newer transcript).
+        // We already had this recording in our list (metadata snapshot at
+        // trans_v1) but never loaded the transcript content. Cloud has
+        // since advanced to trans_v2. The metadata diff alone justifies
+        // flagging — when the user opens the detail they would otherwise
+        // see no banner and no warning that the recording moved on.
         XCTAssertTrue(CloudLibraryStore.shouldFlagNewerVersion(
             cachedActiveTranscriptId: "trans_v1",
             freshActiveTranscriptId: "trans_v2",
             cachedTranscriptResponseId: nil
+        ))
+    }
+
+    // MARK: - v1.0.36 → v1.0.37 expanded staleness detection
+
+    func test_shouldFlagNewerVersion_returnsTrue_whenMetadataConsistentButLocalContentStale() {
+        // The peng-xiao bug: list/detail metadata both show "trans_v2" so
+        // there is no metadata diff, but the local transcript cache still
+        // points at the previous transcript "trans_v1". User is staring at
+        // outdated content with no banner. v1.0.37 flags this.
+        XCTAssertTrue(CloudLibraryStore.shouldFlagNewerVersion(
+            cachedActiveTranscriptId: "trans_v2",
+            freshActiveTranscriptId: "trans_v2",
+            cachedTranscriptResponseId: "trans_v1"
+        ))
+    }
+
+    func test_shouldFlagNewerVersion_returnsFalse_whileTranscriptIsLoading() {
+        // While `loadTranscriptForSelection` is in flight we suppress the
+        // banner so it does not flash on the normal "select recording"
+        // path before content arrives.
+        XCTAssertFalse(CloudLibraryStore.shouldFlagNewerVersion(
+            cachedActiveTranscriptId: "trans_v1",
+            freshActiveTranscriptId: "trans_v2",
+            cachedTranscriptResponseId: "trans_v1",
+            isTranscriptLoading: true
+        ))
+    }
+
+    func test_shouldFlagNewerVersion_loadingGuardOverridesContentStaleCase() {
+        // Same content-stale shape as
+        // `test_shouldFlagNewerVersion_returnsTrue_whenMetadataConsistentButLocalContentStale`
+        // but the loader is mid-flight. Suppress.
+        XCTAssertFalse(CloudLibraryStore.shouldFlagNewerVersion(
+            cachedActiveTranscriptId: "trans_v2",
+            freshActiveTranscriptId: "trans_v2",
+            cachedTranscriptResponseId: "trans_v1",
+            isTranscriptLoading: true
         ))
     }
 

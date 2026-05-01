@@ -243,6 +243,15 @@ final class CloudLibraryStore: ObservableObject {
         selectedRecordingID = recording.id
         transcriptErrorMessage = nil
         hasNewerVersionForSelection = false
+        // Pre-mark the recording as loading if its transcript content has
+        // not been cached yet. The detail view will trigger
+        // `loadTranscriptForSelection` shortly via `.task(id:)`, but
+        // `refreshSelectedDetailIfNeeded` may race ahead of it and read
+        // `transcriptLoadingRecordingIDs` before it gets populated. Setting
+        // the flag here closes that window so the banner does not flash.
+        if transcriptCache[recording.id] == nil {
+            setTranscriptLoading(true, for: recording.id)
+        }
         Task { await persistCacheSnapshot() }
         Task { await refreshSelectedDetailIfNeeded() }
     }
@@ -286,7 +295,8 @@ final class CloudLibraryStore: ObservableObject {
             if Self.shouldFlagNewerVersion(
                 cachedActiveTranscriptId: cachedActiveTranscriptId,
                 freshActiveTranscriptId: detail.activeTranscriptId,
-                cachedTranscriptResponseId: cachedTranscriptResponseId
+                cachedTranscriptResponseId: cachedTranscriptResponseId,
+                isTranscriptLoading: transcriptLoadingRecordingIDs.contains(recordingID)
             ) {
                 hasNewerVersionForSelection = true
             }
@@ -312,25 +322,58 @@ final class CloudLibraryStore: ObservableObject {
     }
 
     /// Pure decision for "should the newer-version banner show?".
-    /// Pulled out for unit-testable coverage of edge cases (nil cache,
-    /// matching ids, locally-cached fresh transcript, etc.).
+    ///
+    /// Two staleness shapes both produce `true`:
+    /// 1. **Metadata advanced**: cached recording's `activeTranscriptId`
+    ///    differs from the cloud's fresh value (a re-transcribe happened
+    ///    elsewhere). This is the obvious case.
+    /// 2. **Local content missing the active transcript**: even when the
+    ///    cached recording metadata already shows the latest
+    ///    `activeTranscriptId`, the local `transcriptCache` may hold the
+    ///    *previous* transcript (or nothing at all). v1.0.36 missed this
+    ///    case because the metadata diff was zero but the user still saw
+    ///    stale / empty Summary content.
+    ///
+    /// `isTranscriptLoading` lets the caller suppress the banner while the
+    /// transcript is actively being fetched, so users don't see it flash
+    /// during the normal "open recording → load transcript" sequence.
     nonisolated static func shouldFlagNewerVersion(
         cachedActiveTranscriptId: String?,
         freshActiveTranscriptId: String?,
-        cachedTranscriptResponseId: String?
+        cachedTranscriptResponseId: String?,
+        isTranscriptLoading: Bool = false
     ) -> Bool {
-        guard let fresh = freshActiveTranscriptId,
-              let cached = cachedActiveTranscriptId,
-              fresh != cached else {
+        guard let fresh = freshActiveTranscriptId else {
+            // No active transcript on the cloud side (e.g., a Failed
+            // recording that never produced one). Nothing to surface.
             return false
         }
-        // Suppress the banner when the local transcript cache already holds
-        // the newer transcript (e.g., we just finished a retranscribe locally
-        // and the recording metadata is only now catching up).
+        if isTranscriptLoading {
+            // Wait for the in-flight load to settle before deciding.
+            // Otherwise the banner would flash on every open.
+            return false
+        }
+        // Local already has the fresh transcript content cached: never flag,
+        // regardless of recording metadata's `activeTranscriptId` lag.
         if let cachedTranscriptResponseId, cachedTranscriptResponseId == fresh {
             return false
         }
-        return true
+        // Case 1: recording metadata's activeTranscriptId advanced away from
+        // what we previously cached.
+        if let cached = cachedActiveTranscriptId, cached != fresh {
+            return true
+        }
+        // Case 2: metadata is consistent (or first load), but local
+        // transcript content does not match the active transcript. Only
+        // flag when we have already touched this recording (cached
+        // recording metadata exists). For a first-time open we have no
+        // basis to claim staleness.
+        if cachedActiveTranscriptId != nil,
+           cachedTranscriptResponseId != nil,
+           cachedTranscriptResponseId != fresh {
+            return true
+        }
+        return false
     }
 
     func acknowledgeNewerVersion() async {
@@ -340,11 +383,23 @@ final class CloudLibraryStore: ObservableObject {
         transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
         await loadTranscriptForSelection()
         await loadJobHistoryForSelection()
-        // Only clear the banner once we actually have fresh transcript content
-        // for the current selection. If reload silently failed (no transcript,
-        // selection changed, etc.) we keep the banner so the user can retry.
+        // Only clear the banner once we actually have *the active* transcript
+        // for the current selection. Loading some other transcript (e.g. an
+        // older job that the API returned) would leave the user staring at
+        // stale content with the banner gone. Stay strict: id must match the
+        // recording's `activeTranscriptId`.
         if selectedRecordingID == recordingID,
-           transcriptCache[recordingID] != nil {
+           let recording = recordings.first(where: { $0.id == recordingID }),
+           let active = recording.activeTranscriptId,
+           transcriptCache[recordingID]?.id == active {
+            hasNewerVersionForSelection = false
+        } else if selectedRecordingID == recordingID,
+                  recordings.first(where: { $0.id == recordingID })?.activeTranscriptId == nil,
+                  transcriptCache[recordingID] != nil {
+            // Recording has no active transcript (rare: a Failed recording
+            // that we somehow reached the banner state on). If we got *any*
+            // transcript content back, treat it as resolved. This branch is
+            // a safety valve, not the common path.
             hasNewerVersionForSelection = false
         }
         await persistCacheSnapshot()

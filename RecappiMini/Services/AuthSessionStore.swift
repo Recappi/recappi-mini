@@ -113,6 +113,7 @@ final class AuthSessionStore: ObservableObject {
             if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
                 authStatus = .expired
             } else {
+                NSLog("[Recappi] auth.startOAuth: catch_all -> .failed type=\(String(describing: type(of: error)))")
                 authStatus = .failed
             }
             authStatusDetail = error.localizedDescription
@@ -184,8 +185,15 @@ final class AuthSessionStore: ObservableObject {
         do {
             let lookup = try await client.getSession()
             guard let session = lookup.userSession else {
+                // Server responded but did not return a session. Treat this
+                // as `.expired` (token effectively no good) rather than
+                // `.failed` — same semantic as a real 401, no need to flip
+                // the chip to "Needs attention" while the user is just
+                // browsing recordings.
+                NSLog("[Recappi] auth.ensureAuthorized: nil_userSession -> .expired")
                 discardPersistedCredentialStorage()
-                authStatus = .failed
+                authStatus = .expired
+                authStatusDetail = RecappiAPIError.unauthorized.localizedDescription
                 throw RecappiSessionError.invalidSession
             }
 
@@ -205,7 +213,17 @@ final class AuthSessionStore: ObservableObject {
             authFlowPhase = nil
             throw error
         } catch {
-            authStatus = .failed
+            // Transient network errors (timeout, 5xx, offline, DNS, etc.)
+            // should NOT poison `authStatus`. The user is still validly
+            // signed in — the request just failed. Flipping the status to
+            // `.failed` here causes the email chip to bounce to "Needs
+            // attention" on benign hiccups (e.g. selecting a recording
+            // while WiFi is flaky), confusing users into re-signing in.
+            //
+            // We still throw so the caller (CloudLibraryStore) can surface
+            // a cache-warning banner at its own layer, which is the right
+            // semantic for "transient request failure".
+            NSLog("[Recappi] auth.ensureAuthorized: transient_error type=\(String(describing: type(of: error))) -> auth_status_unchanged")
             authStatusDetail = error.localizedDescription
             authFlowPhase = nil
             throw error
