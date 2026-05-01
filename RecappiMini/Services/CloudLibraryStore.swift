@@ -41,6 +41,15 @@ final class CloudLibraryStore: ObservableObject {
     @Published private(set) var isShowingCachedData = false
     @Published private(set) var cacheWarningMessage: String?
     @Published private(set) var hasNewerVersionForSelection: Bool = false
+    /// Snapshot of `recording.updatedAt` taken at the moment a transcript
+    /// was written into `transcriptCache`. The freshness check used to read
+    /// `recordings[id].updatedAt` directly, but that array is refreshed by
+    /// `listRecordings()` independently of the transcript cache, so by the
+    /// time we tried to detect "summary landed after cache" the cached
+    /// recording metadata had already been overwritten with the latest
+    /// timestamp and the diff was always zero. Capturing the snapshot at
+    /// cache-write-time is the actual freshness anchor for transcripts.
+    @Published private(set) var transcriptCacheRecordingUpdatedAt: [String: Date] = [:]
 
     private let config: AppConfig
     private let sessionStore: AuthSessionStore
@@ -49,6 +58,11 @@ final class CloudLibraryStore: ObservableObject {
     private var isRemoteRefreshInFlight = false
     private var transcriptLoadingRecordingIDs: Set<String> = []
     private var jobHistoryLoadingRecordingIDs: Set<String> = []
+    /// In-memory once-per-session guard so the shape-based fallback (cached
+    /// transcript present but summary missing) does not retry the network
+    /// on every selection switch when the recording genuinely has no
+    /// summary yet. Persisted equivalents can live in the SQLite migration.
+    private var summaryRefreshAttemptedRecordingIDs: Set<String> = []
 
     init(
         config: AppConfig = .shared,
@@ -284,7 +298,20 @@ final class CloudLibraryStore: ObservableObject {
         // see the freshly fetched values and never produce a diff.
         let cachedRecording = recordings.first(where: { $0.id == recordingID })
         let cachedActiveTranscriptId = cachedRecording?.activeTranscriptId
-        let cachedUpdatedAt = cachedRecording?.updatedAt
+        // Use the transcript-cache-time snapshot of `recording.updatedAt`
+        // rather than the live `recordings[id].updatedAt`. The live value is
+        // refreshed independently by `listRecordings()` and would already
+        // reflect any post-summarize advance, masking the staleness of the
+        // transcript itself. The snapshot is set in
+        // `loadTranscriptForSelection` at the moment a transcript is
+        // written to `transcriptCache`. If we do not have a snapshot for
+        // this recording (e.g. cache loaded from an older
+        // `CloudLibrarySnapshot` version that did not persist the map),
+        // we fall back to the live recording timestamp as a degraded
+        // approximation; the shape-based fallback in
+        // `loadTranscriptForSelection` is the safety net for that case.
+        let cachedUpdatedAt = transcriptCacheRecordingUpdatedAt[recordingID]
+            ?? cachedRecording?.updatedAt
         let cachedTranscriptResponseId = transcriptCache[recordingID]?.id
         do {
             let detail = try await runAuthorized { client in
@@ -330,7 +357,13 @@ final class CloudLibraryStore: ObservableObject {
             // matches the local copy — idempotent and cheap.
             if contentUpdatedSinceCache {
                 transcriptCache.removeValue(forKey: recordingID)
+                transcriptCacheRecordingUpdatedAt.removeValue(forKey: recordingID)
                 transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
+                // A fresh fetch should be allowed again — clear the
+                // shape-based fallback's once-per-session guard so this
+                // recording can re-attempt if a future cache lands without
+                // summary content.
+                summaryRefreshAttemptedRecordingIDs.remove(recordingID)
             }
             // Test-only escape hatch: lets reviewers see the
             // `newerVersionStrip` banner without orchestrating a real
@@ -439,7 +472,11 @@ final class CloudLibraryStore: ObservableObject {
         guard let recordingID = selectedRecordingID else { return }
         // Drop caches first so the next loaders fetch fresh content.
         transcriptCache.removeValue(forKey: recordingID)
+        transcriptCacheRecordingUpdatedAt.removeValue(forKey: recordingID)
         transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
+        // The user explicitly asked for a refresh; let the shape-based
+        // fallback retry once more if necessary.
+        summaryRefreshAttemptedRecordingIDs.remove(recordingID)
         await loadTranscriptForSelection()
         await loadJobHistoryForSelection()
         // Only clear the banner once we actually have *the active* transcript
@@ -506,6 +543,27 @@ final class CloudLibraryStore: ObservableObject {
 
     func loadTranscriptForSelection() async {
         guard let recording = selectedRecording else { return }
+        // Shape-based fallback: when the cache holds a transcript with no
+        // summary content but the recording itself is in a state where the
+        // backend should have produced one by now, the cache is almost
+        // certainly a pre-summarize snapshot that we never refreshed. Drop
+        // it once per session so the load below actually fetches the
+        // current body. The snapshot strategy in
+        // `refreshSelectedDetailIfNeeded` is the primary path; this fallback
+        // catches recordings that pre-date the snapshot dictionary (i.e.
+        // came from older `CloudLibrarySnapshot` versions where the
+        // `transcriptCacheRecordingUpdatedAt` map is empty), and any
+        // recording whose `updatedAt` did not advance after summarize.
+        if let cached = transcriptCache[recording.id],
+           Self.shouldDropForMissingSummary(
+               cachedTranscript: cached,
+               recordingStatus: recording.status,
+               alreadyAttempted: summaryRefreshAttemptedRecordingIDs.contains(recording.id)
+           ) {
+            transcriptCache.removeValue(forKey: recording.id)
+            transcriptCacheRecordingUpdatedAt.removeValue(forKey: recording.id)
+            summaryRefreshAttemptedRecordingIDs.insert(recording.id)
+        }
         guard transcriptCache[recording.id] == nil else { return }
         // Capture the id we are loading for. The user may switch recordings
         // mid-flight; SwiftUI's `.task(id:)` already cancels the wrapping
@@ -515,6 +573,13 @@ final class CloudLibraryStore: ObservableObject {
         // not allowed to block selection transitions — when this task is
         // cancelled, we silently bail.
         let loadingRecordingID = recording.id
+        // Capture the recording-level `updatedAt` *before* the network call.
+        // This becomes the freshness anchor stored alongside the transcript:
+        // future detail refreshes will compare their freshly fetched
+        // `recording.updatedAt` against this snapshot, not against whatever
+        // value `recordings[id].updatedAt` has been overwritten to in the
+        // meantime by `listRecordings()`.
+        let recordingUpdatedAtSnapshot = recording.updatedAt
         setTranscriptLoading(true, for: loadingRecordingID)
         if selectedRecordingID == loadingRecordingID {
             transcriptErrorMessage = nil
@@ -535,6 +600,22 @@ final class CloudLibraryStore: ObservableObject {
             // any side effect.
             try Task.checkCancellation()
             transcriptCache[loadingRecordingID] = transcript
+            if let recordingUpdatedAtSnapshot {
+                transcriptCacheRecordingUpdatedAt[loadingRecordingID] = recordingUpdatedAtSnapshot
+            } else {
+                // The recording row had no `updatedAt` when we cached the
+                // transcript. Clear any prior snapshot so we don't leave a
+                // stale anchor — the shape-based fallback above will be the
+                // safety net for these recordings.
+                transcriptCacheRecordingUpdatedAt.removeValue(forKey: loadingRecordingID)
+            }
+            // The transcript we just received now contains a summary if the
+            // backend has produced one — successive selections of this
+            // recording can stop probing via the shape-based fallback.
+            if transcript.summary != nil
+                || (transcript.summaryInsights?.isEmpty == false) {
+                summaryRefreshAttemptedRecordingIDs.remove(loadingRecordingID)
+            }
             PerfLog.end("loadTranscript", extra: "segments=\(transcript.segments.count)")
             await persistCacheSnapshot()
         } catch is CancellationError {
@@ -552,6 +633,33 @@ final class CloudLibraryStore: ObservableObject {
         }
 
         setTranscriptLoading(false, for: loadingRecordingID)
+    }
+
+    /// Pure decision for "the cached transcript looks like a pre-summarize
+    /// snapshot, force one refetch to pick up the missing summary".
+    ///
+    /// Triggers when:
+    /// - we already cached a transcript body (so the empty-cache path won't
+    ///   re-fetch on its own), AND
+    /// - that body has no `summary` text and no non-empty `summaryInsights`,
+    ///   AND
+    /// - the recording row is `.ready` (a state in which the backend would
+    ///   normally have produced a summary), AND
+    /// - we have not already attempted a force-refetch for this id this
+    ///   session (avoids hammering recordings that genuinely have no
+    ///   summary yet).
+    nonisolated static func shouldDropForMissingSummary(
+        cachedTranscript: TranscriptResponse,
+        recordingStatus: CloudRecordingStatus,
+        alreadyAttempted: Bool
+    ) -> Bool {
+        guard !alreadyAttempted else { return false }
+        guard recordingStatus == .ready else { return false }
+        let hasSummaryText = (cachedTranscript.summary?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false)
+        let hasSummaryInsights = cachedTranscript.summaryInsights?.isEmpty == false
+        return !hasSummaryText && !hasSummaryInsights
     }
 
     func retranscribeSelectedRecording() async {
@@ -885,6 +993,12 @@ final class CloudLibraryStore: ObservableObject {
         billingStatus = snapshot.decodedBillingStatus
         transcriptCache = snapshot.decodedTranscripts
         transcriptionJobsByRecordingID = snapshot.decodedTranscriptionJobsByRecordingID
+        // Older snapshot versions did not persist this map. The decoded
+        // dictionary will be empty for those caches; the shape-based
+        // fallback in `loadTranscriptForSelection` is intentionally the
+        // safety net so users on legacy caches still get summary recovery
+        // on the next selection.
+        transcriptCacheRecordingUpdatedAt = snapshot.decodedTranscriptCacheRecordingUpdatedAt
         lastSuccessfulRefreshAt = snapshot.savedAt
         isShowingCachedData = true
         cacheWarningMessage = nil
@@ -912,7 +1026,8 @@ final class CloudLibraryStore: ObservableObject {
             selectedRecordingID: selectedRecordingID,
             billingStatus: billingStatus,
             transcriptCache: transcriptCache,
-            transcriptionJobsByRecordingID: transcriptionJobsByRecordingID
+            transcriptionJobsByRecordingID: transcriptionJobsByRecordingID,
+            transcriptCacheRecordingUpdatedAt: transcriptCacheRecordingUpdatedAt
         )
         await cache.saveSnapshot(snapshot)
     }

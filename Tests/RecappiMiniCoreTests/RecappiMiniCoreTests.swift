@@ -1616,4 +1616,96 @@ final class RecappiMiniCoreTests: XCTestCase {
         ))
     }
 
+    // MARK: - CloudLibraryStore.shouldDropForMissingSummary
+
+    private func makeTranscript(summary: String?, hasInsights: Bool) throws -> TranscriptResponse {
+        var dict: [String: Any] = [
+            "id": "trans-test",
+            "text": "hello",
+            "segments": [],
+        ]
+        if let summary {
+            dict["summary"] = summary
+        }
+        if hasInsights {
+            dict["summaryInsights"] = [
+                "tldr": "tldr-text",
+                "summary": NSNull(),
+                "keyPoints": ["one"],
+                "topics": [],
+                "decisions": [],
+                "actionItems": [],
+                "quotes": [],
+            ] as [String: Any]
+        }
+        let data = try JSONSerialization.data(withJSONObject: dict)
+        return try JSONDecoder().decode(TranscriptResponse.self, from: data)
+    }
+
+    func test_shouldDropForMissingSummary_returnsTrue_whenReadyAndNoSummary() throws {
+        // The peng-xiao bug: cache holds a transcript body but no summary,
+        // recording is `.ready`, and we have not yet attempted a force
+        // refetch this session. The shape-based fallback must drop the
+        // cache so the next load picks up the now-summarized body.
+        let transcript = try makeTranscript(summary: nil, hasInsights: false)
+        XCTAssertTrue(CloudLibraryStore.shouldDropForMissingSummary(
+            cachedTranscript: transcript,
+            recordingStatus: .ready,
+            alreadyAttempted: false
+        ))
+    }
+
+    func test_shouldDropForMissingSummary_returnsFalse_whenAlreadyAttempted() throws {
+        // Once-per-session retry guard: don't hammer the network for
+        // recordings that genuinely have no summary.
+        let transcript = try makeTranscript(summary: nil, hasInsights: false)
+        XCTAssertFalse(CloudLibraryStore.shouldDropForMissingSummary(
+            cachedTranscript: transcript,
+            recordingStatus: .ready,
+            alreadyAttempted: true
+        ))
+    }
+
+    func test_shouldDropForMissingSummary_returnsFalse_whenSummaryTextPresent() throws {
+        let transcript = try makeTranscript(summary: "we shipped it", hasInsights: false)
+        XCTAssertFalse(CloudLibraryStore.shouldDropForMissingSummary(
+            cachedTranscript: transcript,
+            recordingStatus: .ready,
+            alreadyAttempted: false
+        ))
+    }
+
+    func test_shouldDropForMissingSummary_returnsFalse_whenSummaryInsightsPresent() throws {
+        // Insights without a top-level summary string still counts as
+        // "summary content present" — the UI renders insights directly.
+        let transcript = try makeTranscript(summary: nil, hasInsights: true)
+        XCTAssertFalse(CloudLibraryStore.shouldDropForMissingSummary(
+            cachedTranscript: transcript,
+            recordingStatus: .ready,
+            alreadyAttempted: false
+        ))
+    }
+
+    func test_shouldDropForMissingSummary_returnsFalse_whenRecordingNotReady() throws {
+        // For a `.failed` recording the backend never produced a transcript
+        // job that could ever surface a summary; retrying is wasteful.
+        let transcript = try makeTranscript(summary: nil, hasInsights: false)
+        XCTAssertFalse(CloudLibraryStore.shouldDropForMissingSummary(
+            cachedTranscript: transcript,
+            recordingStatus: .failed,
+            alreadyAttempted: false
+        ))
+    }
+
+    func test_shouldDropForMissingSummary_returnsFalse_whenSummaryIsWhitespace() throws {
+        // Treat a whitespace-only summary as effectively absent so the
+        // recovery path still runs.
+        let transcript = try makeTranscript(summary: "   \n  ", hasInsights: false)
+        XCTAssertTrue(CloudLibraryStore.shouldDropForMissingSummary(
+            cachedTranscript: transcript,
+            recordingStatus: .ready,
+            alreadyAttempted: false
+        ))
+    }
+
 }

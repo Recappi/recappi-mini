@@ -66,7 +66,15 @@ actor CloudLibraryCache {
 }
 
 struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
-    static let currentVersion = 1
+    /// Bumped from 1 → 2 when `transcriptCacheRecordingUpdatedAt` was added
+    /// so the in-memory store could carry the freshness anchor across app
+    /// launches. Snapshots with a missing version (`nil`) — encoded by the
+    /// pre-version-2 build — still load via `isCurrentVersion`'s
+    /// `version <= currentVersion` guard but their
+    /// `transcriptCacheRecordingUpdatedAt` decodes as an empty dict, so
+    /// the runtime falls back to the shape-based summary recovery in
+    /// `loadTranscriptForSelection` for those records.
+    static let currentVersion = 2
 
     let version: Int
     let userId: String
@@ -78,6 +86,11 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
     let billingStatus: BillingStatusSnapshot?
     let transcripts: [String: TranscriptResponseSnapshot]
     let transcriptionJobsByRecordingID: [String: [TranscriptionJob]]?
+    /// Recording-level `updatedAt` captured at the moment a transcript was
+    /// written into the store's `transcriptCache`. Persisted so the
+    /// freshness anchor survives app restarts. Optional in the JSON to keep
+    /// older snapshot files readable.
+    let transcriptCacheRecordingUpdatedAt: [String: Date]?
 
     init(
         userId: String,
@@ -89,6 +102,7 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
         billingStatus: BillingStatus?,
         transcriptCache: [String: TranscriptResponse],
         transcriptionJobsByRecordingID: [String: [TranscriptionJob]] = [:],
+        transcriptCacheRecordingUpdatedAt: [String: Date] = [:],
         transcriptLimit: Int = 20
     ) {
         self.version = Self.currentVersion
@@ -108,15 +122,28 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
         orderedIDs.append(contentsOf: recordings.map(\.id).filter { $0 != selectedRecordingID })
         orderedIDs.append(contentsOf: transcriptCache.keys.sorted().filter { !orderedIDs.contains($0) })
 
-        self.transcripts = orderedIDs.prefix(transcriptLimit).reduce(into: [:]) { result, id in
+        let limitedIDs = Array(orderedIDs.prefix(transcriptLimit))
+        let limitedSet = Set(limitedIDs)
+        self.transcripts = limitedIDs.reduce(into: [:]) { result, id in
             if let transcript = transcriptCache[id] {
                 result[id] = TranscriptResponseSnapshot(transcript)
             }
         }
+        // Mirror the same scope as `transcripts`: only persist freshness
+        // anchors for transcripts we are actually persisting, so the two
+        // dictionaries cannot drift apart on disk.
+        self.transcriptCacheRecordingUpdatedAt = transcriptCacheRecordingUpdatedAt.filter {
+            limitedSet.contains($0.key)
+        }
     }
 
     var isCurrentVersion: Bool {
-        version == Self.currentVersion
+        // Accept any snapshot we know how to read forward-compatibly. The
+        // older v1 schema is missing only `transcriptCacheRecordingUpdatedAt`
+        // (which decodes to nil → empty dict), so the v1.0.40 store can
+        // still hydrate from a v1 file without forcing the user back to a
+        // remote refresh on first launch.
+        version <= Self.currentVersion
     }
 
     func matches(userId: String, backendOrigin: String) -> Bool {
@@ -137,6 +164,10 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
 
     var decodedTranscriptionJobsByRecordingID: [String: [TranscriptionJob]] {
         transcriptionJobsByRecordingID ?? [:]
+    }
+
+    var decodedTranscriptCacheRecordingUpdatedAt: [String: Date] {
+        transcriptCacheRecordingUpdatedAt ?? [:]
     }
 }
 
