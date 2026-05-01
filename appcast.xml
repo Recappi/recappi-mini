@@ -3,32 +3,33 @@
     <channel>
         <title>RecappiMini</title>
         <item>
-            <title>1.0.35</title>
-            <pubDate>Fri, 01 May 2026 06:09:37 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.35</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.35</sparkle:fullReleaseNotesLink>
-            <sparkle:version>37</sparkle:version>
-            <sparkle:shortVersionString>1.0.35</sparkle:shortVersionString>
+            <title>1.0.36</title>
+            <pubDate>Fri, 01 May 2026 07:12:33 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.36</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.36</sparkle:fullReleaseNotesLink>
+            <sparkle:version>38</sparkle:version>
+            <sparkle:shortVersionString>1.0.36</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <description><![CDATA[<pre>## What&#x27;s Changed
 
-- Redesigned the Recappi Cloud detail view around a single-column Summary and Transcript reading flow.
-- Moved meeting playback into a bottom mini player with clearer local-audio, cloud-only, and error states.
-- Added compact header actions with recording metadata in an info popover and lower-frequency actions in a More menu.
-- Improved structured summaries with TL;DR, key points, decisions, action items, quotes, and compact adaptive topic tags.
-- Added Summary / Transcript jump controls and kept them available while scrolling long transcripts.
-- Fixed waveform playhead alignment by sharing one timeline between active bars, the playhead, and drag seeking.
-- Reduced normal completed transcription chrome while keeping failed or active transcription jobs visible as a thin status banner.
-- Hardened local development signing so ad-hoc builds cannot accidentally reset macOS Screen Recording permissions.
-- Kept the app foregrounded correctly when manually checking for updates.
+- Cloud detail now surfaces a “Newer version available” banner when the cloud transcript advances beyond the locally cached recording view.
+- Added an inline Refresh action that drops stale transcript/job caches and reloads the latest cloud transcript.
+- Kept detection metadata-only with no polling, so unchanged recordings stay visually quiet.
+- Added test-only UI fixture support for the newer-version banner, clearly marked as not a feature flag.
 
 ## Validation
 
-- `swift test` passed: 72/72 tests.
+- `swift test` passed: 79/79 tests.
 - `git diff --check` passed.
 - Local stable-signed `./scripts/build-app.sh` passed.
-- Manual Cloud detail verification was performed on the original local app bundle with clean screenshots for folded/expanded Topics, transcript sticky navigation, failed transcription status, audio-not-local state, and waveform mid-playhead alignment.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.35/RecappiMini-1.0.35.dmg" length="3068912" type="application/octet-stream" sparkle:edSignature="oo7R34uW8XHTX/oDkngHfFSy9sCfy/pACt/TJWQxY/4pp56rHYW/7VDvHAimPwIAmeNs3FRWChmaSABQFFTeAQ=="/>
+- `codesign -dvv build/RecappiMini.app` confirmed `Authority=RecappiMini Dev`.
+- Visual verification covered the forced newer-version banner state and the baseline no-banner state.
+
+## Known Limitations / Follow-up
+
+- Recording-list blue-dot indicators are not included in this release; that remains a follow-up phase.
+- The Refresh button path should still get a quick human click-through on a naturally stale recording when one is available.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.36/RecappiMini-1.0.36.dmg" length="3081797" type="application/octet-stream" sparkle:edSignature="wZ6m+pdNmjc8sNlTC7Ky0hOI/W3Gw3R1wpZ+J2gUINypytWvrs7UF2YC8ZyBekQlJfzxf7Y2Ev610r3R9G4PDA=="/>
         </item>
     </channel>
 </rss>
