@@ -240,6 +240,8 @@ final class CloudLibraryStore: ObservableObject {
     }
 
     func select(_ recording: CloudRecording) {
+        PerfLog.event("select", extra: "id=\(recording.id.prefix(8))")
+        PerfLog.start("select.until.firstRender")
         selectedRecordingID = recording.id
         transcriptErrorMessage = nil
         hasNewerVersionForSelection = false
@@ -448,29 +450,51 @@ final class CloudLibraryStore: ObservableObject {
     func loadTranscriptForSelection() async {
         guard let recording = selectedRecording else { return }
         guard transcriptCache[recording.id] == nil else { return }
-        setTranscriptLoading(true, for: recording.id)
-        if selectedRecordingID == recording.id {
+        // Capture the id we are loading for. The user may switch recordings
+        // mid-flight; SwiftUI's `.task(id:)` already cancels the wrapping
+        // Task, but we still rely on this captured id to avoid touching
+        // unrelated state when the response (success or error) finally
+        // resolves on a now-stale task. Network requests are intentionally
+        // not allowed to block selection transitions — when this task is
+        // cancelled, we silently bail.
+        let loadingRecordingID = recording.id
+        setTranscriptLoading(true, for: loadingRecordingID)
+        if selectedRecordingID == loadingRecordingID {
             transcriptErrorMessage = nil
         }
 
+        PerfLog.start("loadTranscript")
         do {
             let transcript = try await runAuthorized { client in
                 // `activeTranscriptId` identifies the transcript row, while the
                 // backend's optional query parameter is a transcription job id.
                 // Cloud Library wants the latest transcript for the recording.
-                try await client.getRecordingTranscript(id: recording.id)
+                try await client.getRecordingTranscript(id: loadingRecordingID)
             }
-            transcriptCache[recording.id] = transcript
+            // Bail without state mutation if our load was cancelled while the
+            // network call was in flight (e.g., user switched recordings).
+            // The keyed-by-id writes below would technically be safe, but we
+            // skip them to keep the response of a stale request from leaking
+            // any side effect.
+            try Task.checkCancellation()
+            transcriptCache[loadingRecordingID] = transcript
+            PerfLog.end("loadTranscript", extra: "segments=\(transcript.segments.count)")
             await persistCacheSnapshot()
+        } catch is CancellationError {
+            PerfLog.end("loadTranscript", extra: "result=cancelled")
+            // Don't touch loading flag through guarded path: still let the
+            // `setTranscriptLoading(false, …)` below clear the keyed entry.
         } catch let error as RecappiAPIError where error == .unauthorized {
+            PerfLog.end("loadTranscript", extra: "result=unauthorized")
             apply(error: error)
         } catch {
-            if selectedRecordingID == recording.id {
+            PerfLog.end("loadTranscript", extra: "result=error type=\(String(describing: type(of: error)))")
+            if selectedRecordingID == loadingRecordingID {
                 transcriptErrorMessage = transcriptMessage(for: error)
             }
         }
 
-        setTranscriptLoading(false, for: recording.id)
+        setTranscriptLoading(false, for: loadingRecordingID)
     }
 
     func retranscribeSelectedRecording() async {

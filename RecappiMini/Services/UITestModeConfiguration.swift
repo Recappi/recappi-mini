@@ -32,6 +32,13 @@ struct UITestModeConfiguration {
     /// set explicitly in a test launch.
     let forceNewerVersionBannerForTesting: Bool
 
+    /// Performance instrumentation toggle. When set, perf-relevant code
+    /// paths emit `[RecappiPerf]` NSLog entries with `count=… ms=…` style
+    /// summaries (no transcript text, no titles, no PII). Used to baseline
+    /// large-recording lag and verify optimizations afterward. Off by
+    /// default; gated by `RECAPPI_PERF_LOG=1`.
+    let perfLogEnabled: Bool
+
     private init(processInfo: ProcessInfo = .processInfo) {
         let env = processInfo.environment
         let args = Set(processInfo.arguments)
@@ -44,6 +51,7 @@ struct UITestModeConfiguration {
         manualAuthEnabled = env["RECAPPI_ENABLE_MANUAL_AUTH"] == "1"
         openCloudWindowOnLaunch = env["RECAPPI_TEST_OPEN_CLOUD_WINDOW"] == "1"
         forceNewerVersionBannerForTesting = env["RECAPPI_TEST_FORCE_NEWER_VERSION_BANNER"] == "1"
+        perfLogEnabled = env["RECAPPI_PERF_LOG"] == "1"
         if let rawSnooze = env["RECAPPI_TEST_HIDDEN_AUTOPROMPT_SNOOZE_SECONDS"],
            let parsedSnooze = TimeInterval(rawSnooze) {
             hiddenAutoPromptSnoozeSeconds = max(parsedSnooze, 0)

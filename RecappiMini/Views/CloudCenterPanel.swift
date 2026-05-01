@@ -1956,16 +1956,32 @@ private struct CloudRecordingDetail: View {
         audioPlayer.seek(to: seconds)
     }
 
+    private func computeSegmentRowsWithPerfLogging() -> [CloudTranscriptSegmentDisplayRow] {
+        let segmentCount = transcript?.segments.count ?? 0
+        let rows = PerfLog.measure("displaySegmentRows", extra: "segments=\(segmentCount)") {
+            transcript?.displaySegmentRows ?? []
+        }
+        PerfLog.event("transcriptCard.render", extra: "rows=\(rows.count)")
+        PerfLog.end("select.until.firstRender", extra: "rows=\(rows.count)")
+        return rows
+    }
+
     @ViewBuilder
     private var transcriptCard: some View {
-        let segmentRows = transcript?.displaySegmentRows ?? []
+        let segmentRows = computeSegmentRowsWithPerfLogging()
         let activeSegmentID = activeSegmentID(in: segmentRows)
         ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.black.opacity(segmentRows.isEmpty ? 0.18 : 0.24))
 
             if !segmentRows.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
+                // `LazyVStack` (vs `VStack`): only the segments inside the
+                // viewport are laid out. For long recordings (~150-500 rows)
+                // this drops per-render layout work by an order of magnitude
+                // and is the main fix for the perceived lag when switching
+                // between recordings — the eager `VStack` was re-laying out
+                // every row each time SwiftUI re-evaluated this view.
+                LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(segmentRows) { row in
                         CloudTranscriptSegmentRow(
                             row: row,
