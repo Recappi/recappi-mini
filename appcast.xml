@@ -4,14 +4,21 @@
         <title>RecappiMini</title>
         <item>
             <title>1.0.40</title>
-            <pubDate>Fri, 01 May 2026 11:50:28 +0000</pubDate>
+            <pubDate>Fri, 01 May 2026 11:54:21 +0000</pubDate>
             <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.40</link>
             <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.40</sparkle:fullReleaseNotesLink>
-            <sparkle:version>43</sparkle:version>
+            <sparkle:version>44</sparkle:version>
             <sparkle:shortVersionString>1.0.40</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>Automated release for v1.0.40.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.40/RecappiMini-1.0.40.dmg" length="3101077" type="application/octet-stream" sparkle:edSignature="qimJqtxP/m3CRb2RoE61TMx13U0rs8Bjpe3M43yggkGYcGu8Imlyu/PL1capa3HH7T7jopQsBV1Oy7Buvo29DQ=="/>
+            <description><![CDATA[<pre>Cloud cache freshness fix:
+
+- Recover summaries from pre-summarize transcript caches: if a ready recording has cached transcript text but no summary, Recappi now forces a one-time refetch instead of returning stale cached content forever.
+- Track `recording.updatedAt` at transcript-cache write time, so later detail refreshes can detect when the cloud recording advanced after the transcript was cached.
+- Persist the new freshness snapshot in CloudLibrary cache v2 while keeping older v1 cache files readable.
+- Verified on Peng&#x27;s MacBook using a production-style signed/notarized DMG over the original Keychain + CloudCache state; recording `2f30e01e` recovered its Summary section.
+
+This release does not include the SQLite cache migration. That follow-up is tracked separately.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.40/RecappiMini-1.0.40.dmg" length="3100980" type="application/octet-stream" sparkle:edSignature="PCu4ZITVI1xDV0JJxJcy/9A7lXD3+BERFdbsLXNBEps4M+cQ1shw39hCRXSm11gmuN1kiyBKtTyPdLCQw6eGAw=="/>
         </item>
     </channel>
 </rss>
