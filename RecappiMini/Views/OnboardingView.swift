@@ -192,7 +192,11 @@ struct OnboardingView: View {
 
     private var signInStep: some View {
         VStack(spacing: 18) {
-            LogoTile(size: 60)
+            // Match Welcome's `LogoTile(size: 72)` so the brand presence
+            // is consistent across the two pre-completion steps. Done
+            // intentionally uses the checkmark seal as a different
+            // visual register (terminal acknowledgement, not branding).
+            LogoTile(size: 72)
             Text("Sign in to Recappi Cloud")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(Color.dtLabel)
@@ -472,8 +476,19 @@ struct OnboardingView: View {
                     .layoutPriority(1)
             }
         } else {
-            Text("Sign in with \(provider.displayName)")
-                .lineLimit(1)
+            // Pair the brand logo (Google G / GitHub mark) with the
+            // text label so the OAuth buttons match what users expect
+            // from any modern sign-in surface — the previous text-only
+            // version felt blank next to the brand-aware Welcome /
+            // Done pages and made the SignIn step look unfinished.
+            HStack(spacing: 7) {
+                Image(nsImage: provider.logoImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 14, height: 14)
+                Text("Sign in with \(provider.displayName)")
+                    .lineLimit(1)
+            }
         }
     }
 }

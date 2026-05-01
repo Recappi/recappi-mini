@@ -484,12 +484,34 @@ struct CloudCenterPanel: View {
     @ViewBuilder
     private func authButtonLabel(for provider: OAuthProvider) -> some View {
         if sessionStore.authFlowPhase?.activeProvider == provider {
-            HStack(spacing: 7) {
-                ProgressView().controlSize(.small)
+            // Mirror `OnboardingView.onboardingAuthLabel` — a shrunken
+            // spinner plus an explicitly truncating label so a long
+            // phase string ("Continue in browser…") does not push the
+            // spinner off the fixed-width button or chop the text in
+            // half mid-glyph.
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.75)
                 Text(sessionStore.authFlowPhase?.buttonLabel ?? "Connecting…")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
             }
         } else {
-            Text("Sign in with \(provider.displayName)")
+            // Pair the brand mark with the text label so the Cloud
+            // empty-state sign-in surface matches Onboarding's SignIn
+            // step and the Settings Account row (folds the remaining
+            // half of #32 — Cloud was the only OAuth surface still
+            // shipping a text-only button after v1.0.41).
+            HStack(spacing: 7) {
+                Image(nsImage: provider.logoImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 14, height: 14)
+                Text("Sign in with \(provider.displayName)")
+                    .lineLimit(1)
+            }
         }
     }
 

@@ -1011,19 +1011,6 @@ private struct ProviderInlineMark: View {
     }
 }
 
-private extension OAuthProvider {
-    var logoImage: NSImage {
-        let resourceName: String
-        switch self {
-        case .google:
-            resourceName = "GoogleG"
-        case .github:
-            resourceName = "GitHubMark"
-        }
-        return NSImage(named: resourceName) ?? NSImage()
-    }
-}
-
 private struct SettingsHeader: View {
     var body: some View {
         HStack(spacing: 14) {
