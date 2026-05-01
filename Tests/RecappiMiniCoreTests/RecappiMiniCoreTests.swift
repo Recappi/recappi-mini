@@ -269,6 +269,28 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(transcript.actionItems, ["Follow up with the launch notes."])
     }
 
+    func testTranscriptResponseDecodesSummaryJSONInsights() throws {
+        let data = #"""
+        {
+          "id": "tr_123",
+          "text": "Transcript body.",
+          "summaryJson": "{\"tldr\":\"Gallery work is ready for review.\",\"keyPoints\":[\"Use a large preview waterfall.\"],\"topics\":[\"Gallery\"],\"decisions\":[\"Keep clone out of scope.\"],\"actionItems\":[{\"what\":\"Review the Gallery waterfall layout.\",\"who\":\"Peng\"},{\"what\":\"  \"}],\"quotes\":[{\"speaker\":\"Peng\",\"text\":\"Make the waterfall feel worth clicking.\"}]}"
+        }
+        """#.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertEqual(transcript.summary, "Gallery work is ready for review.")
+        XCTAssertEqual(transcript.actionItems, ["Peng — Review the Gallery waterfall layout."])
+        XCTAssertEqual(transcript.summaryInsights?.keyPoints, ["Use a large preview waterfall."])
+        XCTAssertEqual(transcript.summaryInsights?.topics, ["Gallery"])
+        XCTAssertEqual(transcript.summaryInsights?.decisions, ["Keep clone out of scope."])
+        XCTAssertEqual(
+            transcript.summaryInsights?.quoteTexts,
+            ["Peng: \"Make the waterfall feel worth clicking.\""]
+        )
+    }
+
     func testTranscriptResponseKeepsUnavailableSummaryAndActionItemsNil() throws {
         let data = """
         {
@@ -647,6 +669,7 @@ final class RecappiMiniCoreTests: XCTestCase {
               "id": "tr_123",
               "text": "Hello from cache.",
               "summary": "Cached summary.",
+              "summaryJson": "{\\"tldr\\":\\"Cached TLDR.\\",\\"keyPoints\\":[\\"Cached key point.\\"]}",
               "actionItemsJson": "[\\"Ship the cache fixture.\\"]",
               "segments": [
                 { "startMs": 0, "endMs": 1200, "text": "Hello from cache.", "speaker": "Peng" }
@@ -707,6 +730,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(decoded.decodedRecordings.first?.status, .ready)
         XCTAssertEqual(decoded.decodedBillingStatus?.tier, .pro)
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.summary, "Cached summary.")
+        XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.summaryInsights?.keyPoints, ["Cached key point."])
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.actionItems, ["Ship the cache fixture."])
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.segments.first?.speaker, "Peng")
         XCTAssertEqual(decoded.decodedTranscriptionJobsByRecordingID["rec_123"]?.first?.id, "job_123")

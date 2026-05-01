@@ -156,12 +156,22 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             uiElement(app, id: UITestIDs.Cloud.billingStatus).waitForExistence(timeout: 10),
             "Expected Cloud Center to show billing plan and limits for a signed-in account."
         )
-        let downloadButton = app.buttons[UITestIDs.Cloud.downloadAudioButton]
-        XCTAssertTrue(downloadButton.waitForExistence(timeout: 10), "Expected fixed detail action bar to remain visible.")
-        XCTAssertTrue(downloadButton.isHittable, "Expected Download audio action to be visible and hittable, not clipped below the window.")
-        let deleteButton = app.buttons[UITestIDs.Cloud.deleteButton]
-        XCTAssertTrue(deleteButton.waitForExistence(timeout: 10), "Expected Delete action in fixed detail action bar.")
-        XCTAssertTrue(deleteButton.isHittable, "Expected Delete action to be visible and hittable, not clipped below the window.")
+        let infoButton = app.buttons[UITestIDs.Cloud.recordingInfoButton]
+        XCTAssertTrue(infoButton.waitForExistence(timeout: 10), "Expected recording info control in the compact detail header.")
+        XCTAssertTrue(infoButton.isHittable, "Expected recording info control to be visible and hittable, not clipped under the titlebar.")
+        let actionsMenu = app.buttons[UITestIDs.Cloud.moreActionsButton]
+        XCTAssertTrue(actionsMenu.waitForExistence(timeout: 10), "Expected More actions menu in the compact detail header.")
+        XCTAssertTrue(actionsMenu.isHittable, "Expected More actions menu to be visible and hittable, not clipped below the window.")
+        actionsMenu.click()
+        XCTAssertTrue(
+            app.menuItems["Download audio"].waitForExistence(timeout: 5) || app.menuItems["Reveal audio"].waitForExistence(timeout: 1),
+            "Expected audio export action inside More actions menu."
+        )
+        XCTAssertTrue(
+            app.menuItems["Delete recording"].waitForExistence(timeout: 5),
+            "Expected delete action inside More actions menu."
+        )
+        app.typeKey(.escape, modifierFlags: [])
 
         let initialWindowHeight = cloudWindow.frame.height
         let transcriptText = uiElement(app, id: UITestIDs.Cloud.transcriptText)

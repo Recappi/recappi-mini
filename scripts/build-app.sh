@@ -13,6 +13,20 @@ ENTITLEMENTS_PATH="$PROJECT_DIR/RecappiMini/RecappiMini.entitlements"
 SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://raw.githubusercontent.com/Recappi/recappi-mini/sparkle-appcast/appcast.xml}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-/1OzWfoXSQ2w+rIi6pKRn8X8egyv+T/dQGOyG7QJj0M=}"
 
+if [ "$CODESIGN_IDENTITY" = "-" ] && [ "${CI:-}" != "true" ] && [ "${ALLOW_ADHOC_CODESIGN:-0}" != "1" ]; then
+    cat >&2 <<'EOF'
+error: local RecappiMini builds must use the stable "RecappiMini Dev" signing identity.
+
+Do not run `CODESIGN_IDENTITY=- ./scripts/build-app.sh` for local UI verification:
+ad-hoc signing changes the code identity on every build and repeatedly resets
+macOS Screen Recording/TCC permissions.
+
+Use `./scripts/build-app.sh` instead. If you are in an isolated environment that
+really requires ad-hoc signing, set ALLOW_ADHOC_CODESIGN=1 explicitly.
+EOF
+    exit 1
+fi
+
 if [ "$RELEASE_MODE" = "1" ] && [ "$BUILD_CONFIG" = "debug" ]; then
     BUILD_CONFIG="release"
 fi

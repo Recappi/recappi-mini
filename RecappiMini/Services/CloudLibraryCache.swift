@@ -219,6 +219,7 @@ struct TranscriptResponseSnapshot: Codable, Equatable, Sendable {
     let text: String
     let summary: String?
     let actionItems: [String]?
+    let summaryInsights: TranscriptSummaryInsights?
     let segments: [TranscriptSegmentSnapshot]
 
     init(_ transcript: TranscriptResponse) {
@@ -226,6 +227,7 @@ struct TranscriptResponseSnapshot: Codable, Equatable, Sendable {
         text = transcript.text
         summary = transcript.summary
         actionItems = transcript.actionItems
+        summaryInsights = transcript.summaryInsights
         segments = transcript.segments.map(TranscriptSegmentSnapshot.init)
     }
 

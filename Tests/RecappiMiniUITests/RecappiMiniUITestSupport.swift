@@ -43,9 +43,14 @@ enum UITestIDs {
         static let loadMoreButton = "recappi.cloud.loadMoreButton"
         static let latestJobStatus = "recappi.cloud.latestJobStatus"
         static let transcriptText = "recappi.cloud.transcriptText"
+        static let jumpToSummaryButton = "recappi.cloud.jumpToSummaryButton"
+        static let jumpToTranscriptButton = "recappi.cloud.jumpToTranscriptButton"
         static let loadTranscriptButton = "recappi.cloud.loadTranscriptButton"
+        static let recordingInfoButton = "recappi.cloud.recordingInfoButton"
+        static let moreActionsButton = "recappi.cloud.moreActionsButton"
         static let copyTranscriptButton = "recappi.cloud.copyTranscriptButton"
         static let downloadAudioButton = "recappi.cloud.downloadAudioButton"
+        static let syncToLocalButton = "recappi.cloud.syncToLocalButton"
         static let deleteButton = "recappi.cloud.deleteButton"
     }
 }
