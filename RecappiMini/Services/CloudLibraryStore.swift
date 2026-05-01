@@ -222,6 +222,7 @@ final class CloudLibraryStore: ObservableObject {
     }
 
     func loadMore() async {
+        guard !isLoadingMore else { return }
         guard let cursor = nextCursor, !cursor.isEmpty else { return }
         guard await prepareForAuthenticatedRequest() else { return }
         isLoadingMore = true

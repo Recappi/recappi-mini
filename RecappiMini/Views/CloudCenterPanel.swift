@@ -194,22 +194,7 @@ struct CloudCenterPanel: View {
                     }
 
                     if store.hasMorePages {
-                        Button {
-                            Task { await store.loadMore() }
-                        } label: {
-                            HStack(spacing: 8) {
-                                if store.isLoadingMore {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .scaleEffect(0.72)
-                                }
-                                Text(store.isLoadingMore ? "Loading…" : "Load more")
-                            }
-                        }
-                        .buttonStyle(PanelPushButtonStyle())
-                        .disabled(store.isLoadingMore)
-                        .padding(.top, 6)
-                        .accessibilityIdentifier(AccessibilityIDs.Cloud.loadMoreButton)
+                        loadMoreSentinel
                     }
                 }
                 .padding(.horizontal, 10)
@@ -219,6 +204,31 @@ struct CloudCenterPanel: View {
 
         }
         .background(Color.black.opacity(0.12))
+    }
+
+    private var loadMoreSentinel: some View {
+        HStack {
+            Spacer(minLength: 0)
+
+            if store.isLoadingMore {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.72)
+                    .tint(DT.waveformLit)
+            } else {
+                Color.clear
+                    .frame(width: 1, height: 1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(height: store.isLoadingMore ? 24 : 8)
+        .padding(.top, 4)
+        .onAppear {
+            guard store.hasMorePages, !store.isLoadingMore else { return }
+            Task { await store.loadMore() }
+        }
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.loadMoreButton)
     }
 
     @ViewBuilder
@@ -2466,11 +2476,14 @@ private struct CloudPlaybackWaveformScrubber: View {
 
     private let trackHeight: CGFloat = 32
     private let horizontalInset: CGFloat = 7
+    private let scrubberHeight: CGFloat = 44
+    private let playheadHeight: CGFloat = 40
     private let playheadWidth: CGFloat = 7
 
     var body: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 1)
+            let height = max(proxy.size.height, scrubberHeight)
             let clampedProgress = min(max(progress, 0), 1)
             let inset = min(horizontalInset, max(width / 2 - 1, 0))
             let contentWidth = max(width - inset * 2, 1)
@@ -2497,11 +2510,11 @@ private struct CloudPlaybackWaveformScrubber: View {
                 .opacity(isEnabled ? (isLoadingPeaks ? 0.58 : 1) : 0.46)
 
                 CloudPlaybackPlayhead(color: playheadColor, isEnabled: isEnabled)
-                    .frame(width: playheadWidth, height: trackHeight)
+                    .frame(width: playheadWidth, height: playheadHeight)
                     .offset(x: playheadX - playheadWidth / 2)
                 .allowsHitTesting(false)
             }
-            .frame(width: width, height: trackHeight, alignment: .leading)
+            .frame(width: width, height: height, alignment: .leading)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -2511,7 +2524,7 @@ private struct CloudPlaybackWaveformScrubber: View {
                     }
             )
         }
-        .frame(height: trackHeight + 8)
+        .frame(height: scrubberHeight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Playback position")
     }
