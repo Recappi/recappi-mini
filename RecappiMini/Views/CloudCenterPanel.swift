@@ -373,6 +373,12 @@ struct CloudCenterPanel: View {
                 onDelete: { showingDeleteConfirmation = true },
                 onAcknowledgeNewerVersion: { Task { await store.acknowledgeNewerVersion() } }
             )
+            // Recording details own transient UI state: scroll position,
+            // active jump chip, pinned segment, and audio playback. Give each
+            // selected recording a distinct identity so SwiftUI does not
+            // recycle the previous detail page's scroll/focus state when the
+            // sidebar selection changes.
+            .id(recording.id)
             .task(id: recording.id) {
                 await store.loadTranscriptForSelection()
                 await store.loadJobHistoryForSelection()
@@ -1124,7 +1130,13 @@ private struct CloudRecordingDetail: View {
                 }
                 .coordinateSpace(name: "cloudDetailScroll")
                 .onChange(of: activeSegmentID(in: transcript?.displaySegmentRows ?? [])) { _, id in
-                    guard let id else { return }
+                    // Loading or switching recordings can make the active
+                    // segment move from nil to the first row before the user
+                    // has interacted with playback. Do not let that derived
+                    // state yank the detail scroll away from the top; only
+                    // auto-follow transcript rows while playback is actually
+                    // advancing.
+                    guard audioPlayer.isPlaying, let id else { return }
                     withAnimation(.easeOut(duration: 0.18)) {
                         proxy.scrollTo(id, anchor: .center)
                     }
