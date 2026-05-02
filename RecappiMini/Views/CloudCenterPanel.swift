@@ -1148,8 +1148,6 @@ private struct CloudRecordingDetail: View {
             Divider().overlay(Color.white.opacity(0.08))
 
             bottomPlaybackBar
-                .padding(.horizontal, 18)
-                .padding(.top, 6)
         }
     }
 
@@ -2584,22 +2582,9 @@ private struct CloudMeetingPlaybackStrip: View {
             playbackRateMenu
         }
         .frame(height: 44)
-        .padding(.horizontal, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color.white.opacity(0.035))
-                .overlay(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.035), Color.white.opacity(0.008)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.085), lineWidth: 1)
-        )
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity)
+        .background(Color.white.opacity(0.018))
     }
 
     private var sliderProgress: Double {

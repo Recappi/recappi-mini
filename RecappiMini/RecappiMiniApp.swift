@@ -70,6 +70,14 @@ struct MenuBarContents: View {
     }
 }
 
+/// `NSWindow.StyleMask.fullSizeContentView` still lets AppKit expose a
+/// non-zero safe area through `NSHostingView` when the native title bar is
+/// hidden. The Cloud window owns all of its chrome in SwiftUI, including the
+/// bottom mini-player, so its hosted content should draw edge-to-edge.
+final class CloudEdgeToEdgeHostingView<Root: View>: NSHostingView<Root> {
+    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsets() }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWindowDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     static let shared = AppDelegate()
@@ -568,7 +576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             return
         }
 
-        let hostingView = NSHostingView(rootView: CloudCenterPanel(store: cloudStore))
+        let hostingView = CloudEdgeToEdgeHostingView(rootView: CloudCenterPanel(store: cloudStore))
         hostingView.autoresizingMask = [.width, .height]
 
         let window = NSWindow(
