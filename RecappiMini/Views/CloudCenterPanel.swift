@@ -1021,7 +1021,6 @@ private struct CloudRecordingDetail: View {
     @State private var isShowingRecordingInfo = false
     @State private var pendingScrollTarget: CloudDetailSection?
     @State private var activeDetailSection: CloudDetailSection = .summary
-    @State private var isShowingAllSummaryTopics = false
 
     let recording: CloudRecording
     let recordingWebURL: URL?
@@ -1080,7 +1079,6 @@ private struct CloudRecordingDetail: View {
             pendingSeekAfterPrepare = nil
             pendingPinnedSegmentIDAfterPrepare = nil
             pinnedSegmentID = nil
-            isShowingAllSummaryTopics = false
             audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
         }
         .onDisappear {
@@ -1338,18 +1336,10 @@ private struct CloudRecordingDetail: View {
     private func summaryTopicSection(items: [String]) -> some View {
         if !items.isEmpty {
             let topicAccent = DT.statusUploading
-            let visibleLimit = 3
-            let visibleItems = isShowingAllSummaryTopics ? items : Array(items.prefix(visibleLimit))
             summarySectionBlock(title: "Topics", systemImage: "tag", accent: topicAccent) {
                 FlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
-                    ForEach(Array(visibleItems.enumerated()), id: \.offset) { entry in
+                    ForEach(Array(items.enumerated()), id: \.offset) { entry in
                         summaryTopicChip(entry.element, accent: topicAccent)
-                    }
-
-                    if items.count > visibleLimit && !isShowingAllSummaryTopics {
-                        summaryTopicToggleChip(title: "+\(items.count - visibleLimit)", accent: topicAccent)
-                    } else if isShowingAllSummaryTopics && items.count > visibleLimit {
-                        summaryTopicToggleChip(title: "Less", accent: topicAccent)
                     }
                 }
             }
@@ -1366,25 +1356,6 @@ private struct CloudRecordingDetail: View {
             .padding(.vertical, 4)
             .background(Capsule(style: .continuous).fill(accent.opacity(0.07)))
             .overlay(Capsule(style: .continuous).strokeBorder(accent.opacity(0.10), lineWidth: 1))
-    }
-
-    private func summaryTopicToggleChip(title: String, accent: Color) -> some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.16)) {
-                isShowingAllSummaryTopics.toggle()
-            }
-        } label: {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.dtLabelTertiary)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Capsule(style: .continuous).fill(Color.white.opacity(0.045)))
-                .overlay(Capsule(style: .continuous).strokeBorder(accent.opacity(0.10), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .help(isShowingAllSummaryTopics ? "Collapse topics" : "Show all topics")
     }
 
     @ViewBuilder
