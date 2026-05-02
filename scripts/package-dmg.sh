@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="${APP_NAME:-RecappiMini}"
+APP_NAME="${APP_NAME:-Recappi Mini}"
 APP_PATH="${APP_PATH:-$ROOT_DIR/build/$APP_NAME.app}"
 DMG_PATH="${DMG_PATH:-$ROOT_DIR/build/$APP_NAME.dmg}"
 VOLUME_NAME="${VOLUME_NAME:-$APP_NAME}"

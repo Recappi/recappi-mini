@@ -16,6 +16,7 @@ final class CloudLibraryStore: ObservableObject {
     @Published private(set) var state: LibraryState = .idle
     @Published private(set) var recordings: [CloudRecording] = []
     @Published private(set) var selectedRecordingID: String?
+    @Published private(set) var totalRecordingCount: Int?
     @Published private(set) var transcriptCache: [String: TranscriptResponse] = [:]
     @Published private(set) var transcriptionJobsByRecordingID: [String: [TranscriptionJob]] = [:]
     @Published private(set) var nextCursor: String?
@@ -173,6 +174,7 @@ final class CloudLibraryStore: ObservableObject {
             let previousSelection = selectedRecordingID
             recordings = mergeWithCachedRecordingDetails(page.items)
             nextCursor = page.nextCursor
+            totalRecordingCount = await resolvedTotalRecordingCount(from: page)
             if let previousSelection, recordings.contains(where: { $0.id == previousSelection }) {
                 selectedRecordingID = previousSelection
             } else {
@@ -221,6 +223,30 @@ final class CloudLibraryStore: ObservableObject {
         isLoadingBilling = false
     }
 
+    private func resolvedTotalRecordingCount(from firstPage: CloudRecordingsPage) async -> Int? {
+        if let totalCount = firstPage.totalCount {
+            return totalCount
+        }
+
+        var count = firstPage.items.count
+        var cursor = firstPage.nextCursor
+        while let currentCursor = cursor, !currentCursor.isEmpty {
+            do {
+                let page = try await runAuthorized { client in
+                    try await client.listRecordings(limit: 100, cursor: currentCursor)
+                }
+                if let totalCount = page.totalCount {
+                    return totalCount
+                }
+                count += page.items.count
+                cursor = page.nextCursor
+            } catch {
+                return nil
+            }
+        }
+        return count
+    }
+
     func loadMore() async {
         guard !isLoadingMore else { return }
         guard let cursor = nextCursor, !cursor.isEmpty else { return }
@@ -234,6 +260,7 @@ final class CloudLibraryStore: ObservableObject {
             let existingIDs = Set(recordings.map(\.id))
             recordings.append(contentsOf: mergeWithCachedRecordingDetails(page.items).filter { !existingIDs.contains($0.id) })
             nextCursor = page.nextCursor
+            totalRecordingCount = page.totalCount ?? totalRecordingCount ?? (nextCursor == nil ? recordings.count : nil)
             selectDefaultRecordingIfNeeded()
             await refreshLocalSessionLinks()
             lastSuccessfulRefreshAt = Date()
@@ -778,7 +805,7 @@ final class CloudLibraryStore: ObservableObject {
             }
 
             if let transcript {
-                try RecordingStore.saveTranscript(transcript.text, in: sessionDir)
+                try RecordingStore.saveTranscriptArtifacts(transcript, in: sessionDir)
             }
             RecordingStore.saveSessionMetadata(metadata(for: recording), in: sessionDir)
             _ = RecordingStore.saveRemoteManifest(remoteManifest(for: recording, transcript: transcript), in: sessionDir)
@@ -802,6 +829,8 @@ final class CloudLibraryStore: ObservableObject {
 
     func revealSelectedLocalSession() {
         guard let selectedLocalSessionURL else { return }
+        try? RecordingStore.removeLegacyTranscriptionAlias(in: selectedLocalSessionURL)
+        syncSelectedTranscriptArtifactsIfPossible()
         NSWorkspace.shared.open(selectedLocalSessionURL)
     }
 
@@ -991,6 +1020,7 @@ final class CloudLibraryStore: ObservableObject {
 
         recordings = snapshot.decodedRecordings
         nextCursor = snapshot.nextCursor
+        totalRecordingCount = nil
         billingStatus = snapshot.decodedBillingStatus
         transcriptCache = snapshot.decodedTranscripts
         transcriptionJobsByRecordingID = snapshot.decodedTranscriptionJobsByRecordingID
@@ -1231,15 +1261,38 @@ final class CloudLibraryStore: ObservableObject {
     private func syncTranscriptToLocalSessionIfLinked(
         recording: CloudRecording,
         transcript: TranscriptResponse,
-        job: TranscriptionJob
+        job: TranscriptionJob? = nil
     ) throws {
         guard let sessionDir = localSessionURLsByRecordingID[recording.id] else { return }
-        try RecordingStore.saveTranscript(transcript.text, in: sessionDir)
+        try RecordingStore.saveTranscriptArtifacts(transcript, in: sessionDir)
         RecordingStore.saveSessionMetadata(metadata(for: recording), in: sessionDir)
-        _ = RecordingStore.saveRemoteManifest(
-            remoteManifest(for: recording, transcript: transcript, job: job),
-            in: sessionDir
-        )
+
+        var manifest = RecordingStore.loadRemoteManifest(in: sessionDir)
+            ?? remoteManifest(for: recording, transcript: transcript)
+        manifest.recordingId = recording.id
+        manifest.transcriptId = transcript.id
+        manifest.uploadFilename = manifest.uploadFilename ?? "recording.\(audioFileExtension(for: recording))"
+        if let job {
+            manifest.jobId = job.id
+            manifest.provider = job.provider
+            manifest.model = job.model
+            manifest.stage = "done"
+        } else if manifest.stage != "done" {
+            manifest.stage = "synced"
+        }
+        _ = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+    }
+
+    private func syncSelectedTranscriptArtifactsIfPossible() {
+        guard let recording = selectedRecording,
+              let transcript = transcriptCache[recording.id] else {
+            return
+        }
+        do {
+            try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript)
+        } catch {
+            playbackErrorMessage = error.localizedDescription
+        }
     }
 
     private func createSyncedSessionDirectory(for recording: CloudRecording) throws -> URL {

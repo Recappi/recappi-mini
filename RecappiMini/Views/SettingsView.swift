@@ -314,6 +314,18 @@ struct SettingsView: View {
                 Spacer(minLength: 12)
                 Button("Restart") { restartOnboarding() }
             }
+
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("About Recappi Mini")
+                        .font(.body)
+                    Text("Shows version, build, and application identity.")
+                        .font(.footnote)
+                        .foregroundStyle(Color.dtLabelSecondary)
+                }
+                Spacer(minLength: 12)
+                Button("About") { AppDelegate.shared.showAboutPanel() }
+            }
         } header: {
             Text("Help")
         }

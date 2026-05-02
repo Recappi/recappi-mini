@@ -25,6 +25,7 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("recording.m4a").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("remote-session.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("transcript.md").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("transcription.md").path))
 
         let manifest = try loadRemoteManifest(from: sessionDir)
         let uploadFilename = manifest["uploadFilename"] as? String
@@ -57,8 +58,7 @@ final class RecappiMiniEndToEndSkeletonUITests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("recording.m4a").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("remote-session.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("transcript.md").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("summary.md").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("action-items.md").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent("transcription.md").path))
 
         let manifest = try loadRemoteManifest(from: sessionDir)
         let uploadFilename = manifest["uploadFilename"] as? String

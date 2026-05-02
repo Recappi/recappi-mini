@@ -14,7 +14,8 @@ jobs:
     runs-on: macos-26
     env:
       APP_NAME: RecappiMini
-      APP_PATH: ${{ github.workspace }}/build/RecappiMini.app
+      APP_PATH: ${{ github.workspace }}/build/Recappi Mini.app
+      VOLUME_NAME: Recappi Mini
 
     steps:
       - name: Check out repository

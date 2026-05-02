@@ -80,7 +80,7 @@ RECAPPI_TEST_ALLOW_INTERACTIVE_OAUTH=1 ./scripts/run-automation-tests.sh \
   Optional backend override for cloud-flow UI tests.
 - `RECAPPI_TEST_APP`
   Optional override for the built app bundle path. Defaults to
-  `build/RecappiMini.app`.
+  `build/Recappi Mini.app`.
 - `RECAPPI_TEST_ALLOW_INTERACTIVE_OAUTH`
   Optional opt-in for manual interactive OAuth smoke. Leave this unset for
   unattended runs.

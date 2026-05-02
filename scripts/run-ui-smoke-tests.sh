@@ -11,7 +11,7 @@ RECORDINGS_ROOT_OVERRIDE_FILE="$ROOT_DIR/.build/xcode/recappi_test_recordings_ro
 "$ROOT_DIR/scripts/generate-test-audio-fixtures.sh"
 "$ROOT_DIR/scripts/build-app.sh"
 
-export RECAPPI_TEST_APP="${RECAPPI_TEST_APP:-$ROOT_DIR/build/RecappiMini.app}"
+export RECAPPI_TEST_APP="${RECAPPI_TEST_APP:-$ROOT_DIR/build/Recappi Mini.app}"
 export RECAPPI_TEST_AUDIO_FIXTURE="${RECAPPI_TEST_AUDIO_FIXTURE:-$ROOT_DIR/Tests/Fixtures/Audio/automation-recording.m4a}"
 export RECAPPI_TEST_UPLOAD_FIXTURE="${RECAPPI_TEST_UPLOAD_FIXTURE:-$ROOT_DIR/Tests/Fixtures/Audio/automation-upload.wav}"
 
@@ -31,6 +31,7 @@ fi
 printf '%s' "${RECAPPI_TEST_RECORDINGS_ROOT:-$HOME/Documents/Recappi Mini}" > "$RECORDINGS_ROOT_OVERRIDE_FILE"
 
 rm -rf "$RESULT_BUNDLE"
+pkill -f "$ROOT_DIR/build/Recappi Mini.app/Contents/MacOS/RecappiMini" >/dev/null 2>&1 || true
 pkill -f "$ROOT_DIR/build/RecappiMini.app/Contents/MacOS/RecappiMini" >/dev/null 2>&1 || true
 pkill -f "RecappiMiniUITests-Runner.app/Contents/MacOS/RecappiMiniUITests-Runner" >/dev/null 2>&1 || true
 

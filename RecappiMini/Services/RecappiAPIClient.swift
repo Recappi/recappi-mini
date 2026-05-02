@@ -678,6 +678,7 @@ private enum RecappiDateDecoder {
 struct CloudRecordingsPage: Decodable, Equatable, Sendable {
     let items: [CloudRecording]
     let nextCursor: String?
+    let totalCount: Int?
 }
 
 enum BillingTier: String, CaseIterable, Codable, Equatable, Sendable {

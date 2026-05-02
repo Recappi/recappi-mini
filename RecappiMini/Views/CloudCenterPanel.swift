@@ -258,6 +258,12 @@ struct CloudCenterPanel: View {
     }
 
     private var recordingsCountText: String {
+        if let total = store.totalRecordingCount {
+            return total == 1 ? "1 total" : "\(total) total"
+        }
+        if store.hasMorePages {
+            return "\(store.recordings.count)+ loaded"
+        }
         let count = store.recordings.count
         return count == 1 ? "1 total" : "\(count) total"
     }
@@ -937,7 +943,6 @@ private struct CloudRecordingDateSectionHeader: View {
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Color.dtLabelQuaternary)
         }
-        .padding(.horizontal, 4)
         .padding(.top, 6)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(count) recordings")
@@ -975,11 +980,13 @@ private struct CloudRecordingRow: View {
                         .lineLimit(1)
 
                     HStack(spacing: 8) {
-                        Label(recording.shortDateText, systemImage: "calendar")
+                        Label(recording.listTimeText, systemImage: "clock")
+                        Spacer(minLength: 8)
                         if let duration = recording.durationText {
                             Label(duration, systemImage: "timer")
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .font(.system(size: 10.5))
                     .foregroundStyle(Color.dtLabelTertiary)
                     .lineLimit(1)
@@ -1791,6 +1798,10 @@ private struct CloudRecordingDetail: View {
             .disabled(isDownloading)
             .accessibilityIdentifier(AccessibilityIDs.Cloud.downloadAudioButton)
 
+            Button("About Recappi Mini", systemImage: "info.circle") {
+                AppDelegate.shared.showAboutPanel()
+            }
+
             Divider()
 
             Button(isRetranscribing ? "Retranscribing…" : "Retranscribe audio…", systemImage: "arrow.clockwise", action: onRetranscribe)
@@ -1810,11 +1821,7 @@ private struct CloudRecordingDetail: View {
                 .disabled(isDeleting)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.deleteButton)
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 28, height: 28)
-                .foregroundStyle(Color.dtLabelSecondary)
-                .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
+            MenuIconLabel(systemName: "ellipsis", size: 28)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -2560,6 +2567,8 @@ private struct CloudMeetingPlaybackStrip: View {
     let onSeek: (Double) -> Void
     let onSelectRate: (Float) -> Void
 
+    @State private var rateSelectionFeedbackID = 0
+
     /// Allowed playback rates surfaced in the menu. Order matters —
     /// the menu renders top-to-bottom in this order.
     private static let rateOptions: [Float] = [0.5, 1.0, 1.5, 2.0, 3.0]
@@ -2631,6 +2640,7 @@ private struct CloudMeetingPlaybackStrip: View {
             ForEach(Self.rateOptions, id: \.self) { rate in
                 Button {
                     onSelectRate(rate)
+                    rateSelectionFeedbackID += 1
                 } label: {
                     if rate == playbackRate {
                         Label(Self.rateLabel(rate), systemImage: "checkmark")
@@ -2643,7 +2653,8 @@ private struct CloudMeetingPlaybackStrip: View {
             PlaybackRatePillLabel(
                 text: Self.rateLabel(playbackRate),
                 isActive: playbackRate != 1.0,
-                isEnabled: hasAudio
+                isEnabled: hasAudio,
+                feedbackID: rateSelectionFeedbackID
             )
         }
         .menuStyle(.borderlessButton)
@@ -2701,6 +2712,40 @@ private struct CloudMeetingPlaybackStrip: View {
     }
 }
 
+private struct MenuIconLabel: View {
+    let systemName: String
+    var size: CGFloat = 28
+
+    @State private var hovered = false
+    @State private var pressed = false
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 13, weight: .semibold))
+            .frame(width: size, height: size)
+            .foregroundStyle(hovered || pressed ? Color.dtLabel : Color.dtLabelSecondary)
+            .background(
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .fill(Color.white.opacity(pressed ? 0.13 : (hovered ? 0.085 : 0)))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .strokeBorder(Color.white.opacity(hovered || pressed ? 0.075 : 0), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
+            .onHover { hovered = $0 }
+            .scaleEffect(pressed ? 0.96 : 1)
+            .animation(DT.ease(0.12), value: hovered)
+            .animation(DT.ease(0.08), value: pressed)
+            .onLongPressGesture(
+                minimumDuration: .infinity,
+                maximumDistance: 18,
+                pressing: { pressed = $0 },
+                perform: {}
+            )
+    }
+}
+
 /// Pill label that backs the playback-rate `Menu`. Tracks its own
 /// hover state so the control feels responsive on mouse-over (Menu's
 /// default label has no built-in hover/press chrome). When the user
@@ -2710,6 +2755,7 @@ private struct PlaybackRatePillLabel: View {
     let text: String
     let isActive: Bool
     let isEnabled: Bool
+    let feedbackID: Int
 
     @State private var hovered = false
     @State private var pressed = false
@@ -2746,11 +2792,19 @@ private struct PlaybackRatePillLabel: View {
             )
             .onChange(of: text) { _, _ in
                 guard isEnabled else { return }
-                didChange = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
-                    didChange = false
-                }
+                flashChange()
             }
+            .onChange(of: feedbackID) { _, _ in
+                guard isEnabled else { return }
+                flashChange()
+            }
+    }
+
+    private func flashChange() {
+        didChange = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
+            didChange = false
+        }
     }
 
     private var foregroundColor: Color {
@@ -3540,6 +3594,14 @@ private extension CloudRecording {
         guard let date = createdAt else { return "Unknown date" }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    var listTimeText: String {
+        guard let date = createdAt else { return "Unknown time" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
         formatter.timeStyle = .short
         return formatter.string(from: date)
     }

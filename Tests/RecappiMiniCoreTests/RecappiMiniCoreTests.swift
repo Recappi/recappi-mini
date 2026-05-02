@@ -423,13 +423,15 @@ final class RecappiMiniCoreTests: XCTestCase {
               "updatedAt": "2026-04-24T08:03:00.000Z"
             }
           ],
-          "nextCursor": "next_456"
+          "nextCursor": "next_456",
+          "totalCount": 37
         }
         """.data(using: .utf8)!
 
         let page = try JSONDecoder().decode(CloudRecordingsPage.self, from: data)
 
         XCTAssertEqual(page.nextCursor, "next_456")
+        XCTAssertEqual(page.totalCount, 37)
         XCTAssertEqual(page.items.count, 1)
         XCTAssertEqual(page.items.first?.id, "rec_123")
         XCTAssertEqual(page.items.first?.title, "Weekly sync")
@@ -1018,6 +1020,51 @@ final class RecappiMiniCoreTests: XCTestCase {
         try RecordingStore.saveTranscript("Hello from Recappi.", in: temp)
 
         XCTAssertEqual(RecordingStore.loadTranscript(in: temp), "Hello from Recappi.")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temp.appendingPathComponent("transcript.md").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temp.appendingPathComponent("transcription.md").path))
+    }
+
+    func testRecordingStoreRemovesLegacyTranscriptionAliasWhenSavingTranscript() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let legacyAlias = temp.appendingPathComponent("transcription.md")
+        try "# Transcription\n\nOld duplicate alias.\n".write(to: legacyAlias, atomically: true, encoding: .utf8)
+
+        try RecordingStore.saveTranscript("Canonical transcript.", in: temp)
+
+        XCTAssertEqual(RecordingStore.loadTranscript(in: temp), "Canonical transcript.")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temp.appendingPathComponent("transcript.md").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyAlias.path))
+    }
+
+    func testRecordingStoreSavesReadableTranscriptSummaryArtifacts() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let data = """
+        {
+          "id": "tr_123",
+          "text": "Peng: Ship the local cache artifacts.",
+          "segments": [],
+          "summaryJson": "{\\"tldr\\":\\"Local folders need agent-readable artifacts.\\",\\"keyPoints\\":[\\"Write transcript and summary sidecars.\\"],\\"topics\\":[\\"Agent handoff\\"],\\"decisions\\":[\\"Expose markdown files in synced folders.\\"],\\"actionItems\\":[{\\"who\\":\\"Codex\\",\\"what\\":\\"Add summary.md and transcript.md.\\"}],\\"quotes\\":[{\\"speaker\\":\\"Peng\\",\\"text\\":\\"暴露文件才方便让agent读\\"}]}"
+        }
+        """.data(using: .utf8)!
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        try RecordingStore.saveTranscriptArtifacts(transcript, in: temp)
+
+        let transcriptText = try String(contentsOf: RecordingStore.transcriptFileURL(in: temp), encoding: .utf8)
+        let summaryText = try String(contentsOf: RecordingStore.summaryFileURL(in: temp), encoding: .utf8)
+        let actionItemsText = try String(contentsOf: RecordingStore.actionItemsFileURL(in: temp), encoding: .utf8)
+
+        XCTAssertTrue(transcriptText.contains("# Transcript"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temp.appendingPathComponent("transcription.md").path))
+        XCTAssertTrue(summaryText.contains("Local folders need agent-readable artifacts."))
+        XCTAssertTrue(summaryText.contains("## Key Points"))
+        XCTAssertTrue(actionItemsText.contains("Codex — Add summary.md and transcript.md."))
     }
 
     func testSessionProcessorReusesCompletedRemoteManifest() {

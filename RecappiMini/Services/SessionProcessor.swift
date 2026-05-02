@@ -92,7 +92,7 @@ final class SessionProcessor {
         if Self.reusableTranscriptID(in: manifest) != nil {
             updatePhase(.fetchingTranscript)
             let transcript = try await client.getRecordingTranscript(id: uploadedRecording.recordingId)
-            try RecordingStore.saveTranscript(transcript.text, in: sessionDir)
+            try RecordingStore.saveTranscriptArtifacts(transcript, in: sessionDir)
             manifest.stage = "done"
             manifest.errorMessage = nil
             manifest.transcriptId = transcript.id
@@ -145,7 +145,7 @@ final class SessionProcessor {
 
         updatePhase(.fetchingTranscript)
         let transcript = try await client.getTranscript(recordingId: uploadedRecording.recordingId, jobId: job.id)
-        try RecordingStore.saveTranscript(transcript.text, in: sessionDir)
+        try RecordingStore.saveTranscriptArtifacts(transcript, in: sessionDir)
 
         manifest.stage = "done"
         manifest.errorMessage = nil

@@ -25,7 +25,7 @@ enum AutomationPaths {
             return URL(fileURLWithPath: override)
         }
 
-        return repoRoot.appendingPathComponent("build/RecappiMini.app")
+        return repoRoot.appendingPathComponent("build/Recappi Mini.app")
     }
 
     static var fixturesDirectory: URL {

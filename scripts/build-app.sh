@@ -3,7 +3,9 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="RecappiMini"
-APP_BUNDLE="$PROJECT_DIR/build/$APP_NAME.app"
+APP_DISPLAY_NAME="${APP_DISPLAY_NAME:-Recappi Mini}"
+APP_BUNDLE="${APP_BUNDLE:-$PROJECT_DIR/build/$APP_DISPLAY_NAME.app}"
+LEGACY_APP_BUNDLE="$PROJECT_DIR/build/$APP_NAME.app"
 BUILD_CONFIG="${BUILD_CONFIG:-debug}"
 RELEASE_MODE="${RELEASE:-0}"
 APP_VERSION="${APP_VERSION:-1.0}"
@@ -42,7 +44,7 @@ swift build "${BUILD_ARGS[@]}"
 BUILD_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 
 echo "Creating app bundle..."
-rm -rf "$APP_BUNDLE"
+rm -rf "$APP_BUNDLE" "$LEGACY_APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 mkdir -p "$APP_BUNDLE/Contents/Frameworks"
@@ -73,9 +75,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Recappi Mini</string>
+    <string>$APP_DISPLAY_NAME</string>
     <key>CFBundleDisplayName</key>
-    <string>Recappi Mini</string>
+    <string>$APP_DISPLAY_NAME</string>
     <key>CFBundleIdentifier</key>
     <string>com.recappi.mini</string>
     <key>CFBundleVersion</key>
@@ -158,6 +160,10 @@ else
     # Preserve the existing local-dev behavior unless callers opt into
     # release signing or explicitly request ad-hoc signing with `-`.
     codesign --force --deep --sign "$CODESIGN_IDENTITY" --identifier "com.recappi.mini" "$APP_BUNDLE"
+fi
+
+if [ "$APP_BUNDLE" != "$LEGACY_APP_BUNDLE" ]; then
+    ln -s "$(basename "$APP_BUNDLE")" "$LEGACY_APP_BUNDLE"
 fi
 
 echo "App bundle created at: $APP_BUNDLE"

@@ -6,7 +6,7 @@ Build the local app bundle with the repo default signing identity:
 
 ```bash
 ./scripts/build-app.sh
-open build/RecappiMini.app
+open "build/Recappi Mini.app"
 ```
 
 The default `RecappiMini Dev` code signing identity keeps the app identity stable
