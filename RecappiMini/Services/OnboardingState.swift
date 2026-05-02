@@ -3,10 +3,9 @@ import Foundation
 /// Tracks first-launch onboarding progress in `UserDefaults`. The model
 /// is two pieces of state, intentionally no more:
 ///
-/// 1. `didComplete: Bool` — set to `true` only when the user reaches the
-///    final "Get started" / explicit Skip from the footer. The title-bar
-///    X is *not* completion: it just bookmarks the current step so the
-///    user resumes where they left off on the next launch.
+/// 1. `didComplete: Bool` — set to `true` when the user reaches the
+///    final "Get started" or closes the onboarding window with the
+///    native title-bar close button.
 ///
 /// 2. `lastStep: OnboardingStep` — the step the user last advanced to.
 ///    Persisted on every transition and consulted on next launch so a
@@ -25,8 +24,9 @@ enum OnboardingState {
     private static let lastStepKey = "recappi.onboarding.lastStep"
 
     /// `true` once the user has either finished the flow (reached Done /
-    /// Get started) or explicitly tapped the footer Skip. Resetting this
-    /// key restarts the flow on next launch.
+    /// Get started) or closed the onboarding window with the native
+    /// title-bar close button. Resetting this key restarts the flow on
+    /// next launch.
     static var didComplete: Bool {
         get { UserDefaults.standard.bool(forKey: didCompleteKey) }
         set { UserDefaults.standard.set(newValue, forKey: didCompleteKey) }

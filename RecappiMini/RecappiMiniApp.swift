@@ -645,10 +645,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         onboardingWindow = window
     }
 
-    /// Called when the onboarding view's `onFinish` fires (Skip / Done /
-    /// Get started). Persist completion, drop the window, and fall back to
-    /// the standard accessory activation policy if no other foreground
-    /// window is open.
+    /// Called when the onboarding view's `onFinish` fires (Done / Get
+    /// started). Persist completion, drop the window, and fall back to the
+    /// standard accessory activation policy if no other foreground window
+    /// is open.
     private func completeOnboardingAndDismiss() {
         OnboardingState.didComplete = true
         if let window = onboardingWindow {
@@ -1196,18 +1196,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             cloudWindow = nil
             restoreAccessoryActivationPolicyIfPossible()
         } else if closingWindow === onboardingWindow {
-            // Title-bar X is *bookmark and exit*, not completion. The
-            // current step has already been persisted via
-            // `OnboardingState.lastStep` on every transition; we
-            // intentionally do NOT set `didComplete = true` here so that
-            // the user can come back to the same step on next launch.
-            // Only the in-view footer Skip / Get started buttons mark
-            // the flow as complete.
-            //
-            // We still drop the window reference (otherwise a future
-            // `showOnboardingWindow()` would try to bring back a
-            // deallocated window) and restore the accessory policy if no
-            // other foreground window is open.
+            // The native title-bar close button is the onboarding escape
+            // hatch. It replaces the old in-view footer Skip button, so
+            // closing the window marks first-launch onboarding complete
+            // and prevents it from popping back on the next launch.
+            OnboardingState.lastStep = .done
+            OnboardingState.didComplete = true
             onboardingWindow = nil
             restoreAccessoryActivationPolicyIfPossible()
         }

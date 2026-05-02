@@ -9,7 +9,7 @@ import SwiftUI
 ///
 /// The view is intentionally self-contained: it owns no business state
 /// beyond the current step and the live permission/auth snapshots it
-/// reads from existing services. When the flow finishes (Skip or Done)
+/// reads from existing services. When the flow finishes (Done / Get started)
 /// the view calls `onFinish`, which the host (`AppDelegate`) uses to
 /// flip `OnboardingState.didComplete` and close the window.
 struct OnboardingView: View {
@@ -274,8 +274,8 @@ struct OnboardingView: View {
 
     // MARK: - Footer
 
-    /// Three-column footer: leading 160pt (Skip + Back), center flex
-    /// (step dots), trailing 160pt (Continue / next-step variant). Fixed
+    /// Three-column footer: leading 160pt (Back), center flex (step
+    /// dots), trailing 160pt (Continue / next-step variant). Fixed
     /// outer column widths keep the indicator centered regardless of how
     /// the labels wrap and stop the buttons from sliding around as the
     /// content step changes.
@@ -284,18 +284,9 @@ struct OnboardingView: View {
             // Leading column: Back is available everywhere there is a
             // previous step (so Done can return to Sign In — Done is the
             // last onboarding step, not an irreversible success page).
-            // Skip is hidden on Done because "skip the finish line" is
-            // nonsensical; the only completion point on Done is the
-            // explicit `Get started` tap. Other steps still surface Skip
-            // for users who want to bail out of onboarding entirely.
+            // The native title-bar close button is the escape hatch, so
+            // the footer stays focused on flow navigation only.
             HStack(spacing: 8) {
-                if step != .done {
-                    Button("Skip") { skip() }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Color.dtLabelTertiary)
-                        .accessibilityIdentifier(AccessibilityIDs.Onboarding.skipButton)
-                }
-
                 if let previous = previousStep {
                     Button {
                         advance(to: previous)
@@ -386,16 +377,6 @@ struct OnboardingView: View {
     /// Final completion: explicit "Get started" tap. Persists the
     /// terminal step + completion flag so the user is never re-prompted.
     private func complete() {
-        OnboardingState.lastStep = .done
-        OnboardingState.didComplete = true
-        onFinish()
-    }
-
-    /// Footer Skip: an explicit skip is treated as completion (the user
-    /// has decided they don't want this flow). The X close path in
-    /// `AppDelegate.windowWillClose` is intentionally different — that
-    /// preserves the current step so the user can resume next launch.
-    private func skip() {
         OnboardingState.lastStep = .done
         OnboardingState.didComplete = true
         onFinish()

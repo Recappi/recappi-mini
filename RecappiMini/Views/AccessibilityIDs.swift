@@ -43,7 +43,6 @@ enum AccessibilityIDs {
     enum Onboarding {
         static let window = "recappi.onboarding.window"
         static let primaryButton = "recappi.onboarding.primaryButton"
-        static let skipButton = "recappi.onboarding.skipButton"
         static let backButton = "recappi.onboarding.backButton"
         static let permissionMicrophone = "recappi.onboarding.permission.microphone"
         static let permissionScreenCapture = "recappi.onboarding.permission.screenCapture"
