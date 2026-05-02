@@ -2602,9 +2602,9 @@ private struct CloudMeetingPlaybackStrip: View {
             playbackRateMenu
         }
         .frame(height: 44)
-        .padding(.horizontal, 18)
-        .padding(.top, 2)
-        .padding(.bottom, 7)
+        .padding(.horizontal, 12)
+        .padding(.top, 5)
+        .padding(.bottom, 9)
         .frame(maxWidth: .infinity)
         .background(Color.white.opacity(0.018))
     }
