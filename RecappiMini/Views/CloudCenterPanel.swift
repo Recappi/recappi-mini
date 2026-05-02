@@ -2257,6 +2257,7 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
     private var currentTitle = "Meeting playback"
     private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
     private var currentArtwork: NSImage?
+    private var isSeeking = false
 
     init() {
         configureRemoteCommands()
@@ -2300,6 +2301,7 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
             queue: .main
         ) { [weak self] time in
             Task { @MainActor in
+                guard self?.isSeeking != true else { return }
                 self?.currentTime = max(0, time.seconds.isFinite ? time.seconds : 0)
                 self?.refreshDuration()
                 self?.updateNowPlayingInfo()
@@ -2371,7 +2373,25 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
     func seek(to seconds: Double) {
         let clamped = max(0, min(seconds, max(duration, seconds)))
         currentTime = clamped
-        player?.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        guard let player else {
+            updateNowPlayingInfo()
+            return
+        }
+
+        isSeeking = true
+        player.seek(
+            to: CMTime(seconds: clamped, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.currentTime = clamped
+                self.isSeeking = false
+                self.refreshDuration()
+                self.updateNowPlayingInfo()
+            }
+        }
         updateNowPlayingInfo()
     }
 
@@ -2680,18 +2700,14 @@ private struct PlaybackRatePillLabel: View {
     let isEnabled: Bool
 
     @State private var hovered = false
+    @State private var pressed = false
     @State private var didChange = false
 
     var body: some View {
-        HStack(spacing: 3) {
-            Text(text)
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 7, weight: .bold))
-                .opacity(isEnabled ? 0.72 : 0.35)
-        }
+        Text(text)
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(foregroundColor)
-            .frame(width: 52, height: 25)
+            .frame(width: 40, height: 25)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(fillColor)
@@ -2702,10 +2718,20 @@ private struct PlaybackRatePillLabel: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .onHover { hovered = isEnabled && $0 }
+            .scaleEffect(pressed ? 0.96 : 1)
             .opacity(isEnabled ? 1 : 0.45)
             .animation(DT.ease(0.12), value: hovered)
+            .animation(DT.ease(0.08), value: pressed)
             .animation(DT.ease(0.18), value: isActive)
             .animation(DT.ease(0.16), value: didChange)
+            .onLongPressGesture(
+                minimumDuration: .infinity,
+                maximumDistance: 18,
+                pressing: { isPressing in
+                    pressed = isEnabled && isPressing
+                },
+                perform: {}
+            )
             .onChange(of: text) { _, _ in
                 guard isEnabled else { return }
                 didChange = true
@@ -2722,6 +2748,9 @@ private struct PlaybackRatePillLabel: View {
     }
 
     private var fillColor: Color {
+        if pressed {
+            return Color.white.opacity(0.20)
+        }
         if didChange {
             return DT.waveformLit.opacity(0.24)
         }
