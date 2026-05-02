@@ -21,13 +21,11 @@ struct CloudCenterPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 1160, height: 760)
-        // Break out of the top safe area so the SwiftUI header sits at
-        // window y=0 instead of being pushed below the now-hidden
-        // native title bar reserve. Without this, even a transparent
-        // `.fullSizeContentView` window leaves a small inset that
-        // makes the custom header look like it is "floating" with a
-        // dead strip above it.
-        .ignoresSafeArea(.container, edges: .top)
+        // Break out of the vertical safe areas so the custom chrome and
+        // docked mini-player sit on the real window edges instead of
+        // being pushed inward by the hidden native title bar / content
+        // layout reserve.
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
         .background(DT.recordingShell)
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
@@ -1151,7 +1149,7 @@ private struct CloudRecordingDetail: View {
 
             bottomPlaybackBar
                 .padding(.horizontal, 18)
-                .padding(.top, 7)
+                .padding(.top, 6)
         }
     }
 
@@ -2585,9 +2583,8 @@ private struct CloudMeetingPlaybackStrip: View {
 
             playbackRateMenu
         }
-        .frame(height: 38)
+        .frame(height: 44)
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.white.opacity(0.035))
