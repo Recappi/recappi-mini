@@ -1151,7 +1151,8 @@ private struct CloudRecordingDetail: View {
 
             bottomPlaybackBar
                 .padding(.horizontal, 18)
-                .padding(.vertical, 9)
+                .padding(.top, 9)
+                .padding(.bottom, 6)
         }
     }
 
@@ -2088,8 +2089,10 @@ private struct CloudRecordingDetail: View {
             hasLocalSession: localSessionURL != nil,
             waveformPeaks: audioPlayer.waveformPeaks,
             isLoadingWaveform: audioPlayer.isLoadingWaveform,
+            playbackRate: audioPlayer.playbackRate,
             onPlayPause: handlePlayPause,
-            onSeek: audioPlayer.seek(to:)
+            onSeek: audioPlayer.seek(to:),
+            onSelectRate: audioPlayer.setPlaybackRate(_:)
         )
     }
 
@@ -2245,6 +2248,10 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
     @Published private(set) var duration: Double = 0
     @Published private(set) var waveformPeaks: [Float] = []
     @Published private(set) var isLoadingWaveform = false
+    /// User-selected playback rate. Applied to `AVPlayer.rate` while
+    /// playing; remembered across pause/play cycles so toggling
+    /// playback never silently drops back to 1×.
+    @Published private(set) var playbackRate: Float = 1.0
 
     private var player: AVPlayer?
     private var currentURL: URL?
@@ -2284,6 +2291,10 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
         guard let url else { return }
 
         let item = AVPlayerItem(url: url)
+        // `.timeDomain` keeps pitch stable across non-1× rates so 0.5×
+        // doesn't sound chipmunk-y (default `.lowQualityZeroLatency`
+        // is fine for live HLS but rough on local file playback).
+        item.audioTimePitchAlgorithm = .timeDomain
         let nextPlayer = AVPlayer(playerItem: item)
         player = nextPlayer
         refreshDuration()
@@ -2316,10 +2327,27 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
 
     func play() {
         guard let player else { return }
+        // `play()` always resumes at 1×; honour the user's saved rate
+        // by stamping it after the play call. Setting `rate` while
+        // paused is harmless because we only do it on a player that
+        // just transitioned to playing.
         player.play()
+        if playbackRate != 1.0 {
+            player.rate = playbackRate
+        }
         isPlaying = true
         refreshDuration()
         updateNowPlayingInfo()
+    }
+
+    /// Update the user-preferred playback rate. Applied immediately
+    /// when audio is currently playing; otherwise stored so the next
+    /// `play()` call picks it up.
+    func setPlaybackRate(_ rate: Float) {
+        let clamped = max(0.25, min(rate, 4.0))
+        playbackRate = clamped
+        guard isPlaying, let player else { return }
+        player.rate = clamped
     }
 
     func togglePlayback() {
@@ -2375,7 +2403,7 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
             MPMediaItemPropertyTitle: currentTitle,
             MPMediaItemPropertyArtist: "Recappi",
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(playbackRate) : 0.0,
         ]
         if duration > 0 {
             info[MPMediaItemPropertyPlaybackDuration] = duration
@@ -2500,8 +2528,14 @@ private struct CloudMeetingPlaybackStrip: View {
     let hasLocalSession: Bool
     let waveformPeaks: [Float]
     let isLoadingWaveform: Bool
+    let playbackRate: Float
     let onPlayPause: () -> Void
     let onSeek: (Double) -> Void
+    let onSelectRate: (Float) -> Void
+
+    /// Allowed playback rates surfaced in the menu. Order matters —
+    /// the menu renders top-to-bottom in this order.
+    private static let rateOptions: [Float] = [0.5, 1.0, 1.5, 2.0, 3.0]
 
     private var sliderUpperBound: Double {
         max(duration, currentTime, 1)
@@ -2549,6 +2583,8 @@ private struct CloudMeetingPlaybackStrip: View {
                     onSeek(progress * sliderUpperBound)
                 }
             )
+
+            playbackRateMenu
         }
         .frame(height: 38)
         .padding(.horizontal, 12)
@@ -2573,6 +2609,50 @@ private struct CloudMeetingPlaybackStrip: View {
     private var sliderProgress: Double {
         guard sliderUpperBound > 0 else { return 0 }
         return min(max(0, currentTime / sliderUpperBound), 1)
+    }
+
+    private var playbackRateMenu: some View {
+        Menu {
+            ForEach(Self.rateOptions, id: \.self) { rate in
+                Button {
+                    onSelectRate(rate)
+                } label: {
+                    if rate == playbackRate {
+                        Label(Self.rateLabel(rate), systemImage: "checkmark")
+                    } else {
+                        Text(Self.rateLabel(rate))
+                    }
+                }
+            }
+        } label: {
+            Text(Self.rateLabel(playbackRate))
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.dtLabelSecondary)
+                .frame(width: 36)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.05))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(!hasAudio)
+        .help("Playback speed")
+    }
+
+    private static func rateLabel(_ rate: Float) -> String {
+        // Clean labels: integer rates render without trailing zeros
+        // ("1×" not "1.0×"); halves keep one decimal ("0.5×", "1.5×").
+        if rate == rate.rounded() {
+            return "\(Int(rate))×"
+        }
+        return String(format: "%.1f×", rate)
     }
 
     private var playbackStatusTitle: String {
