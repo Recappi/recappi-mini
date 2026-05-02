@@ -3,24 +3,15 @@
     <channel>
         <title>RecappiMini</title>
         <item>
-            <title>1.0.41</title>
-            <pubDate>Fri, 01 May 2026 12:52:20 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.41</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.41</sparkle:fullReleaseNotesLink>
-            <sparkle:version>48</sparkle:version>
-            <sparkle:shortVersionString>1.0.41</sparkle:shortVersionString>
+            <title>1.0.42</title>
+            <pubDate>Sat, 02 May 2026 03:56:21 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.42</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.42</sparkle:fullReleaseNotesLink>
+            <sparkle:version>49</sparkle:version>
+            <sparkle:shortVersionString>1.0.42</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>feat(app): first-launch onboarding flow
-
-- Added a first-launch onboarding flow: Welcome → permissions (microphone + screen recording) → sign-in → done.
-- All onboarding steps now use consistent centered content alignment with fade-plus-offset transitions for forward/back navigation.
-- Onboarding resumes at the last step after app restart via `OnboardingState.lastStep`; title-bar close bookmarks progress, while explicit Skip / Get started completes the flow.
-- Settings → Help now includes Restart onboarding, which resets onboarding state and reopens the welcome flow.
-- Sign-in OAuth buttons now show provider marks (Google G + GitHub octocat).
-- Post-onboarding sign-in surface now uses the Recappi brand LogoTile and fixed-width buttons so loading text no longer truncates.
-- UI test suppression auto-applies for `RECAPPI_TEST_OPEN_CLOUD_WINDOW=1`, so Cloud smoke fixtures are not blocked by onboarding.
-- Replaced the blank GitHubMark.png asset with a proper 256×256 GitHub mark.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.41/RecappiMini-1.0.41.dmg" length="3207674" type="application/octet-stream" sparkle:edSignature="eHC8OAXf+o43bfL4RA389bux503ErsJ63XUKKvWm06YF2jgZ/dw/59NzPs+xSmZww+L4NG3B7Xy1wrkS4YC/Dg=="/>
+            <description><![CDATA[<pre>Automated release for v1.0.42.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.42/RecappiMini-1.0.42.dmg" length="3227388" type="application/octet-stream" sparkle:edSignature="swKAOs7tJDMytuJqz2+w3oQqlSDDj5er09yVdeBdFppMvGP+p1X/KptP7f/+VZx1dUmlQupM5syBwSfpkTZgBA=="/>
         </item>
     </channel>
 </rss>
