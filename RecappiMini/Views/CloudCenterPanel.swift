@@ -2583,6 +2583,8 @@ private struct CloudMeetingPlaybackStrip: View {
         }
         .frame(height: 44)
         .padding(.horizontal, 18)
+        .padding(.top, 2)
+        .padding(.bottom, 7)
         .frame(maxWidth: .infinity)
         .background(Color.white.opacity(0.018))
     }
@@ -2678,13 +2680,18 @@ private struct PlaybackRatePillLabel: View {
     let isEnabled: Bool
 
     @State private var hovered = false
+    @State private var didChange = false
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+        HStack(spacing: 3) {
+            Text(text)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 7, weight: .bold))
+                .opacity(isEnabled ? 0.72 : 0.35)
+        }
             .foregroundStyle(foregroundColor)
-            .frame(width: 38)
-            .padding(.vertical, 4)
+            .frame(width: 52, height: 25)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(fillColor)
@@ -2698,26 +2705,40 @@ private struct PlaybackRatePillLabel: View {
             .opacity(isEnabled ? 1 : 0.45)
             .animation(DT.ease(0.12), value: hovered)
             .animation(DT.ease(0.18), value: isActive)
+            .animation(DT.ease(0.16), value: didChange)
+            .onChange(of: text) { _, _ in
+                guard isEnabled else { return }
+                didChange = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
+                    didChange = false
+                }
+            }
     }
 
     private var foregroundColor: Color {
         if !isEnabled { return Color.dtLabelTertiary }
-        if isActive { return DT.waveformLit }
-        return hovered ? Color.dtLabel : Color.dtLabelSecondary
+        if isActive || didChange { return DT.waveformLit }
+        return hovered ? Color.dtLabel : Color.dtLabel
     }
 
     private var fillColor: Color {
+        if didChange {
+            return DT.waveformLit.opacity(0.24)
+        }
         if isActive {
             return DT.waveformLit.opacity(hovered ? 0.20 : 0.14)
         }
-        return Color.white.opacity(hovered ? 0.10 : 0.05)
+        return Color.white.opacity(hovered ? 0.16 : 0.085)
     }
 
     private var strokeColor: Color {
+        if didChange {
+            return DT.waveformLit.opacity(0.70)
+        }
         if isActive {
             return DT.waveformLit.opacity(hovered ? 0.55 : 0.40)
         }
-        return Color.white.opacity(hovered ? 0.18 : 0.08)
+        return Color.white.opacity(hovered ? 0.34 : 0.18)
     }
 }
 
