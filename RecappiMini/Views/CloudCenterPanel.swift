@@ -1151,8 +1151,7 @@ private struct CloudRecordingDetail: View {
 
             bottomPlaybackBar
                 .padding(.horizontal, 18)
-                .padding(.top, 9)
-                .padding(.bottom, 6)
+                .padding(.top, 7)
         }
     }
 
@@ -2588,7 +2587,7 @@ private struct CloudMeetingPlaybackStrip: View {
         }
         .frame(height: 38)
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.white.opacity(0.035))
@@ -2625,19 +2624,11 @@ private struct CloudMeetingPlaybackStrip: View {
                 }
             }
         } label: {
-            Text(Self.rateLabel(playbackRate))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.dtLabelSecondary)
-                .frame(width: 36)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.white.opacity(0.05))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-                )
+            PlaybackRatePillLabel(
+                text: Self.rateLabel(playbackRate),
+                isActive: playbackRate != 1.0,
+                isEnabled: hasAudio
+            )
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -2691,6 +2682,60 @@ private struct CloudMeetingPlaybackStrip: View {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+/// Pill label that backs the playback-rate `Menu`. Tracks its own
+/// hover state so the control feels responsive on mouse-over (Menu's
+/// default label has no built-in hover/press chrome). When the user
+/// has selected a non-1× rate, the pill picks up an accent fill so
+/// the active state reads at a glance.
+private struct PlaybackRatePillLabel: View {
+    let text: String
+    let isActive: Bool
+    let isEnabled: Bool
+
+    @State private var hovered = false
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(foregroundColor)
+            .frame(width: 38)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(fillColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(strokeColor, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .onHover { hovered = isEnabled && $0 }
+            .opacity(isEnabled ? 1 : 0.45)
+            .animation(DT.ease(0.12), value: hovered)
+            .animation(DT.ease(0.18), value: isActive)
+    }
+
+    private var foregroundColor: Color {
+        if !isEnabled { return Color.dtLabelTertiary }
+        if isActive { return DT.waveformLit }
+        return hovered ? Color.dtLabel : Color.dtLabelSecondary
+    }
+
+    private var fillColor: Color {
+        if isActive {
+            return DT.waveformLit.opacity(hovered ? 0.20 : 0.14)
+        }
+        return Color.white.opacity(hovered ? 0.10 : 0.05)
+    }
+
+    private var strokeColor: Color {
+        if isActive {
+            return DT.waveformLit.opacity(hovered ? 0.55 : 0.40)
+        }
+        return Color.white.opacity(hovered ? 0.18 : 0.08)
     }
 }
 
