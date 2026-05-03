@@ -5,9 +5,11 @@ import SwiftUI
 
 struct CloudCenterPanel: View {
     @StateObject private var store: CloudLibraryStore
+    @StateObject private var cloudAudioPlayer = CloudMeetingAudioPlayer()
     @ObservedObject private var sessionStore = AuthSessionStore.shared
     @State private var showingDeleteConfirmation = false
     @State private var showingRetranscribeConfirmation = false
+    @State private var pendingListScrollTargetID: String?
 
     init(store: CloudLibraryStore = CloudLibraryStore()) {
         _store = StateObject(wrappedValue: store)
@@ -28,6 +30,9 @@ struct CloudCenterPanel: View {
         .ignoresSafeArea(.container, edges: [.top, .bottom])
         .background(DT.recordingShell)
         .preferredColorScheme(.dark)
+        .onDisappear {
+            cloudAudioPlayer.close()
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.window)
         .task {
@@ -229,38 +234,83 @@ struct CloudCenterPanel: View {
             .padding(.horizontal, 10)
             .padding(.top, 14)
 
-            ScrollView {
-                LazyVStack(spacing: 8) {
-                    ForEach(recordingDateSections) { section in
-                        VStack(alignment: .leading, spacing: 8) {
-                            CloudRecordingDateSectionHeader(
-                                title: section.title,
-                                count: section.recordings.count
-                            )
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(recordingDateSections) { section in
+                            VStack(alignment: .leading, spacing: 8) {
+                                CloudRecordingDateSectionHeader(
+                                    title: section.title,
+                                    count: section.recordings.count
+                                )
 
-                            ForEach(section.recordings) { recording in
-                                CloudRecordingRow(
-                                    recording: recording,
-                                    latestJobStatus: store.transcriptionJobsByRecordingID[recording.id]?.first?.status,
-                                    isSelected: store.selectedRecordingID == recording.id
-                                ) {
-                                    store.select(recording)
+                                ForEach(section.recordings) { recording in
+                                    CloudRecordingRow(
+                                        recording: recording,
+                                        latestJobStatus: store.transcriptionJobsByRecordingID[recording.id]?.first?.status,
+                                        isSelected: store.selectedRecordingID == recording.id,
+                                        isNowPlaying: cloudAudioPlayer.currentRecordingID == recording.id
+                                    ) {
+                                        store.select(recording)
+                                    }
+                                    .id(recording.id)
                                 }
                             }
                         }
-                    }
 
-                    if store.hasMorePages {
-                        loadMoreSentinel
+                        if store.hasMorePages {
+                            loadMoreSentinel
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 14)
+                }
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingsList)
+                .onChange(of: pendingListScrollTargetID) { _, id in
+                    guard let id else { return }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                    DispatchQueue.main.async {
+                        pendingListScrollTargetID = nil
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 14)
             }
-            .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingsList)
 
+            nowPlayingMiniPane
         }
         .background(Color.black.opacity(0.12))
+    }
+
+    @ViewBuilder
+    private var nowPlayingMiniPane: some View {
+        if let current = nowPlayingRecording,
+           cloudAudioPlayer.currentRecordingID != store.selectedRecordingID {
+            CloudNowPlayingMiniPane(
+                recording: current,
+                isPlaying: cloudAudioPlayer.isPlaying,
+                currentTime: cloudAudioPlayer.currentTime,
+                duration: cloudAudioPlayer.duration,
+                playbackRate: cloudAudioPlayer.playbackRate,
+                onPlayPause: cloudAudioPlayer.togglePlayback,
+                onSelectRate: cloudAudioPlayer.setPlaybackRate(_:),
+                onSelectRecording: { selectNowPlayingRecording(current) }
+            )
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.nowPlayingDock)
+        }
+    }
+
+    private var nowPlayingRecording: CloudRecording? {
+        guard let id = cloudAudioPlayer.currentRecordingID else { return nil }
+        return store.recordings.first(where: { $0.id == id })
+    }
+
+    private func selectNowPlayingRecording(_ recording: CloudRecording) {
+        store.select(recording)
+        pendingListScrollTargetID = recording.id
     }
 
     private var recordingsCountText: String {
@@ -365,6 +415,7 @@ struct CloudCenterPanel: View {
                 playbackAudioURL: store.selectedPlaybackAudioURL,
                 playbackSourceDescription: store.selectedPlaybackSourceDescription,
                 playbackErrorMessage: store.playbackErrorMessage,
+                audioPlayer: cloudAudioPlayer,
                 isTranscriptLoading: store.isSelectedTranscriptLoading,
                 isJobHistoryLoading: store.isSelectedJobHistoryLoading,
                 isPreparingPlaybackAudio: store.isPreparingPlaybackAudio,
@@ -385,11 +436,12 @@ struct CloudCenterPanel: View {
                 onDelete: { showingDeleteConfirmation = true },
                 onAcknowledgeNewerVersion: { Task { await store.acknowledgeNewerVersion() } }
             )
-            // Recording details own transient UI state: scroll position,
-            // active jump chip, pinned segment, and audio playback. Give each
+            // Recording details own transient reading UI state: scroll
+            // position, active jump chip, and pinned segment. Give each
             // selected recording a distinct identity so SwiftUI does not
             // recycle the previous detail page's scroll/focus state when the
-            // sidebar selection changes.
+            // sidebar selection changes. Playback lives one level up so
+            // browsing another recording no longer tears down the audio.
             .id(recording.id)
             .task(id: recording.id) {
                 await store.loadTranscriptForSelection()
@@ -959,6 +1011,7 @@ private struct CloudRecordingRow: View {
     let recording: CloudRecording
     let latestJobStatus: RemoteJobStatus?
     let isSelected: Bool
+    let isNowPlaying: Bool
     let action: () -> Void
 
     var body: some View {
@@ -978,6 +1031,14 @@ private struct CloudRecordingRow: View {
                     // Row 1: title + status chip. Title is the primary
                     // affordance, chip sits trailing as the status read.
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if isNowPlaying {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(DT.waveformLit)
+                                .frame(width: 12)
+                                .accessibilityLabel("Now playing")
+                        }
+
                         Text(recording.presentationTitle)
                             .font(.system(size: 13, weight: isSelected ? .medium : .regular))
                             .foregroundStyle(Color.dtLabel)
@@ -1036,6 +1097,101 @@ private struct CloudRecordingRow: View {
     }
 }
 
+private struct CloudNowPlayingMiniPane: View {
+    let recording: CloudRecording
+    let isPlaying: Bool
+    let currentTime: Double
+    let duration: Double
+    let playbackRate: Float
+    let onPlayPause: () -> Void
+    let onSelectRate: (Float) -> Void
+    let onSelectRecording: () -> Void
+
+    @State private var rateSelectionFeedbackID = 0
+
+    private static let rateOptions: [Float] = [0.5, 1.0, 1.5, 2.0, 3.0]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: onPlayPause) {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(PanelIconButtonStyle(size: 24))
+            .help(isPlaying ? "Pause" : "Play")
+
+            Button(action: onSelectRecording) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(recording.presentationTitle)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Color.dtLabel)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    Text("\(recording.sourceLine) · \(CloudMeetingPlaybackStrip.timeText(currentTime)) / \(duration > 0 ? CloudMeetingPlaybackStrip.timeText(duration) : "--:--")")
+                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .help("Show playing recording")
+
+            playbackRateMenu
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(DT.waveformLit.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private var playbackRateMenu: some View {
+        Menu {
+            ForEach(Self.rateOptions, id: \.self) { rate in
+                Button {
+                    onSelectRate(rate)
+                    rateSelectionFeedbackID += 1
+                } label: {
+                    if rate == playbackRate {
+                        Label(Self.rateLabel(rate), systemImage: "checkmark")
+                    } else {
+                        Text(Self.rateLabel(rate))
+                    }
+                }
+            }
+        } label: {
+            PlaybackRatePillLabel(
+                text: Self.rateLabel(playbackRate),
+                isActive: playbackRate != 1.0,
+                isEnabled: true,
+                feedbackID: rateSelectionFeedbackID
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Playback speed")
+    }
+
+    private static func rateLabel(_ rate: Float) -> String {
+        if rate == rate.rounded() {
+            return "\(Int(rate))×"
+        }
+        return String(format: "%.1f×", rate)
+    }
+}
+
 private enum CloudDetailSection: Hashable {
     case summary
     case transcript
@@ -1050,7 +1206,7 @@ private struct CloudDetailSectionOffsetPreferenceKey: PreferenceKey {
 }
 
 private struct CloudRecordingDetail: View {
-    @StateObject private var audioPlayer = CloudMeetingAudioPlayer()
+    @StateObject private var detailWaveform = CloudRecordingWaveformPreview()
     @State private var pendingAutoplayAfterPrepare = false
     @State private var pendingSeekAfterPrepare: Double?
     @State private var pinnedSegmentID: String?
@@ -1070,6 +1226,7 @@ private struct CloudRecordingDetail: View {
     let playbackAudioURL: URL?
     let playbackSourceDescription: String
     let playbackErrorMessage: String?
+    @ObservedObject var audioPlayer: CloudMeetingAudioPlayer
     let isTranscriptLoading: Bool
     let isJobHistoryLoading: Bool
     let isPreparingPlaybackAudio: Bool
@@ -1095,12 +1252,19 @@ private struct CloudRecordingDetail: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
+            detailWaveform.load(url: playbackAudioURL)
+            refreshPlayerMetadataIfNeeded()
         }
         .onChange(of: playbackAudioURL) { _, url in
-            audioPlayer.load(url: url, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
+            detailWaveform.load(url: url)
             if let pendingSeekAfterPrepare, url != nil {
                 self.pendingSeekAfterPrepare = nil
+                audioPlayer.load(
+                    recordingID: recording.id,
+                    url: url,
+                    title: recording.presentationTitle,
+                    artwork: recording.nowPlayingArtwork
+                )
                 audioPlayer.seek(to: pendingSeekAfterPrepare)
             }
             if let pendingPinnedSegmentIDAfterPrepare, url != nil {
@@ -1109,18 +1273,22 @@ private struct CloudRecordingDetail: View {
             }
             if pendingAutoplayAfterPrepare, url != nil {
                 pendingAutoplayAfterPrepare = false
+                audioPlayer.load(
+                    recordingID: recording.id,
+                    url: url,
+                    title: recording.presentationTitle,
+                    artwork: recording.nowPlayingArtwork
+                )
                 audioPlayer.play()
             }
+            refreshPlayerMetadataIfNeeded()
         }
         .onChange(of: recording.id) { _, _ in
             pendingAutoplayAfterPrepare = false
             pendingSeekAfterPrepare = nil
             pendingPinnedSegmentIDAfterPrepare = nil
             pinnedSegmentID = nil
-            audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
-        }
-        .onDisappear {
-            audioPlayer.close()
+            refreshPlayerMetadataIfNeeded()
         }
     }
 
@@ -2186,33 +2354,62 @@ private struct CloudRecordingDetail: View {
     }
 
     private var bottomPlaybackBar: some View {
-        CloudMeetingPlaybackStrip(
-            isPlaying: audioPlayer.isPlaying,
-            currentTime: audioPlayer.currentTime,
-            duration: audioPlayer.duration,
+        let isViewingLoadedAudio = audioPlayer.currentRecordingID == recording.id
+        let displayDuration = isViewingLoadedAudio ? audioPlayer.duration : (recording.durationSeconds ?? 0)
+        return CloudMeetingPlaybackStrip(
+            isPlaying: isViewingLoadedAudio && audioPlayer.isPlaying,
+            currentTime: isViewingLoadedAudio ? audioPlayer.currentTime : 0,
+            duration: displayDuration,
             sourceDescription: playbackSourceDescription,
             errorMessage: playbackErrorMessage,
             isPreparingAudio: isPreparingPlaybackAudio,
             hasAudio: playbackAudioURL != nil,
+            isViewingLoadedAudio: true,
             hasLocalSession: localSessionURL != nil,
-            waveformPeaks: audioPlayer.waveformPeaks,
-            isLoadingWaveform: audioPlayer.isLoadingWaveform,
+            waveformPeaks: isViewingLoadedAudio ? audioPlayer.waveformPeaks : detailWaveform.waveformPeaks,
+            isLoadingWaveform: isViewingLoadedAudio ? audioPlayer.isLoadingWaveform : detailWaveform.isLoadingWaveform,
             playbackRate: audioPlayer.playbackRate,
             onPlayPause: handlePlayPause,
-            onSeek: audioPlayer.seek(to:),
+            onSeek: handlePlaybackSeek(_:),
             onSelectRate: audioPlayer.setPlaybackRate(_:)
         )
     }
 
     private func handlePlayPause() {
-        guard playbackAudioURL != nil else {
+        guard let playbackAudioURL else {
             pendingAutoplayAfterPrepare = true
             onPreparePlaybackAudio()
             return
         }
 
-        audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
+        if audioPlayer.currentRecordingID == recording.id,
+           audioPlayer.currentURL == playbackAudioURL {
+            audioPlayer.togglePlayback()
+            return
+        }
+
+        audioPlayer.load(
+            recordingID: recording.id,
+            url: playbackAudioURL,
+            title: recording.presentationTitle,
+            artwork: recording.nowPlayingArtwork
+        )
         audioPlayer.togglePlayback()
+    }
+
+    private func handlePlaybackSeek(_ seconds: Double) {
+        guard let playbackAudioURL else {
+            pendingSeekAfterPrepare = seconds
+            onPreparePlaybackAudio()
+            return
+        }
+        audioPlayer.load(
+            recordingID: recording.id,
+            url: playbackAudioURL,
+            title: recording.presentationTitle,
+            artwork: recording.nowPlayingArtwork
+        )
+        audioPlayer.seek(to: seconds)
     }
 
     private func jumpToSegment(_ row: CloudTranscriptSegmentDisplayRow) {
@@ -2226,8 +2423,18 @@ private struct CloudRecordingDetail: View {
             onPreparePlaybackAudio()
             return
         }
-        audioPlayer.load(url: playbackAudioURL, title: recording.presentationTitle, artwork: recording.nowPlayingArtwork)
-        audioPlayer.seek(to: seconds)
+        handlePlaybackSeek(seconds)
+    }
+
+    private func refreshPlayerMetadataIfNeeded() {
+        guard audioPlayer.currentRecordingID == recording.id else { return }
+        let resolvedURL = playbackAudioURL ?? audioPlayer.currentURL
+        audioPlayer.load(
+            recordingID: recording.id,
+            url: resolvedURL,
+            title: recording.presentationTitle,
+            artwork: recording.nowPlayingArtwork
+        )
     }
 
     private func computeSegmentRowsWithPerfLogging() -> [CloudTranscriptSegmentDisplayRow] {
@@ -2350,24 +2557,64 @@ private struct CloudRecordingDetail: View {
 }
 
 @MainActor
+private final class CloudRecordingWaveformPreview: ObservableObject {
+    @Published private(set) var waveformPeaks: [Float] = []
+    @Published private(set) var isLoadingWaveform = false
+
+    private var currentURL: URL?
+    private var waveformTask: Task<Void, Never>?
+    private var waveformCache: [URL: [Float]] = [:]
+
+    deinit {
+        waveformTask?.cancel()
+    }
+
+    func load(url: URL?) {
+        guard currentURL != url else { return }
+        waveformTask?.cancel()
+        currentURL = url
+        waveformPeaks = []
+        isLoadingWaveform = false
+
+        guard let url else { return }
+        if let cached = waveformCache[url] {
+            waveformPeaks = cached
+            return
+        }
+
+        isLoadingWaveform = true
+        waveformTask = Task { [url] in
+            let peaks = await Task.detached(priority: .utility) {
+                (try? PlaybackWaveformExtractor.cachedPeaks(from: url)) ?? []
+            }.value
+            guard !Task.isCancelled, self.currentURL == url else { return }
+            self.waveformCache[url] = peaks
+            self.waveformPeaks = peaks
+            self.isLoadingWaveform = false
+        }
+    }
+}
+
+@MainActor
 private final class CloudMeetingAudioPlayer: ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
     @Published private(set) var waveformPeaks: [Float] = []
     @Published private(set) var isLoadingWaveform = false
+    @Published private(set) var currentRecordingID: String?
+    @Published private(set) var currentURL: URL?
+    @Published private(set) var currentTitle = "Meeting playback"
     /// User-selected playback rate. Applied to `AVPlayer.rate` while
     /// playing; remembered across pause/play cycles so toggling
     /// playback never silently drops back to 1×.
     @Published private(set) var playbackRate: Float = 1.0
 
     private var player: AVPlayer?
-    private var currentURL: URL?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var waveformTask: Task<Void, Never>?
     private var waveformCache: [URL: [Float]] = [:]
-    private var currentTitle = "Meeting playback"
     private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
     private var currentArtwork: NSImage?
     private var isSeeking = false
@@ -2376,7 +2623,8 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
         configureRemoteCommands()
     }
 
-    func load(url: URL?, title: String, artwork: NSImage?) {
+    func load(recordingID: String?, url: URL?, title: String, artwork: NSImage?) {
+        currentRecordingID = recordingID
         currentTitle = title
         currentArtwork = Self.normalizedArtwork(from: artwork)
         guard currentURL != url else {
@@ -2388,6 +2636,7 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
         removeObservers()
         player?.pause()
         player = nil
+        currentRecordingID = recordingID
         currentURL = url
         currentTime = 0
         duration = 0
@@ -2474,6 +2723,7 @@ private final class CloudMeetingAudioPlayer: ObservableObject {
         waveformTask = nil
         player?.pause()
         player = nil
+        currentRecordingID = nil
         currentURL = nil
         currentTime = 0
         duration = 0
@@ -2653,6 +2903,7 @@ private struct CloudMeetingPlaybackStrip: View {
     let errorMessage: String?
     let isPreparingAudio: Bool
     let hasAudio: Bool
+    let isViewingLoadedAudio: Bool
     let hasLocalSession: Bool
     let waveformPeaks: [Float]
     let isLoadingWaveform: Bool
@@ -2784,6 +3035,9 @@ private struct CloudMeetingPlaybackStrip: View {
         if !hasAudio && !hasLocalSession {
             return "Use Sync in the header"
         }
+        if hasAudio && !isViewingLoadedAudio {
+            return "Browsing another recording"
+        }
         return "\(Self.timeText(currentTime)) / \(duration > 0 ? Self.timeText(duration) : "--:--")"
     }
 
@@ -2794,7 +3048,7 @@ private struct CloudMeetingPlaybackStrip: View {
         return Color.dtLabelSecondary
     }
 
-    private static func timeText(_ seconds: Double) -> String {
+    static func timeText(_ seconds: Double) -> String {
         let totalSeconds = max(0, Int(seconds.rounded(.down)))
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
@@ -2936,12 +3190,13 @@ private struct CloudPlaybackWaveformScrubber: View {
     let isEnabled: Bool
     let peaks: [Float]
     let isLoadingPeaks: Bool
+    var compact = false
     let onSeekProgress: (Double) -> Void
 
-    private let trackHeight: CGFloat = 32
+    private var trackHeight: CGFloat { compact ? 13 : 32 }
     private let horizontalInset: CGFloat = 7
-    private let scrubberHeight: CGFloat = 44
-    private let playheadHeight: CGFloat = 40
+    private var scrubberHeight: CGFloat { compact ? 18 : 44 }
+    private var playheadHeight: CGFloat { compact ? 17 : 40 }
     private let playheadWidth: CGFloat = 7
 
     var body: some View {
@@ -3638,6 +3893,11 @@ private extension CloudRecording {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    var durationSeconds: Double? {
+        guard let durationMs, durationMs > 0 else { return nil }
+        return Double(durationMs) / 1000.0
     }
 
     var sizeText: String? {
