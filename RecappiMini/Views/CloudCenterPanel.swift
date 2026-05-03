@@ -210,6 +210,12 @@ struct CloudCenterPanel: View {
 
     private var recordingsList: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // Header row sits at the same horizontal inset as the
+            // LazyVStack below (10pt — see `.padding(.horizontal, 10)` on
+            // the scroll content), so "Recordings" and the per-day section
+            // headers ("Apr 30, 2026", etc.) share a clean leading rail.
+            // peng-xiao `26485a7a` flagged the previous 14pt header inset
+            // as visibly out of column with the date headers below it.
             HStack {
                 Text("Recordings")
                     .font(.system(size: 11, weight: .medium))
@@ -220,7 +226,7 @@ struct CloudCenterPanel: View {
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.dtLabelTertiary)
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 10)
             .padding(.top, 14)
 
             ScrollView {
@@ -957,11 +963,20 @@ private struct CloudRecordingRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 9) {
-                CloudSourceIcon(recording: recording, size: 24)
-                    .padding(.top, 1)
+            HStack(alignment: .center, spacing: 10) {
+                // Source icon column. peng-xiao `26485a7a` asked the icon
+                // to "just be bigger" rather than padded inside a smaller
+                // visual box, and to vertically anchor the row (not float
+                // beside the title). 24pt → 30pt + center alignment puts
+                // the icon between the two metadata rows so it visually
+                // covers the full row height; the previous `.top` align
+                // + `.padding(.top, 1)` decorative offset is no longer
+                // needed.
+                CloudSourceIcon(recording: recording, size: 30)
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
+                    // Row 1: title + status chip. Title is the primary
+                    // affordance, chip sits trailing as the status read.
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(recording.presentationTitle)
                             .font(.system(size: 13, weight: isSelected ? .medium : .regular))
@@ -974,22 +989,33 @@ private struct CloudRecordingRow: View {
                         CloudStatusChip(status: recording.status, latestJobStatus: latestJobStatus)
                     }
 
-                    Text(recording.sourceLine)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(Color.dtLabelSecondary)
-                        .lineLimit(1)
-
-                    HStack(spacing: 8) {
-                        Label(recording.listTimeText, systemImage: "clock")
-                        Spacer(minLength: 8)
+                    // Row 2: single metadata bar — `source · time · duration`.
+                    // Originally rendered as three separate stacked rows
+                    // (subtitle, then a clock/timer icon row), which left a
+                    // large empty area below the source icon and made the
+                    // bottom-left timestamp feel "空落落" — peng-xiao
+                    // `41a1772f`. Mini `d3bedf7f` / `d24fadec` reviewed and
+                    // proposed the consolidated bar: same reading rhythm,
+                    // no left/right spacer split, no decorative SF Symbols.
+                    // Cell height drops from ~3 metadata rows to 1, so the
+                    // 24pt source icon now visually covers the row's full
+                    // left column without the suspended-anchor problem.
+                    HStack(spacing: 6) {
+                        Text(recording.sourceLine)
+                        Text("·")
+                            .foregroundStyle(Color.dtLabelQuaternary)
+                        Text(recording.listTimeText)
                         if let duration = recording.durationText {
-                            Label(duration, systemImage: "timer")
+                            Text("·")
+                                .foregroundStyle(Color.dtLabelQuaternary)
+                            Text(duration)
                         }
+                        Spacer(minLength: 0)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                     .font(.system(size: 10.5))
                     .foregroundStyle(Color.dtLabelTertiary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                 }
             }
             .padding(.horizontal, 10)
@@ -1099,7 +1125,15 @@ private struct CloudRecordingDetail: View {
 
     private var readerPane: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 13) {
+            // peng-xiao `04644a8a` flagged the detail pane top whitespace
+            // as wasteful — title block + tab bar were leaving more
+            // breathing room than the page below them justified. Pulled
+            // top inset 20→14, bottom inset 13→8, and the inner VStack
+            // spacing 13→9 so the title/date/banners/tabs feel like a
+            // single condensed header strip, not a wide spaced collage.
+            // The detailHeader's own internal title↔date spacing tightens
+            // separately (5→3) inside the header body.
+            VStack(alignment: .leading, spacing: 9) {
                 detailHeader
                 // Failed/processing transcription banner (orange) sits above the
                 // newer-version banner (blue) so terminal errors stay closer to
@@ -1109,8 +1143,8 @@ private struct CloudRecordingDetail: View {
                 detailJumpBar
             }
             .padding(.horizontal, 22)
-            .padding(.top, 20)
-            .padding(.bottom, 13)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
 
             Divider().overlay(Color.white.opacity(0.08))
 
@@ -1154,7 +1188,21 @@ private struct CloudRecordingDetail: View {
                     withAnimation(.easeOut(duration: 0.18)) {
                         proxy.scrollTo(target, anchor: .top)
                     }
-                    DispatchQueue.main.async {
+                    // Hold `pendingScrollTarget` past the scroll
+                    // animation duration so the offset-driven
+                    // `updateActiveDetailSection` cannot retoggle the
+                    // active segment while the scroll is still in
+                    // flight. peng-xiao `349a3fb1`: tapping Summary /
+                    // Transcript made the segmented control flicker
+                    // because the previous `DispatchQueue.main.async`
+                    // cleared the gate immediately, so mid-animation
+                    // preference-key updates would briefly flip the
+                    // segment back to whichever section was currently
+                    // sliding through the 88pt threshold. The 0.25s
+                    // delay (animation 0.18s + ~70ms slack) lets the
+                    // intent-driven activeDetailSection settle before
+                    // scroll position takes over again.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         pendingScrollTarget = nil
                     }
                 }
@@ -1175,54 +1223,70 @@ private struct CloudRecordingDetail: View {
     }
 
     private var detailJumpBar: some View {
-        HStack(spacing: 7) {
-            detailJumpButton(
-                title: "Summary",
-                systemImage: "text.alignleft",
-                section: .summary,
-                accessibilityID: AccessibilityIDs.Cloud.jumpToSummaryButton,
-                isDisabled: !hasSummarySection
-            )
+        // Segmented-control nav. peng-xiao `430c2cf6` rejected both the
+        // capsule-tag version ("looks like static metadata") and the
+        // underline version ("looks like a webpage nav line, ugly").
+        // Final design (Mini `32cfa104`): one rounded container holding
+        // both options side-by-side, active segment filled, inactive
+        // segment transparent. macOS-style segmented picker, compact
+        // height, low ornament.
+        HStack(spacing: 0) {
+            HStack(spacing: 2) {
+                detailJumpSegment(
+                    title: "Summary",
+                    systemImage: "text.alignleft",
+                    section: .summary,
+                    accessibilityID: AccessibilityIDs.Cloud.jumpToSummaryButton,
+                    isDisabled: !hasSummarySection
+                )
 
-            detailJumpButton(
-                title: "Transcript",
-                systemImage: "text.quote",
-                section: .transcript,
-                accessibilityID: AccessibilityIDs.Cloud.jumpToTranscriptButton,
-                isDisabled: false
+                detailJumpSegment(
+                    title: "Transcript",
+                    systemImage: "text.quote",
+                    section: .transcript,
+                    accessibilityID: AccessibilityIDs.Cloud.jumpToTranscriptButton,
+                    isDisabled: false
+                )
+            }
+            .padding(2)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.white.opacity(0.045))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
             )
 
             Spacer(minLength: 0)
         }
     }
 
-    private func detailJumpButton(
+    private func detailJumpSegment(
         title: String,
         systemImage: String,
         section: CloudDetailSection,
         accessibilityID: String,
         isDisabled: Bool
     ) -> some View {
-        Button {
+        let isActive = activeDetailSection == section
+        return Button {
             pendingScrollTarget = section
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
                     .font(.system(size: 10.5, weight: .semibold))
                 Text(title)
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(.system(size: 11, weight: isActive ? .semibold : .medium))
             }
-            .foregroundStyle(activeDetailSection == section ? Color.dtLabel : Color.dtLabelSecondary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
+            .foregroundStyle(isActive ? Color.dtLabel : Color.dtLabelSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
             .background(
-                Capsule(style: .continuous)
-                    .fill(activeDetailSection == section ? Color.white.opacity(0.13) : Color.white.opacity(0.055))
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(isActive ? Color.white.opacity(0.13) : Color.clear)
             )
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(activeDetailSection == section ? Color.white.opacity(0.2) : Color.white.opacity(0.075), lineWidth: 1)
-            )
+            .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -1705,19 +1769,37 @@ private struct CloudRecordingDetail: View {
     }
 
     private var detailHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
+        // Identity strip: icon + `Title · date` inline as a single
+        // horizontal row. peng-xiao `825bd872` / `684bb091` flagged the
+        // previous "icon left, title-stacked-over-date middle, actions
+        // right" arrangement as structurally loose — title and date were
+        // stacked vertically while the actions sat on a different
+        // visual axis, so the header read as three separate visual
+        // groups. Mini `46e7aacf` proposed collapsing identity into one
+        // strip; this version puts title (19pt) and date (11.5pt) on
+        // one baseline-aligned line with a `·` separator, then sends
+        // status + actions to the trailing edge of the same strip.
+        HStack(alignment: .center, spacing: 12) {
             CloudSourceIcon(recording: recording, size: 34)
 
-            VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(recording.presentationTitle)
                     .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(Color.dtLabel)
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Text("·")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color.dtLabelQuaternary)
 
                 Text(recording.createdDateText)
                     .font(.system(size: 11.5))
                     .foregroundStyle(Color.dtLabelTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
+            .layoutPriority(1)
 
             Spacer(minLength: 0)
 
@@ -3206,6 +3288,16 @@ private struct CloudInspectorButtonStyle: ButtonStyle {
 }
 
 private struct CloudStatusChip: View {
+    /// Horizontal inset between the capsule outline and the status text
+    /// glyph. Exposed as a single source of truth so any view that wants
+    /// its own trailing column to *visually* line up with the status
+    /// chip's TEXT (not its capsule outline) — e.g. the duration label
+    /// in `CloudRecordingRow`'s metadata row — can apply the same
+    /// trailing offset and avoid the 6pt visual misalignment between
+    /// "Ready" and "26:01" that peng-xiao called out (`f4892708`).
+    static let nonProminentHorizontalInset: CGFloat = 6
+    static let prominentHorizontalInset: CGFloat = 9
+
     private let displayStatus: CloudRecordingDisplayStatus
     var prominent: Bool = false
 
@@ -3225,7 +3317,7 @@ private struct CloudStatusChip: View {
         Text(displayStatus.displayName)
             .font(.system(size: prominent ? 11 : 9, weight: .medium))
             .foregroundStyle(color)
-            .padding(.horizontal, prominent ? 9 : 6)
+            .padding(.horizontal, prominent ? Self.prominentHorizontalInset : Self.nonProminentHorizontalInset)
             .padding(.vertical, prominent ? 5 : 3)
             .background(
                 Capsule(style: .continuous)
@@ -3325,6 +3417,13 @@ private struct CloudSourceIcon: View {
 
     var body: some View {
         ZStack {
+            // The tint plate stays as a faint badge under whatever icon
+            // we render. It used to also act as decorative padding (the
+            // app icon was inset to 72% of the box), but peng-xiao
+            // `26485a7a` flagged that as making the source logo look
+            // smaller than the container suggests. Real app icons now
+            // fill the box edge-to-edge; the rounded corner radius mask
+            // keeps them from poking past the badge outline.
             RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
                 .fill(DT.statusReady.opacity(0.10))
 
@@ -3332,11 +3431,21 @@ private struct CloudSourceIcon: View {
                 Image(nsImage: icon)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: size * 0.72, height: size * 0.72)
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
             } else {
+                // Source-symbol fallback when the recording's bundle ID
+                // doesn't resolve to an installed app (e.g. Discord
+                // running as a PWA, recording from a CLI tool, etc.).
+                // Original tint was `DT.statusReady` against the same-
+                // colour 10% plate, which made the symbol nearly
+                // invisible on top of the badge — that's the missing
+                // Discord icon peng-xiao saw at `26485a7a`. Render with
+                // primary label colour at a larger size so the fallback
+                // is unambiguously a recognisable shape.
                 Image(systemName: recording.sourceIconName)
-                    .font(.system(size: size * 0.42, weight: .medium))
-                    .foregroundStyle(DT.statusReady)
+                    .font(.system(size: size * 0.58, weight: .medium))
+                    .foregroundStyle(Color.dtLabel)
             }
         }
         .frame(width: size, height: size)
