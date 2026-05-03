@@ -953,6 +953,7 @@ struct TranscriptResponse: Decodable, Equatable, Sendable {
 }
 
 struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
+    let title: String?
     let tldr: String?
     let summary: String?
     let keyPoints: [String]
@@ -962,7 +963,8 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
     let quotes: [TranscriptSummaryQuote]
 
     var isEmpty: Bool {
-        summaryText == nil &&
+        title == nil &&
+            summaryText == nil &&
             keyPoints.isEmpty &&
             topics.isEmpty &&
             decisions.isEmpty &&
@@ -984,6 +986,7 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case tldr
+        case title
         case summary
         case keyPoints
         case topics
@@ -993,6 +996,7 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
     }
 
     init(
+        title: String? = nil,
         tldr: String? = nil,
         summary: String? = nil,
         keyPoints: [String] = [],
@@ -1001,6 +1005,7 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
         actionItems: [TranscriptSummaryActionItem] = [],
         quotes: [TranscriptSummaryQuote] = []
     ) {
+        self.title = Self.cleanText(title)
         self.tldr = Self.cleanText(tldr)
         self.summary = Self.cleanText(summary)
         self.keyPoints = Self.normalizeStrings(keyPoints)
@@ -1012,6 +1017,7 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .title))
         tldr = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .tldr))
         summary = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .summary))
         keyPoints = Self.decodeStringList(from: container, forKey: .keyPoints)
@@ -1023,6 +1029,7 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(title, forKey: .title)
         try container.encodeIfPresent(tldr, forKey: .tldr)
         try container.encodeIfPresent(summary, forKey: .summary)
         if !keyPoints.isEmpty { try container.encode(keyPoints, forKey: .keyPoints) }

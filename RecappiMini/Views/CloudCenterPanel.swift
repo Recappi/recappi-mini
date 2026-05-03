@@ -1058,6 +1058,7 @@ private struct CloudRecordingDetail: View {
     @State private var isShowingRecordingInfo = false
     @State private var pendingScrollTarget: CloudDetailSection?
     @State private var activeDetailSection: CloudDetailSection = .summary
+    @State private var suppressOffsetDrivenSectionUpdates = false
 
     let recording: CloudRecording
     let recordingWebURL: URL?
@@ -1305,12 +1306,23 @@ private struct CloudRecordingDetail: View {
 
     private func updateActiveDetailSection(with offsets: [CloudDetailSection: CGFloat]) {
         guard pendingScrollTarget == nil else { return }
+        guard !suppressOffsetDrivenSectionUpdates else { return }
         if let transcriptOffset = offsets[.transcript], transcriptOffset < 88 {
             activeDetailSection = .transcript
         } else if hasSummarySection {
             activeDetailSection = .summary
         } else {
             activeDetailSection = .transcript
+        }
+    }
+
+    private func acknowledgeNewerVersionWithoutSectionFlicker() {
+        let sectionBeforeRefresh = activeDetailSection
+        suppressOffsetDrivenSectionUpdates = true
+        onAcknowledgeNewerVersion()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+            activeDetailSection = sectionBeforeRefresh
+            suppressOffsetDrivenSectionUpdates = false
         }
     }
 
@@ -2004,7 +2016,7 @@ private struct CloudRecordingDetail: View {
 
                 Spacer(minLength: 0)
 
-                Button(action: onAcknowledgeNewerVersion) {
+                Button(action: acknowledgeNewerVersionWithoutSectionFlicker) {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 10.5, weight: .semibold))

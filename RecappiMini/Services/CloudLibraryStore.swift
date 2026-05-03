@@ -628,6 +628,7 @@ final class CloudLibraryStore: ObservableObject {
             // any side effect.
             try Task.checkCancellation()
             transcriptCache[loadingRecordingID] = transcript
+            applySummaryTitleFromTranscript(transcript, to: loadingRecordingID)
             if let recordingUpdatedAtSnapshot {
                 transcriptCacheRecordingUpdatedAt[loadingRecordingID] = recordingUpdatedAtSnapshot
             } else {
@@ -1101,6 +1102,15 @@ final class CloudLibraryStore: ObservableObject {
         recordings[index] = recording
     }
 
+    private func applySummaryTitleFromTranscript(_ transcript: TranscriptResponse, to recordingID: String) {
+        guard let title = transcript.summaryInsights?.title,
+              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let recording = recordings.first(where: { $0.id == recordingID }) else {
+            return
+        }
+        replaceRecording(recording.replacingSummaryTitle(title))
+    }
+
     private func mergeWithCachedRecordingDetails(_ incoming: [CloudRecording]) -> [CloudRecording] {
         let cachedByID = Dictionary(uniqueKeysWithValues: recordings.map { ($0.id, $0) })
         return incoming.map { recording in
@@ -1189,6 +1199,7 @@ final class CloudLibraryStore: ObservableObject {
             try await client.getRecordingTranscript(id: recording.id, jobId: job.id)
         }
         transcriptCache[recording.id] = transcript
+        applySummaryTitleFromTranscript(transcript, to: recording.id)
         try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript, job: job)
         await refreshSelectedDetailIfNeeded()
         await persistCacheSnapshot()
@@ -1382,6 +1393,31 @@ final class CloudLibraryStore: ObservableObject {
             .joined(separator: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty ? "recording" : String(cleaned.prefix(96))
+    }
+}
+
+private extension CloudRecording {
+    func replacingSummaryTitle(_ nextSummaryTitle: String) -> CloudRecording {
+        CloudRecording(
+            id: id,
+            userId: userId,
+            title: title,
+            summaryTitle: nextSummaryTitle,
+            sourceTitle: sourceTitle,
+            sourceAppName: sourceAppName,
+            sourceAppBundleID: sourceAppBundleID,
+            r2Key: r2Key,
+            r2UploadId: r2UploadId,
+            status: status,
+            sizeBytes: sizeBytes,
+            durationMs: durationMs,
+            sampleRate: sampleRate,
+            channels: channels,
+            contentType: contentType,
+            activeTranscriptId: activeTranscriptId,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
     }
 }
 

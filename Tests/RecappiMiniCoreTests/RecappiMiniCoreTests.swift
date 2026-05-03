@@ -490,6 +490,37 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(recording.sourceAppBundleID, "com.apple.Safari")
     }
 
+    func testTranscriptResponseDecodesSummaryTitleFromSummaryJson() throws {
+        let data = """
+        {
+          "id": "tr_123",
+          "text": "Design review transcript.",
+          "summaryJson": "{\\"title\\":\\"Design review with iOS team\\",\\"tldr\\":\\"The team reviewed the next app polish pass.\\"}",
+          "segments": []
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertEqual(transcript.summaryInsights?.title, "Design review with iOS team")
+        XCTAssertEqual(transcript.summary, "The team reviewed the next app polish pass.")
+    }
+
+    func testTranscriptResponseKeepsTitleOnlySummaryInsights() throws {
+        let data = """
+        {
+          "id": "tr_124",
+          "text": "Quick transcript.",
+          "summaryJson": "{\\"title\\":\\"Customer research sync\\"}",
+          "segments": []
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertEqual(transcript.summaryInsights?.title, "Customer research sync")
+    }
+
     func testRecordingSessionMetadataBuildsHumanCloudTitle() throws {
         let metadata = RecordingSessionMetadata.capture(
             sourceTitle: "Google Meet in Safari",
@@ -671,7 +702,7 @@ final class RecappiMiniCoreTests: XCTestCase {
               "id": "tr_123",
               "text": "Hello from cache.",
               "summary": "Cached summary.",
-              "summaryJson": "{\\"tldr\\":\\"Cached TLDR.\\",\\"keyPoints\\":[\\"Cached key point.\\"]}",
+              "summaryJson": "{\\"title\\":\\"Cached product review\\",\\"tldr\\":\\"Cached TLDR.\\",\\"keyPoints\\":[\\"Cached key point.\\"]}",
               "actionItemsJson": "[\\"Ship the cache fixture.\\"]",
               "segments": [
                 { "startMs": 0, "endMs": 1200, "text": "Hello from cache.", "speaker": "Peng" }
@@ -732,6 +763,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(decoded.decodedRecordings.first?.status, .ready)
         XCTAssertEqual(decoded.decodedBillingStatus?.tier, .pro)
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.summary, "Cached summary.")
+        XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.summaryInsights?.title, "Cached product review")
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.summaryInsights?.keyPoints, ["Cached key point."])
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.actionItems, ["Ship the cache fixture."])
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.segments.first?.speaker, "Peng")
