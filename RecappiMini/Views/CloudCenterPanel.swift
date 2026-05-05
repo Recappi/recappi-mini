@@ -6,13 +6,15 @@ import SwiftUI
 struct CloudCenterPanel: View {
     @StateObject private var store: CloudLibraryStore
     @StateObject private var cloudAudioPlayer = CloudMeetingAudioPlayer()
+    @ObservedObject private var recorder: AudioRecorder
     @ObservedObject private var sessionStore = AuthSessionStore.shared
     @State private var showingDeleteConfirmation = false
     @State private var pendingListScrollTargetID: String?
     @State private var pendingProcessingAction: CloudRecordingProcessingAction?
 
-    init(store: CloudLibraryStore = CloudLibraryStore()) {
+    init(store: CloudLibraryStore = CloudLibraryStore(), recorder: AudioRecorder) {
         _store = StateObject(wrappedValue: store)
+        _recorder = ObservedObject(wrappedValue: recorder)
     }
 
     var body: some View {
@@ -192,26 +194,52 @@ struct CloudCenterPanel: View {
 
     @ViewBuilder
     private var content: some View {
-        switch store.state {
-        case .idle, .loading:
-            loadingView
-        case .signedOut:
-            authRequiredView(
-                title: "Sign in to browse your cloud recordings",
-                detail: "Recappi Cloud keeps processed recordings, transcripts, and downloadable audio in one place."
-            )
-        case .expired:
-            authRequiredView(
-                title: "Reconnect Recappi Cloud",
-                detail: "Your session expired. Reconnect once and the library will refresh automatically."
-            )
-        case .failed(let message):
-            errorView(message)
-        case .empty:
-            emptyView
-        case .loaded:
-            libraryView
+        if isCurrentMeetingActive {
+            currentMeetingLibraryView
+        } else {
+            switch store.state {
+            case .idle, .loading:
+                loadingView
+            case .signedOut:
+                authRequiredView(
+                    title: "Sign in to browse your cloud recordings",
+                    detail: "Recappi Cloud keeps processed recordings, transcripts, and downloadable audio in one place."
+                )
+            case .expired:
+                authRequiredView(
+                    title: "Reconnect Recappi Cloud",
+                    detail: "Your session expired. Reconnect once and the library will refresh automatically."
+                )
+            case .failed(let message):
+                errorView(message)
+            case .empty:
+                emptyView
+            case .loaded:
+                libraryView
+            }
         }
+    }
+
+    private var isCurrentMeetingActive: Bool {
+        switch recorder.state {
+        case .starting, .recording:
+            true
+        default:
+            false
+        }
+    }
+
+    private var currentMeetingLibraryView: some View {
+        HStack(spacing: 0) {
+            recordingsList
+                .frame(width: 292)
+
+            Divider().overlay(Color.white.opacity(0.08))
+
+            CurrentMeetingDetailPane(recorder: recorder)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var libraryView: some View {
@@ -1203,6 +1231,180 @@ private struct CloudNowPlayingMiniPane: View {
             return "\(Int(rate))×"
         }
         return String(format: "%.1f×", rate)
+    }
+}
+
+private struct CurrentMeetingDetailPane: View {
+    @ObservedObject var recorder: AudioRecorder
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 14) {
+                liveBadge
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Current meeting")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                    Text(sourceLine)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.dtLabelSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 24)
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(timeText(recorder.elapsedSeconds))
+                        .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.dtLabel)
+                    Text(statusText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.dtLabelSecondary)
+                }
+            }
+
+            waveformPanel
+
+            captionsPanel
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 34)
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.035),
+                    Color.clear
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanel)
+    }
+
+    private var liveBadge: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(DT.systemRed)
+                .frame(width: 8, height: 8)
+            Text("Live")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.dtLabel)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(DT.systemRed.opacity(0.16))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(DT.systemRed.opacity(0.28), lineWidth: 0.6)
+        )
+    }
+
+    private var waveformPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Meeting audio", systemImage: "waveform")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                Spacer(minLength: 0)
+                Text("Captions follow meeting audio only")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+            }
+
+            DotMatrixWaveform(levels: recorder.audioSpectrumLevels)
+                .frame(height: 64)
+        }
+        .padding(18)
+        .background(currentMeetingCardBackground)
+        .overlay(currentMeetingCardStroke)
+    }
+
+    private var captionsPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Live captions", systemImage: "captions.bubble.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
+                Spacer(minLength: 0)
+                Text("System audio")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(DT.waveformLit)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(DT.waveformLit.opacity(0.12))
+                    )
+            }
+
+            Text(captionLine)
+                .font(.system(size: 22, weight: recorder.liveCaptionText == nil ? .medium : .semibold))
+                .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
+                .lineLimit(4)
+                .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(captionLine))
+                .accessibilityValue(Text(captionLine))
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
+        }
+        .padding(20)
+        .background(currentMeetingCardBackground)
+        .overlay(currentMeetingCardStroke)
+    }
+
+    private var currentMeetingCardBackground: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(Color.white.opacity(0.045))
+    }
+
+    private var currentMeetingCardStroke: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .stroke(Color.white.opacity(0.08), lineWidth: 0.6)
+    }
+
+    private var captionLine: String {
+        if let text = recorder.liveCaptionText?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !text.isEmpty {
+            return text
+        }
+        if let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !message.isEmpty {
+            return message
+        }
+        return "Listening for meeting audio…"
+    }
+
+    private var statusText: String {
+        switch recorder.state {
+        case .starting:
+            return "Starting"
+        case .recording:
+            return "Recording"
+        default:
+            return "Ready"
+        }
+    }
+
+    private var sourceLine: String {
+        recorder.recordingAppName ?? recorder.selectedApp?.name ?? "All system audio"
+    }
+
+    private func timeText(_ seconds: Int) -> String {
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        let s = seconds % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%02d:%02d", m, s)
     }
 }
 

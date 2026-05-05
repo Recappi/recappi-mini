@@ -45,7 +45,7 @@ struct RecordingPanel: View {
         case .idle, .starting:
             recorder.recordingSuggestion == nil && recorder.meetingPrompt == nil ? 28 : 48
         case .recording:
-            recorder.liveCaptionText == nil && recorder.liveCaptionMessage == nil ? 48 : 78
+            48
         case .processing:
             50
         case .done(let result):
@@ -162,6 +162,7 @@ struct RecordingPanel: View {
                 NSLog("[Recappi] startRecording() calling AudioRecorder.startRecording()")
                 try await recorder.startRecording()
                 NSLog("[Recappi] startRecording() returned, state now = \(recorder.state)")
+                onOpenCloud()
             } catch {
                 NSLog("[Recappi] startRecording() error: \(error)")
                 recorder.state = .error(message: error.localizedDescription)
@@ -603,9 +604,6 @@ private struct RecordingState: View {
             }
             .frame(height: 28)
 
-            if let liveCaptionLine {
-                liveCaptionStrip(liveCaptionLine)
-            }
         }
     }
 
@@ -655,47 +653,6 @@ private struct RecordingState: View {
 
     private var recordingSourceIcon: NSImage? {
         recorder.selectedApp?.icon
-    }
-
-    private var liveCaptionLine: String? {
-        if let text = recorder.liveCaptionText?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !text.isEmpty {
-            return text
-        }
-        if let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !message.isEmpty {
-            return message
-        }
-        return nil
-    }
-
-    private func liveCaptionStrip(_ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
-            Image(systemName: recorder.liveCaptionText == nil ? "captions.bubble" : "captions.bubble.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(recorder.liveCaptionText == nil ? Color.white.opacity(0.44) : DT.waveformLit)
-                .frame(width: 14)
-
-            Text(text)
-                .font(.system(size: 11.5, weight: recorder.liveCaptionIsFinal ? .semibold : .medium))
-                .foregroundStyle(recorder.liveCaptionText == nil ? Color.white.opacity(0.54) : Color.white.opacity(0.86))
-                .lineLimit(2)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(0.045))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Live caption: \(text)")
-        .accessibilityIdentifier(AccessibilityIDs.Panel.liveCaptionText)
     }
 
     private var waveformHelpText: String {

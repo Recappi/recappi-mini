@@ -41,6 +41,8 @@ enum UITestIDs {
         static let reconnectButton = "recappi.cloud.reconnectButton"
         static let recordingsList = "recappi.cloud.recordingsList"
         static let recordingRowPrefix = "recappi.cloud.recordingRow."
+        static let currentMeetingPanel = "recappi.cloud.currentMeetingPanel"
+        static let currentMeetingCaption = "recappi.cloud.currentMeetingCaption"
         static let loadMoreButton = "recappi.cloud.loadMoreButton"
         static let latestJobStatus = "recappi.cloud.latestJobStatus"
         static let transcriptText = "recappi.cloud.transcriptText"

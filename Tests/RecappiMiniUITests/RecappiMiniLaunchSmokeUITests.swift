@@ -84,29 +84,36 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         add(attachment)
     }
 
-    func testLiveCaptionStripUsesCompactRecordingPanelLayout() throws {
+    func testLiveCaptionsOpenCurrentMeetingCloudPanel() throws {
         let app = launchRecappiApp(
             authToken: "invalid-test-token",
             simulatedLiveCaptionText: "Let’s keep this tiny while the meeting keeps moving."
         )
 
         let recordButton = app.buttons[UITestIDs.Panel.recordButton]
-        let stopButton = app.buttons[UITestIDs.Panel.stopButton]
-        if recordButton.waitForExistence(timeout: 10) {
-            recordButton.click()
-        } else {
-            XCTAssertTrue(stopButton.exists, "Expected recording controls.")
-        }
+        XCTAssertTrue(recordButton.waitForExistence(timeout: 10), "Expected record button.")
+        recordButton.click()
 
-        let caption = uiElement(app, id: UITestIDs.Panel.liveCaptionText)
-        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Expected low-interruption live caption strip.")
-        XCTAssertLessThanOrEqual(caption.frame.height, 44, "Expected live captions to stay compact, not become a large dialog.")
-        let controlsTop = recordButton.exists ? recordButton.frame.minY : stopButton.frame.minY
-        XCTAssertGreaterThan(caption.frame.minY, controlsTop, "Expected caption strip to sit below the main recording controls.")
+        let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
+        XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions to move into the Cloud current-meeting panel.")
+
+        let caption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
+        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Expected current-meeting captions in Cloud.")
+        let captionText = [caption.label, caption.value as? String]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        XCTAssertTrue(
+            captionText.localizedCaseInsensitiveContains("keep this tiny"),
+            "Expected simulated caption text in Cloud, got: \(captionText)"
+        )
+        XCTAssertFalse(
+            uiElement(app, id: UITestIDs.Panel.liveCaptionText).exists,
+            "Live captions should not render inside the tiny recording panel."
+        )
 
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = "live-caption-compact-strip"
+        attachment.name = "live-caption-current-meeting-cloud-panel"
         attachment.lifetime = .keepAlways
         add(attachment)
     }

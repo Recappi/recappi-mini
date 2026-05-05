@@ -860,7 +860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             return
         }
 
-        let hostingView = CloudEdgeToEdgeHostingView(rootView: CloudCenterPanel(store: cloudStore))
+        let hostingView = CloudEdgeToEdgeHostingView(rootView: CloudCenterPanel(store: cloudStore, recorder: recorder))
         hostingView.autoresizingMask = [.width, .height]
 
         let window = NSWindow(
