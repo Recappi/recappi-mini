@@ -636,6 +636,7 @@ final class CloudLibraryStore: ObservableObject {
             try Task.checkCancellation()
             transcriptCache[loadingRecordingID] = transcript
             applySummaryTitleFromTranscript(transcript, to: loadingRecordingID)
+            try? syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript)
             if let recordingUpdatedAtSnapshot {
                 transcriptCacheRecordingUpdatedAt[loadingRecordingID] = recordingUpdatedAtSnapshot
             } else {
