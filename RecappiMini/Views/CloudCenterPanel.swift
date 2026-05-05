@@ -2056,6 +2056,7 @@ private struct CloudRecordingDetail: View {
                     .truncationMode(.tail)
             }
             .layoutPriority(1)
+            .frame(minWidth: 0)
 
             Spacer(minLength: 0)
 
@@ -2093,6 +2094,7 @@ private struct CloudRecordingDetail: View {
 
                 recordingActionsMenu
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -3658,6 +3660,8 @@ private struct CloudStatusChip: View {
         Text(displayStatus.displayName)
             .font(.system(size: prominent ? 11 : 9, weight: .medium))
             .foregroundStyle(color)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, prominent ? Self.prominentHorizontalInset : Self.nonProminentHorizontalInset)
             .padding(.vertical, prominent ? 5 : 3)
             .background(
