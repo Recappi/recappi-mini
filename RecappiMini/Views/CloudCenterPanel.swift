@@ -1361,7 +1361,7 @@ private struct CloudRecordingDetail: View {
                 // the header than informational refresh prompts.
                 latestJobStrip
                 newerVersionStrip
-                detailJumpBar
+                detailNavigationRow
             }
             .padding(.horizontal, 22)
             .padding(.top, 14)
@@ -1443,7 +1443,7 @@ private struct CloudRecordingDetail: View {
         structuredSummaryInsights != nil || summaryInsightText != nil || shouldShowStandaloneActionItems
     }
 
-    private var detailJumpBar: some View {
+    private var detailNavigationRow: some View {
         // Segmented-control nav. peng-xiao `430c2cf6` rejected both the
         // capsule-tag version ("looks like static metadata") and the
         // underline version ("looks like a webpage nav line, ugly").
@@ -1451,36 +1451,52 @@ private struct CloudRecordingDetail: View {
         // both options side-by-side, active segment filled, inactive
         // segment transparent. macOS-style segmented picker, compact
         // height, low ornament.
-        HStack(spacing: 0) {
-            HStack(spacing: 2) {
-                detailJumpSegment(
-                    title: "Summary",
-                    systemImage: "text.alignleft",
-                    section: .summary,
-                    accessibilityID: AccessibilityIDs.Cloud.jumpToSummaryButton,
-                    isDisabled: !hasSummarySection
-                )
-
-                detailJumpSegment(
-                    title: "Transcript",
-                    systemImage: "text.quote",
-                    section: .transcript,
-                    accessibilityID: AccessibilityIDs.Cloud.jumpToTranscriptButton,
-                    isDisabled: false
-                )
-            }
-            .padding(2)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.white.opacity(0.045))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
-            )
+        HStack(alignment: .center, spacing: 10) {
+            detailJumpBar
 
             Spacer(minLength: 0)
+
+            HStack(spacing: 8) {
+                Text(recording.createdDateText)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                CloudStatusChip(status: recording.status, latestJobStatus: latestJob?.status, prominent: true)
+            }
+            .fixedSize(horizontal: true, vertical: false)
         }
+    }
+
+    private var detailJumpBar: some View {
+        HStack(spacing: 2) {
+            detailJumpSegment(
+                title: "Summary",
+                systemImage: "text.alignleft",
+                section: .summary,
+                accessibilityID: AccessibilityIDs.Cloud.jumpToSummaryButton,
+                isDisabled: !hasSummarySection
+            )
+
+            detailJumpSegment(
+                title: "Transcript",
+                systemImage: "text.quote",
+                section: .transcript,
+                accessibilityID: AccessibilityIDs.Cloud.jumpToTranscriptButton,
+                isDisabled: false
+            )
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.white.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+        )
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func detailJumpSegment(
@@ -2025,44 +2041,21 @@ private struct CloudRecordingDetail: View {
     }
 
     private var detailHeader: some View {
-        // Identity strip: icon + `Title · date` inline as a single
-        // horizontal row. peng-xiao `825bd872` / `684bb091` flagged the
-        // previous "icon left, title-stacked-over-date middle, actions
-        // right" arrangement as structurally loose — title and date were
-        // stacked vertically while the actions sat on a different
-        // visual axis, so the header read as three separate visual
-        // groups. Mini `46e7aacf` proposed collapsing identity into one
-        // strip; this version puts title (19pt) and date (11.5pt) on
-        // one baseline-aligned line with a `·` separator, then sends
-        // status + actions to the trailing edge of the same strip.
         HStack(alignment: .center, spacing: 12) {
             CloudSourceIcon(recording: recording, size: 34)
 
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(recording.presentationTitle)
-                    .font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(Color.dtLabel)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Text("·")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Color.dtLabelQuaternary)
-
-                Text(recording.createdDateText)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Color.dtLabelTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+            Text(recording.presentationTitle)
+                .font(.system(size: 19, weight: .medium))
+                .foregroundStyle(Color.dtLabel)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
             .frame(minWidth: 0)
 
             Spacer(minLength: 0)
 
             HStack(spacing: 6) {
-                CloudStatusChip(status: recording.status, latestJobStatus: latestJob?.status, prominent: true)
-
                 headerLocalActionButton
 
                 if let recordingWebURL {
