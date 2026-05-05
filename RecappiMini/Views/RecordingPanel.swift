@@ -14,6 +14,7 @@ struct RecordingPanel: View {
     let onOpenCloud: () -> Void
     let onClosePanel: () -> Void
     let onCloudRecordingUpdated: @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
+    let onCloudRecordingDeleted: @MainActor @Sendable (String) -> Void
 
     var body: some View {
         mainView
@@ -213,7 +214,8 @@ struct RecordingPanel: View {
                     guard visibleProcessingSessionID == sessionID else { return }
                     recorder.state = .processing(phase)
                 },
-                onCloudRecordingUpdated: onCloudRecordingUpdated
+                onCloudRecordingUpdated: onCloudRecordingUpdated,
+                onCloudRecordingDeleted: onCloudRecordingDeleted
             )
             if visibleProcessingSessionID == sessionID {
                 recorder.state = .done(result: result)
@@ -807,33 +809,37 @@ private struct DoneState: View {
                 transcriptCard
             }
 
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Button("Show", action: onShow).buttonStyle(PanelPushButtonStyle())
+                    .frame(maxWidth: .infinity)
                     .accessibilityIdentifier(AccessibilityIDs.Panel.showButton)
                 Button("Copy", action: onCopy).buttonStyle(PanelPushButtonStyle())
+                    .frame(maxWidth: .infinity)
                 Button("Done", action: onNew).buttonStyle(PanelPushButtonStyle(primary: true))
+                    .frame(maxWidth: .infinity)
             }
         }
     }
 
     @ViewBuilder
     private var transcriptCard: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .top, spacing: 8) {
             Text("Transcript")
-                .font(.system(size: 10.5, weight: .semibold))
-                .tracking(0.05 * 10.5)
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.06 * 10)
                 .textCase(.uppercase)
                 .foregroundStyle(Color.dtLabelSecondary)
+                .frame(width: 70, alignment: .leading)
 
             Text(transcriptBody)
                 .font(.system(size: 11.5))
                 .foregroundStyle(Color.dtLabel)
-                .lineLimit(3)
+                .lineLimit(2)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: DT.R.card, style: .continuous)

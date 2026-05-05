@@ -325,6 +325,21 @@ final class CloudLibraryStore: ObservableObject {
         Task { await persistCacheSnapshot() }
     }
 
+    func removeLocalProcessingRecording(id recordingID: String) {
+        recordings.removeAll { $0.id == recordingID }
+        transcriptCache.removeValue(forKey: recordingID)
+        transcriptCacheRecordingUpdatedAt.removeValue(forKey: recordingID)
+        transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
+        playbackAudioURLsByRecordingID.removeValue(forKey: recordingID)
+        localSessionURLsByRecordingID.removeValue(forKey: recordingID)
+        summaryRefreshAttemptedRecordingIDs.remove(recordingID)
+        if selectedRecordingID == recordingID {
+            selectedRecordingID = recordings.first?.id
+        }
+        state = recordings.isEmpty ? .empty : .loaded
+        Task { await persistCacheSnapshot() }
+    }
+
     func refreshSelectedDetailIfNeeded() async {
         guard let recordingID = selectedRecordingID else { return }
         // Snapshot the comparison basis *before* the await so we can detect

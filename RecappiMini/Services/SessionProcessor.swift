@@ -10,7 +10,8 @@ final class SessionProcessor {
         sessionDir: URL,
         duration: Int,
         updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
-        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void = { _, _ in }
+        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void = { _, _ in },
+        onCloudRecordingDeleted: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) async throws -> RecordingResult {
         let origin = AppConfig.shared.effectiveBackendBaseURL
         var attemptedReauthentication = false
@@ -21,7 +22,8 @@ final class SessionProcessor {
                     sessionDir: sessionDir,
                     duration: duration,
                     updatePhase: updatePhase,
-                    onCloudRecordingUpdated: onCloudRecordingUpdated
+                    onCloudRecordingUpdated: onCloudRecordingUpdated,
+                    onCloudRecordingDeleted: onCloudRecordingDeleted
                 )
             } catch let error as RecappiAPIError where error == .unauthorized && !attemptedReauthentication {
                 attemptedReauthentication = true
@@ -37,7 +39,8 @@ final class SessionProcessor {
         sessionDir: URL,
         duration: Int,
         updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
-        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
+        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void,
+        onCloudRecordingDeleted: @escaping @MainActor @Sendable (String) -> Void
     ) async throws -> RecordingResult {
         let config = AppConfig.shared
         guard config.cloudEnabled else {
@@ -84,7 +87,8 @@ final class SessionProcessor {
                 manifest: manifest,
                 duration: duration,
                 updatePhase: updatePhase,
-                onCloudRecordingUpdated: onCloudRecordingUpdated
+                onCloudRecordingUpdated: onCloudRecordingUpdated,
+                onCloudRecordingDeleted: onCloudRecordingDeleted
             )
         }
         manifest = uploadedRecording.manifest
@@ -197,11 +201,20 @@ final class SessionProcessor {
         manifest: RemoteSessionManifest,
         duration: Int,
         updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
-        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
+        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void,
+        onCloudRecordingDeleted: @escaping @MainActor @Sendable (String) -> Void
     ) async throws -> UploadedRecordingAsset {
+        let uploadURL: URL
+        if primaryURL.pathExtension.lowercased() == "wav" {
+            uploadURL = primaryURL
+        } else {
+            updatePhase(.preparingUploadWav)
+            uploadURL = try await UploadAudioExporter.ensureUploadAudio(for: sessionDir)
+        }
+
         do {
             return try await uploadAndComplete(
-                fileURL: primaryURL,
+                fileURL: uploadURL,
                 client: client,
                 manifest: manifest,
                 duration: duration,
@@ -209,34 +222,17 @@ final class SessionProcessor {
                 onCloudRecordingUpdated: onCloudRecordingUpdated
             )
         } catch {
-            guard shouldRetryWithWaveFallback(after: error, primaryURL: primaryURL) else {
-                var failedManifest = manifest
-                failedManifest.errorMessage = error.localizedDescription
-                failedManifest.stage = "uploadFailed"
-                _ = RecordingStore.saveRemoteManifest(failedManifest, in: sessionDir)
-                throw error
+            let failure = Self.unwrapUploadAttemptFailure(error)
+            if let abandonedRecordingID = failure.abandonedRecordingID,
+               await deleteAbandonedRecordingIfPossible(abandonedRecordingID, client: client) {
+                onCloudRecordingDeleted(abandonedRecordingID)
             }
-
-            updatePhase(.preparingUploadWav)
-            let fallbackURL = try await UploadAudioExporter.ensureUploadAudio(for: sessionDir)
-
-            do {
-                return try await uploadAndComplete(
-                    fileURL: fallbackURL,
-                    client: client,
-                    manifest: manifest,
-                    duration: duration,
-                    updatePhase: updatePhase,
-                    onCloudRecordingUpdated: onCloudRecordingUpdated
-                )
-            } catch {
-                var failedManifest = manifest
-                failedManifest.uploadFilename = fallbackURL.lastPathComponent
-                failedManifest.errorMessage = error.localizedDescription
-                failedManifest.stage = "uploadFailed"
-                _ = RecordingStore.saveRemoteManifest(failedManifest, in: sessionDir)
-                throw error
-            }
+            var failedManifest = manifest
+            failedManifest.uploadFilename = uploadURL.lastPathComponent
+            failedManifest.errorMessage = failure.error.localizedDescription
+            failedManifest.stage = "uploadFailed"
+            _ = RecordingStore.saveRemoteManifest(failedManifest, in: sessionDir)
+            throw failure.error
         }
     }
 
@@ -303,33 +299,26 @@ final class SessionProcessor {
             return UploadedRecordingAsset(recordingId: created.id, recording: localRecording, manifest: nextManifest)
         } catch {
             await client.abortRecordingIfNeeded(recordingId: created.id)
-            throw error
+            throw UploadAttemptFailure(error: error, abandonedRecordingID: created.id)
         }
     }
 
-    private func shouldRetryWithWaveFallback(after error: Error, primaryURL: URL) -> Bool {
-        guard primaryURL.pathExtension.lowercased() != "wav" else { return false }
-
-        if let apiError = error as? RecappiAPIError {
-            switch apiError {
-            case .http(_, let message):
-                let lower = message.lowercased()
-                return lower.contains("wav")
-                    || lower.contains("header")
-                    || lower.contains("audio format")
-                    || lower.contains("unsupported")
-            case .invalidResponse:
-                return true
-            case .unauthorized, .invalidURL:
-                return false
-            }
-        }
-
-        if error is URLError {
+    private func deleteAbandonedRecordingIfPossible(_ recordingID: String, client: RecappiAPIClient) async -> Bool {
+        do {
+            try await client.deleteRecording(id: recordingID)
             return true
+        } catch RecappiAPIError.http(let statusCode, _) where statusCode == 404 {
+            return true
+        } catch {
+            return false
         }
+    }
 
-        return false
+    private nonisolated static func unwrapUploadAttemptFailure(_ error: Error) -> (error: Error, abandonedRecordingID: String?) {
+        if let failure = error as? UploadAttemptFailure {
+            return (failure.error, failure.abandonedRecordingID)
+        }
+        return (error, nil)
     }
 
     private func pollForCompletion(
@@ -447,6 +436,11 @@ private struct UploadedRecordingAsset {
     let recordingId: String
     let recording: CloudRecording
     let manifest: RemoteSessionManifest
+}
+
+private struct UploadAttemptFailure: Error {
+    let error: Error
+    let abandonedRecordingID: String?
 }
 
 enum SessionProcessorError: LocalizedError {

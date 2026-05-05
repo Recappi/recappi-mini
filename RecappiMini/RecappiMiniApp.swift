@@ -449,6 +449,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             onClosePanel: { [weak self] in self?.hidePanel() },
             onCloudRecordingUpdated: { [weak self] recording, latestJob in
                 self?.cloudStore.upsertLocalProcessingRecording(recording, latestJob: latestJob)
+            },
+            onCloudRecordingDeleted: { [weak self] recordingID in
+                self?.cloudStore.removeLocalProcessingRecording(id: recordingID)
             }
         )
 
