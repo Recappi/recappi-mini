@@ -1431,28 +1431,7 @@ private struct CurrentMeetingDetailPane: View {
             .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
             .padding(.horizontal, 22)
             .padding(.top, 18)
-            .padding(.bottom, 20)
-
-            HStack {
-                Text(statusText)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.dtLabelSecondary)
-
-                Spacer(minLength: 0)
-
-                Text(sourceLine)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.dtLabelTertiary)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 22)
-            .padding(.vertical, 14)
-            .background(Color.black.opacity(0.13))
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(Color.white.opacity(0.06))
-                    .frame(height: 0.5)
-            }
+            .padding(.bottom, 24)
         }
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
