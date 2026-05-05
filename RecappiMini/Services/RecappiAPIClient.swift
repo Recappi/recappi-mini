@@ -97,17 +97,33 @@ struct RecappiAPIClient: Sendable {
         recordingId: String,
         language: String,
         force: Bool = false,
-        provider: String? = nil
+        provider: String? = nil,
+        summarize: Bool? = nil
     ) async throws -> StartTranscriptionResponse {
         var request = try makeRequest(path: "/api/recordings/\(recordingId)/transcribe", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let prompt = force ? "Run a fresh transcription pass with the default Recappi instructions." : nil
         request.httpBody = try JSONEncoder().encode(
-            StartTranscriptionRequest(provider: provider, language: language, force: force, prompt: prompt)
+            StartTranscriptionRequest(
+                provider: provider,
+                language: language,
+                force: force,
+                prompt: prompt,
+                summarize: summarize
+            )
         )
         let (data, response) = try await session.data(for: request)
         try Self.validate(response: response, data: data)
         return try JSONDecoder().decode(StartTranscriptionResponse.self, from: data)
+    }
+
+    func startSummary(recordingId: String) async throws -> StartSummaryResponse {
+        var request = try makeRequest(path: "/api/recordings/\(recordingId)/summarize", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        return try JSONDecoder().decode(StartSummaryResponse.self, from: data)
     }
 
     func getJob(jobId: String) async throws -> TranscriptionJob {
@@ -771,6 +787,26 @@ struct StartTranscriptionRequest: Encodable {
     let language: String
     let force: Bool
     let prompt: String?
+    let summarize: Bool?
+
+    init(
+        provider: String?,
+        language: String,
+        force: Bool,
+        prompt: String?,
+        summarize: Bool? = nil
+    ) {
+        self.provider = provider
+        self.language = language
+        self.force = force
+        self.prompt = prompt
+        self.summarize = summarize
+    }
+}
+
+struct StartSummaryResponse: Decodable, Equatable, Sendable {
+    let transcriptId: String
+    let summaryStatus: String
 }
 
 enum RemoteJobStatus: String, Codable, Equatable {

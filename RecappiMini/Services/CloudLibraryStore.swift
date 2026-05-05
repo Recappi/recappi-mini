@@ -1,6 +1,22 @@
 import AppKit
 import Foundation
 
+enum CloudRecordingProcessingAction: String, CaseIterable, Identifiable, Sendable {
+    case transcriptAndSummary
+    case transcriptOnly
+    case summaryOnly
+
+    var id: String { rawValue }
+
+    var startsTranscriptionJob: Bool {
+        self != .summaryOnly
+    }
+
+    var shouldRequestSummary: Bool {
+        self == .transcriptAndSummary
+    }
+}
+
 @MainActor
 final class CloudLibraryStore: ObservableObject {
     enum LibraryState: Equatable {
@@ -28,6 +44,8 @@ final class CloudLibraryStore: ObservableObject {
     @Published private(set) var isDeleting = false
     @Published private(set) var isSyncingToLocal = false
     @Published private(set) var isRetranscribing = false
+    @Published private(set) var isSummarizing = false
+    @Published private(set) var activeRecordingProcessingAction: CloudRecordingProcessingAction?
     @Published private(set) var lastDownloadedAudioURL: URL?
     @Published private(set) var transcriptErrorMessage: String?
     @Published private(set) var billingStatus: BillingStatus?
@@ -691,16 +709,34 @@ final class CloudLibraryStore: ObservableObject {
         return !hasSummaryText && !hasSummaryInsights
     }
 
+    func processSelectedRecording(_ action: CloudRecordingProcessingAction) async {
+        switch action {
+        case .transcriptAndSummary, .transcriptOnly:
+            await startTranscriptionForSelectedRecording(action)
+        case .summaryOnly:
+            await summarizeSelectedRecording()
+        }
+    }
+
     func retranscribeSelectedRecording() async {
+        await processSelectedRecording(.transcriptAndSummary)
+    }
+
+    private func startTranscriptionForSelectedRecording(_ action: CloudRecordingProcessingAction) async {
         guard let recording = selectedRecording, recording.status.allowsTranscriptionRequest else { return }
-        guard !isRetranscribing else { return }
+        guard activeRecordingProcessingAction == nil else { return }
         if let limitMessage = retranscriptionLimitMessage {
             transcriptErrorMessage = limitMessage
             return
         }
 
         isRetranscribing = true
+        activeRecordingProcessingAction = action
         transcriptErrorMessage = nil
+        defer {
+            isRetranscribing = false
+            activeRecordingProcessingAction = nil
+        }
 
         do {
             let language = config.normalizedCloudLanguage
@@ -709,7 +745,8 @@ final class CloudLibraryStore: ObservableObject {
                     recordingId: recording.id,
                     language: language,
                     force: true,
-                    provider: "gemini"
+                    provider: "gemini",
+                    summarize: action.shouldRequestSummary
                 )
             }
             let job = try await runAuthorized { client in
@@ -725,8 +762,37 @@ final class CloudLibraryStore: ObservableObject {
         } catch {
             transcriptErrorMessage = transcriptMessage(for: error)
         }
+    }
 
-        isRetranscribing = false
+    private func summarizeSelectedRecording() async {
+        guard let recording = selectedRecording else { return }
+        guard activeRecordingProcessingAction == nil else { return }
+        guard recording.activeTranscriptId != nil || selectedTranscript != nil else {
+            transcriptErrorMessage = "No active transcript is available to summarize yet."
+            return
+        }
+
+        isSummarizing = true
+        activeRecordingProcessingAction = .summaryOnly
+        transcriptErrorMessage = nil
+        defer {
+            isSummarizing = false
+            activeRecordingProcessingAction = nil
+        }
+
+        do {
+            _ = try await runAuthorized { client in
+                try await client.startSummary(recordingId: recording.id)
+            }
+            summaryRefreshAttemptedRecordingIDs.remove(recording.id)
+            await refreshSelectedDetailIfNeeded()
+            await loadTranscriptForSelection()
+            await persistCacheSnapshot()
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            apply(error: error)
+        } catch {
+            transcriptErrorMessage = transcriptMessage(for: error)
+        }
     }
 
     var retranscriptionLimitMessage: String? {

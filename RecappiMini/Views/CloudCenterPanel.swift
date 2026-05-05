@@ -8,8 +8,8 @@ struct CloudCenterPanel: View {
     @StateObject private var cloudAudioPlayer = CloudMeetingAudioPlayer()
     @ObservedObject private var sessionStore = AuthSessionStore.shared
     @State private var showingDeleteConfirmation = false
-    @State private var showingRetranscribeConfirmation = false
     @State private var pendingListScrollTargetID: String?
+    @State private var pendingProcessingAction: CloudRecordingProcessingAction?
 
     init(store: CloudLibraryStore = CloudLibraryStore()) {
         _store = StateObject(wrappedValue: store)
@@ -53,19 +53,33 @@ struct CloudCenterPanel: View {
             Text("This removes the remote recording and cannot be undone.")
         }
         .confirmationDialog(
-            "Retranscribe this recording?",
-            isPresented: $showingRetranscribeConfirmation,
+            pendingProcessingAction?.confirmationTitle ?? "Process this recording?",
+            isPresented: processingConfirmationBinding,
             titleVisibility: .visible
         ) {
-            Button("Retranscribe Audio") {
-                Task { await store.retranscribeSelectedRecording() }
+            if let action = pendingProcessingAction {
+                Button(action.confirmationButtonTitle) {
+                    pendingProcessingAction = nil
+                    Task { await store.processSelectedRecording(action) }
+                }
+                .accessibilityIdentifier(action.confirmAccessibilityIdentifier)
             }
-            .accessibilityIdentifier(AccessibilityIDs.Cloud.confirmRetranscribeButton)
 
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This starts a new cloud transcription job for the selected audio. The current transcript stays visible until the new one finishes.")
+            Text(pendingProcessingAction?.confirmationMessage ?? "")
         }
+    }
+
+    private var processingConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { pendingProcessingAction != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingProcessingAction = nil
+                }
+            }
+        )
     }
 
     private var shouldShowBillingSummary: Bool {
@@ -422,12 +436,12 @@ struct CloudCenterPanel: View {
                 isDownloading: store.isDownloading,
                 isDeleting: store.isDeleting,
                 isSyncingToLocal: store.isSyncingToLocal,
-                isRetranscribing: store.isRetranscribing,
+                processingAction: store.activeRecordingProcessingAction,
                 hasDownloadedAudio: store.lastDownloadedAudioURL != nil,
                 hasNewerVersion: store.hasNewerVersionForSelection,
                 onLoadTranscript: { Task { await store.loadTranscriptForSelection() } },
                 onCopyTranscript: store.copySelectedTranscript,
-                onRetranscribe: { showingRetranscribeConfirmation = true },
+                onProcessRecording: { pendingProcessingAction = $0 },
                 onPreparePlaybackAudio: { Task { await store.preparePlaybackAudioForSelection() } },
                 onRevealLocalSession: store.revealSelectedLocalSession,
                 onSyncToLocal: { Task { await store.syncSelectedRecordingToLocal() } },
@@ -1197,6 +1211,107 @@ private enum CloudDetailSection: Hashable {
     case transcript
 }
 
+private extension CloudRecordingProcessingAction {
+    var title: String {
+        switch self {
+        case .transcriptAndSummary:
+            return "Transcribe + summarize…"
+        case .transcriptOnly:
+            return "Transcribe only…"
+        case .summaryOnly:
+            return "Summarize only…"
+        }
+    }
+
+    var busyTitle: String {
+        switch self {
+        case .transcriptAndSummary:
+            return "Processing…"
+        case .transcriptOnly:
+            return "Transcribing…"
+        case .summaryOnly:
+            return "Summarizing…"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .transcriptAndSummary:
+            return "sparkles.rectangle.stack"
+        case .transcriptOnly:
+            return "waveform.and.magnifyingglass"
+        case .summaryOnly:
+            return "sparkles"
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .transcriptAndSummary:
+            return "Run a fresh transcription and summary pass."
+        case .transcriptOnly:
+            return "Run a fresh transcription pass without requesting summary generation."
+        case .summaryOnly:
+            return "Regenerate the summary from the active transcript."
+        }
+    }
+
+    var confirmationTitle: String {
+        switch self {
+        case .transcriptAndSummary:
+            return "Transcribe and summarize this recording?"
+        case .transcriptOnly:
+            return "Transcribe this recording?"
+        case .summaryOnly:
+            return "Summarize this transcript?"
+        }
+    }
+
+    var confirmationButtonTitle: String {
+        switch self {
+        case .transcriptAndSummary:
+            return "Transcribe + Summarize"
+        case .transcriptOnly:
+            return "Transcribe Only"
+        case .summaryOnly:
+            return "Summarize Only"
+        }
+    }
+
+    var confirmationMessage: String {
+        switch self {
+        case .transcriptAndSummary:
+            return "This starts a fresh cloud transcription job. The backend will enqueue summary generation after the transcript succeeds."
+        case .transcriptOnly:
+            return "This starts a fresh cloud transcription job and asks the backend not to enqueue summary generation when that flag is supported."
+        case .summaryOnly:
+            return "This re-runs summary generation against the currently active transcript without uploading or retranscribing audio."
+        }
+    }
+
+    var accessibilityIdentifier: String {
+        switch self {
+        case .transcriptAndSummary:
+            return AccessibilityIDs.Cloud.retranscribeButton
+        case .transcriptOnly:
+            return AccessibilityIDs.Cloud.transcribeOnlyButton
+        case .summaryOnly:
+            return AccessibilityIDs.Cloud.summarizeOnlyButton
+        }
+    }
+
+    var confirmAccessibilityIdentifier: String {
+        switch self {
+        case .transcriptAndSummary:
+            return AccessibilityIDs.Cloud.confirmRetranscribeButton
+        case .transcriptOnly:
+            return AccessibilityIDs.Cloud.confirmTranscribeOnlyButton
+        case .summaryOnly:
+            return AccessibilityIDs.Cloud.confirmSummarizeOnlyButton
+        }
+    }
+}
+
 private struct CloudDetailSectionOffsetPreferenceKey: PreferenceKey {
     static var defaultValue: [CloudDetailSection: CGFloat] { [:] }
 
@@ -1233,12 +1348,12 @@ private struct CloudRecordingDetail: View {
     let isDownloading: Bool
     let isDeleting: Bool
     let isSyncingToLocal: Bool
-    let isRetranscribing: Bool
+    let processingAction: CloudRecordingProcessingAction?
     let hasDownloadedAudio: Bool
     let hasNewerVersion: Bool
     let onLoadTranscript: () -> Void
     let onCopyTranscript: () -> Void
-    let onRetranscribe: () -> Void
+    let onProcessRecording: (CloudRecordingProcessingAction) -> Void
     let onPreparePlaybackAudio: () -> Void
     let onRevealLocalSession: () -> Void
     let onSyncToLocal: () -> Void
@@ -1782,13 +1897,19 @@ private struct CloudRecordingDetail: View {
                 }
             }
 
-            inspectorSection("Export") {
+            inspectorSection("AI Processing") {
                 if let retranscriptionLimitMessage {
                     inspectorNotice(retranscriptionLimitMessage)
                 } else if let transcriptErrorMessage {
                     inspectorNotice(transcriptErrorMessage)
                 }
 
+                ForEach(CloudRecordingProcessingAction.allCases) { action in
+                    processingButton(for: action)
+                }
+            }
+
+            inspectorSection("Export") {
                 inspectorButton("Copy transcript", systemImage: "doc.on.doc", action: onCopyTranscript)
                     .disabled(transcript?.text.isEmpty != false)
                     .accessibilityIdentifier(AccessibilityIDs.Cloud.copyTranscriptButton)
@@ -1814,25 +1935,6 @@ private struct CloudRecordingDetail: View {
                 .buttonStyle(CloudInspectorButtonStyle())
                 .disabled(isDownloading)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.downloadAudioButton)
-
-                Button(action: onRetranscribe) {
-                    inspectorButtonLabel(
-                        isBusy: isRetranscribing,
-                        title: "Retranscribe audio…",
-                        busyTitle: "Retranscribing…",
-                        systemImage: "arrow.clockwise"
-                    )
-                }
-                .buttonStyle(CloudInspectorButtonStyle(tint: Color.dtLabelTertiary, chrome: .hover))
-                .disabled(
-                    isRetranscribing ||
-                    isTranscriptLoading ||
-                    latestJob?.status.isActive == true ||
-                    retranscriptionLimitMessage != nil ||
-                    !recording.status.allowsTranscriptionRequest
-                )
-                .help(retranscriptionHelpText)
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
             }
 
             Spacer(minLength: 0)
@@ -1876,14 +1978,57 @@ private struct CloudRecordingDetail: View {
         }
     }
 
-    private var retranscriptionHelpText: String {
-        if let retranscriptionLimitMessage {
+    private func processingButton(for action: CloudRecordingProcessingAction) -> some View {
+        Button {
+            onProcessRecording(action)
+        } label: {
+            inspectorButtonLabel(
+                isBusy: processingAction == action,
+                title: action.title,
+                busyTitle: action.busyTitle,
+                systemImage: action.systemImage
+            )
+        }
+        .buttonStyle(
+            CloudInspectorButtonStyle(
+                tint: action == .transcriptAndSummary ? DT.statusReady : Color.dtLabelTertiary,
+                chrome: action == .transcriptAndSummary ? .always : .hover
+            )
+        )
+        .disabled(isProcessingActionDisabled(action))
+        .help(processingHelpText(for: action))
+        .accessibilityIdentifier(action.accessibilityIdentifier)
+    }
+
+    private func isProcessingActionDisabled(_ action: CloudRecordingProcessingAction) -> Bool {
+        if processingAction != nil || isTranscriptLoading {
+            return true
+        }
+        if action.startsTranscriptionJob {
+            return latestJob?.status.isActive == true
+                || retranscriptionLimitMessage != nil
+                || !recording.status.allowsTranscriptionRequest
+        }
+        return recording.activeTranscriptId == nil && transcript == nil
+    }
+
+    private func processingHelpText(for action: CloudRecordingProcessingAction) -> String {
+        if let retranscriptionLimitMessage, action.startsTranscriptionJob {
             return retranscriptionLimitMessage
         }
-        if latestJob?.status.isActive == true {
+        if processingAction != nil {
+            return "A cloud processing action is already running."
+        }
+        if isTranscriptLoading {
+            return "Transcript details are still loading."
+        }
+        if action.startsTranscriptionJob, latestJob?.status.isActive == true {
             return "A transcription job is already in progress."
         }
-        return "Start a new cloud transcription job"
+        if action == .summaryOnly, recording.activeTranscriptId == nil && transcript == nil {
+            return "No active transcript is available to summarize yet."
+        }
+        return action.helpText
     }
 
     private func inspectorButton(
@@ -2066,16 +2211,14 @@ private struct CloudRecordingDetail: View {
 
             Divider()
 
-            Button(isRetranscribing ? "Retranscribing…" : "Retranscribe audio…", systemImage: "arrow.clockwise", action: onRetranscribe)
-                .disabled(
-                    isRetranscribing ||
-                    isTranscriptLoading ||
-                    latestJob?.status.isActive == true ||
-                    retranscriptionLimitMessage != nil ||
-                    !recording.status.allowsTranscriptionRequest
-                )
-                .help(retranscriptionHelpText)
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
+            ForEach(CloudRecordingProcessingAction.allCases) { action in
+                Button(processingAction == action ? action.busyTitle : action.title, systemImage: action.systemImage) {
+                    onProcessRecording(action)
+                }
+                .disabled(isProcessingActionDisabled(action))
+                .help(processingHelpText(for: action))
+                .accessibilityIdentifier(action.accessibilityIdentifier)
+            }
 
             Divider()
 

@@ -232,7 +232,8 @@ final class RecappiMiniCoreTests: XCTestCase {
                 provider: "gemini",
                 language: "en",
                 force: true,
-                prompt: "Run a fresh transcription pass with the default Recappi instructions."
+                prompt: "Run a fresh transcription pass with the default Recappi instructions.",
+                summarize: false
             )
         )
         let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
@@ -240,10 +241,25 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(json?["provider"] as? String, "gemini")
         XCTAssertEqual(json?["language"] as? String, "en")
         XCTAssertEqual(json?["force"] as? Bool, true)
+        XCTAssertEqual(json?["summarize"] as? Bool, false)
         XCTAssertEqual(
             json?["prompt"] as? String,
             "Run a fresh transcription pass with the default Recappi instructions."
         )
+    }
+
+    func testSummaryStartResponseDecodesQueuedState() throws {
+        let data = """
+        {
+          "transcriptId": "transcript_123",
+          "summaryStatus": "queued"
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(StartSummaryResponse.self, from: data)
+
+        XCTAssertEqual(response.transcriptId, "transcript_123")
+        XCTAssertEqual(response.summaryStatus, "queued")
     }
 
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {
