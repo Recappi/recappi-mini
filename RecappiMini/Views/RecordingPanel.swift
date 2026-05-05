@@ -61,15 +61,13 @@ struct RecordingPanel: View {
         guard !transcript.isEmpty else { return 48 }
 
         let flattened = transcript.replacingOccurrences(of: "\n", with: " ")
-        let estimatedLines = max(1, min(3, Int(ceil(Double(flattened.count) / 34.0))))
+        let estimatedLines = max(1, min(2, Int(ceil(Double(flattened.count) / 48.0))))
 
         switch estimatedLines {
         case 1:
-            return 106
-        case 2:
-            return 120
+            return 96
         default:
-            return 134
+            return 106
         }
     }
 
@@ -868,31 +866,39 @@ private struct DoneState: View {
 
     @ViewBuilder
     private var transcriptCard: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: "text.quote")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(DT.waveformLit.opacity(0.9))
+                .frame(width: 13)
+
             Text("Transcript")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.06 * 10)
-                .textCase(.uppercase)
+                .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(Color.dtLabelSecondary)
-                .frame(width: 70, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.12))
+                .frame(width: 1, height: 12)
 
             Text(transcriptBody)
-                .font(.system(size: 11.5))
+                .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(Color.dtLabel)
                 .lineLimit(2)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: DT.R.card, style: .continuous)
-                .fill(Color.white.opacity(0.04))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.035))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: DT.R.card, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.065), lineWidth: 0.5)
         )
     }
 
