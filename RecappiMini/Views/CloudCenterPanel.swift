@@ -1213,7 +1213,7 @@ private enum CloudDetailSection: Hashable {
 
 private extension CloudRecordingProcessingAction {
     var title: String {
-        "Transcribe + summarize…"
+        "Transcribe…"
     }
 
     var busyTitle: String {
@@ -1225,19 +1225,19 @@ private extension CloudRecordingProcessingAction {
     }
 
     var helpText: String {
-        "Run a fresh transcription and summary pass."
+        "Run a fresh cloud transcription pass."
     }
 
     var confirmationTitle: String {
-        "Transcribe and summarize this recording?"
+        "Transcribe this recording?"
     }
 
     var confirmationButtonTitle: String {
-        "Transcribe + Summarize"
+        "Transcribe"
     }
 
     var confirmationMessage: String {
-        "This starts a fresh cloud transcription job. The backend will enqueue summary generation after the transcript succeeds."
+        "This starts a fresh cloud transcription job. Summary will be generated automatically when the transcript is ready."
     }
 
     var accessibilityIdentifier: String {
@@ -1839,7 +1839,7 @@ private struct CloudRecordingDetail: View {
         case .running:
             return "Summary is being generated. This usually takes a few moments."
         case .failed:
-            return "Summary generation failed. Run Transcribe + summarize again after the backend issue is fixed."
+            return "Summary generation failed. Run Transcribe again after the backend issue is fixed."
         case .skipped:
             return "Summary was skipped because this transcript is too short."
         case .succeeded, .none:
