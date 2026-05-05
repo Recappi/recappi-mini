@@ -108,6 +108,7 @@ struct RecordingPanel: View {
                 recorder: recorder,
                 onDiscard: discardRecording,
                 onStop: stopRecording,
+                onCloud: onOpenCloud,
                 onClose: onClosePanel
             )
         case .processing(let phase):
@@ -533,6 +534,7 @@ private struct RecordingState: View {
     @AppStorage("recappi.panel.recordingWaveformMode") private var waveformModeRaw = WaveformMode.spectrum.rawValue
     var onDiscard: () -> Void
     var onStop: () -> Void
+    var onCloud: () -> Void
     var onClose: () -> Void
 
     var body: some View {
@@ -576,6 +578,14 @@ private struct RecordingState: View {
                 .buttonStyle(.plain)
                 .help(waveformHelpText)
                 .accessibilityIdentifier(AccessibilityIDs.Panel.waveformToggle)
+
+                Button(action: onCloud) {
+                    Image(systemName: "cloud")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(PanelIconButtonStyle())
+                .help("Open Cloud live captions")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.cloudButton)
 
                 Button(action: onDiscard) {
                     Image(systemName: "trash")

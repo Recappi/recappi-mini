@@ -23,6 +23,7 @@ enum UITestIDs {
         static let meetingPrompt = "recappi.panel.meetingPrompt"
         static let recordButton = "recappi.panel.recordButton"
         static let stopButton = "recappi.panel.stopButton"
+        static let cloudButton = "recappi.panel.cloudButton"
         static let liveCaptionText = "recappi.panel.liveCaptionText"
         static let processingTitle = "recappi.panel.processingTitle"
         static let doneTitle = "recappi.panel.doneTitle"

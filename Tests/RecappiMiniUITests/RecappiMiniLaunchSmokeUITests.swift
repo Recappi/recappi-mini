@@ -94,6 +94,9 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         XCTAssertTrue(recordButton.waitForExistence(timeout: 10), "Expected record button.")
         recordButton.click()
 
+        let cloudButton = app.buttons[UITestIDs.Panel.cloudButton]
+        XCTAssertTrue(cloudButton.waitForExistence(timeout: 10), "Expected recording panel to keep a Cloud live captions entry point.")
+
         let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
         XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions to move into the Cloud current-meeting panel.")
 
