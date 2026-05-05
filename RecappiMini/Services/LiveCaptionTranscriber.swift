@@ -125,7 +125,7 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
         NSLog("[Recappi] live captions recognizer started locale=%@", recognizer.locale.identifier)
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             if let result, let snapshot = self?.consume(result) {
-                Task { await self?.publish(snapshot) }
+                self?.publishFromRecognitionCallback(snapshot)
             }
 
             if let error {
@@ -133,14 +133,12 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
                 if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 216 {
                     return
                 }
-                Task {
-                    await self?.publish(.init(
-                        phase: .failed,
-                        text: nil,
-                        isFinal: false,
-                        message: error.localizedDescription
-                    ))
-                }
+                self?.publishFromRecognitionCallback(.init(
+                    phase: .failed,
+                    text: nil,
+                    isFinal: false,
+                    message: error.localizedDescription
+                ))
             }
         }
 
@@ -176,6 +174,13 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
 
     private func publish(_ snapshot: LiveCaptionSnapshot) async {
         await MainActor.run {
+            onUpdate(snapshot)
+        }
+    }
+
+    private func publishFromRecognitionCallback(_ snapshot: LiveCaptionSnapshot) {
+        let onUpdate = onUpdate
+        Task { @MainActor in
             onUpdate(snapshot)
         }
     }
