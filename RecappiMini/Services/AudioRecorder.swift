@@ -4,6 +4,7 @@ import AppKit
 import CoreAudio
 import CoreMedia
 @preconcurrency import ScreenCaptureKit
+import Speech
 
 struct AudioApp: Identifiable, Hashable {
     enum Bucket: Int, Sendable, Comparable {
@@ -659,7 +660,7 @@ final class AudioRecorder: NSObject, ObservableObject {
                     sysOut.onLiveCaptionSampleBuffer = { [weak liveTranscriber] sampleBuffer in
                         liveTranscriber?.append(sampleBuffer)
                     }
-                    liveTranscriber.start(localeIdentifier: AppConfig.shared.cloudLanguage)
+                    liveTranscriber.start(localeIdentifier: AppConfig.shared.selectedSpeechLanguage.id)
                 } else {
                     liveCaptionMessage = "Enable Speech Recognition to use live captions."
                 }
@@ -928,6 +929,44 @@ final class AudioRecorder: NSObject, ObservableObject {
             liveCaptionText = text
             liveCaptionIsFinal = snapshot.isFinal
         }
+    }
+
+    func setSpeechLanguage(_ localeIdentifier: String) {
+        let selected = SpeechLanguageOption.option(for: localeIdentifier)
+        AppConfig.shared.cloudLanguage = selected.id
+
+        guard state == .recording else { return }
+        restartLiveCaptions(localeIdentifier: selected.id)
+    }
+
+    private func restartLiveCaptions(localeIdentifier: String) {
+        guard #available(macOS 26.0, *) else { return }
+        guard let systemOutput else { return }
+
+        let oldTranscriber = liveCaptionTranscriber
+        liveCaptionTranscriber = nil
+        systemOutput.onLiveCaptionSampleBuffer = nil
+        stopLiveCaptions(oldTranscriber, saveTo: nil)
+
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
+            liveCaptionText = nil
+            liveCaptionMessage = "Enable Speech Recognition to use live captions."
+            liveCaptionIsFinal = false
+            return
+        }
+
+        liveCaptionText = nil
+        liveCaptionMessage = "Switching live caption language…"
+        liveCaptionIsFinal = false
+
+        let liveTranscriber = LiveCaptionTranscriber { [weak self] snapshot in
+            self?.applyLiveCaptionSnapshot(snapshot)
+        }
+        liveCaptionTranscriber = liveTranscriber
+        systemOutput.onLiveCaptionSampleBuffer = { [weak liveTranscriber] sampleBuffer in
+            liveTranscriber?.append(sampleBuffer)
+        }
+        liveTranscriber.start(localeIdentifier: localeIdentifier)
     }
 
     private func stopLiveCaptions(saveTo sessionDir: URL?) {

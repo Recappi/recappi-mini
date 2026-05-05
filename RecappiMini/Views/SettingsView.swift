@@ -218,20 +218,16 @@ struct SettingsView: View {
     @ViewBuilder
     private var transcriptionSection: some View {
         Section {
-            Picker("Language", selection: languageBinding) {
-                Text("English (US)").tag("en-US")
-                Text("English (UK)").tag("en-GB")
-                Text("中文（简体）").tag("zh-CN")
-                Text("日本語").tag("ja-JP")
-                Text("Español").tag("es-ES")
-                Text("Français").tag("fr-FR")
-                Text("Deutsch").tag("de-DE")
+            Picker("Speech language", selection: languageBinding) {
+                ForEach(SpeechLanguageOption.common) { option in
+                    Text(option.title).tag(option.id)
+                }
             }
-            .disabled(!config.cloudEnabled)
+            .accessibilityIdentifier(AccessibilityIDs.Settings.speechLanguagePicker)
         } header: {
             Text("Transcription")
         } footer: {
-            Text("Language hint sent with each cloud transcription.")
+            Text("Used for Live Captions and cloud transcription. Live Captions cannot reliably auto-detect the spoken language.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }

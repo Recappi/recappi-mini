@@ -1322,6 +1322,7 @@ private struct CloudNowPlayingMiniPane: View {
 
 private struct CurrentMeetingDetailPane: View {
     @ObservedObject var recorder: AudioRecorder
+    @ObservedObject private var config = AppConfig.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -1404,15 +1405,10 @@ private struct CurrentMeetingDetailPane: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
                 Spacer(minLength: 0)
-                Text("System audio")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(DT.waveformLit)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(DT.waveformLit.opacity(0.12))
-                    )
+                HStack(spacing: 8) {
+                    liveCaptionLanguageMenu
+                    systemAudioChip
+                }
             }
             .padding(.horizontal, 22)
             .padding(.top, 20)
@@ -1446,6 +1442,54 @@ private struct CurrentMeetingDetailPane: View {
                 .stroke(Color.white.opacity(0.08), lineWidth: 0.6)
         )
         .shadow(color: Color.black.opacity(0.18), radius: 24, x: 0, y: 12)
+    }
+
+    private var liveCaptionLanguageMenu: some View {
+        Menu {
+            ForEach(SpeechLanguageOption.common) { option in
+                Button {
+                    recorder.setSpeechLanguage(option.id)
+                } label: {
+                    if option.id == config.selectedSpeechLanguage.id {
+                        Label(option.title, systemImage: "checkmark")
+                    } else {
+                        Text(option.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(config.selectedSpeechLanguage.shortTitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color.dtLabelTertiary)
+            }
+            .foregroundStyle(Color.dtLabel)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help("Live caption language")
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingLanguageMenu)
+    }
+
+    private var systemAudioChip: some View {
+        Text("System audio")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(DT.waveformLit)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(DT.waveformLit.opacity(0.12))
+            )
     }
 
     private var captionLine: String {

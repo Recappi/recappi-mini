@@ -13,6 +13,7 @@ enum UITestIDs {
         static let signOutButton = "recappi.settings.signOutButton"
         static let openCloudButton = "recappi.settings.openCloudButton"
         static let billingUsage = "recappi.settings.billingUsage"
+        static let speechLanguagePicker = "recappi.settings.speechLanguagePicker"
     }
 
     enum Panel {
@@ -45,6 +46,7 @@ enum UITestIDs {
         static let currentMeetingRow = "recappi.cloud.currentMeetingRow"
         static let currentMeetingPanel = "recappi.cloud.currentMeetingPanel"
         static let currentMeetingCaption = "recappi.cloud.currentMeetingCaption"
+        static let currentMeetingLanguageMenu = "recappi.cloud.currentMeetingLanguageMenu"
         static let loadMoreButton = "recappi.cloud.loadMoreButton"
         static let latestJobStatus = "recappi.cloud.latestJobStatus"
         static let transcriptText = "recappi.cloud.transcriptText"

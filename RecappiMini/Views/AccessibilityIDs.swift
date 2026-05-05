@@ -19,6 +19,7 @@ enum AccessibilityIDs {
         static let requestMicrophoneButton = "recappi.settings.requestMicrophoneButton"
         static let requestScreenCaptureButton = "recappi.settings.requestScreenCaptureButton"
         static let refreshPermissionsButton = "recappi.settings.refreshPermissionsButton"
+        static let speechLanguagePicker = "recappi.settings.speechLanguagePicker"
     }
 
     enum Panel {
@@ -68,6 +69,7 @@ enum AccessibilityIDs {
         static let currentMeetingRow = "recappi.cloud.currentMeetingRow"
         static let currentMeetingPanel = "recappi.cloud.currentMeetingPanel"
         static let currentMeetingCaption = "recappi.cloud.currentMeetingCaption"
+        static let currentMeetingLanguageMenu = "recappi.cloud.currentMeetingLanguageMenu"
         static let loadMoreButton = "recappi.cloud.loadMoreButton"
         static let summaryText = "recappi.cloud.summaryText"
         static let actionItemsText = "recappi.cloud.actionItemsText"
