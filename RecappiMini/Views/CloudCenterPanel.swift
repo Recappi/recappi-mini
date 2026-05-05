@@ -1440,7 +1440,10 @@ private struct CloudRecordingDetail: View {
     }
 
     private var hasSummarySection: Bool {
-        structuredSummaryInsights != nil || summaryInsightText != nil || shouldShowStandaloneActionItems
+        structuredSummaryInsights != nil
+            || summaryInsightText != nil
+            || summaryStatusMessage != nil
+            || shouldShowStandaloneActionItems
     }
 
     private var detailNavigationRow: some View {
@@ -1579,6 +1582,17 @@ private struct CloudRecordingDetail: View {
                 accessibilityID: AccessibilityIDs.Cloud.summaryText
             ) {
                 Text(summaryInsightText)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else if let summaryStatusMessage {
+            transcriptInsightCard(
+                title: "Summary",
+                systemImage: summaryStatusIconName,
+                accessibilityID: AccessibilityIDs.Cloud.summaryText
+            ) {
+                Text(summaryStatusMessage)
                     .font(.system(size: 12.5))
                     .foregroundStyle(Color.dtLabelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1813,6 +1827,39 @@ private struct CloudRecordingDetail: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private var summaryStatusMessage: String? {
+        guard structuredSummaryInsights == nil, summaryInsightText == nil else {
+            return nil
+        }
+        switch transcript?.summaryStatus {
+        case .pending:
+            return "Summary generation has not started yet. It should begin automatically after transcription finishes."
+        case .queued:
+            return "Summary is queued and will appear here shortly."
+        case .running:
+            return "Summary is being generated. This usually takes a few moments."
+        case .failed:
+            return "Summary generation failed. Run Transcribe + summarize again after the backend issue is fixed."
+        case .skipped:
+            return "Summary was skipped because this transcript is too short."
+        case .succeeded, .none:
+            return nil
+        }
+    }
+
+    private var summaryStatusIconName: String {
+        switch transcript?.summaryStatus {
+        case .failed:
+            return "exclamationmark.triangle"
+        case .skipped:
+            return "minus.circle"
+        case .pending, .queued, .running:
+            return "hourglass"
+        case .succeeded, .none:
+            return "text.alignleft"
+        }
+    }
+
     private var structuredSummaryInsights: TranscriptSummaryInsights? {
         guard let insights = transcript?.summaryInsights, !insights.isEmpty else {
             return nil
@@ -1855,6 +1902,8 @@ private struct CloudRecordingDetail: View {
                     inspectorNotice(retranscriptionLimitMessage)
                 } else if let transcriptErrorMessage {
                     inspectorNotice(transcriptErrorMessage)
+                } else if let summaryStatusMessage {
+                    inspectorNotice(summaryStatusMessage)
                 }
 
                 ForEach(CloudRecordingProcessingAction.allCases) { action in

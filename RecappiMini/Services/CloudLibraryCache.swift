@@ -281,6 +281,7 @@ struct BillingStatusSnapshot: Codable, Equatable, Sendable {
 struct TranscriptResponseSnapshot: Codable, Equatable, Sendable {
     let id: String
     let text: String
+    let summaryStatus: TranscriptSummaryStatus?
     let summary: String?
     let actionItems: [String]?
     let summaryInsights: TranscriptSummaryInsights?
@@ -289,6 +290,7 @@ struct TranscriptResponseSnapshot: Codable, Equatable, Sendable {
     init(_ transcript: TranscriptResponse) {
         id = transcript.id
         text = transcript.text
+        summaryStatus = transcript.summaryStatus
         summary = transcript.summary
         actionItems = transcript.actionItems
         summaryInsights = transcript.summaryInsights

@@ -261,6 +261,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
 
         XCTAssertEqual(transcript.id, "tr_123")
+        XCTAssertNil(transcript.summaryStatus)
         XCTAssertEqual(transcript.segments.count, 2)
         XCTAssertEqual(transcript.segments[0].startMs, 0)
         XCTAssertEqual(transcript.segments[0].endMs, 1_300)
@@ -290,6 +291,23 @@ final class RecappiMiniCoreTests: XCTestCase {
             transcript.summaryInsights?.quoteTexts,
             ["Peng: \"Make the waterfall feel worth clicking.\""]
         )
+    }
+
+    func testTranscriptResponseDecodesSummaryStatus() throws {
+        let data = """
+        {
+          "id": "tr_123",
+          "text": "Transcript body.",
+          "summaryStatus": "running"
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertEqual(transcript.summaryStatus, .running)
+        XCTAssertTrue(transcript.summaryStatus?.isActive == true)
+        XCTAssertNil(transcript.summary)
+        XCTAssertNil(transcript.summaryInsights)
     }
 
     func testTranscriptResponseKeepsUnavailableSummaryAndActionItemsNil() throws {

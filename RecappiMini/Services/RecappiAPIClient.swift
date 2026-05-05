@@ -866,6 +866,7 @@ struct TranscriptionJob: Codable, Equatable, Sendable {
 struct TranscriptResponse: Decodable, Equatable, Sendable {
     let id: String
     let text: String
+    let summaryStatus: TranscriptSummaryStatus?
     let summary: String?
     let actionItems: [String]?
     let summaryInsights: TranscriptSummaryInsights?
@@ -874,6 +875,7 @@ struct TranscriptResponse: Decodable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id
         case text
+        case summaryStatus
         case summary
         case summaryJson
         case summaryInsights
@@ -896,6 +898,7 @@ struct TranscriptResponse: Decodable, Equatable, Sendable {
 
         let decodedText = try container.decodeIfPresent(String.self, forKey: .text)
         text = decodedText ?? segments.map(\.text).joined(separator: "\n")
+        summaryStatus = try container.decodeIfPresent(TranscriptSummaryStatus.self, forKey: .summaryStatus)
 
         let decodedSummaryInsights = try container.decodeIfPresent(TranscriptSummaryInsights.self, forKey: .summaryInsights)
             ?? Self.decodeSummaryJSON(try container.decodeIfPresent(String.self, forKey: .summaryJson))
@@ -966,6 +969,19 @@ struct TranscriptResponse: Decodable, Equatable, Sendable {
         }
 
         return segments.map { $0.scalingTimeline(by: 1000) }
+    }
+}
+
+enum TranscriptSummaryStatus: String, Codable, Equatable, Sendable {
+    case pending
+    case queued
+    case running
+    case succeeded
+    case failed
+    case skipped
+
+    var isActive: Bool {
+        self == .queued || self == .running
     }
 }
 
