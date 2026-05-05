@@ -55,20 +55,8 @@ struct RecordingPanel: View {
         }
     }
 
-    private func doneContentHeight(for result: RecordingResult) -> CGFloat {
-        let transcript = (result.transcript ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !transcript.isEmpty else { return 48 }
-
-        let flattened = transcript.replacingOccurrences(of: "\n", with: " ")
-        let estimatedLines = max(1, min(2, Int(ceil(Double(flattened.count) / 48.0))))
-
-        switch estimatedLines {
-        case 1:
-            return 96
-        default:
-            return 106
-        }
+    private func doneContentHeight(for _: RecordingResult) -> CGFloat {
+        48
     }
 
     private func errorContentHeight(for message: String) -> CGFloat {
@@ -805,10 +793,6 @@ private struct DoneState: View {
                     .foregroundStyle(Color.dtLabelSecondary)
             }
 
-            if hasTranscript {
-                transcriptCard
-            }
-
             HStack(spacing: 8) {
                 Button("Show", action: onShow).buttonStyle(PanelPushButtonStyle())
                     .frame(maxWidth: .infinity)
@@ -819,50 +803,6 @@ private struct DoneState: View {
                     .frame(maxWidth: .infinity)
             }
         }
-    }
-
-    @ViewBuilder
-    private var transcriptCard: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
-            Image(systemName: "text.quote")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(DT.waveformLit.opacity(0.9))
-                .frame(width: 13)
-
-            Text("Transcript")
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundStyle(Color.dtLabelSecondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-
-            Rectangle()
-                .fill(Color.white.opacity(0.12))
-                .frame(width: 1, height: 12)
-
-            Text(transcriptBody)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(Color.dtLabel)
-                .lineLimit(2)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 7)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(0.035))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.white.opacity(0.065), lineWidth: 0.5)
-        )
-    }
-
-    private var hasTranscript: Bool { !(result.transcript ?? "").isEmpty }
-
-    private var transcriptBody: String {
-        return result.transcript ?? ""
     }
 
     private func formatTime(_ seconds: Int) -> String {

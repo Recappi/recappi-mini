@@ -1238,38 +1238,12 @@ private struct CurrentMeetingDetailPane: View {
     @ObservedObject var recorder: AudioRecorder
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 14) {
-                liveBadge
+        VStack(alignment: .leading, spacing: 22) {
+            header
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Current meeting")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(Color.dtLabel)
-                    Text(sourceLine)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color.dtLabelSecondary)
-                        .lineLimit(1)
-                }
+            liveCaptionWorkspace
 
-                Spacer(minLength: 24)
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(timeText(recorder.elapsedSeconds))
-                        .font(.system(size: 22, weight: .semibold, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundStyle(Color.dtLabel)
-                    Text(statusText)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.dtLabelSecondary)
-                }
-            }
-
-            waveformPanel
-
-            captionsPanel
-
-            Spacer(minLength: 0)
+            Spacer()
         }
         .padding(.horizontal, 34)
         .padding(.vertical, 32)
@@ -1286,6 +1260,34 @@ private struct CurrentMeetingDetailPane: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanel)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 14) {
+            liveBadge
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Current meeting")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
+                Text(sourceLine)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 24)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(timeText(recorder.elapsedSeconds))
+                    .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.dtLabel)
+                Text(statusText)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+            }
+        }
     }
 
     private var liveBadge: some View {
@@ -1309,28 +1311,8 @@ private struct CurrentMeetingDetailPane: View {
         )
     }
 
-    private var waveformPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label("Meeting audio", systemImage: "waveform")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.dtLabelSecondary)
-                Spacer(minLength: 0)
-                Text("Captions follow meeting audio only")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.dtLabelTertiary)
-            }
-
-            DotMatrixWaveform(levels: recorder.audioSpectrumLevels)
-                .frame(height: 64)
-        }
-        .padding(18)
-        .background(currentMeetingCardBackground)
-        .overlay(currentMeetingCardStroke)
-    }
-
-    private var captionsPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var liveCaptionWorkspace: some View {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Label("Live captions", systemImage: "captions.bubble.fill")
                     .font(.system(size: 13, weight: .semibold))
@@ -1346,30 +1328,66 @@ private struct CurrentMeetingDetailPane: View {
                             .fill(DT.waveformLit.opacity(0.12))
                     )
             }
+            .padding(.horizontal, 22)
+            .padding(.top, 20)
 
-            Text(captionLine)
-                .font(.system(size: 22, weight: recorder.liveCaptionText == nil ? .medium : .semibold))
-                .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
-                .lineLimit(4)
-                .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(captionLine))
-                .accessibilityValue(Text(captionLine))
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(captionLine)
+                    .font(.system(size: 25, weight: recorder.liveCaptionText == nil ? .medium : .semibold))
+                    .lineSpacing(4)
+                    .lineLimit(5)
+                    .frame(maxWidth: .infinity, minHeight: 172, alignment: .topLeading)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(captionLine))
+                    .accessibilityValue(Text(captionLine))
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
+            }
+            .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
+            .padding(.horizontal, 22)
+            .padding(.top, 18)
+            .padding(.bottom, 20)
+
+            HStack {
+                Text(statusText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.dtLabelSecondary)
+
+                Spacer(minLength: 0)
+
+                Text(sourceLine)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 14)
+            .background(Color.black.opacity(0.13))
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(height: 0.5)
+            }
         }
-        .padding(20)
-        .background(currentMeetingCardBackground)
-        .overlay(currentMeetingCardStroke)
-    }
-
-    private var currentMeetingCardBackground: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(Color.white.opacity(0.045))
-    }
-
-    private var currentMeetingCardStroke: some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .stroke(Color.white.opacity(0.08), lineWidth: 0.6)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.white.opacity(0.05))
+                .overlay {
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.08),
+                            Color.white.opacity(0.02)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.6)
+        )
+        .shadow(color: Color.black.opacity(0.18), radius: 24, x: 0, y: 12)
     }
 
     private var captionLine: String {
