@@ -1417,17 +1417,10 @@ private struct CurrentMeetingDetailPane: View {
             .padding(.horizontal, 22)
             .padding(.top, 20)
 
-            VStack(alignment: .leading, spacing: 0) {
-                Text(captionLine)
-                    .font(.system(size: 25, weight: recorder.liveCaptionText == nil ? .medium : .semibold))
-                    .lineSpacing(4)
-                    .lineLimit(5)
-                    .frame(maxWidth: .infinity, minHeight: 172, alignment: .topLeading)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text(captionLine))
-                    .accessibilityValue(Text(captionLine))
-                    .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
-            }
+            LiveCaptionTextViewport(
+                text: captionLine,
+                isPlaceholder: recorder.liveCaptionText == nil
+            )
             .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
             .padding(.horizontal, 22)
             .padding(.top, 18)
@@ -1488,6 +1481,51 @@ private struct CurrentMeetingDetailPane: View {
         let s = seconds % 60
         if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
         return String(format: "%02d:%02d", m, s)
+    }
+}
+
+private struct LiveCaptionTextViewport: View {
+    let text: String
+    let isPlaceholder: Bool
+
+    private let bottomAnchorID = "recappi-live-caption-bottom"
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(text)
+                        .font(.system(size: 22, weight: isPlaceholder ? .medium : .semibold))
+                        .lineSpacing(5)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text(text))
+                        .accessibilityValue(Text(text))
+                        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(bottomAnchorID)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, minHeight: 172, maxHeight: 320, alignment: .topLeading)
+            .onAppear {
+                scrollToBottom(proxy)
+            }
+            .onChange(of: text) { _, _ in
+                scrollToBottom(proxy)
+            }
+        }
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.16)) {
+                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+            }
+        }
     }
 }
 
