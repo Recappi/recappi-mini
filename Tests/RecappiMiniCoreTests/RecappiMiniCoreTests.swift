@@ -356,6 +356,53 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(transcript.segments[1].startMs, 68_000)
     }
 
+    func testTranscriptResponseResolvesPlaybackCaptionCue() throws {
+        let data = """
+        {
+          "id": "tr_123",
+          "segments": [
+            { "startMs": 0, "endMs": 1100, "text": "Opening line.", "speaker": "Peng" },
+            { "startMs": 1100, "endMs": 2600, "text": "Follow-up thought." }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertEqual(
+            transcript.captionCue(at: 0.4),
+            TranscriptCaptionCue(startMs: 0, endMs: 1_100, text: "Opening line.", speaker: "Peng")
+        )
+        XCTAssertEqual(
+            transcript.captionCue(at: 1.4),
+            TranscriptCaptionCue(startMs: 1_100, endMs: 2_600, text: "Follow-up thought.", speaker: nil)
+        )
+        XCTAssertNil(transcript.captionCue(at: 3.2))
+    }
+
+    func testTranscriptResponseCaptionCueUsesNextStartWhenEndIsMissing() throws {
+        let data = """
+        {
+          "id": "tr_123",
+          "segments": [
+            { "startMs": 500, "text": "First open-ended line." },
+            { "startMs": 2400, "text": "Second line." }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertEqual(
+            transcript.captionCue(at: 1.0),
+            TranscriptCaptionCue(startMs: 500, endMs: 2_400, text: "First open-ended line.", speaker: nil)
+        )
+        XCTAssertEqual(
+            transcript.captionCue(at: 2.5),
+            TranscriptCaptionCue(startMs: 2_400, endMs: 62_400, text: "Second line.", speaker: nil)
+        )
+    }
+
     func testBillingStatusRequestUsesBearerAndOrigin() throws {
         let client = RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123")
         let request = try client.makeRequest(path: "/api/billing/status")

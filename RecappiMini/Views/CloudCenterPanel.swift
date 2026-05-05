@@ -2474,10 +2474,12 @@ private struct CloudRecordingDetail: View {
     private var bottomPlaybackBar: some View {
         let isViewingLoadedAudio = audioPlayer.currentRecordingID == recording.id
         let displayDuration = isViewingLoadedAudio ? audioPlayer.duration : (recording.durationSeconds ?? 0)
+        let captionCue = isViewingLoadedAudio ? transcript?.captionCue(at: audioPlayer.currentTime) : nil
         return CloudMeetingPlaybackStrip(
             isPlaying: isViewingLoadedAudio && audioPlayer.isPlaying,
             currentTime: isViewingLoadedAudio ? audioPlayer.currentTime : 0,
             duration: displayDuration,
+            captionCue: captionCue,
             sourceDescription: playbackSourceDescription,
             errorMessage: playbackErrorMessage,
             isPreparingAudio: isPreparingPlaybackAudio,
@@ -3017,6 +3019,7 @@ private struct CloudMeetingPlaybackStrip: View {
     let isPlaying: Bool
     let currentTime: Double
     let duration: Double
+    let captionCue: TranscriptCaptionCue?
     let sourceDescription: String
     let errorMessage: String?
     let isPreparingAudio: Bool
@@ -3041,56 +3044,98 @@ private struct CloudMeetingPlaybackStrip: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button(action: onPlayPause) {
-                ZStack {
-                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 12, weight: .medium))
-                        .opacity(isPreparingAudio ? 0 : 1)
-                    ProgressView()
-                        .controlSize(.small)
-                        .scaleEffect(0.7)
-                        .opacity(isPreparingAudio ? 1 : 0)
+        VStack(alignment: .leading, spacing: captionCue == nil ? 0 : 7) {
+            HStack(spacing: 12) {
+                Button(action: onPlayPause) {
+                    ZStack {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 12, weight: .medium))
+                            .opacity(isPreparingAudio ? 0 : 1)
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.7)
+                            .opacity(isPreparingAudio ? 1 : 0)
+                    }
+                    .frame(width: 28, height: 28)
                 }
-                .frame(width: 28, height: 28)
-            }
-            .buttonStyle(PanelIconButtonStyle(size: 28))
-            .disabled(isPreparingAudio)
-            .help(hasAudio ? "Play meeting audio" : "Download audio preview")
+                .buttonStyle(PanelIconButtonStyle(size: 28))
+                .disabled(isPreparingAudio)
+                .help(hasAudio ? "Play meeting audio" : "Download audio preview")
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(playbackStatusTitle)
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(playbackStatusColor)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(playbackStatusTitle)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(playbackStatusColor)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
 
-                Text(playbackStatusDetail)
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.dtLabelTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(width: 150, alignment: .leading)
-
-            CloudPlaybackWaveformScrubber(
-                progress: sliderProgress,
-                isEnabled: hasAudio && !isPreparingAudio,
-                peaks: waveformPeaks,
-                isLoadingPeaks: isLoadingWaveform,
-                onSeekProgress: { progress in
-                    onSeek(progress * sliderUpperBound)
+                    Text(playbackStatusDetail)
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-            )
+                .frame(width: 150, alignment: .leading)
 
-            playbackRateMenu
+                CloudPlaybackWaveformScrubber(
+                    progress: sliderProgress,
+                    isEnabled: hasAudio && !isPreparingAudio,
+                    peaks: waveformPeaks,
+                    isLoadingPeaks: isLoadingWaveform,
+                    onSeekProgress: { progress in
+                        onSeek(progress * sliderUpperBound)
+                    }
+                )
+
+                playbackRateMenu
+            }
+            .frame(height: 44)
+
+            if let captionCue {
+                captionStrip(captionCue)
+            }
         }
-        .frame(height: 44)
         .padding(.horizontal, 12)
         .padding(.top, 5)
-        .padding(.bottom, 9)
+        .padding(.bottom, captionCue == nil ? 9 : 10)
         .frame(maxWidth: .infinity)
         .background(Color.white.opacity(0.018))
+    }
+
+    private func captionStrip(_ cue: TranscriptCaptionCue) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "captions.bubble")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(DT.waveformLit.opacity(0.95))
+                .frame(width: 15)
+
+            if let speaker = cue.speaker {
+                Text(speaker)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .lineLimit(1)
+            }
+
+            Text(cue.text)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(Color.dtLabel)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.white.opacity(0.055))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Current caption: \(cue.text)")
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.playbackCaption)
     }
 
     private var sliderProgress: Double {

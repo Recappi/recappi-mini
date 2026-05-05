@@ -1183,6 +1183,52 @@ struct TranscriptSummaryQuote: Codable, Equatable, Sendable {
     }
 }
 
+struct TranscriptCaptionCue: Equatable, Sendable {
+    let startMs: Int
+    let endMs: Int
+    let text: String
+    let speaker: String?
+}
+
+extension TranscriptResponse {
+    func captionCue(at seconds: Double) -> TranscriptCaptionCue? {
+        guard seconds.isFinite else { return nil }
+
+        let timeMs = Int((max(0, seconds) * 1000).rounded())
+        let timedSegments = segments
+            .enumerated()
+            .compactMap { index, segment -> (index: Int, segment: TranscriptSegment, startMs: Int)? in
+                let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty,
+                      let startMs = segment.startMs ?? segment.endMs else {
+                    return nil
+                }
+                return (index, segment, startMs)
+            }
+
+        guard !timedSegments.isEmpty else { return nil }
+
+        for (position, entry) in timedSegments.enumerated() {
+            let segment = entry.segment
+            let startMs = entry.startMs
+            let nextStartMs = timedSegments.dropFirst(position + 1).first?.startMs
+            let endMs = max(segment.endMs ?? nextStartMs ?? (startMs + 60_000), startMs + 500)
+
+            if timeMs >= startMs - 500 && timeMs < endMs {
+                let speaker = segment.speaker?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return TranscriptCaptionCue(
+                    startMs: startMs,
+                    endMs: endMs,
+                    text: segment.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                    speaker: speaker?.isEmpty == false ? speaker : nil
+                )
+            }
+        }
+
+        return nil
+    }
+}
+
 struct TranscriptSegment: Decodable, Equatable, Sendable {
     let startMs: Int?
     let endMs: Int?
