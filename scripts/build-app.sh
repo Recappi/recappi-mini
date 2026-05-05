@@ -113,6 +113,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
     <string>26.0</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Recappi Mini needs microphone access to record meetings</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Recappi Mini uses speech recognition to show live captions while recording meetings.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Recappi Mini uses your active browser tab URL and title to detect meeting pages in Safari and Chrome.</string>
     <key>NSAudioCaptureUsageDescription</key>
@@ -159,7 +161,7 @@ if [ "$RELEASE_MODE" = "1" ] && [ "$CODESIGN_IDENTITY" != "-" ]; then
 else
     # Preserve the existing local-dev behavior unless callers opt into
     # release signing or explicitly request ad-hoc signing with `-`.
-    codesign --force --deep --sign "$CODESIGN_IDENTITY" --identifier "com.recappi.mini" "$APP_BUNDLE"
+    codesign --force --deep --sign "$CODESIGN_IDENTITY" --identifier "com.recappi.mini" --entitlements "$ENTITLEMENTS_PATH" "$APP_BUNDLE"
 fi
 
 if [ "$APP_BUNDLE" != "$LEGACY_APP_BUNDLE" ]; then

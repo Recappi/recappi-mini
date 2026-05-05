@@ -1,4 +1,5 @@
-import AVFoundation
+import AppKit
+@preconcurrency import AVFoundation
 import CoreMedia
 import Foundation
 import Speech
@@ -25,32 +26,53 @@ struct LiveCaptionEntry: Codable, Equatable, Sendable {
 }
 
 @available(macOS 26.0, *)
-final class LiveCaptionTranscriber: @unchecked Sendable {
+final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
     private let inputQueue = DispatchQueue(label: "RecappiMini.LiveCaptionTranscriber.input")
+    private let stateQueue = DispatchQueue(label: "RecappiMini.LiveCaptionTranscriber.state")
     private let onUpdate: @MainActor @Sendable (LiveCaptionSnapshot) -> Void
 
-    private var continuation: AsyncThrowingStream<AnalyzerInput, Error>.Continuation?
-    private var analyzer: SpeechAnalyzer?
-    private var analysisTask: Task<Void, Never>?
-    private var resultsTask: Task<Void, Never>?
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    private var recognizer: SFSpeechRecognizer?
     private var entries: [LiveCaptionEntry] = []
+    private var lastPublishedText: String?
     private var isAcceptingInput = false
 
     init(onUpdate: @escaping @MainActor @Sendable (LiveCaptionSnapshot) -> Void) {
         self.onUpdate = onUpdate
     }
 
+    static func requestSpeechAuthorizationIfNeeded() async -> SFSpeechRecognizerAuthorizationStatus {
+        let current = SFSpeechRecognizer.authorizationStatus()
+        guard current == .notDetermined else { return current }
+
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                let previousPolicy = NSApp.activationPolicy()
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate(ignoringOtherApps: true)
+
+                SFSpeechRecognizer.requestAuthorization { status in
+                    DispatchQueue.main.async {
+                        NSApp.setActivationPolicy(previousPolicy)
+                        continuation.resume(returning: status)
+                    }
+                }
+            }
+        }
+    }
+
     func start(localeIdentifier: String) {
-        analysisTask = Task { [weak self] in
+        Task { [weak self] in
             await self?.run(localeIdentifier: localeIdentifier)
         }
     }
 
     func append(_ sampleBuffer: CMSampleBuffer) {
-        guard let input = Self.analyzerInput(from: sampleBuffer) else { return }
+        guard let buffer = Self.pcmBuffer(from: sampleBuffer) else { return }
         inputQueue.async { [weak self] in
             guard let self, self.isAcceptingInput else { return }
-            self.continuation?.yield(input)
+            self.recognitionRequest?.append(buffer)
         }
     }
 
@@ -58,90 +80,98 @@ final class LiveCaptionTranscriber: @unchecked Sendable {
         inputQueue.async { [weak self] in
             guard let self else { return }
             self.isAcceptingInput = false
-            self.continuation?.finish()
+            self.recognitionRequest?.endAudio()
+            self.recognitionRequest = nil
         }
-
-        analysisTask?.cancel()
-        resultsTask?.cancel()
 
         if let sessionDir {
             saveEntries(to: sessionDir)
-        }
-
-        Task { [analyzer] in
-            await analyzer?.cancelAndFinishNow()
         }
     }
 
     private func run(localeIdentifier: String) async {
         await publish(.init(phase: .preparing, text: nil, isFinal: false, message: "Preparing live captions…"))
 
-        guard SpeechTranscriber.isAvailable else {
-            await publish(.init(phase: .unavailable, text: nil, isFinal: false, message: "Live captions are not available on this Mac."))
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
+            await publish(.init(
+                phase: .unavailable,
+                text: nil,
+                isFinal: false,
+                message: "Enable Speech Recognition to use live captions."
+            ))
             return
         }
 
-        do {
-            let requestedLocale = Locale(identifier: localeIdentifier)
-            let requestedSupportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: requestedLocale)
-            let fallbackSupportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: "en-US"))
-            let locale = requestedSupportedLocale ?? fallbackSupportedLocale ?? requestedLocale
-            let transcriber = SpeechTranscriber(locale: locale, preset: .timeIndexedProgressiveTranscription)
-            let modules: [any SpeechModule] = [transcriber]
+        let locale = Locale(identifier: localeIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "en-US" : localeIdentifier)
+        guard let recognizer = SFSpeechRecognizer(locale: locale) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")) else {
+            await publish(.init(phase: .unavailable, text: nil, isFinal: false, message: "Live captions are not available for this language."))
+            return
+        }
+        guard recognizer.isAvailable else {
+            await publish(.init(phase: .unavailable, text: nil, isFinal: false, message: "Live captions are temporarily unavailable."))
+            return
+        }
 
-            if let request = try await AssetInventory.assetInstallationRequest(supporting: modules) {
-                await publish(.init(phase: .preparing, text: nil, isFinal: false, message: "Downloading speech model…"))
-                try await request.downloadAndInstall()
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.addsPunctuation = true
+
+        self.recognizer = recognizer
+        inputQueue.sync {
+            self.recognitionRequest = request
+            self.isAcceptingInput = true
+        }
+
+        NSLog("[Recappi] live captions recognizer started locale=%@", recognizer.locale.identifier)
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            if let result, let snapshot = self?.consume(result) {
+                Task { await self?.publish(snapshot) }
             }
 
-            let analyzer = SpeechAnalyzer(
-                modules: modules,
-                options: .init(priority: .utility, modelRetention: .whileInUse)
-            )
-            self.analyzer = analyzer
-
-            var streamContinuation: AsyncThrowingStream<AnalyzerInput, Error>.Continuation?
-            let stream = AsyncThrowingStream<AnalyzerInput, Error> { continuation in
-                streamContinuation = continuation
-            }
-            inputQueue.sync {
-                continuation = streamContinuation
-                isAcceptingInput = true
-            }
-
-            resultsTask = Task { [weak self, transcriber] in
-                do {
-                    for try await result in transcriber.results {
-                        await self?.handle(result)
-                    }
-                } catch {
-                    await self?.publish(.init(phase: .failed, text: nil, isFinal: false, message: error.localizedDescription))
+            if let error {
+                let nsError = error as NSError
+                if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 216 {
+                    return
+                }
+                Task {
+                    await self?.publish(.init(
+                        phase: .failed,
+                        text: nil,
+                        isFinal: false,
+                        message: error.localizedDescription
+                    ))
                 }
             }
-
-            try await analyzer.prepareToAnalyze(in: nil)
-            await publish(.init(phase: .listening, text: nil, isFinal: false, message: "Listening for live captions…"))
-            try await analyzer.start(inputSequence: stream)
-        } catch is CancellationError {
-            return
-        } catch {
-            await publish(.init(phase: .failed, text: nil, isFinal: false, message: error.localizedDescription))
         }
+
+        await publish(.init(phase: .listening, text: nil, isFinal: false, message: "Listening for live captions…"))
     }
 
-    private func handle(_ result: SpeechTranscriber.Result) async {
-        let text = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+    private func consume(_ result: SFSpeechRecognitionResult) -> LiveCaptionSnapshot? {
+        let text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
 
-        let entry = LiveCaptionEntry(
-            text: text,
-            isFinal: result.isFinal,
-            startedAtMs: result.range.start.milliseconds,
-            endedAtMs: result.range.end.milliseconds
-        )
-        entries.append(entry)
+        let isFinal = result.isFinal
+        let startedAtMs = result.bestTranscription.segments.first.map { Int(($0.timestamp * 1000).rounded()) }
+        let endedAtMs = result.bestTranscription.segments.last.map {
+            Int((($0.timestamp + $0.duration) * 1000).rounded())
+        }
 
-        await publish(.init(phase: .listening, text: text, isFinal: result.isFinal, message: nil))
+        stateQueue.async { [weak self] in
+            guard let self else { return }
+            if self.lastPublishedText == text, !isFinal {
+                return
+            }
+            self.lastPublishedText = text
+            self.entries.append(.init(
+                text: text,
+                isFinal: isFinal,
+                startedAtMs: startedAtMs,
+                endedAtMs: endedAtMs
+            ))
+        }
+
+        return .init(phase: .listening, text: text, isFinal: isFinal, message: nil)
     }
 
     private func publish(_ snapshot: LiveCaptionSnapshot) async {
@@ -151,7 +181,10 @@ final class LiveCaptionTranscriber: @unchecked Sendable {
     }
 
     private func saveEntries(to sessionDir: URL) {
-        let finalEntries = entries.filter(\.isFinal)
+        let finalEntries = stateQueue.sync {
+            let finals = entries.filter(\.isFinal)
+            return finals.isEmpty ? entries.suffix(1).map { $0 } : finals
+        }
         guard !finalEntries.isEmpty,
               let data = try? JSONEncoder().encode(finalEntries) else {
             return
@@ -160,7 +193,7 @@ final class LiveCaptionTranscriber: @unchecked Sendable {
         try? data.write(to: url, options: .atomic)
     }
 
-    private static func analyzerInput(from sampleBuffer: CMSampleBuffer) -> AnalyzerInput? {
+    private static func pcmBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
         guard sampleBuffer.isValid,
               let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
               let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
@@ -202,18 +235,24 @@ final class LiveCaptionTranscriber: @unchecked Sendable {
 
         pcmBuffer.frameLength = AVAudioFrameCount(frameCount)
         let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
 
         if isFloat, asbd.mBitsPerChannel == 32 {
             let sampleCount = min(totalLength / MemoryLayout<Float>.size, frameCount * channelCount)
             raw.withMemoryRebound(to: Float.self, capacity: sampleCount) { source in
-                copyInterleavedSamples(source, frameCount: frameCount, channelCount: channelCount, to: channels)
+                for frame in 0..<frameCount {
+                    for channel in 0..<channelCount {
+                        let index = sourceIndex(frame: frame, channel: channel, frameCount: frameCount, channelCount: channelCount, isNonInterleaved: isNonInterleaved)
+                        channels[channel][frame] = index < sampleCount ? source[index] : 0
+                    }
+                }
             }
         } else if asbd.mBitsPerChannel == 16 {
             let sampleCount = min(totalLength / MemoryLayout<Int16>.size, frameCount * channelCount)
             raw.withMemoryRebound(to: Int16.self, capacity: sampleCount) { source in
                 for frame in 0..<frameCount {
                     for channel in 0..<channelCount {
-                        let index = (frame * channelCount) + channel
+                        let index = sourceIndex(frame: frame, channel: channel, frameCount: frameCount, channelCount: channelCount, isNonInterleaved: isNonInterleaved)
                         channels[channel][frame] = index < sampleCount ? Float(source[index]) / 32768 : 0
                     }
                 }
@@ -222,28 +261,19 @@ final class LiveCaptionTranscriber: @unchecked Sendable {
             return nil
         }
 
-        let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let startTime = timestamp.isValid ? timestamp : nil
-        return AnalyzerInput(buffer: pcmBuffer, bufferStartTime: startTime)
+        return pcmBuffer
     }
 
-    private static func copyInterleavedSamples(
-        _ source: UnsafePointer<Float>,
+    private static func sourceIndex(
+        frame: Int,
+        channel: Int,
         frameCount: Int,
         channelCount: Int,
-        to channels: UnsafePointer<UnsafeMutablePointer<Float>>
-    ) {
-        for frame in 0..<frameCount {
-            for channel in 0..<channelCount {
-                channels[channel][frame] = source[(frame * channelCount) + channel]
-            }
+        isNonInterleaved: Bool
+    ) -> Int {
+        if isNonInterleaved {
+            return (channel * frameCount) + frame
         }
-    }
-}
-
-private extension CMTime {
-    var milliseconds: Int? {
-        guard isValid, seconds.isFinite else { return nil }
-        return Int((seconds * 1000).rounded())
+        return (frame * channelCount) + channel
     }
 }

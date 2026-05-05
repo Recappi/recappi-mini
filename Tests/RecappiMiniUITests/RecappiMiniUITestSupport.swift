@@ -23,6 +23,7 @@ enum UITestIDs {
         static let meetingPrompt = "recappi.panel.meetingPrompt"
         static let recordButton = "recappi.panel.recordButton"
         static let stopButton = "recappi.panel.stopButton"
+        static let liveCaptionText = "recappi.panel.liveCaptionText"
         static let processingTitle = "recappi.panel.processingTitle"
         static let doneTitle = "recappi.panel.doneTitle"
         static let errorTitle = "recappi.panel.errorTitle"
@@ -98,6 +99,7 @@ extension XCTestCase {
         simulatedAutoPromptMeetingLabel: String? = nil,
         hiddenAutoPromptSnoozeSeconds: TimeInterval? = nil,
         detectedMeetingAutoStopGraceSeconds: TimeInterval? = nil,
+        simulatedLiveCaptionText: String? = nil,
         openCloudWindowOnLaunch: Bool = false
     ) -> XCUIApplication {
         terminateExistingRecappiInstances()
@@ -127,6 +129,9 @@ extension XCTestCase {
         }
         if let detectedMeetingAutoStopGraceSeconds {
             app.launchEnvironment["RECAPPI_TEST_DETECTED_MEETING_AUTOSTOP_GRACE_SECONDS"] = String(detectedMeetingAutoStopGraceSeconds)
+        }
+        if let simulatedLiveCaptionText, !simulatedLiveCaptionText.isEmpty {
+            app.launchEnvironment["RECAPPI_TEST_LIVE_CAPTION_TEXT"] = simulatedLiveCaptionText
         }
         if openCloudWindowOnLaunch {
             app.launchEnvironment["RECAPPI_TEST_OPEN_CLOUD_WINDOW"] = "1"

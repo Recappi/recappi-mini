@@ -650,14 +650,19 @@ final class AudioRecorder: NSObject, ObservableObject {
                 self?.ingestMeterFrame(frame)
             }
             if #available(macOS 26.0, *) {
-                let liveTranscriber = LiveCaptionTranscriber { [weak self] snapshot in
-                    self?.applyLiveCaptionSnapshot(snapshot)
+                let speechStatus = await LiveCaptionTranscriber.requestSpeechAuthorizationIfNeeded()
+                if speechStatus == .authorized {
+                    let liveTranscriber = LiveCaptionTranscriber { [weak self] snapshot in
+                        self?.applyLiveCaptionSnapshot(snapshot)
+                    }
+                    self.liveCaptionTranscriber = liveTranscriber
+                    sysOut.onLiveCaptionSampleBuffer = { [weak liveTranscriber] sampleBuffer in
+                        liveTranscriber?.append(sampleBuffer)
+                    }
+                    liveTranscriber.start(localeIdentifier: AppConfig.shared.cloudLanguage)
+                } else {
+                    liveCaptionMessage = "Enable Speech Recognition to use live captions."
                 }
-                self.liveCaptionTranscriber = liveTranscriber
-                sysOut.onLiveCaptionSampleBuffer = { [weak liveTranscriber] sampleBuffer in
-                    liveTranscriber?.append(sampleBuffer)
-                }
-                liveTranscriber.start(localeIdentifier: AppConfig.shared.cloudLanguage)
             } else {
                 liveCaptionMessage = "Live captions require macOS 26."
             }
@@ -1018,6 +1023,14 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
         self.lastLevelPublish = 0
         self.lastHistoryPublish = 0
+        self.liveCaptionText = nil
+        self.liveCaptionMessage = nil
+        self.liveCaptionIsFinal = false
+        if let simulatedLiveCaptionText = uiTestMode.simulatedLiveCaptionText,
+           !simulatedLiveCaptionText.isEmpty {
+            self.liveCaptionText = simulatedLiveCaptionText
+            self.liveCaptionIsFinal = false
+        }
         self.detectedMeetingRecordingContext = autoStopContext
         self.state = .recording
         self.elapsedSeconds = 0
@@ -1211,21 +1224,36 @@ enum AudioLevelExtractor {
         let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
         let channels = max(Int(asbd.mChannelsPerFrame), 1)
 
+        let declaredFrames = CMSampleBufferGetNumSamples(sampleBuffer)
+        let maxMeterFrames = 4_096
+
         if isFloat, asbd.mBitsPerChannel == 32 {
-            let count = totalLength / MemoryLayout<Float>.size
+            let rawSampleCount = totalLength / MemoryLayout<Float>.size
+            let declaredSampleCount = declaredFrames > 0 ? declaredFrames * channels : rawSampleCount
+            let count = min(rawSampleCount, declaredSampleCount)
             return raw.withMemoryRebound(to: Float.self, capacity: count) { ptr in
-                let mono = collapseToMono(frameCount: count / channels, channels: channels) { frame, channel in
-                    ptr[(frame * channels) + channel]
+                let totalFrames = count / channels
+                let frameCount = min(totalFrames, maxMeterFrames)
+                let startFrame = max(totalFrames - frameCount, 0)
+                let mono = collapseToMono(frameCount: frameCount, channels: channels) { frame, channel in
+                    let index = ((startFrame + frame) * channels) + channel
+                    return index < count ? ptr[index] : 0
                 }
                 return analyze(samples: mono, sampleRate: Double(asbd.mSampleRate), bucketCount: bucketCount)
             }
         }
 
         if asbd.mBitsPerChannel == 16 {
-            let count = totalLength / MemoryLayout<Int16>.size
+            let rawSampleCount = totalLength / MemoryLayout<Int16>.size
+            let declaredSampleCount = declaredFrames > 0 ? declaredFrames * channels : rawSampleCount
+            let count = min(rawSampleCount, declaredSampleCount)
             return raw.withMemoryRebound(to: Int16.self, capacity: count) { ptr in
-                let mono = collapseToMono(frameCount: count / channels, channels: channels) { frame, channel in
-                    Float(ptr[(frame * channels) + channel]) / 32768
+                let totalFrames = count / channels
+                let frameCount = min(totalFrames, maxMeterFrames)
+                let startFrame = max(totalFrames - frameCount, 0)
+                let mono = collapseToMono(frameCount: frameCount, channels: channels) { frame, channel in
+                    let index = ((startFrame + frame) * channels) + channel
+                    return index < count ? Float(ptr[index]) / 32768 : 0
                 }
                 return analyze(samples: mono, sampleRate: Double(asbd.mSampleRate), bucketCount: bucketCount)
             }
@@ -1334,23 +1362,28 @@ enum AudioLevelExtractor {
             bandMagnitudes[bucketIndex] = bucketEnergy * spectralTiltCompensation
         }
 
-        let smoothedBands = bandMagnitudes.indices.map { index -> Float in
+        var smoothedBands = [Float]()
+        smoothedBands.reserveCapacity(bucketCount)
+        for index in 0..<bandMagnitudes.count {
             let previous = bandMagnitudes[max(index - 1, 0)]
             let current = bandMagnitudes[index]
             let next = bandMagnitudes[min(index + 1, bandMagnitudes.count - 1)]
-            return (previous * 0.2) + (current * 0.6) + (next * 0.2)
+            smoothedBands.append((previous * 0.2) + (current * 0.6) + (next * 0.2))
         }
 
         let maxBand = max(smoothedBands.max() ?? 0, 0.0001)
         let amplitudeScale = min(1, sqrt(min(peak, 1)) * 1.55)
-        let normalizedBands = smoothedBands.enumerated().map { index, magnitude in
+        var normalizedBands = [Float]()
+        normalizedBands.reserveCapacity(smoothedBands.count)
+        for index in 0..<smoothedBands.count {
+            let magnitude = smoothedBands[index]
             let t = Float(index) / Float(max(bucketCount - 1, 1))
             let floorRatio: Float = 0.005   // ~ -46 dB floor
             let clamped = max(magnitude, maxBand * floorRatio)
             let decibels = 20 * log10(clamped / maxBand)
             let dbNormalized = max(0, min(1, (decibels + 46) / 46))
             let equalized = pow(dbNormalized, 0.88) * (0.78 + (0.92 * pow(t, 0.9)))
-            return min(1, equalized * amplitudeScale)
+            normalizedBands.append(min(1, equalized * amplitudeScale))
         }
 
         return AudioMeterFrame(peak: min(peak, 1), bands: normalizedBands)

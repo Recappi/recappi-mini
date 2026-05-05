@@ -84,6 +84,33 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         add(attachment)
     }
 
+    func testLiveCaptionStripUsesCompactRecordingPanelLayout() throws {
+        let app = launchRecappiApp(
+            authToken: "invalid-test-token",
+            simulatedLiveCaptionText: "Let’s keep this tiny while the meeting keeps moving."
+        )
+
+        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
+        let stopButton = app.buttons[UITestIDs.Panel.stopButton]
+        if recordButton.waitForExistence(timeout: 10) {
+            recordButton.click()
+        } else {
+            XCTAssertTrue(stopButton.exists, "Expected recording controls.")
+        }
+
+        let caption = uiElement(app, id: UITestIDs.Panel.liveCaptionText)
+        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Expected low-interruption live caption strip.")
+        XCTAssertLessThanOrEqual(caption.frame.height, 44, "Expected live captions to stay compact, not become a large dialog.")
+        let controlsTop = recordButton.exists ? recordButton.frame.minY : stopButton.frame.minY
+        XCTAssertGreaterThan(caption.frame.minY, controlsTop, "Expected caption strip to sit below the main recording controls.")
+
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "live-caption-compact-strip"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testDetectedMeetingSuggestionAutoStopsWhenAudioEnds() throws {
         let app = launchRecappiApp(
             authToken: "invalid-test-token",
@@ -200,6 +227,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         let rows = recordingsList.descendants(matching: .any).matching(rowPredicate)
         XCTAssertGreaterThanOrEqual(rows.count, 2, "Expected enough live recordings to exercise selection layout stability.")
         rows.element(boundBy: 1).click()
+        let downloadButton = app.buttons[UITestIDs.Cloud.downloadAudioButton]
         XCTAssertTrue(downloadButton.waitForExistence(timeout: 10), "Expected detail actions to remain visible after changing selection.")
         XCTAssertEqual(
             cloudWindow.frame.height,
