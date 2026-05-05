@@ -279,6 +279,11 @@ struct CloudCenterPanel: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 8) {
+                        if isCurrentMeetingActive {
+                            CurrentMeetingSidebarRow(recorder: recorder)
+                                .id(AccessibilityIDs.Cloud.currentMeetingRow)
+                        }
+
                         ForEach(recordingDateSections) { section in
                             VStack(alignment: .leading, spacing: 8) {
                                 CloudRecordingDateSectionHeader(
@@ -1046,6 +1051,87 @@ private struct CloudRecordingDateSectionHeader: View {
         .padding(.top, 6)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(count) recordings")
+    }
+}
+
+private struct CurrentMeetingSidebarRow: View {
+    @ObservedObject var recorder: AudioRecorder
+
+    var body: some View {
+        Button(action: {}) {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(DT.systemRed.opacity(0.16))
+                    Circle()
+                        .fill(DT.systemRed)
+                        .frame(width: 8, height: 8)
+                        .shadow(color: DT.systemRed.opacity(0.55), radius: 4)
+                        .modifier(PulsingModifier())
+                }
+                .frame(width: 30, height: 30)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("Current meeting")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.dtLabel)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 0)
+
+                        Text("Live")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(DT.systemRed)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(DT.systemRed.opacity(0.14))
+                            )
+                    }
+
+                    HStack(spacing: 6) {
+                        Text(sourceLine)
+                        Text("·")
+                            .foregroundStyle(Color.dtLabelQuaternary)
+                        Text(timeText(recorder.elapsedSeconds))
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(DT.recordingChip.opacity(0.84))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(DT.systemRed.opacity(0.32), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Current meeting, Live, \(sourceLine), \(timeText(recorder.elapsedSeconds))")
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingRow)
+    }
+
+    private var sourceLine: String {
+        recorder.recordingAppName ?? recorder.selectedApp?.name ?? "All system audio"
+    }
+
+    private func timeText(_ seconds: Int) -> String {
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        let s = seconds % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%02d:%02d", m, s)
     }
 }
 

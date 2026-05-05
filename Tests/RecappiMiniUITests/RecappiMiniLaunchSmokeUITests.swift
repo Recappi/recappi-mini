@@ -100,6 +100,9 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
         XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions to move into the Cloud current-meeting panel.")
 
+        let currentMeetingRow = uiElement(app, id: UITestIDs.Cloud.currentMeetingRow)
+        XCTAssertTrue(currentMeetingRow.waitForExistence(timeout: 10), "Expected a live current-meeting row in the Cloud sidebar while recording.")
+
         let caption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
         XCTAssertTrue(caption.waitForExistence(timeout: 10), "Expected current-meeting captions in Cloud.")
         let captionText = [caption.label, caption.value as? String]
