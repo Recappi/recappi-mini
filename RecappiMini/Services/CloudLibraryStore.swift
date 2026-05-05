@@ -3,18 +3,8 @@ import Foundation
 
 enum CloudRecordingProcessingAction: String, CaseIterable, Identifiable, Sendable {
     case transcriptAndSummary
-    case transcriptOnly
-    case summaryOnly
 
     var id: String { rawValue }
-
-    var startsTranscriptionJob: Bool {
-        self != .summaryOnly
-    }
-
-    var shouldRequestSummary: Bool {
-        self == .transcriptAndSummary
-    }
 }
 
 @MainActor
@@ -44,7 +34,6 @@ final class CloudLibraryStore: ObservableObject {
     @Published private(set) var isDeleting = false
     @Published private(set) var isSyncingToLocal = false
     @Published private(set) var isRetranscribing = false
-    @Published private(set) var isSummarizing = false
     @Published private(set) var activeRecordingProcessingAction: CloudRecordingProcessingAction?
     @Published private(set) var lastDownloadedAudioURL: URL?
     @Published private(set) var transcriptErrorMessage: String?
@@ -710,12 +699,7 @@ final class CloudLibraryStore: ObservableObject {
     }
 
     func processSelectedRecording(_ action: CloudRecordingProcessingAction) async {
-        switch action {
-        case .transcriptAndSummary, .transcriptOnly:
-            await startTranscriptionForSelectedRecording(action)
-        case .summaryOnly:
-            await summarizeSelectedRecording()
-        }
+        await startTranscriptionForSelectedRecording(action)
     }
 
     func retranscribeSelectedRecording() async {
@@ -745,8 +729,7 @@ final class CloudLibraryStore: ObservableObject {
                     recordingId: recording.id,
                     language: language,
                     force: true,
-                    provider: "gemini",
-                    summarize: action.shouldRequestSummary
+                    provider: "gemini"
                 )
             }
             let job = try await runAuthorized { client in
@@ -756,37 +739,6 @@ final class CloudLibraryStore: ObservableObject {
             if job.status == .succeeded {
                 try await refreshTranscriptAfterJobSucceeded(recording: recording, job: job)
             }
-            await persistCacheSnapshot()
-        } catch let error as RecappiAPIError where error == .unauthorized {
-            apply(error: error)
-        } catch {
-            transcriptErrorMessage = transcriptMessage(for: error)
-        }
-    }
-
-    private func summarizeSelectedRecording() async {
-        guard let recording = selectedRecording else { return }
-        guard activeRecordingProcessingAction == nil else { return }
-        guard recording.activeTranscriptId != nil || selectedTranscript != nil else {
-            transcriptErrorMessage = "No active transcript is available to summarize yet."
-            return
-        }
-
-        isSummarizing = true
-        activeRecordingProcessingAction = .summaryOnly
-        transcriptErrorMessage = nil
-        defer {
-            isSummarizing = false
-            activeRecordingProcessingAction = nil
-        }
-
-        do {
-            _ = try await runAuthorized { client in
-                try await client.startSummary(recordingId: recording.id)
-            }
-            summaryRefreshAttemptedRecordingIDs.remove(recording.id)
-            await refreshSelectedDetailIfNeeded()
-            await loadTranscriptForSelection()
             await persistCacheSnapshot()
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)

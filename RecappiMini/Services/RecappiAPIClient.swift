@@ -97,8 +97,7 @@ struct RecappiAPIClient: Sendable {
         recordingId: String,
         language: String,
         force: Bool = false,
-        provider: String? = nil,
-        summarize: Bool? = nil
+        provider: String? = nil
     ) async throws -> StartTranscriptionResponse {
         var request = try makeRequest(path: "/api/recordings/\(recordingId)/transcribe", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -108,22 +107,12 @@ struct RecappiAPIClient: Sendable {
                 provider: provider,
                 language: language,
                 force: force,
-                prompt: prompt,
-                summarize: summarize
+                prompt: prompt
             )
         )
         let (data, response) = try await session.data(for: request)
         try Self.validate(response: response, data: data)
         return try JSONDecoder().decode(StartTranscriptionResponse.self, from: data)
-    }
-
-    func startSummary(recordingId: String) async throws -> StartSummaryResponse {
-        var request = try makeRequest(path: "/api/recordings/\(recordingId)/summarize", method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data("{}".utf8)
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
-        return try JSONDecoder().decode(StartSummaryResponse.self, from: data)
     }
 
     func getJob(jobId: String) async throws -> TranscriptionJob {
@@ -787,26 +776,18 @@ struct StartTranscriptionRequest: Encodable {
     let language: String
     let force: Bool
     let prompt: String?
-    let summarize: Bool?
 
     init(
         provider: String?,
         language: String,
         force: Bool,
-        prompt: String?,
-        summarize: Bool? = nil
+        prompt: String?
     ) {
         self.provider = provider
         self.language = language
         self.force = force
         self.prompt = prompt
-        self.summarize = summarize
     }
-}
-
-struct StartSummaryResponse: Decodable, Equatable, Sendable {
-    let transcriptId: String
-    let summaryStatus: String
 }
 
 enum RemoteJobStatus: String, Codable, Equatable {

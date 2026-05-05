@@ -1213,102 +1213,39 @@ private enum CloudDetailSection: Hashable {
 
 private extension CloudRecordingProcessingAction {
     var title: String {
-        switch self {
-        case .transcriptAndSummary:
-            return "Transcribe + summarize…"
-        case .transcriptOnly:
-            return "Transcribe only…"
-        case .summaryOnly:
-            return "Summarize only…"
-        }
+        "Transcribe + summarize…"
     }
 
     var busyTitle: String {
-        switch self {
-        case .transcriptAndSummary:
-            return "Processing…"
-        case .transcriptOnly:
-            return "Transcribing…"
-        case .summaryOnly:
-            return "Summarizing…"
-        }
+        "Processing…"
     }
 
     var systemImage: String {
-        switch self {
-        case .transcriptAndSummary:
-            return "sparkles.rectangle.stack"
-        case .transcriptOnly:
-            return "waveform.and.magnifyingglass"
-        case .summaryOnly:
-            return "sparkles"
-        }
+        "sparkles.rectangle.stack"
     }
 
     var helpText: String {
-        switch self {
-        case .transcriptAndSummary:
-            return "Run a fresh transcription and summary pass."
-        case .transcriptOnly:
-            return "Run a fresh transcription pass without requesting summary generation."
-        case .summaryOnly:
-            return "Regenerate the summary from the active transcript."
-        }
+        "Run a fresh transcription and summary pass."
     }
 
     var confirmationTitle: String {
-        switch self {
-        case .transcriptAndSummary:
-            return "Transcribe and summarize this recording?"
-        case .transcriptOnly:
-            return "Transcribe this recording?"
-        case .summaryOnly:
-            return "Summarize this transcript?"
-        }
+        "Transcribe and summarize this recording?"
     }
 
     var confirmationButtonTitle: String {
-        switch self {
-        case .transcriptAndSummary:
-            return "Transcribe + Summarize"
-        case .transcriptOnly:
-            return "Transcribe Only"
-        case .summaryOnly:
-            return "Summarize Only"
-        }
+        "Transcribe + Summarize"
     }
 
     var confirmationMessage: String {
-        switch self {
-        case .transcriptAndSummary:
-            return "This starts a fresh cloud transcription job. The backend will enqueue summary generation after the transcript succeeds."
-        case .transcriptOnly:
-            return "This starts a fresh cloud transcription job and asks the backend not to enqueue summary generation when that flag is supported."
-        case .summaryOnly:
-            return "This re-runs summary generation against the currently active transcript without uploading or retranscribing audio."
-        }
+        "This starts a fresh cloud transcription job. The backend will enqueue summary generation after the transcript succeeds."
     }
 
     var accessibilityIdentifier: String {
-        switch self {
-        case .transcriptAndSummary:
-            return AccessibilityIDs.Cloud.retranscribeButton
-        case .transcriptOnly:
-            return AccessibilityIDs.Cloud.transcribeOnlyButton
-        case .summaryOnly:
-            return AccessibilityIDs.Cloud.summarizeOnlyButton
-        }
+        AccessibilityIDs.Cloud.retranscribeButton
     }
 
     var confirmAccessibilityIdentifier: String {
-        switch self {
-        case .transcriptAndSummary:
-            return AccessibilityIDs.Cloud.confirmRetranscribeButton
-        case .transcriptOnly:
-            return AccessibilityIDs.Cloud.confirmTranscribeOnlyButton
-        case .summaryOnly:
-            return AccessibilityIDs.Cloud.confirmSummarizeOnlyButton
-        }
+        AccessibilityIDs.Cloud.confirmRetranscribeButton
     }
 }
 
@@ -1991,8 +1928,8 @@ private struct CloudRecordingDetail: View {
         }
         .buttonStyle(
             CloudInspectorButtonStyle(
-                tint: action == .transcriptAndSummary ? DT.statusReady : Color.dtLabelTertiary,
-                chrome: action == .transcriptAndSummary ? .always : .hover
+                tint: DT.statusReady,
+                chrome: .always
             )
         )
         .disabled(isProcessingActionDisabled(action))
@@ -2004,16 +1941,13 @@ private struct CloudRecordingDetail: View {
         if processingAction != nil || isTranscriptLoading {
             return true
         }
-        if action.startsTranscriptionJob {
-            return latestJob?.status.isActive == true
-                || retranscriptionLimitMessage != nil
-                || !recording.status.allowsTranscriptionRequest
-        }
-        return recording.activeTranscriptId == nil && transcript == nil
+        return latestJob?.status.isActive == true
+            || retranscriptionLimitMessage != nil
+            || !recording.status.allowsTranscriptionRequest
     }
 
     private func processingHelpText(for action: CloudRecordingProcessingAction) -> String {
-        if let retranscriptionLimitMessage, action.startsTranscriptionJob {
+        if let retranscriptionLimitMessage {
             return retranscriptionLimitMessage
         }
         if processingAction != nil {
@@ -2022,11 +1956,8 @@ private struct CloudRecordingDetail: View {
         if isTranscriptLoading {
             return "Transcript details are still loading."
         }
-        if action.startsTranscriptionJob, latestJob?.status.isActive == true {
+        if latestJob?.status.isActive == true {
             return "A transcription job is already in progress."
-        }
-        if action == .summaryOnly, recording.activeTranscriptId == nil && transcript == nil {
-            return "No active transcript is available to summarize yet."
         }
         return action.helpText
     }
