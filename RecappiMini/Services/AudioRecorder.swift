@@ -204,6 +204,9 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var audioLevel: Float = 0
     @Published var audioSpectrumLevels: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
     @Published var audioLevelHistory: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
+    @Published private(set) var liveCaptionText: String?
+    @Published private(set) var liveCaptionMessage: String?
+    @Published private(set) var liveCaptionIsFinal: Bool = false
     /// Session directory of the most-recent (or in-progress) recording.
     /// Populated on stop and kept through processing + error states so the
     /// UI can offer Retry / Show without stashing state at the view layer.
@@ -216,6 +219,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private var stream: SCStream?
     private var systemOutput: SystemAudioOutput?
+    private var liveCaptionTranscriber: Any?
     private let systemCaptureQueue = DispatchQueue(label: "RecappiMini.SystemCapture")
     private var audioDeviceMonitor: DefaultAudioDeviceMonitor?
     private var currentOutputAudioDeviceID: AudioDeviceID?
@@ -645,6 +649,18 @@ final class AudioRecorder: NSObject, ObservableObject {
             sysOut.onMeterFrame = { [weak self] frame in
                 self?.ingestMeterFrame(frame)
             }
+            if #available(macOS 26.0, *) {
+                let liveTranscriber = LiveCaptionTranscriber { [weak self] snapshot in
+                    self?.applyLiveCaptionSnapshot(snapshot)
+                }
+                self.liveCaptionTranscriber = liveTranscriber
+                sysOut.onLiveCaptionSampleBuffer = { [weak liveTranscriber] sampleBuffer in
+                    liveTranscriber?.append(sampleBuffer)
+                }
+                liveTranscriber.start(localeIdentifier: AppConfig.shared.cloudLanguage)
+            } else {
+                liveCaptionMessage = "Live captions require macOS 26."
+            }
             self.systemOutput = sysOut
 
             let filter: SCContentFilter
@@ -729,6 +745,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             self.systemOutput = nil
             self.micSession = nil
             self.micOutput = nil
+            self.stopLiveCaptions(saveTo: nil)
             throw error
         }
     }
@@ -755,8 +772,10 @@ final class AudioRecorder: NSObject, ObservableObject {
         let systemOutput = self.systemOutput
         let micOutput = self.micOutput
         let micSession = self.micSession
+        let liveCaptionTranscriber = self.liveCaptionTranscriber
         self.stream = nil
         self.systemOutput = nil
+        self.liveCaptionTranscriber = nil
         self.micSession = nil
         self.micOutput = nil
 
@@ -780,6 +799,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             throw RecorderError.noSessionDir
         }
         self.lastSessionDir = sessionDir
+        stopLiveCaptions(liveCaptionTranscriber, saveTo: sessionDir)
 
         // Merge system + mic into a single high-quality recording.m4a.
         let mergedURL = RecordingStore.audioFileURL(in: sessionDir)
@@ -859,6 +879,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
         lastLevelPublish = 0
         lastHistoryPublish = 0
+        liveCaptionText = nil
+        liveCaptionMessage = nil
+        liveCaptionIsFinal = false
         sessionDir = nil
         lastSessionDir = nil
         recordingSuggestion = nil
@@ -866,6 +889,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         micSession?.stopRunning()
         stream = nil
         systemOutput = nil
+        stopLiveCaptions(saveTo: nil)
+        liveCaptionTranscriber = nil
         currentOutputAudioDeviceID = nil
         micSession = nil
         micOutput = nil
@@ -883,6 +908,31 @@ final class AudioRecorder: NSObject, ObservableObject {
             return Array(levels.prefix(Self.spectrumBucketCount))
         }
         return levels + Array(repeating: 0, count: Self.spectrumBucketCount - levels.count)
+    }
+
+    private func applyLiveCaptionSnapshot(_ snapshot: LiveCaptionSnapshot) {
+        switch snapshot.phase {
+        case .preparing, .listening:
+            liveCaptionMessage = snapshot.message
+        case .unavailable, .failed:
+            liveCaptionMessage = snapshot.message
+            liveCaptionText = nil
+        }
+
+        if let text = snapshot.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+            liveCaptionText = text
+            liveCaptionIsFinal = snapshot.isFinal
+        }
+    }
+
+    private func stopLiveCaptions(saveTo sessionDir: URL?) {
+        stopLiveCaptions(liveCaptionTranscriber, saveTo: sessionDir)
+    }
+
+    private func stopLiveCaptions(_ transcriber: Any?, saveTo sessionDir: URL?) {
+        if #available(macOS 26.0, *), let transcriber = transcriber as? LiveCaptionTranscriber {
+            transcriber.stop(saveTo: sessionDir)
+        }
     }
 
     // MARK: - Permissions
@@ -1316,6 +1366,7 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     /// snapshot. AudioRecorder hops this to the main actor + throttles to
     /// ~30 Hz for the waveform view.
     var onMeterFrame: ((AudioMeterFrame) -> Void)?
+    var onLiveCaptionSampleBuffer: ((CMSampleBuffer) -> Void)?
 
     init(writer: SegmentedAudioWriter) {
         self.writer = writer
@@ -1329,6 +1380,7 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
         guard type == .audio else { return }
         guard sampleBuffer.isValid else { return }
         writer.append(sampleBuffer)
+        onLiveCaptionSampleBuffer?(sampleBuffer)
         onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount))
     }
 

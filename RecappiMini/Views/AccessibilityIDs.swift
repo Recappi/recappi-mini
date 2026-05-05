@@ -28,6 +28,7 @@ enum AccessibilityIDs {
         static let closeButton = "recappi.panel.closeButton"
         static let discardButton = "recappi.panel.discardButton"
         static let waveformToggle = "recappi.panel.waveformToggle"
+        static let liveCaptionText = "recappi.panel.liveCaptionText"
         static let recordingSuggestion = "recappi.panel.recordingSuggestion"
         static let meetingPrompt = "recappi.panel.meetingPrompt"
         static let processingTitle = "recappi.panel.processingTitle"
