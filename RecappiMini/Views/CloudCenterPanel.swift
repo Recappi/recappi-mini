@@ -1213,7 +1213,7 @@ private enum CloudDetailSection: Hashable {
 
 private extension CloudRecordingProcessingAction {
     var title: String {
-        "Transcribe…"
+        "Re-Transcribe"
     }
 
     var busyTitle: String {
@@ -1229,11 +1229,11 @@ private extension CloudRecordingProcessingAction {
     }
 
     var confirmationTitle: String {
-        "Transcribe this recording?"
+        "Re-transcribe this recording?"
     }
 
     var confirmationButtonTitle: String {
-        "Transcribe"
+        "Re-Transcribe"
     }
 
     var confirmationMessage: String {
@@ -1839,7 +1839,7 @@ private struct CloudRecordingDetail: View {
         case .running:
             return "Summary is being generated. This usually takes a few moments."
         case .failed:
-            return "Summary generation failed. Run Transcribe again after the backend issue is fixed."
+            return "Summary generation failed. Run Re-Transcribe again after the backend issue is fixed."
         case .skipped:
             return "Summary was skipped because this transcript is too short."
         case .succeeded, .none:
