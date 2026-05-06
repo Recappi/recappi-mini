@@ -204,17 +204,26 @@ final class SessionProcessor {
         onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void,
         onCloudRecordingDeleted: @escaping @MainActor @Sendable (String) -> Void
     ) async throws -> UploadedRecordingAsset {
-        let uploadURL: URL
-        if primaryURL.pathExtension.lowercased() == "wav" {
-            uploadURL = primaryURL
+        let uploadAsset: UploadAudioAsset
+        if let contentType = Self.cloudUploadContentType(for: primaryURL) {
+            uploadAsset = UploadAudioAsset(
+                url: primaryURL,
+                contentType: contentType,
+                durationMs: Self.uploadDurationMs(fromSeconds: duration)
+            )
         } else {
             updatePhase(.preparingUploadWav)
-            uploadURL = try await UploadAudioExporter.ensureUploadAudio(for: sessionDir)
+            let uploadURL = try await UploadAudioExporter.ensureUploadAudio(for: sessionDir)
+            uploadAsset = UploadAudioAsset(
+                url: uploadURL,
+                contentType: "audio/wav",
+                durationMs: Self.uploadDurationMs(fromSeconds: duration)
+            )
         }
 
         do {
             return try await uploadAndComplete(
-                fileURL: uploadURL,
+                uploadAsset: uploadAsset,
                 client: client,
                 manifest: manifest,
                 duration: duration,
@@ -228,7 +237,7 @@ final class SessionProcessor {
                 onCloudRecordingDeleted(abandonedRecordingID)
             }
             var failedManifest = manifest
-            failedManifest.uploadFilename = uploadURL.lastPathComponent
+            failedManifest.uploadFilename = uploadAsset.url.lastPathComponent
             failedManifest.errorMessage = failure.error.localizedDescription
             failedManifest.stage = "uploadFailed"
             _ = RecordingStore.saveRemoteManifest(failedManifest, in: sessionDir)
@@ -237,13 +246,14 @@ final class SessionProcessor {
     }
 
     private func uploadAndComplete(
-        fileURL: URL,
+        uploadAsset: UploadAudioAsset,
         client: RecappiAPIClient,
         manifest: RemoteSessionManifest,
         duration: Int,
         updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
         onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
     ) async throws -> UploadedRecordingAsset {
+        let fileURL = uploadAsset.url
         var nextManifest = manifest
         nextManifest.uploadFilename = fileURL.lastPathComponent
         nextManifest.errorMessage = nil
@@ -253,7 +263,11 @@ final class SessionProcessor {
         let sessionDir = fileURL.deletingLastPathComponent()
         let recordingTitle = RecordingStore.loadSessionMetadata(in: sessionDir)?.cloudRecordingTitle
             ?? sessionDir.lastPathComponent
-        let created = try await client.createRecording(title: recordingTitle)
+        let created = try await client.createRecording(
+            title: recordingTitle,
+            contentType: uploadAsset.contentType,
+            durationMs: uploadAsset.durationMs
+        )
         nextManifest.recordingId = created.id
         nextManifest.jobId = nil
         nextManifest.transcriptId = nil
@@ -265,7 +279,7 @@ final class SessionProcessor {
             r2Key: created.r2Key,
             status: .uploading,
             duration: duration,
-            contentType: nil,
+            contentType: uploadAsset.contentType,
             sessionDir: sessionDir
         )
         onCloudRecordingUpdated(localRecording, nil)
@@ -301,6 +315,33 @@ final class SessionProcessor {
             await client.abortRecordingIfNeeded(recordingId: created.id)
             throw UploadAttemptFailure(error: error, abandonedRecordingID: created.id)
         }
+    }
+
+    nonisolated static func cloudUploadContentType(for fileURL: URL) -> String? {
+        switch fileURL.pathExtension.lowercased() {
+        case "wav":
+            return "audio/wav"
+        case "mp3":
+            return "audio/mp3"
+        case "aif", "aiff":
+            return "audio/aiff"
+        case "aac":
+            return "audio/aac"
+        case "m4a":
+            // Recappi records AAC-only `.m4a` artifacts. The backend's
+            // current non-WAV allow-list canonicalizes AAC as `audio/aac`.
+            return "audio/aac"
+        case "ogg":
+            return "audio/ogg"
+        case "flac":
+            return "audio/flac"
+        default:
+            return nil
+        }
+    }
+
+    private nonisolated static func uploadDurationMs(fromSeconds duration: Int) -> Int {
+        max(1, duration) * 1000
     }
 
     private func deleteAbandonedRecordingIfPossible(_ recordingID: String, client: RecappiAPIClient) async -> Bool {
@@ -430,6 +471,12 @@ final class SessionProcessor {
         }
         return value
     }
+}
+
+private struct UploadAudioAsset {
+    let url: URL
+    let contentType: String
+    let durationMs: Int
 }
 
 private struct UploadedRecordingAsset {

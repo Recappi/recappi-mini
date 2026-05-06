@@ -117,6 +117,37 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testCreateRecordingRequestIncludesNonWavUploadMetadata() throws {
+        let body = try JSONEncoder().encode(
+            CreateRecordingRequest(
+                title: "Daily standup",
+                contentType: "audio/mp3",
+                durationMs: 125_000
+            )
+        )
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+        XCTAssertEqual(json["title"] as? String, "Daily standup")
+        XCTAssertEqual(json["contentType"] as? String, "audio/mp3")
+        XCTAssertEqual(json["durationMs"] as? Int, 125_000)
+    }
+
+    func testSessionProcessorMapsCloudUploadContentTypes() {
+        XCTAssertEqual(
+            SessionProcessor.cloudUploadContentType(for: URL(fileURLWithPath: "/tmp/recording.m4a")),
+            "audio/aac"
+        )
+        XCTAssertEqual(
+            SessionProcessor.cloudUploadContentType(for: URL(fileURLWithPath: "/tmp/recording.mp3")),
+            "audio/mp3"
+        )
+        XCTAssertEqual(
+            SessionProcessor.cloudUploadContentType(for: URL(fileURLWithPath: "/tmp/recording.flac")),
+            "audio/flac"
+        )
+        XCTAssertNil(SessionProcessor.cloudUploadContentType(for: URL(fileURLWithPath: "/tmp/recording.caf")))
+    }
+
     func testCloudRecordingWebURLUsesBackendOrigin() throws {
         let url = try XCTUnwrap(
             cloudRecordingWebURL(

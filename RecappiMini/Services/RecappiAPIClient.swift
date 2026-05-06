@@ -37,10 +37,20 @@ struct RecappiAPIClient: Sendable {
         try Self.validate(response: response, data: data)
     }
 
-    func createRecording(title: String?) async throws -> CreateRecordingResponse {
+    func createRecording(
+        title: String?,
+        contentType: String = "audio/wav",
+        durationMs: Int? = nil
+    ) async throws -> CreateRecordingResponse {
         var request = try makeRequest(path: "/api/recordings", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(CreateRecordingRequest(title: title))
+        request.httpBody = try JSONEncoder().encode(
+            CreateRecordingRequest(
+                title: title,
+                contentType: contentType,
+                durationMs: durationMs
+            )
+        )
         let (data, response) = try await session.data(for: request)
         try Self.validate(response: response, data: data)
         return try JSONDecoder().decode(CreateRecordingResponse.self, from: data)
@@ -344,8 +354,10 @@ private struct UserPayload: Decodable {
     let image: String?
 }
 
-private struct CreateRecordingRequest: Encodable {
+struct CreateRecordingRequest: Encodable {
     let title: String?
+    let contentType: String
+    let durationMs: Int?
 }
 
 struct CreateRecordingResponse: Decodable {
