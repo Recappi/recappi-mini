@@ -27,19 +27,29 @@ struct LiveCaptionEntry: Codable, Equatable, Sendable {
 
 @available(macOS 26.0, *)
 final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
+    private static let maxRecognitionRequestDuration: TimeInterval = 45
+    private static let maxPendingAudioBuffers = 8
+    private static let maxSavedEntryCount = 240
+
     private let inputQueue = DispatchQueue(label: "RecappiMini.LiveCaptionTranscriber.input")
+    private let inputQueueKey = DispatchSpecificKey<Void>()
+    private let pendingLock = NSLock()
     private let stateQueue = DispatchQueue(label: "RecappiMini.LiveCaptionTranscriber.state")
     private let onUpdate: @MainActor @Sendable (LiveCaptionSnapshot) -> Void
 
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var recognizer: SFSpeechRecognizer?
+    private var activeRequestStartedAt: Date?
     private var entries: [LiveCaptionEntry] = []
+    private var latestPartialEntry: LiveCaptionEntry?
     private var lastPublishedText: String?
     private var isAcceptingInput = false
+    private var pendingAudioBufferCount = 0
 
     init(onUpdate: @escaping @MainActor @Sendable (LiveCaptionSnapshot) -> Void) {
         self.onUpdate = onUpdate
+        inputQueue.setSpecific(key: inputQueueKey, value: ())
     }
 
     static func requestSpeechAuthorizationIfNeeded() async -> SFSpeechRecognizerAuthorizationStatus {
@@ -69,19 +79,32 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
     }
 
     func append(_ sampleBuffer: CMSampleBuffer) {
-        guard let buffer = Self.pcmBuffer(from: sampleBuffer) else { return }
+        guard reservePendingAudioBuffer() else { return }
+        guard let buffer = autoreleasepool(invoking: { Self.pcmBuffer(from: sampleBuffer) }) else {
+            releasePendingAudioBuffer()
+            return
+        }
         inputQueue.async { [weak self] in
-            guard let self, self.isAcceptingInput else { return }
+            guard let self else { return }
+            defer { self.releasePendingAudioBuffer() }
+            guard self.isAcceptingInput else { return }
+            if self.shouldRotateRecognitionRequestLocked(),
+               let recognizer = self.recognizer {
+                self.rotateRecognitionRequestLocked(recognizer: recognizer)
+            }
             self.recognitionRequest?.append(buffer)
         }
     }
 
     func stop(saveTo sessionDir: URL?) {
-        inputQueue.async { [weak self] in
-            guard let self else { return }
+        performOnInputQueue {
             self.isAcceptingInput = false
+            self.recognitionTask?.cancel()
+            self.recognitionTask = nil
             self.recognitionRequest?.endAudio()
             self.recognitionRequest = nil
+            self.recognizer = nil
+            self.activeRequestStartedAt = nil
         }
 
         if let sessionDir {
@@ -116,10 +139,11 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
         request.shouldReportPartialResults = true
         request.addsPunctuation = true
 
-        self.recognizer = recognizer
         inputQueue.sync {
+            self.recognizer = recognizer
             self.recognitionRequest = request
             self.isAcceptingInput = true
+            self.activeRequestStartedAt = Date()
         }
 
         NSLog("[Recappi] live captions recognizer started locale=%@", recognizer.locale.identifier)
@@ -161,12 +185,21 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
                 return
             }
             self.lastPublishedText = text
-            self.entries.append(.init(
+            let entry = LiveCaptionEntry(
                 text: text,
                 isFinal: isFinal,
                 startedAtMs: startedAtMs,
                 endedAtMs: endedAtMs
-            ))
+            )
+            if isFinal {
+                self.latestPartialEntry = nil
+                if self.entries.last?.text != entry.text {
+                    self.entries.append(entry)
+                    self.trimEntriesLocked()
+                }
+            } else {
+                self.latestPartialEntry = entry
+            }
         }
 
         return .init(phase: .listening, text: text, isFinal: isFinal, message: nil)
@@ -188,7 +221,8 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
     private func saveEntries(to sessionDir: URL) {
         let finalEntries = stateQueue.sync {
             let finals = entries.filter(\.isFinal)
-            return finals.isEmpty ? entries.suffix(1).map { $0 } : finals
+            if !finals.isEmpty { return finals }
+            return latestPartialEntry.map { [$0] } ?? []
         }
         guard !finalEntries.isEmpty,
               let data = try? JSONEncoder().encode(finalEntries) else {
@@ -196,6 +230,75 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
         }
         let url = sessionDir.appendingPathComponent("live-captions.json")
         try? data.write(to: url, options: .atomic)
+    }
+
+    private func reservePendingAudioBuffer() -> Bool {
+        pendingLock.lock()
+        defer { pendingLock.unlock() }
+
+        guard pendingAudioBufferCount < Self.maxPendingAudioBuffers else {
+            return false
+        }
+        pendingAudioBufferCount += 1
+        return true
+    }
+
+    private func releasePendingAudioBuffer() {
+        pendingLock.lock()
+        pendingAudioBufferCount = max(0, pendingAudioBufferCount - 1)
+        pendingLock.unlock()
+    }
+
+    private func performOnInputQueue(_ block: () -> Void) {
+        if DispatchQueue.getSpecific(key: inputQueueKey) != nil {
+            block()
+        } else {
+            inputQueue.sync {
+                block()
+            }
+        }
+    }
+
+    private func shouldRotateRecognitionRequestLocked(now: Date = Date()) -> Bool {
+        guard let activeRequestStartedAt else { return false }
+        return now.timeIntervalSince(activeRequestStartedAt) >= Self.maxRecognitionRequestDuration
+    }
+
+    private func rotateRecognitionRequestLocked(recognizer: SFSpeechRecognizer) {
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest?.endAudio()
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.addsPunctuation = true
+        recognitionRequest = request
+        activeRequestStartedAt = Date()
+
+        NSLog("[Recappi] live captions recognizer rotated locale=%@", recognizer.locale.identifier)
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            if let result, let snapshot = self?.consume(result) {
+                self?.publishFromRecognitionCallback(snapshot)
+            }
+
+            if let error {
+                let nsError = error as NSError
+                if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 216 {
+                    return
+                }
+                self?.publishFromRecognitionCallback(.init(
+                    phase: .failed,
+                    text: nil,
+                    isFinal: false,
+                    message: error.localizedDescription
+                ))
+            }
+        }
+    }
+
+    private func trimEntriesLocked() {
+        guard entries.count > Self.maxSavedEntryCount else { return }
+        entries.removeFirst(entries.count - Self.maxSavedEntryCount)
     }
 
     private static func pcmBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {

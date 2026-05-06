@@ -794,6 +794,12 @@ final class AudioRecorder: NSObject, ObservableObject {
             stopCaptureError = error
         }
 
+        let sessionDir = self.sessionDir
+        if let sessionDir {
+            self.lastSessionDir = sessionDir
+        }
+        stopLiveCaptions(liveCaptionTranscriber, saveTo: sessionDir)
+
         let finishedSystemURL = try await systemOutput?.finishWriting()
         let finishedMicURL = try await micOutput?.finishWriting()
 
@@ -801,11 +807,9 @@ final class AudioRecorder: NSObject, ObservableObject {
             throw stopCaptureError
         }
 
-        guard let sessionDir = self.sessionDir else {
+        guard let sessionDir else {
             throw RecorderError.noSessionDir
         }
-        self.lastSessionDir = sessionDir
-        stopLiveCaptions(liveCaptionTranscriber, saveTo: sessionDir)
 
         // Merge system + mic into a single high-quality recording.m4a.
         let mergedURL = RecordingStore.audioFileURL(in: sessionDir)
