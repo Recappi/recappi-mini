@@ -85,9 +85,13 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
     }
 
     func testLiveCaptionsOpenCurrentMeetingCloudPanel() throws {
+        let longCaption = (1...14)
+            .map { "Live caption line \($0) keeps moving while the meeting continues." }
+            .joined(separator: "\n") + "\nFinal bottom line should remain visible."
+
         let app = launchRecappiApp(
             authToken: "invalid-test-token",
-            simulatedLiveCaptionText: "Let’s keep this tiny while the meeting keeps moving."
+            simulatedLiveCaptionText: longCaption
         )
 
         let recordButton = app.buttons[UITestIDs.Panel.recordButton]
@@ -98,7 +102,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         XCTAssertTrue(cloudButton.waitForExistence(timeout: 10), "Expected recording panel to keep a Cloud live captions entry point.")
 
         let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
-        XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions to move into the Cloud current-meeting panel.")
+        XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions to open in an independent Cloud floating panel.")
 
         let currentMeetingRow = uiElement(app, id: UITestIDs.Cloud.currentMeetingRow)
         XCTAssertTrue(currentMeetingRow.waitForExistence(timeout: 10), "Expected a live current-meeting row in the Cloud sidebar while recording.")
@@ -111,12 +115,27 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             .compactMap { $0 }
             .joined(separator: " ")
         XCTAssertTrue(
-            captionText.localizedCaseInsensitiveContains("keep this tiny"),
+            captionText.localizedCaseInsensitiveContains("Final bottom line"),
             "Expected simulated caption text in Cloud, got: \(captionText)"
         )
         XCTAssertFalse(
             uiElement(app, id: UITestIDs.Panel.liveCaptionText).exists,
             "Live captions should not render inside the tiny recording panel."
+        )
+
+        let closeCaptionPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaptionCloseButton)
+        XCTAssertTrue(closeCaptionPanel.waitForExistence(timeout: 10), "Expected a close control on the floating Live Caption panel.")
+        closeCaptionPanel.click()
+        XCTAssertTrue(
+            waitForNonExistence(of: currentMeetingPanel, timeout: 5),
+            "Expected the floating Live Caption panel to close without removing the current-meeting sidebar row."
+        )
+        XCTAssertTrue(currentMeetingRow.exists, "Current meeting row should remain available after hiding captions.")
+
+        currentMeetingRow.click()
+        XCTAssertTrue(
+            currentMeetingPanel.waitForExistence(timeout: 5),
+            "Expected clicking the current-meeting row to reopen the floating Live Caption panel."
         )
 
         let screenshot = XCUIScreen.main.screenshot()

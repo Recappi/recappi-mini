@@ -11,6 +11,7 @@ struct CloudCenterPanel: View {
     @State private var showingDeleteConfirmation = false
     @State private var pendingListScrollTargetID: String?
     @State private var pendingProcessingAction: CloudRecordingProcessingAction?
+    @State private var isLiveCaptionPanelPresented = true
 
     init(store: CloudLibraryStore = CloudLibraryStore(), recorder: AudioRecorder) {
         _store = StateObject(wrappedValue: store)
@@ -18,11 +19,24 @@ struct CloudCenterPanel: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().overlay(Color.white.opacity(0.08))
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ZStack(alignment: .bottomTrailing) {
+            VStack(spacing: 0) {
+                header
+                Divider().overlay(Color.white.opacity(0.08))
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if isCurrentMeetingActive && isLiveCaptionPanelPresented {
+                LiveCaptionFloatingPanel(
+                    recorder: recorder,
+                    onClose: { isLiveCaptionPanelPresented = false }
+                )
+                .padding(.trailing, 22)
+                .padding(.bottom, 22)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(10)
+            }
         }
         .frame(width: 1160, height: 760)
         // Break out of the vertical safe areas so the custom chrome and
@@ -37,6 +51,9 @@ struct CloudCenterPanel: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.window)
+        .onChange(of: isCurrentMeetingActive) { _, active in
+            isLiveCaptionPanelPresented = active
+        }
         .task {
             await store.loadInitialIfNeeded()
         }
@@ -121,6 +138,18 @@ struct CloudCenterPanel: View {
                     .frame(width: 520, height: 34)
             }
 
+            if isCurrentMeetingActive {
+                Button {
+                    isLiveCaptionPanelPresented.toggle()
+                } label: {
+                    Image(systemName: isLiveCaptionPanelPresented ? "captions.bubble.fill" : "captions.bubble")
+                }
+                .buttonStyle(PanelIconButtonStyle())
+                .help(isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
+                .accessibilityLabel(isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionToggleButton)
+            }
+
             authStatusChip
 
             Button {
@@ -194,29 +223,45 @@ struct CloudCenterPanel: View {
 
     @ViewBuilder
     private var content: some View {
-        if isCurrentMeetingActive {
-            currentMeetingLibraryView
-        } else {
-            switch store.state {
-            case .idle, .loading:
+        switch store.state {
+        case .idle, .loading:
+            if isCurrentMeetingActive {
+                libraryView
+            } else {
                 loadingView
-            case .signedOut:
+            }
+        case .signedOut:
+            if isCurrentMeetingActive {
+                libraryView
+            } else {
                 authRequiredView(
                     title: "Sign in to browse your cloud recordings",
                     detail: "Recappi Cloud keeps processed recordings, transcripts, and downloadable audio in one place."
                 )
-            case .expired:
+            }
+        case .expired:
+            if isCurrentMeetingActive {
+                libraryView
+            } else {
                 authRequiredView(
                     title: "Reconnect Recappi Cloud",
                     detail: "Your session expired. Reconnect once and the library will refresh automatically."
                 )
-            case .failed(let message):
-                errorView(message)
-            case .empty:
-                emptyView
-            case .loaded:
-                libraryView
             }
+        case .failed(let message):
+            if isCurrentMeetingActive {
+                libraryView
+            } else {
+                errorView(message)
+            }
+        case .empty:
+            if isCurrentMeetingActive {
+                libraryView
+            } else {
+                emptyView
+            }
+        case .loaded:
+            libraryView
         }
     }
 
@@ -227,19 +272,6 @@ struct CloudCenterPanel: View {
         default:
             false
         }
-    }
-
-    private var currentMeetingLibraryView: some View {
-        HStack(spacing: 0) {
-            recordingsList
-                .frame(width: 292)
-
-            Divider().overlay(Color.white.opacity(0.08))
-
-            CurrentMeetingDetailPane(recorder: recorder)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var libraryView: some View {
@@ -280,7 +312,13 @@ struct CloudCenterPanel: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         if isCurrentMeetingActive {
-                            CurrentMeetingSidebarRow(recorder: recorder)
+                            CurrentMeetingSidebarRow(
+                                recorder: recorder,
+                                isCaptionPanelVisible: isLiveCaptionPanelPresented,
+                                onToggleCaptions: {
+                                    isLiveCaptionPanelPresented.toggle()
+                                }
+                            )
                                 .id(AccessibilityIDs.Cloud.currentMeetingRow)
                         }
 
@@ -1056,13 +1094,15 @@ private struct CloudRecordingDateSectionHeader: View {
 
 private struct CurrentMeetingSidebarRow: View {
     @ObservedObject var recorder: AudioRecorder
+    let isCaptionPanelVisible: Bool
+    let onToggleCaptions: () -> Void
 
     var body: some View {
-        Button(action: {}) {
+        Button(action: onToggleCaptions) {
             HStack(alignment: .center, spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(DT.systemRed.opacity(0.16))
+                        .fill(DT.systemRed.opacity(isCaptionPanelVisible ? 0.18 : 0.12))
                     Circle()
                         .fill(DT.systemRed)
                         .frame(width: 8, height: 8)
@@ -1080,14 +1120,14 @@ private struct CurrentMeetingSidebarRow: View {
 
                         Spacer(minLength: 0)
 
-                        Text("Live")
+                        Text(isCaptionPanelVisible ? "Captions" : "Live")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(DT.systemRed)
+                            .foregroundStyle(isCaptionPanelVisible ? DT.waveformLit : DT.systemRed)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .background(
                                 Capsule(style: .continuous)
-                                    .fill(DT.systemRed.opacity(0.14))
+                                    .fill((isCaptionPanelVisible ? DT.waveformLit : DT.systemRed).opacity(0.14))
                             )
                     }
 
@@ -1109,16 +1149,17 @@ private struct CurrentMeetingSidebarRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(DT.recordingChip.opacity(0.84))
+                    .fill(isCaptionPanelVisible ? DT.recordingChip.opacity(0.92) : DT.recordingChip.opacity(0.72))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(DT.systemRed.opacity(0.32), lineWidth: 1)
+                    .strokeBorder((isCaptionPanelVisible ? DT.waveformLit : DT.systemRed).opacity(0.32), lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Current meeting, Live, \(sourceLine), \(timeText(recorder.elapsedSeconds))")
+        .help(isCaptionPanelVisible ? "Hide live captions" : "Show live captions")
+        .accessibilityLabel("Current meeting, \(isCaptionPanelVisible ? "captions visible" : "captions hidden"), \(sourceLine), \(timeText(recorder.elapsedSeconds))")
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingRow)
     }
 
@@ -1320,60 +1361,72 @@ private struct CloudNowPlayingMiniPane: View {
     }
 }
 
-private struct CurrentMeetingDetailPane: View {
+private struct LiveCaptionFloatingPanel: View {
     @ObservedObject var recorder: AudioRecorder
     @ObservedObject private var config = AppConfig.shared
+    let onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 14) {
             header
 
             liveCaptionWorkspace
-
-            Spacer()
         }
-        .padding(.horizontal, 34)
-        .padding(.vertical, 32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(16)
+        .frame(width: 438, alignment: .topLeading)
         .background(
-            LinearGradient(
-                colors: [
-                    Color.white.opacity(0.035),
-                    Color.clear
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.18),
+                            Color.black.opacity(0.34)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                }
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.14), lineWidth: 0.7)
+        )
+        .shadow(color: Color.black.opacity(0.36), radius: 28, x: 0, y: 18)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanel)
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .center, spacing: 10) {
             liveBadge
 
             VStack(alignment: .leading, spacing: 5) {
                 Text("Current meeting")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
                 Text(sourceLine)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.dtLabelSecondary)
                     .lineLimit(1)
             }
 
-            Spacer(minLength: 24)
+            Spacer(minLength: 14)
 
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(timeText(recorder.elapsedSeconds))
-                    .font(.system(size: 22, weight: .semibold, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.dtLabel)
-                Text(statusText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.dtLabelSecondary)
+            Text(timeText(recorder.elapsedSeconds))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(Color.dtLabelSecondary)
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
             }
+            .buttonStyle(PanelIconButtonStyle(size: 24))
+            .help("Hide live captions")
+            .accessibilityLabel("Hide live captions")
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionCloseButton)
         }
     }
 
@@ -1423,7 +1476,7 @@ private struct CurrentMeetingDetailPane: View {
             .padding(.bottom, 24)
         }
         .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(0.05))
                 .overlay {
                     LinearGradient(
@@ -1434,14 +1487,13 @@ private struct CurrentMeetingDetailPane: View {
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.white.opacity(0.08), lineWidth: 0.6)
         )
-        .shadow(color: Color.black.opacity(0.18), radius: 24, x: 0, y: 12)
     }
 
     private var liveCaptionLanguageMenu: some View {
@@ -1502,17 +1554,6 @@ private struct CurrentMeetingDetailPane: View {
             return message
         }
         return "Listening for meeting audio…"
-    }
-
-    private var statusText: String {
-        switch recorder.state {
-        case .starting:
-            return "Starting"
-        case .recording:
-            return "Recording"
-        default:
-            return "Ready"
-        }
     }
 
     private var sourceLine: String {
