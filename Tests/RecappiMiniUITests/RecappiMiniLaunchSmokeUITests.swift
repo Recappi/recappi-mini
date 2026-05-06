@@ -130,6 +130,11 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             waitForNonExistence(of: currentMeetingPanel, timeout: 5),
             "Expected the floating Live Caption panel to close without removing the current-meeting sidebar row."
         )
+        RunLoop.current.run(until: Date().addingTimeInterval(2.2))
+        XCTAssertFalse(
+            currentMeetingPanel.exists,
+            "A dismissed Live Caption panel should stay hidden for the current recording session."
+        )
         XCTAssertTrue(currentMeetingRow.exists, "Current meeting row should remain available after hiding captions.")
 
         currentMeetingRow.click()

@@ -12,6 +12,8 @@ struct CloudCenterPanel: View {
     @State private var pendingListScrollTargetID: String?
     @State private var pendingProcessingAction: CloudRecordingProcessingAction?
     @State private var isLiveCaptionPanelPresented = true
+    @AppStorage("recappi.cloud.dismissedLiveCaptionSessionID")
+    private var dismissedLiveCaptionSessionID = ""
 
     init(store: CloudLibraryStore = CloudLibraryStore(), recorder: AudioRecorder) {
         _store = StateObject(wrappedValue: store)
@@ -27,10 +29,10 @@ struct CloudCenterPanel: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            if isCurrentMeetingActive && isLiveCaptionPanelPresented {
+            if shouldShowLiveCaptionPanel {
                 LiveCaptionFloatingPanel(
                     recorder: recorder,
-                    onClose: { isLiveCaptionPanelPresented = false }
+                    onClose: { setLiveCaptionPanelPresented(false) }
                 )
                 .padding(.trailing, 22)
                 .padding(.bottom, 22)
@@ -51,8 +53,23 @@ struct CloudCenterPanel: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.window)
+        .onAppear {
+            reconcileLiveCaptionPresentation(
+                isActive: isCurrentMeetingActive,
+                sessionID: currentMeetingSessionID
+            )
+        }
         .onChange(of: isCurrentMeetingActive) { _, active in
-            isLiveCaptionPanelPresented = active
+            reconcileLiveCaptionPresentation(
+                isActive: active,
+                sessionID: currentMeetingSessionID
+            )
+        }
+        .onChange(of: currentMeetingSessionID) { _, sessionID in
+            reconcileLiveCaptionPresentation(
+                isActive: isCurrentMeetingActive,
+                sessionID: sessionID
+            )
         }
         .task {
             await store.loadInitialIfNeeded()
@@ -140,13 +157,13 @@ struct CloudCenterPanel: View {
 
             if isCurrentMeetingActive {
                 Button {
-                    isLiveCaptionPanelPresented.toggle()
+                    setLiveCaptionPanelPresented(!shouldShowLiveCaptionPanel)
                 } label: {
-                    Image(systemName: isLiveCaptionPanelPresented ? "captions.bubble.fill" : "captions.bubble")
+                    Image(systemName: shouldShowLiveCaptionPanel ? "captions.bubble.fill" : "captions.bubble")
                 }
                 .buttonStyle(PanelIconButtonStyle())
-                .help(isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
-                .accessibilityLabel(isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
+                .help(shouldShowLiveCaptionPanel ? "Hide live captions" : "Show live captions")
+                .accessibilityLabel(shouldShowLiveCaptionPanel ? "Hide live captions" : "Show live captions")
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionToggleButton)
             }
 
@@ -274,6 +291,37 @@ struct CloudCenterPanel: View {
         }
     }
 
+    private var currentMeetingSessionID: String? {
+        guard isCurrentMeetingActive else { return nil }
+        return recorder.currentSessionDir?.path ?? "pending-current-meeting"
+    }
+
+    private var shouldShowLiveCaptionPanel: Bool {
+        guard isCurrentMeetingActive else { return false }
+        guard let currentMeetingSessionID else { return false }
+        return isLiveCaptionPanelPresented && dismissedLiveCaptionSessionID != currentMeetingSessionID
+    }
+
+    private func setLiveCaptionPanelPresented(_ presented: Bool) {
+        isLiveCaptionPanelPresented = presented
+        guard let currentMeetingSessionID else { return }
+        if presented {
+            if dismissedLiveCaptionSessionID == currentMeetingSessionID {
+                dismissedLiveCaptionSessionID = ""
+            }
+        } else {
+            dismissedLiveCaptionSessionID = currentMeetingSessionID
+        }
+    }
+
+    private func reconcileLiveCaptionPresentation(isActive: Bool, sessionID: String?) {
+        guard isActive, let sessionID else {
+            isLiveCaptionPanelPresented = false
+            return
+        }
+        isLiveCaptionPanelPresented = dismissedLiveCaptionSessionID != sessionID
+    }
+
     private var libraryView: some View {
         HStack(spacing: 0) {
             recordingsList
@@ -314,9 +362,9 @@ struct CloudCenterPanel: View {
                         if isCurrentMeetingActive {
                             CurrentMeetingSidebarRow(
                                 recorder: recorder,
-                                isCaptionPanelVisible: isLiveCaptionPanelPresented,
+                                isCaptionPanelVisible: shouldShowLiveCaptionPanel,
                                 onToggleCaptions: {
-                                    isLiveCaptionPanelPresented.toggle()
+                                    setLiveCaptionPanelPresented(!shouldShowLiveCaptionPanel)
                                 }
                             )
                                 .id(AccessibilityIDs.Cloud.currentMeetingRow)
