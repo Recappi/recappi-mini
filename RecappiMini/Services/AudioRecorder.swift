@@ -208,6 +208,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published private(set) var liveCaptionText: String?
     @Published private(set) var liveCaptionMessage: String?
     @Published private(set) var liveCaptionIsFinal: Bool = false
+    @Published private(set) var activeRecordingID: UUID?
     /// Session directory of the most-recent (or in-progress) recording.
     /// Populated on stop and kept through processing + error states so the
     /// UI can offer Retry / Show without stashing state at the view layer.
@@ -610,6 +611,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     func startRecording() async throws {
         guard state == .idle else { return }
+        activeRecordingID = UUID()
         let metadata = recordingSessionMetadata()
         let autoStopContext = detectedMeetingContextForNextRecording()
         pendingDetectedMeetingRecordingContext = nil
@@ -744,6 +746,7 @@ final class AudioRecorder: NSObject, ObservableObject {
                 }
             }
         } catch {
+            activeRecordingID = nil
             detectedMeetingRecordingContext = nil
             stopMonitoringOutputDeviceChanges()
             self.micSession?.stopRunning()
@@ -892,6 +895,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         liveCaptionText = nil
         liveCaptionMessage = nil
         liveCaptionIsFinal = false
+        activeRecordingID = nil
         sessionDir = nil
         lastSessionDir = nil
         recordingSuggestion = nil

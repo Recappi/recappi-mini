@@ -293,7 +293,7 @@ struct CloudCenterPanel: View {
 
     private var currentMeetingSessionID: String? {
         guard isCurrentMeetingActive else { return nil }
-        return recorder.currentSessionDir?.path ?? "pending-current-meeting"
+        return recorder.activeRecordingID?.uuidString ?? recorder.currentSessionDir?.path
     }
 
     private var shouldShowLiveCaptionPanel: Bool {
