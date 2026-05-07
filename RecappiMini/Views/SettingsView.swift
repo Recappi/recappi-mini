@@ -47,11 +47,11 @@ struct SettingsView: View {
             refreshPermissionStatus()
             await refreshBillingStatusIfNeeded()
         }
-        .onChange(of: sessionStore.currentSession?.userId) { _, _ in
-            Task { await refreshBillingStatusIfNeeded() }
+        .task(id: sessionStore.currentSession?.userId) {
+            await refreshBillingStatusIfNeeded()
         }
-        .onChange(of: config.cloudEnabled) { _, _ in
-            Task { await refreshBillingStatusIfNeeded() }
+        .task(id: config.cloudEnabled) {
+            await refreshBillingStatusIfNeeded()
         }
         .onDisappear {
             if ownsForegroundWindowDemand {
