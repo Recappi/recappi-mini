@@ -48,8 +48,7 @@ struct MenuBarContents: View {
         }
 
         Button("Settings…") {
-            NSApp.setActivationPolicy(.regular)
-            NSApp.activate(ignoringOtherApps: true)
+            appDelegate.prepareForSettingsScenePresentation()
             openSettings()
         }
         .keyboardShortcut(",", modifiers: [.command])
@@ -353,6 +352,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var workspaceObservers: [NSObjectProtocol] = []
     private var screenParametersObserver: NSObjectProtocol?
     private var panelTransitionToken: Int = 0
+    private var foregroundWindowDemandCount = 0
+    private var settingsSceneForegroundDemandActive = false
     private var isSyncingPanelVisibility = false
     private var uiTestCommandPollTimer: Timer?
     private var didFinishLaunching = false
@@ -403,7 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             self?.prepareForForegroundUpdateCheck()
         }
         appUpdater.finishUserInitiatedCheck = { [weak self] in
-            self?.restoreAccessoryActivationPolicyIfPossible()
+            self?.releaseForegroundWindowDemand()
         }
         Task { @MainActor in
             await AuthSessionStore.shared.bootstrapForUITestsIfNeeded()
@@ -732,15 +733,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func showAboutPanel() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.unhide(nil)
-        NSRunningApplication.current.activate(options: [.activateAllWindows])
-        NSApp.activate(ignoringOtherApps: true)
-
         if let aboutWindow {
+            activateForegroundWindowPresentation()
             aboutWindow.makeKeyAndOrderFront(nil)
             return
         }
+
+        prepareForForegroundWindowPresentation()
 
         let hostingView = NSHostingView(rootView: AboutRecappiMiniView())
         hostingView.autoresizingMask = [.width, .height]
@@ -837,17 +836,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func showSettingsWindow() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.unhide(nil)
-        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
-        NSApp.activate(ignoringOtherApps: true)
-
         if let settingsWindow {
+            activateForegroundWindowPresentation()
             settingsWindow.makeKeyAndOrderFront(nil)
             return
         }
 
-        let hostingView = NSHostingView(rootView: SettingsView())
+        prepareForForegroundWindowPresentation()
+
+        let hostingView = NSHostingView(rootView: SettingsView(ownsForegroundWindowDemand: false))
         hostingView.autoresizingMask = [.width, .height]
 
         let window = NSWindow(
@@ -868,15 +865,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func showCloudCenter() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.unhide(nil)
-        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
-        NSApp.activate(ignoringOtherApps: true)
-
         if let cloudWindow {
+            activateForegroundWindowPresentation()
             cloudWindow.makeKeyAndOrderFront(nil)
             return
         }
+
+        prepareForForegroundWindowPresentation()
 
         let hostingView = CloudEdgeToEdgeHostingView(rootView: CloudCenterPanel(store: cloudStore, recorder: recorder))
         hostingView.autoresizingMask = [.width, .height]
@@ -1092,8 +1087,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         // Promote the app to a regular activation policy while the window is
         // visible so it can become key (the floating panel uses
         // `.accessory`, which would prevent that). We restore on close.
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        prepareForForegroundWindowPresentation()
 
         let view = OnboardingView(sessionStore: AuthSessionStore.shared) { [weak self] in
             self?.completeOnboardingAndDismiss()
@@ -1130,14 +1124,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             window.close()
             onboardingWindow = nil
         }
-        restoreAccessoryActivationPolicyIfPossible()
+        releaseForegroundWindowDemand()
     }
 
-    private func prepareForForegroundUpdateCheck() {
+    func prepareForForegroundWindowPresentation() {
+        foregroundWindowDemandCount += 1
+        activateForegroundWindowPresentation()
+    }
+
+    func prepareForSettingsScenePresentation() {
+        if !settingsSceneForegroundDemandActive {
+            foregroundWindowDemandCount += 1
+            settingsSceneForegroundDemandActive = true
+        }
+        activateForegroundWindowPresentation()
+    }
+
+    func releaseSettingsSceneForegroundDemand() {
+        guard settingsSceneForegroundDemandActive else {
+            restoreAccessoryActivationPolicyIfPossible()
+            return
+        }
+        settingsSceneForegroundDemandActive = false
+        releaseForegroundWindowDemand()
+    }
+
+    private func activateForegroundWindowPresentation() {
         NSApp.setActivationPolicy(.regular)
         NSApp.unhide(nil)
         NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func prepareForForegroundUpdateCheck() {
+        prepareForForegroundWindowPresentation()
     }
 
     private func installWorkspaceObservers() {
@@ -1528,7 +1548,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         panel.orderFrontRegardless()
     }
 
+    func releaseForegroundWindowDemand() {
+        foregroundWindowDemandCount = max(0, foregroundWindowDemandCount - 1)
+        restoreAccessoryActivationPolicyIfPossible()
+    }
+
     private func restoreAccessoryActivationPolicyIfPossible() {
+        guard foregroundWindowDemandCount == 0 else { return }
         let hasVisibleSettingsWindow = settingsWindow?.isVisible == true || NSApp.windows.contains { window in
             window.isVisible && window.title.localizedCaseInsensitiveContains("settings")
         }
@@ -1670,10 +1696,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         guard let closingWindow = notification.object as? NSWindow else { return }
         if closingWindow === settingsWindow {
             settingsWindow = nil
-            restoreAccessoryActivationPolicyIfPossible()
+            releaseForegroundWindowDemand()
         } else if closingWindow === cloudWindow {
             cloudWindow = nil
-            restoreAccessoryActivationPolicyIfPossible()
+            releaseForegroundWindowDemand()
         } else if closingWindow === liveCaptionWindow {
             liveCaptionWindow = nil
             isLiveCaptionPanelPresented = false
@@ -1686,10 +1712,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             OnboardingState.lastStep = .done
             OnboardingState.didComplete = true
             onboardingWindow = nil
-            restoreAccessoryActivationPolicyIfPossible()
+            releaseForegroundWindowDemand()
         } else if closingWindow === aboutWindow {
             aboutWindow = nil
-            restoreAccessoryActivationPolicyIfPossible()
+            releaseForegroundWindowDemand()
         }
     }
 

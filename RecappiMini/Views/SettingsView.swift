@@ -10,6 +10,11 @@ struct SettingsView: View {
     @State private var billingStatus: BillingStatus?
     @State private var billingErrorMessage: String?
     @State private var isLoadingBilling = false
+    let ownsForegroundWindowDemand: Bool
+
+    init(ownsForegroundWindowDemand: Bool = true) {
+        self.ownsForegroundWindowDemand = ownsForegroundWindowDemand
+    }
 
     private static let updateCheckDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -49,7 +54,9 @@ struct SettingsView: View {
             Task { await refreshBillingStatusIfNeeded() }
         }
         .onDisappear {
-            NSApp.setActivationPolicy(.accessory)
+            if ownsForegroundWindowDemand {
+                AppDelegate.shared.releaseSettingsSceneForegroundDemand()
+            }
         }
     }
 

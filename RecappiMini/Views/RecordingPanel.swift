@@ -137,11 +137,10 @@ struct RecordingPanel: View {
 
     // MARK: - Actions
 
-    /// Flip activation policy so the Settings window comes to the foreground,
-    /// then bounce back in SettingsView.onDisappear.
+    /// Flip activation policy so the Settings window comes to the foreground.
+    /// AppDelegate releases that demand when the Settings window closes.
     private func presentSettings() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        AppDelegate.shared.prepareForSettingsScenePresentation()
         openSettings()
     }
 
