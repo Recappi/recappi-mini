@@ -458,9 +458,9 @@ struct CloudCenterPanel: View {
         }
         .frame(height: store.isLoadingMore ? 24 : 8)
         .padding(.top, 4)
-        .onAppear {
+        .task {
             guard store.hasMorePages, !store.isLoadingMore else { return }
-            Task { await store.loadMore() }
+            await store.loadMore()
         }
         .accessibilityIdentifier(AccessibilityIDs.Cloud.loadMoreButton)
     }
