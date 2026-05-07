@@ -20,6 +20,7 @@ struct RecappiMiniApp: App {
         // scroll view.
         Settings {
             SettingsView()
+                .environmentObject(AppConfig.shared)
                 .environmentObject(AuthSessionStore.shared)
                 .environmentObject(AppUpdater.shared)
         }
@@ -621,6 +622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         let hostingView = NSHostingView(
             rootView: SettingsView(ownsForegroundWindowDemand: false)
+                .environmentObject(AppConfig.shared)
                 .environmentObject(AuthSessionStore.shared)
                 .environmentObject(AppUpdater.shared)
         )
@@ -840,6 +842,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                 }
             )
             .padding(24)
+            .environmentObject(AppConfig.shared)
         )
     }
 

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
-    @ObservedObject private var config = AppConfig.shared
+    @EnvironmentObject private var config: AppConfig
     @EnvironmentObject private var sessionStore: AuthSessionStore
     @EnvironmentObject private var appUpdater: AppUpdater
     @State private var capturePermissions = CapturePermissionSnapshot.placeholder
@@ -818,16 +818,16 @@ struct SettingsView: View {
 
     private var languageBinding: Binding<String> {
         Binding(
-            get: { AppConfig.shared.cloudLanguage },
-            set: { AppConfig.shared.cloudLanguage = $0 }
+            get: { config.cloudLanguage },
+            set: { config.cloudLanguage = $0 }
         )
     }
 
     private var liveCaptionsDisplayBinding: Binding<Bool> {
         Binding(
-            get: { AppConfig.shared.liveCaptionsDisplayEnabled },
+            get: { config.liveCaptionsDisplayEnabled },
             set: {
-                AppConfig.shared.liveCaptionsDisplayEnabled = $0
+                config.liveCaptionsDisplayEnabled = $0
                 AppDelegate.shared.applyLiveCaptionDisplayPreference()
             }
         )
@@ -835,15 +835,15 @@ struct SettingsView: View {
 
     private var cloudEnabledBinding: Binding<Bool> {
         Binding(
-            get: { AppConfig.shared.cloudEnabled },
-            set: { AppConfig.shared.cloudEnabled = $0 }
+            get: { config.cloudEnabled },
+            set: { config.cloudEnabled = $0 }
         )
     }
 
     private var autoPromptBinding: Binding<Bool> {
         Binding(
-            get: { AppConfig.shared.autoPromptForActiveAudioApps },
-            set: { AppConfig.shared.autoPromptForActiveAudioApps = $0 }
+            get: { config.autoPromptForActiveAudioApps },
+            set: { config.autoPromptForActiveAudioApps = $0 }
         )
     }
 }

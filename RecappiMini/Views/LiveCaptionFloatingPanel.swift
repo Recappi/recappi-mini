@@ -34,7 +34,7 @@ enum LiveCaptionPanelMode: String {
 
 struct LiveCaptionFloatingPanel: View {
     @ObservedObject var recorder: AudioRecorder
-    @ObservedObject private var config = AppConfig.shared
+    @EnvironmentObject private var config: AppConfig
     let mode: LiveCaptionPanelMode
     let onToggleMode: () -> Void
     let onClose: () -> Void
