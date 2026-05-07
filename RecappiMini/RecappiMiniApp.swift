@@ -750,26 +750,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         prepareForForegroundWindowPresentation()
 
         let hostingView = NSHostingView(rootView: AboutRecappiMiniView())
-        hostingView.autoresizingMask = [.width, .height]
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 292),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
+        let window = WindowFactory.createWindow(
+            contentView: hostingView,
+            spec: WindowFactory.WindowSpec(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 292),
+                styleMask: [.titled, .closable, .fullSizeContentView],
+                title: "About Recappi Mini",
+                titleVisibility: .hidden,
+                hiddenStandardButtons: [.miniaturizeButton, .zoomButton],
+                isMovableByWindowBackground: true,
+                contentMinSize: NSSize(width: 460, height: 292),
+                contentMaxSize: NSSize(width: 460, height: 292)
+            ),
+            delegate: self
         )
-        window.title = "About Recappi Mini"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
-        window.isReleasedWhenClosed = false
-        window.isMovableByWindowBackground = true
-        window.contentMinSize = NSSize(width: 460, height: 292)
-        window.contentMaxSize = NSSize(width: 460, height: 292)
-        window.contentView = hostingView
-        window.delegate = self
-        window.center()
         window.makeKeyAndOrderFront(nil)
         aboutWindow = window
     }
@@ -853,21 +847,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         prepareForForegroundWindowPresentation()
 
         let hostingView = NSHostingView(rootView: SettingsView(ownsForegroundWindowDemand: false))
-        hostingView.autoresizingMask = [.width, .height]
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
+        let window = WindowFactory.createWindow(
+            contentView: hostingView,
+            spec: WindowFactory.WindowSpec(
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                title: "Recappi Mini Settings",
+                contentMinSize: NSSize(width: 520, height: 620)
+            ),
+            delegate: self
         )
-        window.title = "Recappi Mini Settings"
-        window.titlebarAppearsTransparent = true
-        window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 520, height: 620)
-        window.contentView = hostingView
-        window.delegate = self
-        window.center()
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
     }
@@ -882,37 +871,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         prepareForForegroundWindowPresentation()
 
         let hostingView = CloudEdgeToEdgeHostingView(rootView: CloudCenterPanel(store: cloudStore, recorder: recorder))
-        hostingView.autoresizingMask = [.width, .height]
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 920, height: 760),
-            // `.fullSizeContentView` lets the SwiftUI panel draw under
-            // the macOS title bar so the Cloud window reads like an
-            // app surface rather than a Finder document — the SwiftUI
-            // header already shows "Recappi Cloud", a status chip, and
-            // a refresh button, which would be redundant alongside the
-            // native title text.
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
+        // `.fullSizeContentView` lets the SwiftUI panel draw under
+        // the macOS title bar so the Cloud window reads like an
+        // app surface rather than a Finder document — the SwiftUI
+        // header already shows "Recappi Cloud", a status chip, and
+        // a refresh button, which would be redundant alongside the
+        // native title text.
+        let window = WindowFactory.createWindow(
+            contentView: hostingView,
+            spec: WindowFactory.WindowSpec(
+                contentRect: NSRect(x: 0, y: 0, width: 920, height: 760),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                title: "Recappi Cloud",
+                titleVisibility: .hidden,
+                hiddenStandardButtons: [.closeButton, .miniaturizeButton, .zoomButton],
+                contentMinSize: NSSize(width: 840, height: 680)
+            ),
+            delegate: self
         )
-        window.title = "Recappi Cloud"
         // Keep the underlying `.titled` mask (so the window registers
         // as a real titled window and `performClose` from the SwiftUI
         // header still does the right thing), but make the bar
         // transparent, hide the title text, and pull the traffic-light
         // controls out of the chrome so the SwiftUI header can render
         // its logo flush to the leading edge.
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
-        window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 840, height: 680)
-        window.contentView = hostingView
-        window.delegate = self
-        window.center()
         window.makeKeyAndOrderFront(nil)
         cloudWindow = window
     }
@@ -996,27 +978,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         }
 
         let hostingView = NSHostingView(rootView: liveCaptionRootView())
-        hostingView.autoresizingMask = [.width, .height]
         hostingView.sizingOptions = [.intrinsicContentSize]
 
-        let window = NSPanel(
-            contentRect: NSRect(origin: .zero, size: liveCaptionPanelMode.defaultWindowSize),
-            styleMask: [.nonactivatingPanel, .borderless],
-            backing: .buffered,
-            defer: false
+        let window = WindowFactory.createPanel(
+            contentView: hostingView,
+            spec: WindowFactory.PanelSpec(
+                contentRect: NSRect(origin: .zero, size: liveCaptionPanelMode.defaultWindowSize),
+                styleMask: [.nonactivatingPanel, .borderless],
+                title: "Recappi Live Captions"
+            ),
+            delegate: self
         )
-        window.title = "Recappi Live Captions"
-        window.isFloatingPanel = true
-        window.level = .floating
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.hasShadow = false
-        window.hidesOnDeactivate = false
-        window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        window.contentView = hostingView
-        window.delegate = self
 
         hostingView.layoutSubtreeIfNeeded()
         let fittingSize = hostingView.fittingSize
@@ -1119,22 +1091,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             self?.completeOnboardingAndDismiss()
         }
         let hostingView = NSHostingView(rootView: view)
-        hostingView.autoresizingMask = [.width, .height]
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 440),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
+        let window = WindowFactory.createWindow(
+            contentView: hostingView,
+            spec: WindowFactory.WindowSpec(
+                contentRect: NSRect(x: 0, y: 0, width: 540, height: 440),
+                styleMask: [.titled, .closable, .fullSizeContentView],
+                title: "Welcome to Recappi",
+                titleVisibility: .hidden,
+                isMovableByWindowBackground: true
+            ),
+            delegate: self
         )
-        window.title = "Welcome to Recappi"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.isReleasedWhenClosed = false
-        window.isMovableByWindowBackground = true
-        window.contentView = hostingView
-        window.delegate = self
-        window.center()
         window.makeKeyAndOrderFront(nil)
         onboardingWindow = window
     }
