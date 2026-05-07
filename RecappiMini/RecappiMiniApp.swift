@@ -44,24 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let promptTitle: String?
     }
 
-    private enum ManagedWindowCloseRoute {
-        case settings
-        case cloud
-        case liveCaptions
-        case onboarding
-        case about
-    }
-
     private var statusItem: NSStatusItem?
     private var recordingDotView: NSView?
     private var showHidePanelMenuItem: NSMenuItem?
     private var checkForUpdatesMenuItem: NSMenuItem?
     private var panel: FloatingPanel?
-    private var settingsWindow: NSWindow?
-    private var cloudWindow: NSWindow?
-    private var liveCaptionWindow: NSPanel?
-    private var onboardingWindow: NSWindow?
-    private var aboutWindow: NSWindow?
+    private let managedWindows = ManagedWindowRegistry()
     private let cloudStore = CloudLibraryStore()
     private let recorder = AudioRecorder()
     private let appUpdater = AppUpdater.shared
@@ -461,7 +449,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func showAboutPanel() {
-        if let aboutWindow {
+        if let aboutWindow = managedWindows.aboutWindow {
             activateForegroundWindowPresentation()
             aboutWindow.makeKeyAndOrderFront(nil)
             return
@@ -488,7 +476,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             delegate: self
         )
         window.makeKeyAndOrderFront(nil)
-        aboutWindow = window
+        managedWindows.aboutWindow = window
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -561,7 +549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func showSettingsWindow() {
-        if let settingsWindow {
+        if let settingsWindow = managedWindows.settingsWindow {
             activateForegroundWindowPresentation()
             settingsWindow.makeKeyAndOrderFront(nil)
             return
@@ -586,11 +574,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             delegate: self
         )
         window.makeKeyAndOrderFront(nil)
-        settingsWindow = window
+        managedWindows.settingsWindow = window
     }
 
     func showCloudCenter() {
-        if let cloudWindow {
+        if let cloudWindow = managedWindows.cloudWindow {
             activateForegroundWindowPresentation()
             cloudWindow.makeKeyAndOrderFront(nil)
             return
@@ -628,7 +616,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         // controls out of the chrome so the SwiftUI header can render
         // its logo flush to the leading edge.
         window.makeKeyAndOrderFront(nil)
-        cloudWindow = window
+        managedWindows.cloudWindow = window
     }
 
     func setLiveCaptionPanelPresented(_ presented: Bool) {
@@ -702,7 +690,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func presentLiveCaptionWindow() {
-        if let liveCaptionWindow {
+        if let liveCaptionWindow = managedWindows.liveCaptionWindow {
             positionLiveCaptionWindow(liveCaptionWindow)
             liveCaptionWindow.orderFrontRegardless()
             isLiveCaptionPanelPresented = true
@@ -731,7 +719,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         positionLiveCaptionWindow(window)
         window.orderFrontRegardless()
 
-        liveCaptionWindow = window
+        managedWindows.liveCaptionWindow = window
         isLiveCaptionPanelPresented = true
     }
 
@@ -739,7 +727,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         // Hide keeps the warm panel instance around. The panel hosts live ASR
         // text and mode state, so transient app-state changes should not close
         // and recreate it unless we are truly tearing the app/window down.
-        liveCaptionWindow?.orderOut(nil)
+        managedWindows.liveCaptionWindow?.orderOut(nil)
         isLiveCaptionPanelPresented = false
     }
 
@@ -749,21 +737,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func closeLiveCaptionWindow() {
-        guard let window = liveCaptionWindow else {
+        guard let window = managedWindows.liveCaptionWindow else {
             isLiveCaptionPanelPresented = false
             return
         }
-        liveCaptionWindow = nil
+        managedWindows.clear(.liveCaptions)
         isLiveCaptionPanelPresented = false
         window.delegate = nil
         window.close()
     }
 
     private func resizeLiveCaptionWindowToContent() {
-        guard let liveCaptionWindow,
+        guard let liveCaptionWindow = managedWindows.liveCaptionWindow,
               let hostingView = liveCaptionWindow.contentView as? NSHostingView<AnyView> else {
-            liveCaptionWindow?.setContentSize(liveCaptionPanelMode.defaultWindowSize)
-            if let liveCaptionWindow {
+            managedWindows.liveCaptionWindow?.setContentSize(liveCaptionPanelMode.defaultWindowSize)
+            if let liveCaptionWindow = managedWindows.liveCaptionWindow {
                 positionLiveCaptionWindow(liveCaptionWindow)
             }
             return
@@ -810,7 +798,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     /// user can move it, see the menu bar status item appearing in the
     /// background, and get a clear "complete this once" affordance.
     func showOnboardingWindow() {
-        if let existing = onboardingWindow {
+        if let existing = managedWindows.onboardingWindow {
             existing.makeKeyAndOrderFront(nil)
             return
         }
@@ -836,7 +824,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             delegate: self
         )
         window.makeKeyAndOrderFront(nil)
-        onboardingWindow = window
+        managedWindows.onboardingWindow = window
     }
 
     /// Called when the onboarding view's `onFinish` fires (Done / Get
@@ -845,10 +833,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     /// is open.
     private func completeOnboardingAndDismiss() {
         OnboardingState.didComplete = true
-        if let window = onboardingWindow {
+        if let window = managedWindows.onboardingWindow {
             window.delegate = nil
             window.close()
-            onboardingWindow = nil
+            managedWindows.clear(.onboarding)
         }
         releaseForegroundWindowDemand()
     }
@@ -925,7 +913,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             FloatingPanelController.snapToHidden(panel)
             panelVisible = false
         }
-        if let liveCaptionWindow, liveCaptionWindow.isVisible {
+        if let liveCaptionWindow = managedWindows.liveCaptionWindow, liveCaptionWindow.isVisible {
             positionLiveCaptionWindow(liveCaptionWindow)
         }
     }
@@ -1281,22 +1269,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private func restoreAccessoryActivationPolicyIfPossible() {
         guard foregroundWindowDemandCount == 0 else { return }
-        let hasVisibleSettingsWindow = settingsWindow?.isVisible == true || NSApp.windows.contains { window in
-            window.isVisible && window.title.localizedCaseInsensitiveContains("settings")
-        }
-        let hasVisibleCloudWindow = cloudWindow?.isVisible == true
         // The onboarding window also needs `.regular` activation policy to
         // become key. If a Sparkle update or some other path tries to drop
         // the policy back to `.accessory` while onboarding is still on
         // screen, the user would lose focus and see a half-presented
         // window. Treat onboarding visibility as a hard guard against the
         // policy switch.
-        let hasVisibleOnboardingWindow = onboardingWindow?.isVisible == true
-        let hasVisibleAboutWindow = aboutWindow?.isVisible == true
-        guard !hasVisibleSettingsWindow,
-              !hasVisibleCloudWindow,
-              !hasVisibleOnboardingWindow,
-              !hasVisibleAboutWindow else { return }
+        guard !managedWindows.hasVisibleForegroundWindow else { return }
         NSApp.setActivationPolicy(.accessory)
     }
 
@@ -1424,35 +1403,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         handleManagedWindowClose(route)
     }
 
-    private func managedWindowCloseRoute(for window: NSWindow) -> ManagedWindowCloseRoute? {
-        if window === settingsWindow {
-            return .settings
-        }
-        if window === cloudWindow {
-            return .cloud
-        }
-        if window === liveCaptionWindow {
-            return .liveCaptions
-        }
-        if window === onboardingWindow {
-            return .onboarding
-        }
-        if window === aboutWindow {
-            return .about
-        }
-        return nil
+    private func managedWindowCloseRoute(for window: NSWindow) -> ManagedWindowRegistry.Route? {
+        managedWindows.route(for: window)
     }
 
-    private func handleManagedWindowClose(_ route: ManagedWindowCloseRoute) {
+    private func handleManagedWindowClose(_ route: ManagedWindowRegistry.Route) {
+        managedWindows.clear(route)
         switch route {
         case .settings:
-            settingsWindow = nil
             releaseForegroundWindowDemand()
         case .cloud:
-            cloudWindow = nil
             releaseForegroundWindowDemand()
         case .liveCaptions:
-            liveCaptionWindow = nil
             isLiveCaptionPanelPresented = false
             restoreAccessoryActivationPolicyIfPossible()
         case .onboarding:
@@ -1462,10 +1424,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             // and prevents it from popping back on the next launch.
             OnboardingState.lastStep = .done
             OnboardingState.didComplete = true
-            onboardingWindow = nil
             releaseForegroundWindowDemand()
         case .about:
-            aboutWindow = nil
             releaseForegroundWindowDemand()
         }
     }
