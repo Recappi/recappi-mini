@@ -5,11 +5,10 @@ import SwiftUI
 
 @main
 struct RecappiMiniApp: App {
-    @ObservedObject private var appDelegate = AppDelegate.shared
-
     init() {
+        let appDelegate = AppDelegate.shared
         DispatchQueue.main.async {
-            AppDelegate.shared.finishLaunchingIfNeeded()
+            appDelegate.finishLaunchingIfNeeded()
         }
     }
 
@@ -652,6 +651,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let hostingView = CloudEdgeToEdgeHostingView(
             rootView: CloudCenterPanel(store: cloudStore, recorder: recorder)
                 .environmentObject(AuthSessionStore.shared)
+                .environmentObject(AppDelegate.shared)
         )
         // `.fullSizeContentView` lets the SwiftUI panel draw under
         // the macOS title bar so the Cloud window reads like an
