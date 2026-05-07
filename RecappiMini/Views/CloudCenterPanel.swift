@@ -794,57 +794,6 @@ struct CloudCenterPanel: View {
     }
 }
 
-private struct FlowLayout: Layout {
-    var horizontalSpacing: CGFloat = 8
-    var verticalSpacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? subviews.reduce(CGFloat.zero) { width, subview in
-            width + subview.sizeThatFits(.unspecified).width
-        }
-        let layout = computeLayout(in: max(maxWidth, 1), subviews: subviews)
-        return CGSize(width: maxWidth, height: layout.height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let layout = computeLayout(in: max(bounds.width, 1), subviews: subviews)
-        for item in layout.items {
-            subviews[item.index].place(
-                at: CGPoint(x: bounds.minX + item.origin.x, y: bounds.minY + item.origin.y),
-                proposal: ProposedViewSize(item.size)
-            )
-        }
-    }
-
-    private func computeLayout(in maxWidth: CGFloat, subviews: Subviews) -> (items: [LayoutItem], height: CGFloat) {
-        var items: [LayoutItem] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
-            if x > 0, x + size.width > maxWidth {
-                x = 0
-                y += rowHeight + verticalSpacing
-                rowHeight = 0
-            }
-
-            items.append(LayoutItem(index: index, origin: CGPoint(x: x, y: y), size: size))
-            x += size.width + horizontalSpacing
-            rowHeight = max(rowHeight, size.height)
-        }
-
-        return (items, subviews.isEmpty ? 0 : y + rowHeight)
-    }
-
-    private struct LayoutItem {
-        let index: Int
-        let origin: CGPoint
-        let size: CGSize
-    }
-}
-
 private struct CloudSidebarBillingSummary: View {
     let status: BillingStatus?
     let errorMessage: String?
@@ -1011,41 +960,6 @@ private struct CloudLimitMeter: View {
             .frame(height: 5)
         }
         .frame(width: 124)
-    }
-}
-
-private struct HeaderGlassButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Color.dtLabel)
-            .labelStyle(.titleAndIcon)
-            .frame(maxWidth: .infinity)
-            .frame(height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.white.opacity(configuration.isPressed ? 0.105 : 0.07))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(Color.white.opacity(configuration.isPressed ? 0.22 : 0.12), lineWidth: 0.75)
-            )
-            .opacity(configuration.isPressed ? 0.86 : 1)
-    }
-}
-
-/// Empty `NSView` whose only purpose is to opt into AppKit's
-/// "click-and-drag the background to move the window" behaviour. We
-/// drop one of these behind the Cloud header so the user can grab any
-/// non-interactive pixel of our SwiftUI chrome and reposition the
-/// window — replacing the affordance the native title bar used to
-/// provide before we hid the traffic lights.
-private struct WindowDragHandle: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { DraggableView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    private final class DraggableView: NSView {
-        override var mouseDownCanMoveWindow: Bool { true }
     }
 }
 
@@ -1345,11 +1259,6 @@ private struct CloudNowPlayingMiniPane: View {
     }
 }
 
-private enum CloudDetailSection: Hashable {
-    case summary
-    case transcript
-}
-
 private extension CloudRecordingProcessingAction {
     var title: String {
         "Re-Transcribe"
@@ -1385,14 +1294,6 @@ private extension CloudRecordingProcessingAction {
 
     var confirmAccessibilityIdentifier: String {
         AccessibilityIDs.Cloud.confirmRetranscribeButton
-    }
-}
-
-private struct CloudDetailSectionOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: [CloudDetailSection: CGFloat] { [:] }
-
-    static func reduce(value: inout [CloudDetailSection: CGFloat], nextValue: () -> [CloudDetailSection: CGFloat]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 
@@ -3811,116 +3712,6 @@ private struct CloudInspectorButtonStyle: ButtonStyle {
     }
 }
 
-private struct CloudStatusChip: View {
-    /// Horizontal inset between the capsule outline and the status text
-    /// glyph. Exposed as a single source of truth so any view that wants
-    /// its own trailing column to *visually* line up with the status
-    /// chip's TEXT (not its capsule outline) — e.g. the duration label
-    /// in `CloudRecordingRow`'s metadata row — can apply the same
-    /// trailing offset and avoid the 6pt visual misalignment between
-    /// "Ready" and "26:01" that peng-xiao called out (`f4892708`).
-    static let nonProminentHorizontalInset: CGFloat = 6
-    static let prominentHorizontalInset: CGFloat = 9
-
-    private let displayStatus: CloudRecordingDisplayStatus
-    var prominent: Bool = false
-
-    init(
-        status: CloudRecordingStatus,
-        latestJobStatus: RemoteJobStatus? = nil,
-        prominent: Bool = false
-    ) {
-        self.displayStatus = CloudRecordingDisplayStatus.resolve(
-            recordingStatus: status,
-            latestJobStatus: latestJobStatus
-        )
-        self.prominent = prominent
-    }
-
-    var body: some View {
-        Text(displayStatus.displayName)
-            .font(.system(size: prominent ? 11 : 9, weight: .medium))
-            .foregroundStyle(color)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, prominent ? Self.prominentHorizontalInset : Self.nonProminentHorizontalInset)
-            .padding(.vertical, prominent ? 5 : 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(color.opacity(0.13))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(color.opacity(0.22), lineWidth: 0.5)
-            )
-    }
-
-    private var color: Color {
-        switch displayStatus {
-        case .transcription(let status):
-            return status.detailColor
-        case .recording(let status):
-            switch status {
-            case .ready:
-                return DT.statusReady
-            case .uploading:
-                return DT.statusUploading
-            case .failed, .aborted:
-                return DT.statusWarning
-            case .unknown:
-                return Color.dtLabelTertiary
-            }
-        }
-    }
-}
-
-private struct CloudJobStatusChip: View {
-    let status: RemoteJobStatus
-    var compact = false
-
-    var body: some View {
-        Text(status.displayName)
-            .font(.system(size: compact ? 9.5 : 10.5, weight: .semibold))
-            .foregroundStyle(status.detailColor)
-            .padding(.horizontal, compact ? 6 : 7)
-            .padding(.vertical, compact ? 2 : 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(status.detailColor.opacity(0.12))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(status.detailColor.opacity(0.22), lineWidth: 0.5)
-            )
-    }
-}
-
-private extension RemoteJobStatus {
-    var detailColor: Color {
-        switch self {
-        case .queued:
-            return DT.waveformLit
-        case .running:
-            return DT.statusUploading
-        case .succeeded:
-            return DT.statusReady
-        case .failed:
-            return DT.systemOrange
-        }
-    }
-
-    var detailIconName: String {
-        switch self {
-        case .queued, .running:
-            return "hourglass"
-        case .succeeded:
-            return "waveform.badge.checkmark"
-        case .failed:
-            return "exclamationmark.triangle.fill"
-        }
-    }
-}
-
 private extension TranscriptionJob {
     var providerModelText: String {
         [provider, model, language]
@@ -3934,51 +3725,6 @@ private extension TranscriptionJob {
     var trimmedError: String? {
         let trimmed = error?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
-    }
-}
-
-private struct CloudSourceIcon: View {
-    let recording: CloudRecording
-    let size: CGFloat
-
-    var body: some View {
-        ZStack {
-            // The tint plate stays as a faint badge under whatever icon
-            // we render. It used to also act as decorative padding (the
-            // app icon was inset to 72% of the box), but peng-xiao
-            // `26485a7a` flagged that as making the source logo look
-            // smaller than the container suggests. Real app icons now
-            // fill the box edge-to-edge; the rounded corner radius mask
-            // keeps them from poking past the badge outline.
-            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .fill(DT.statusReady.opacity(0.10))
-
-            if let icon = recording.sourceAppIcon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
-            } else {
-                // Source-symbol fallback when the recording's bundle ID
-                // doesn't resolve to an installed app (e.g. Discord
-                // running as a PWA, recording from a CLI tool, etc.).
-                // Original tint was `DT.statusReady` against the same-
-                // colour 10% plate, which made the symbol nearly
-                // invisible on top of the badge — that's the missing
-                // Discord icon peng-xiao saw at `26485a7a`. Render with
-                // primary label colour at a larger size so the fallback
-                // is unambiguously a recognisable shape.
-                Image(systemName: recording.sourceIconName)
-                    .font(.system(size: size * 0.58, weight: .medium))
-                    .foregroundStyle(Color.dtLabel)
-            }
-        }
-        .frame(width: size, height: size)
-        .overlay(
-            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
-        )
     }
 }
 
@@ -4044,7 +3790,7 @@ private extension TranscriptResponse {
     }
 }
 
-private extension CloudRecording {
+extension CloudRecording {
     var presentationTitle: String {
         if let summaryTitle = clean(summaryTitle) {
             return summaryTitle
