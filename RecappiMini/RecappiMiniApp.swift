@@ -368,6 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     @Published var panelVisible: Bool = true
     @Published private(set) var isRecording: Bool = false
     @Published private(set) var isLiveCaptionPanelPresented = false
+    @Published private(set) var liveCaptionPanelMode: LiveCaptionPanelMode = .expanded
 
     private var effectiveActiveAudioBundleIDs: Set<String> {
         Set(recorder.runningApps.lazy.filter(\.isActive).map(\.id))
@@ -914,6 +915,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func setLiveCaptionPanelPresented(_ presented: Bool) {
+        guard AppConfig.shared.liveCaptionsDisplayEnabled else {
+            hideLiveCaptionWindow()
+            return
+        }
         guard let sessionID = currentLiveCaptionSessionID else {
             hideLiveCaptionWindow()
             return
@@ -928,6 +933,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             dismissedLiveCaptionSessionID = sessionID
             hideLiveCaptionWindow()
         }
+    }
+
+    func toggleLiveCaptionPanelMode() {
+        switch liveCaptionPanelMode {
+        case .expanded:
+            liveCaptionPanelMode = .compact
+        case .compact:
+            liveCaptionPanelMode = .expanded
+        }
+        resizeLiveCaptionWindowToContent()
+    }
+
+    func applyLiveCaptionDisplayPreference() {
+        reconcileLiveCaptionPanelPresentation()
     }
 
     private var isCurrentMeetingActiveForCaptions: Bool {
@@ -950,6 +969,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func reconcileLiveCaptionPanelPresentation() {
+        guard AppConfig.shared.liveCaptionsDisplayEnabled else {
+            hideLiveCaptionWindow()
+            return
+        }
         guard let sessionID = currentLiveCaptionSessionID else {
             hideLiveCaptionWindow()
             return
@@ -970,20 +993,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             return
         }
 
-        let rootView = LiveCaptionFloatingPanel(
-            recorder: recorder,
-            onClose: { [weak self] in
-                self?.setLiveCaptionPanelPresented(false)
-            }
-        )
-        .padding(24)
-
-        let hostingView = NSHostingView(rootView: rootView)
+        let hostingView = NSHostingView(rootView: liveCaptionRootView())
         hostingView.autoresizingMask = [.width, .height]
         hostingView.sizingOptions = [.intrinsicContentSize]
 
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 486, height: 460),
+            contentRect: NSRect(origin: .zero, size: liveCaptionPanelMode.defaultWindowSize),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -1004,8 +1019,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         hostingView.layoutSubtreeIfNeeded()
         let fittingSize = hostingView.fittingSize
         window.setContentSize(NSSize(
-            width: max(486, fittingSize.width),
-            height: max(360, fittingSize.height)
+            width: max(liveCaptionPanelMode.defaultWindowSize.width, fittingSize.width),
+            height: max(liveCaptionPanelMode.defaultWindowSize.height, fittingSize.height)
         ))
         positionLiveCaptionWindow(window)
         window.orderFrontRegardless()
@@ -1017,6 +1032,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private func hideLiveCaptionWindow() {
         liveCaptionWindow?.orderOut(nil)
         isLiveCaptionPanelPresented = false
+    }
+
+    private func resizeLiveCaptionWindowToContent() {
+        guard let liveCaptionWindow,
+              let hostingView = liveCaptionWindow.contentView as? NSHostingView<AnyView> else {
+            liveCaptionWindow?.setContentSize(liveCaptionPanelMode.defaultWindowSize)
+            if let liveCaptionWindow {
+                positionLiveCaptionWindow(liveCaptionWindow)
+            }
+            return
+        }
+
+        hostingView.rootView = liveCaptionRootView()
+        hostingView.layoutSubtreeIfNeeded()
+        let fittingSize = hostingView.fittingSize
+        liveCaptionWindow.setContentSize(NSSize(
+            width: max(liveCaptionPanelMode.defaultWindowSize.width, fittingSize.width),
+            height: max(liveCaptionPanelMode.defaultWindowSize.height, fittingSize.height)
+        ))
+        positionLiveCaptionWindow(liveCaptionWindow)
+    }
+
+    private func liveCaptionRootView() -> AnyView {
+        AnyView(
+            LiveCaptionFloatingPanel(
+                recorder: recorder,
+                mode: liveCaptionPanelMode,
+                onToggleMode: { [weak self] in
+                    self?.toggleLiveCaptionPanelMode()
+                },
+                onClose: { [weak self] in
+                    self?.setLiveCaptionPanelPresented(false)
+                }
+            )
+            .padding(24)
+        )
     }
 
     private func positionLiveCaptionWindow(_ window: NSWindow) {

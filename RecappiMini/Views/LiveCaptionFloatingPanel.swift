@@ -1,11 +1,64 @@
 import SwiftUI
 
+enum LiveCaptionPanelMode: String {
+    case expanded
+    case compact
+
+    var toggleTitle: String {
+        switch self {
+        case .expanded:
+            return "Lyrics"
+        case .compact:
+            return "Expand"
+        }
+    }
+
+    var toggleIcon: String {
+        switch self {
+        case .expanded:
+            return "rectangle.compress.vertical"
+        case .compact:
+            return "rectangle.expand.vertical"
+        }
+    }
+
+    var defaultWindowSize: NSSize {
+        switch self {
+        case .expanded:
+            return NSSize(width: 486, height: 460)
+        case .compact:
+            return NSSize(width: 688, height: 92)
+        }
+    }
+}
+
 struct LiveCaptionFloatingPanel: View {
     @ObservedObject var recorder: AudioRecorder
     @ObservedObject private var config = AppConfig.shared
+    let mode: LiveCaptionPanelMode
+    let onToggleMode: () -> Void
     let onClose: () -> Void
 
     var body: some View {
+        Group {
+            switch mode {
+            case .expanded:
+                expandedBody
+            case .compact:
+                compactBody
+            }
+        }
+        .background(panelBackground(cornerRadius: mode == .expanded ? 22 : 18))
+        .overlay(
+            RoundedRectangle(cornerRadius: mode == .expanded ? 22 : 18, style: .continuous)
+                .stroke(Color.white.opacity(0.13), lineWidth: 0.7)
+        )
+        .shadow(color: Color.black.opacity(0.24), radius: 18, x: 0, y: 10)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanel)
+    }
+
+    private var expandedBody: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
 
@@ -13,28 +66,74 @@ struct LiveCaptionFloatingPanel: View {
         }
         .padding(16)
         .frame(width: 438, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    LinearGradient(
-                        colors: [
-                            Color.black.opacity(0.18),
-                            Color.black.opacity(0.34)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                }
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.14), lineWidth: 0.7)
-        )
-        .shadow(color: Color.black.opacity(0.36), radius: 28, x: 0, y: 18)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanel)
+    }
+
+    private var compactBody: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(DT.systemRed)
+                    .frame(width: 7, height: 7)
+                    .modifier(PulsingModifier())
+                Text(timeText(recorder.elapsedSeconds))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.dtLabelSecondary)
+            }
+            .frame(width: 58, alignment: .leading)
+
+            Text(captionLine)
+                .font(.system(size: 18, weight: recorder.liveCaptionText == nil ? .medium : .semibold))
+                .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(captionLine))
+                .accessibilityValue(Text(captionLine))
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
+
+            captionControlButtons
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(width: 640, alignment: .leading)
+    }
+
+    private func panelBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.14, green: 0.15, blue: 0.16).opacity(0.88),
+                        Color(red: 0.08, green: 0.09, blue: 0.10).opacity(0.92)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            }
+    }
+
+    private var captionControlButtons: some View {
+        HStack(spacing: 6) {
+            Button(action: onToggleMode) {
+                Image(systemName: mode.toggleIcon)
+                    .font(.system(size: 10, weight: .bold))
+            }
+            .buttonStyle(PanelIconButtonStyle(size: 24))
+            .help(mode.toggleTitle)
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+            }
+            .buttonStyle(PanelIconButtonStyle(size: 24))
+            .help("Hide live captions for this meeting")
+            .accessibilityLabel("Hide live captions")
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionCloseButton)
+        }
     }
 
     private var header: some View {
@@ -58,14 +157,7 @@ struct LiveCaptionFloatingPanel: View {
                 .monospacedDigit()
                 .foregroundStyle(Color.dtLabelSecondary)
 
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
-            }
-            .buttonStyle(PanelIconButtonStyle(size: 24))
-            .help("Hide live captions")
-            .accessibilityLabel("Hide live captions")
-            .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionCloseButton)
+            captionControlButtons
         }
     }
 

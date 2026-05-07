@@ -218,6 +218,9 @@ struct SettingsView: View {
     @ViewBuilder
     private var transcriptionSection: some View {
         Section {
+            Toggle("Show Live Captions while recording", isOn: liveCaptionsDisplayBinding)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.liveCaptionsDisplayToggle)
+
             Picker("Speech language", selection: languageBinding) {
                 ForEach(SpeechLanguageOption.common) { option in
                     Text(option.title).tag(option.id)
@@ -227,7 +230,7 @@ struct SettingsView: View {
         } header: {
             Text("Transcription")
         } footer: {
-            Text("Used for Live Captions and cloud transcription. Live Captions cannot reliably auto-detect the spoken language.")
+            Text("Live Captions are an optional floating display while recording. Speech language is also used for cloud transcription because Apple Speech cannot reliably auto-detect spoken language.")
                 .foregroundStyle(Color.dtLabelSecondary)
                 .font(.footnote)
         }
@@ -915,6 +918,16 @@ struct SettingsView: View {
         Binding(
             get: { AppConfig.shared.cloudLanguage },
             set: { AppConfig.shared.cloudLanguage = $0 }
+        )
+    }
+
+    private var liveCaptionsDisplayBinding: Binding<Bool> {
+        Binding(
+            get: { AppConfig.shared.liveCaptionsDisplayEnabled },
+            set: {
+                AppConfig.shared.liveCaptionsDisplayEnabled = $0
+                AppDelegate.shared.applyLiveCaptionDisplayPreference()
+            }
         )
     }
 

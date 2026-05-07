@@ -38,6 +38,7 @@ final class AppConfig: ObservableObject {
     @AppStorage("backendBaseURL") var backendBaseURL: String = "https://recordmeet.ing"
     @AppStorage("cloudEnabled") var cloudEnabled: Bool = true
     @AppStorage("autoPromptForActiveAudioApps") var autoPromptForActiveAudioApps: Bool = true
+    @AppStorage("liveCaptionsDisplayEnabled") var liveCaptionsDisplayEnabled: Bool = true
 
     @AppStorage("speechLanguage") var cloudLanguage: String = "en-US"
 
