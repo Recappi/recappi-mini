@@ -43,7 +43,6 @@ enum UITestIDs {
         static let reconnectButton = "recappi.cloud.reconnectButton"
         static let recordingsList = "recappi.cloud.recordingsList"
         static let recordingRowPrefix = "recappi.cloud.recordingRow."
-        static let currentMeetingRow = "recappi.cloud.currentMeetingRow"
         static let currentMeetingPanel = "recappi.cloud.currentMeetingPanel"
         static let currentMeetingCaptionToggleButton = "recappi.cloud.currentMeetingCaptionToggleButton"
         static let currentMeetingCaptionCloseButton = "recappi.cloud.currentMeetingCaptionCloseButton"

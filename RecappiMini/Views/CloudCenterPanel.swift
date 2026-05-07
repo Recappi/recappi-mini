@@ -293,17 +293,6 @@ struct CloudCenterPanel: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        if isCurrentMeetingActive {
-                            CurrentMeetingSidebarRow(
-                                recorder: recorder,
-                                isCaptionPanelVisible: appDelegate.isLiveCaptionPanelPresented,
-                                onToggleCaptions: {
-                                    appDelegate.setLiveCaptionPanelPresented(!appDelegate.isLiveCaptionPanelPresented)
-                                }
-                            )
-                                .id(AccessibilityIDs.Cloud.currentMeetingRow)
-                        }
-
                         ForEach(recordingDateSections) { section in
                             VStack(alignment: .leading, spacing: 8) {
                                 CloudRecordingDateSectionHeader(

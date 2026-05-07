@@ -104,9 +104,6 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
         XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions to open in an independent Cloud floating panel.")
 
-        let currentMeetingRow = uiElement(app, id: UITestIDs.Cloud.currentMeetingRow)
-        XCTAssertTrue(currentMeetingRow.waitForExistence(timeout: 10), "Expected a live current-meeting row in the Cloud sidebar while recording.")
-
         let caption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
         XCTAssertTrue(caption.waitForExistence(timeout: 10), "Expected current-meeting captions in Cloud.")
         let languageMenu = uiElement(app, id: UITestIDs.Cloud.currentMeetingLanguageMenu)
@@ -128,19 +125,20 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         closeCaptionPanel.click()
         XCTAssertTrue(
             waitForNonExistence(of: currentMeetingPanel, timeout: 5),
-            "Expected the floating Live Caption panel to close without removing the current-meeting sidebar row."
+            "Expected the floating Live Caption panel to close independently from the Cloud recording list."
         )
         RunLoop.current.run(until: Date().addingTimeInterval(2.2))
         XCTAssertFalse(
             currentMeetingPanel.exists,
             "A dismissed Live Caption panel should stay hidden for the current recording session."
         )
-        XCTAssertTrue(currentMeetingRow.exists, "Current meeting row should remain available after hiding captions.")
 
-        currentMeetingRow.click()
+        let toggleCaptionPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaptionToggleButton)
+        XCTAssertTrue(toggleCaptionPanel.waitForExistence(timeout: 10), "Expected Cloud header to keep a lightweight Live Caption toggle.")
+        toggleCaptionPanel.click()
         XCTAssertTrue(
             currentMeetingPanel.waitForExistence(timeout: 5),
-            "Expected clicking the current-meeting row to reopen the floating Live Caption panel."
+            "Expected the Cloud header toggle to reopen the floating Live Caption panel."
         )
 
         let screenshot = XCUIScreen.main.screenshot()
