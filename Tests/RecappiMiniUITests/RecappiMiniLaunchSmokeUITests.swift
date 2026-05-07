@@ -282,6 +282,47 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         add(attachment)
     }
 
+    func testCloudSelectionStaysResponsiveDuringLocalRecordingWithSeededBearer() throws {
+        guard let authToken = UITestPaths.liveAuthTokenValue, !authToken.isEmpty else {
+            throw XCTSkip("Set RECAPPI_TEST_AUTH_TOKEN to run the live Cloud selection while recording smoke.")
+        }
+
+        let app = launchRecappiApp(authToken: authToken)
+
+        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
+        XCTAssertTrue(recordButton.waitForExistence(timeout: 15), "Expected Record button.")
+        recordButton.click()
+
+        let cloudWindow = uiElement(app, id: UITestIDs.Cloud.window)
+        XCTAssertTrue(cloudWindow.waitForExistence(timeout: 15), "Expected Cloud window to open after recording starts.")
+
+        let recordingsList = uiElement(app, id: UITestIDs.Cloud.recordingsList)
+        XCTAssertTrue(recordingsList.waitForExistence(timeout: 30), "Expected Cloud recordings list while local recording is active.")
+
+        let rowPredicate = NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.recordingRowPrefix)
+        let rows = recordingsList.descendants(matching: .any).matching(rowPredicate)
+        XCTAssertGreaterThanOrEqual(rows.count, 2, "Expected at least two Cloud recordings to switch between.")
+
+        for index in [1, 0, 1] {
+            rows.element(boundBy: index).click()
+            XCTAssertTrue(
+                app.buttons[UITestIDs.Cloud.moreActionsButton].waitForExistence(timeout: 5),
+                "Expected Cloud detail actions to stay responsive after selecting row \(index) during local recording."
+            )
+        }
+
+        XCTAssertTrue(
+            app.buttons[UITestIDs.Panel.stopButton].waitForExistence(timeout: 5),
+            "Expected the active local recording controls to remain responsive after Cloud selection changes."
+        )
+
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "cloud-selection-during-local-recording"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testHiddenPanelAutoPromptSelectsAppAndRemovesSuggestionBanner() throws {
         let app = launchRecappiApp(authToken: "")
         hidePanel(in: app)

@@ -66,6 +66,8 @@ final class CloudLibraryStore: ObservableObject {
     private var isRemoteRefreshInFlight = false
     private var transcriptLoadingRecordingIDs: Set<String> = []
     private var jobHistoryLoadingRecordingIDs: Set<String> = []
+    private var selectionDetailRefreshTask: Task<Void, Never>?
+    private var cachePersistTask: Task<Void, Never>?
     /// In-memory once-per-session guard so the shape-based fallback (cached
     /// transcript present but summary missing) does not retry the network
     /// on every selection switch when the recording genuinely has no
@@ -303,8 +305,8 @@ final class CloudLibraryStore: ObservableObject {
         if transcriptCache[recording.id] == nil {
             setTranscriptLoading(true, for: recording.id)
         }
-        Task { await persistCacheSnapshot() }
-        Task { await refreshSelectedDetailIfNeeded() }
+        scheduleCachePersist()
+        scheduleSelectedDetailRefresh()
     }
 
     func upsertLocalProcessingRecording(_ recording: CloudRecording, latestJob: TranscriptionJob? = nil) {
@@ -322,7 +324,7 @@ final class CloudLibraryStore: ObservableObject {
         lastSuccessfulRefreshAt = lastSuccessfulRefreshAt ?? Date()
         cacheWarningMessage = nil
         Task { await refreshLocalSessionLinks() }
-        Task { await persistCacheSnapshot() }
+        scheduleCachePersist()
     }
 
     func removeLocalProcessingRecording(id recordingID: String) {
@@ -337,7 +339,23 @@ final class CloudLibraryStore: ObservableObject {
             selectedRecordingID = recordings.first?.id
         }
         state = recordings.isEmpty ? .empty : .loaded
-        Task { await persistCacheSnapshot() }
+        scheduleCachePersist()
+    }
+
+    private func scheduleSelectedDetailRefresh() {
+        selectionDetailRefreshTask?.cancel()
+        selectionDetailRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.refreshSelectedDetailIfNeeded()
+        }
+    }
+
+    private func scheduleCachePersist() {
+        cachePersistTask?.cancel()
+        cachePersistTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.persistCacheSnapshot()
+        }
     }
 
     func refreshSelectedDetailIfNeeded() async {
@@ -367,6 +385,7 @@ final class CloudLibraryStore: ObservableObject {
             let detail = try await runAuthorized { client in
                 try await client.getRecording(id: recordingID)
             }
+            guard !Task.isCancelled else { return }
             // Selection race guard: user may have selected another recording
             // while we awaited. Don't leak this banner state onto a different
             // recording.
