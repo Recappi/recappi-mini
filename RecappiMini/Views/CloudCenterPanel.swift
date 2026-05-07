@@ -1014,96 +1014,39 @@ private struct CloudRecordingDetail: View {
 
     private var readerPane: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // peng-xiao `04644a8a` flagged the detail pane top whitespace
-            // as wasteful — title block + tab bar were leaving more
-            // breathing room than the page below them justified. Pulled
-            // top inset 20→14, bottom inset 13→8, and the inner VStack
-            // spacing 13→9 so the title/date/banners/tabs feel like a
-            // single condensed header strip, not a wide spaced collage.
-            // The detailHeader's own internal title↔date spacing tightens
-            // separately (5→3) inside the header body.
-            VStack(alignment: .leading, spacing: 9) {
+            CloudDetailHeaderSection {
                 detailHeader
-                // Failed/processing transcription banner (orange) sits above the
-                // newer-version banner (blue) so terminal errors stay closer to
-                // the header than informational refresh prompts.
+            } latestJob: {
                 latestJobStrip
+            } newerVersion: {
                 newerVersionStrip
+            } navigation: {
                 detailNavigationRow
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 14)
-            .padding(.bottom, 8)
 
             Divider().overlay(Color.white.opacity(0.08))
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if hasSummarySection {
-                            transcriptInsightStack
-                                .id(CloudDetailSection.summary)
-                                .background(sectionOffsetReader(.summary))
-                        }
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            segmentsHeader
-                            transcriptCard
-                        }
-                        .id(CloudDetailSection.transcript)
-                        .background(sectionOffsetReader(.transcript))
-                    }
-                    .padding(.horizontal, 22)
-                    .padding(.top, 16)
-                    .padding(.bottom, 20)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-                .coordinateSpace(name: "cloudDetailScroll")
-                .onChange(of: activeSegmentID(in: transcript?.displaySegmentRows ?? [])) { _, id in
-                    // Loading or switching recordings can make the active
-                    // segment move from nil to the first row before the user
-                    // has interacted with playback. Do not let that derived
-                    // state yank the detail scroll away from the top; only
-                    // auto-follow transcript rows while playback is actually
-                    // advancing.
-                    guard audioPlayer.isPlaying, let id else { return }
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        proxy.scrollTo(id, anchor: .center)
-                    }
-                }
-                .onChange(of: pendingScrollTarget) { _, target in
-                    guard let target else { return }
-                    activeDetailSection = target
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        proxy.scrollTo(target, anchor: .top)
-                    }
-                    // Hold `pendingScrollTarget` past the scroll
-                    // animation duration so the offset-driven
-                    // `updateActiveDetailSection` cannot retoggle the
-                    // active segment while the scroll is still in
-                    // flight. peng-xiao `349a3fb1`: tapping Summary /
-                    // Transcript made the segmented control flicker
-                    // because the previous `DispatchQueue.main.async`
-                    // cleared the gate immediately, so mid-animation
-                    // preference-key updates would briefly flip the
-                    // segment back to whichever section was currently
-                    // sliding through the 88pt threshold. The 0.25s
-                    // delay (animation 0.18s + ~70ms slack) lets the
-                    // intent-driven activeDetailSection settle before
-                    // scroll position takes over again.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        pendingScrollTarget = nil
-                    }
-                }
-                .onPreferenceChange(CloudDetailSectionOffsetPreferenceKey.self) { offsets in
-                    updateActiveDetailSection(with: offsets)
-                }
+            CloudDetailScrollableSections(
+                hasSummarySection: hasSummarySection,
+                activeSegmentID: activeSegmentID(in: transcript?.displaySegmentRows ?? []),
+                isPlaybackActive: audioPlayer.isPlaying,
+                pendingScrollTarget: $pendingScrollTarget,
+                activeDetailSection: $activeDetailSection,
+                onUpdateOffsets: updateActiveDetailSection(with:)
+            ) {
+                transcriptInsightStack
+            } transcriptHeader: {
+                segmentsHeader
+            } transcriptCard: {
+                transcriptCard
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider().overlay(Color.white.opacity(0.08))
 
-            bottomPlaybackBar
+            CloudDetailPlaybackSection {
+                bottomPlaybackBar
+            }
         }
     }
 
@@ -1200,15 +1143,6 @@ private struct CloudRecordingDetail: View {
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.45 : 1)
         .accessibilityIdentifier(accessibilityID)
-    }
-
-    private func sectionOffsetReader(_ section: CloudDetailSection) -> some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: CloudDetailSectionOffsetPreferenceKey.self,
-                value: [section: proxy.frame(in: .named("cloudDetailScroll")).minY]
-            )
-        }
     }
 
     private func updateActiveDetailSection(with offsets: [CloudDetailSection: CGFloat]) {
@@ -2340,6 +2274,202 @@ private struct CloudRecordingDetail: View {
         return transcriptErrorMessage ?? "Segments are not available for this recording yet."
     }
 
+}
+
+private struct CloudDetailHeaderSection<Header: View, LatestJob: View, NewerVersion: View, Navigation: View>: View {
+    private let header: Header
+    private let latestJob: LatestJob
+    private let newerVersion: NewerVersion
+    private let navigation: Navigation
+
+    init(
+        @ViewBuilder header: () -> Header,
+        @ViewBuilder latestJob: () -> LatestJob,
+        @ViewBuilder newerVersion: () -> NewerVersion,
+        @ViewBuilder navigation: () -> Navigation
+    ) {
+        self.header = header()
+        self.latestJob = latestJob()
+        self.newerVersion = newerVersion()
+        self.navigation = navigation()
+    }
+
+    var body: some View {
+        // peng-xiao `04644a8a` flagged the detail pane top whitespace
+        // as wasteful. Keep the condensed header chrome centralized so
+        // CloudRecordingDetail can compose sections without owning the
+        // padding/spacing trivia inline.
+        VStack(alignment: .leading, spacing: 9) {
+            header
+            // Failed/processing transcription banner (orange) sits above
+            // the newer-version banner (blue) so terminal errors stay
+            // closer to the header than informational refresh prompts.
+            latestJob
+            newerVersion
+            navigation
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
+    }
+}
+
+private struct CloudDetailScrollableSections<Summary: View, TranscriptHeader: View, TranscriptCard: View>: View {
+    let hasSummarySection: Bool
+    let activeSegmentID: String?
+    let isPlaybackActive: Bool
+    @Binding var pendingScrollTarget: CloudDetailSection?
+    @Binding var activeDetailSection: CloudDetailSection
+    let onUpdateOffsets: ([CloudDetailSection: CGFloat]) -> Void
+
+    private let summary: Summary
+    private let transcriptHeader: TranscriptHeader
+    private let transcriptCard: TranscriptCard
+
+    init(
+        hasSummarySection: Bool,
+        activeSegmentID: String?,
+        isPlaybackActive: Bool,
+        pendingScrollTarget: Binding<CloudDetailSection?>,
+        activeDetailSection: Binding<CloudDetailSection>,
+        onUpdateOffsets: @escaping ([CloudDetailSection: CGFloat]) -> Void,
+        @ViewBuilder summary: () -> Summary,
+        @ViewBuilder transcriptHeader: () -> TranscriptHeader,
+        @ViewBuilder transcriptCard: () -> TranscriptCard
+    ) {
+        self.hasSummarySection = hasSummarySection
+        self.activeSegmentID = activeSegmentID
+        self.isPlaybackActive = isPlaybackActive
+        self._pendingScrollTarget = pendingScrollTarget
+        self._activeDetailSection = activeDetailSection
+        self.onUpdateOffsets = onUpdateOffsets
+        self.summary = summary()
+        self.transcriptHeader = transcriptHeader()
+        self.transcriptCard = transcriptCard()
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    CloudDetailSummarySection(
+                        isVisible: hasSummarySection,
+                        offsetReader: { sectionOffsetReader(.summary) }
+                    ) {
+                        summary
+                    }
+
+                    CloudDetailTranscriptSection(
+                        offsetReader: { sectionOffsetReader(.transcript) },
+                        header: { transcriptHeader },
+                        card: { transcriptCard }
+                    )
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 16)
+                .padding(.bottom, 20)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .coordinateSpace(name: "cloudDetailScroll")
+            .onChange(of: activeSegmentID) { _, id in
+                // Loading or switching recordings can make the active
+                // segment move from nil to the first row before the user
+                // has interacted with playback. Do not let that derived
+                // state yank the detail scroll away from the top; only
+                // auto-follow transcript rows while playback is advancing.
+                guard isPlaybackActive, let id else { return }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            .onChange(of: pendingScrollTarget) { _, target in
+                guard let target else { return }
+                activeDetailSection = target
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(target, anchor: .top)
+                }
+                // Hold `pendingScrollTarget` past the scroll animation
+                // duration so offset-driven updates cannot retoggle the
+                // segmented control mid-flight.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    pendingScrollTarget = nil
+                }
+            }
+            .onPreferenceChange(CloudDetailSectionOffsetPreferenceKey.self) { offsets in
+                onUpdateOffsets(offsets)
+            }
+        }
+    }
+
+    private func sectionOffsetReader(_ section: CloudDetailSection) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: CloudDetailSectionOffsetPreferenceKey.self,
+                value: [section: proxy.frame(in: .named("cloudDetailScroll")).minY]
+            )
+        }
+    }
+}
+
+private struct CloudDetailSummarySection<Content: View, OffsetReader: View>: View {
+    let isVisible: Bool
+    private let offsetReader: OffsetReader
+    private let content: Content
+
+    init(
+        isVisible: Bool,
+        @ViewBuilder offsetReader: () -> OffsetReader,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.isVisible = isVisible
+        self.offsetReader = offsetReader()
+        self.content = content()
+    }
+
+    var body: some View {
+        if isVisible {
+            content
+                .id(CloudDetailSection.summary)
+                .background(offsetReader)
+        }
+    }
+}
+
+private struct CloudDetailTranscriptSection<OffsetReader: View, Header: View, Card: View>: View {
+    private let offsetReader: OffsetReader
+    private let header: Header
+    private let card: Card
+
+    init(
+        @ViewBuilder offsetReader: () -> OffsetReader,
+        @ViewBuilder header: () -> Header,
+        @ViewBuilder card: () -> Card
+    ) {
+        self.offsetReader = offsetReader()
+        self.header = header()
+        self.card = card()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            card
+        }
+        .id(CloudDetailSection.transcript)
+        .background(offsetReader)
+    }
+}
+
+private struct CloudDetailPlaybackSection<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+    }
 }
 
 private struct CloudTranscriptSegmentDisplayRow: Identifiable {
