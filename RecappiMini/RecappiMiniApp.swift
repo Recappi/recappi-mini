@@ -50,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var checkForUpdatesMenuItem: NSMenuItem?
     private var panel: FloatingPanel?
     private let managedWindows = ManagedWindowRegistry()
+    private lazy var foregroundWindows = ForegroundWindowActivationCoordinator(managedWindows: managedWindows)
     private let cloudStore = CloudLibraryStore()
     private let recorder = AudioRecorder()
     private let appUpdater = AppUpdater.shared
@@ -68,8 +69,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var workspaceObservers: [NSObjectProtocol] = []
     private var screenParametersObserver: NSObjectProtocol?
     private var panelTransitionToken: Int = 0
-    private var foregroundWindowDemandCount = 0
-    private var settingsSceneForegroundDemandActive = false
     private var isSyncingPanelVisibility = false
     private var uiTestCommandPollTimer: Timer?
     private var didFinishLaunching = false
@@ -842,32 +841,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func prepareForForegroundWindowPresentation() {
-        foregroundWindowDemandCount += 1
-        activateForegroundWindowPresentation()
+        foregroundWindows.preparePresentation()
     }
 
     func prepareForSettingsScenePresentation() {
-        if !settingsSceneForegroundDemandActive {
-            foregroundWindowDemandCount += 1
-            settingsSceneForegroundDemandActive = true
-        }
-        activateForegroundWindowPresentation()
+        foregroundWindows.prepareSettingsScenePresentation()
     }
 
     func releaseSettingsSceneForegroundDemand() {
-        guard settingsSceneForegroundDemandActive else {
-            restoreAccessoryActivationPolicyIfPossible()
-            return
-        }
-        settingsSceneForegroundDemandActive = false
-        releaseForegroundWindowDemand()
+        foregroundWindows.releaseSettingsSceneDemand()
     }
 
     private func activateForegroundWindowPresentation() {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.unhide(nil)
-        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
-        NSApp.activate(ignoringOtherApps: true)
+        foregroundWindows.activatePresentation()
     }
 
     private func prepareForForegroundUpdateCheck() {
@@ -1263,20 +1249,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func releaseForegroundWindowDemand() {
-        foregroundWindowDemandCount = max(0, foregroundWindowDemandCount - 1)
-        restoreAccessoryActivationPolicyIfPossible()
+        foregroundWindows.releaseDemand()
     }
 
     private func restoreAccessoryActivationPolicyIfPossible() {
-        guard foregroundWindowDemandCount == 0 else { return }
-        // The onboarding window also needs `.regular` activation policy to
-        // become key. If a Sparkle update or some other path tries to drop
-        // the policy back to `.accessory` while onboarding is still on
-        // screen, the user would lose focus and see a half-presented
-        // window. Treat onboarding visibility as a hard guard against the
-        // policy switch.
-        guard !managedWindows.hasVisibleForegroundWindow else { return }
-        NSApp.setActivationPolicy(.accessory)
+        foregroundWindows.restoreAccessoryPolicyIfPossible()
     }
 
     private func configureNotifications() {
