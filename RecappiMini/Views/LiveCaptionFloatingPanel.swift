@@ -60,9 +60,9 @@ struct LiveCaptionFloatingPanel: View {
         .background(panelBackground(cornerRadius: mode == .expanded ? 16 : 14))
         .overlay(
             RoundedRectangle(cornerRadius: mode == .expanded ? 16 : 14, style: .continuous)
-                .stroke(Color.white.opacity(0.12), lineWidth: 0.6)
+                .stroke(Palette.borderSubtle, lineWidth: 0.6)
         )
-        .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 6)
+        .shadow(color: Palette.shadowPanel, radius: 12, x: 0, y: 6)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanel)
     }
@@ -110,18 +110,16 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private func panelBackground(cornerRadius: CGFloat) -> some View {
+        // `.regularMaterial` already adapts to the system appearance; the
+        // `Palette.surfaceLiveCaption` overlay provides the slightly tinted
+        // surface that gives the captions panel its lifted look in both
+        // light and dark themes.
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(.regularMaterial)
             .overlay {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.14, green: 0.15, blue: 0.16).opacity(0.88),
-                        Color(red: 0.08, green: 0.09, blue: 0.10).opacity(0.92)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                Palette.surfaceLiveCaption
+                    .opacity(0.88)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
     }
 
@@ -217,22 +215,11 @@ struct LiveCaptionFloatingPanel: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.045))
-                .overlay {
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.065),
-                            Color.white.opacity(0.02)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
+                .fill(Palette.controlFillHover)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(0.075), lineWidth: 0.6)
+                .stroke(Palette.borderHairline, lineWidth: 0.6)
         )
     }
 
@@ -263,7 +250,7 @@ struct LiveCaptionFloatingPanel: View {
             .padding(.vertical, 3)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.08))
+                    .fill(Palette.controlFillHover)
             )
         }
         .menuStyle(.borderlessButton)

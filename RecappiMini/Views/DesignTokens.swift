@@ -34,12 +34,15 @@ enum DT {
     static let accentGreenLight = Color(red: 72/255, green: 230/255, blue: 178/255)
     static let accentGreenDeep = Color(red: 18/255, green: 184/255, blue: 130/255)
 
-    /// Charcoal shell for the recording-state pill (from image #39's
-    /// iOS copy: UIColor(red: 0.179, green: 0.179, blue: 0.179)).
-    static let recordingShell = Color(red: 0.179, green: 0.179, blue: 0.179)
-    /// Slightly lighter charcoal for inset controls (stop/share buttons)
-    /// so they read as chips on the recording pill.
-    static let recordingChip = Color(red: 0.26, green: 0.26, blue: 0.26)
+    /// Pill / settings-card surface. Resolves to charcoal in dark mode and
+    /// near-white in light mode via `Palette.surfacePanel`. Kept under the
+    /// `recordingShell` name so existing call sites continue to compile;
+    /// new code should reach for `Palette.surfacePanel` directly.
+    static let recordingShell = Palette.surfacePanel
+    /// Inset chip controls on the recording pill (stop/share buttons).
+    /// Forwards to `Palette.surfaceChip` so the chip reads correctly on
+    /// either appearance.
+    static let recordingChip = Palette.surfaceChip
 
     /// Waveform dot colors from the Figma spec (node 94:32916).
     /// Lit: `#1DF8B3`. Unlit: `#000000` — pure black against the
@@ -95,14 +98,15 @@ enum DT {
 
 // MARK: - Color helpers
 
-/// Dark-mode text tokens — the panel is always on DT.recordingShell so
-/// every label tier is white with tuned opacity. Kept behind the `dtLabel*`
-/// names so existing call sites don't need to change.
+/// Theme-aware label tiers. `dtLabel*` names are kept for call-site
+/// compatibility; the underlying values now flip black↔white based on
+/// effective `NSAppearance` (see `Palette.labelPrimary` etc.). New code
+/// should prefer `Palette.label*` directly.
 extension Color {
-    static let dtLabel = Color.white.opacity(0.92)
-    static let dtLabelSecondary = Color.white.opacity(0.62)
-    static let dtLabelTertiary = Color.white.opacity(0.38)
-    static let dtLabelQuaternary = Color.white.opacity(0.16)
+    static let dtLabel = Palette.labelPrimary
+    static let dtLabelSecondary = Palette.labelSecondary
+    static let dtLabelTertiary = Palette.labelTertiary
+    static let dtLabelQuaternary = Palette.labelQuaternary
 }
 
 // MARK: - Shared shapes / controls
@@ -127,10 +131,10 @@ struct PanelIconButtonStyle: ButtonStyle {
         var body: some View {
             content()
                 .frame(width: size, height: size)
-                .foregroundStyle(hovered || isPressed ? Color.dtLabel : Color.dtLabelSecondary)
+                .foregroundStyle(hovered || isPressed ? Palette.labelPrimary : Palette.labelSecondary)
                 .background(
                     RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                        .fill(Color.white.opacity(isPressed ? 0.12 : (hovered ? 0.08 : 0)))
+                        .fill(isPressed ? Palette.controlFillPress : (hovered ? Palette.controlFillHover : Color.clear))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
                 .onHover { hovered = $0 }
@@ -157,10 +161,10 @@ struct PanelUtilityButtonStyle: ButtonStyle {
         var body: some View {
             content()
                 .frame(width: 28, height: 28)
-                .foregroundStyle(hovered || isPressed ? Color.dtLabel : Color.dtLabelSecondary)
+                .foregroundStyle(hovered || isPressed ? Palette.labelPrimary : Palette.labelSecondary)
                 .background(
                     RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                        .fill(Color.white.opacity(isPressed ? 0.10 : (hovered ? 0.07 : 0)))
+                        .fill(isPressed ? Palette.controlFillPress : (hovered ? Palette.controlFillHover : Color.clear))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
                 .onHover { hovered = $0 }
@@ -338,9 +342,9 @@ struct DarkCircleButton: View {
     }
 }
 
-/// Dark-theme icon chip used in the recording pill (trash + any future
-/// share/action icons). Matches image #39: lighter-charcoal rounded square
-/// with a subtle bright-on-hover highlight.
+/// Icon chip used in the recording pill (trash + any future share/action
+/// icons). Pulls its surface from `Palette.surfaceChip` and its border /
+/// hover tint from theme tokens, so it reads correctly on either appearance.
 struct DarkChipButtonStyle: ButtonStyle {
     var size: CGFloat = 28
 
@@ -359,14 +363,14 @@ struct DarkChipButtonStyle: ButtonStyle {
         var body: some View {
             content()
                 .frame(width: size, height: size)
-                .foregroundStyle(Color.white.opacity(hovered || isPressed ? 0.95 : 0.72))
+                .foregroundStyle(hovered || isPressed ? Palette.labelPrimary : Palette.labelSecondary)
                 .background(
                     RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                        .fill(DT.recordingChip.opacity(isPressed ? 1.0 : (hovered ? 0.9 : 0.7)))
+                        .fill(Palette.surfaceChip.opacity(isPressed ? 1.0 : (hovered ? 0.9 : 0.7)))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                        .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
                 )
                 .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
                 .onHover { hovered = $0 }
@@ -376,17 +380,16 @@ struct DarkChipButtonStyle: ButtonStyle {
     }
 }
 
-/// Dark-theme push button. Primary uses the app accent (#1DF8B3) on a
-/// dark chip so it reads as the affirmative action without leaving the
-/// charcoal palette; secondary is a flat dark chip matching the rest of
-/// the panel.
+/// Panel push button. Primary uses the app accent (#1DF8B3) on a dark chip
+/// so it reads as the affirmative action regardless of theme; secondary
+/// pulls its fill from `Palette.surfaceChip` so it adapts to light/dark.
 struct PanelPushButtonStyle: ButtonStyle {
     var primary: Bool = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12))
-            .foregroundStyle(primary ? Color.black.opacity(0.88) : Color.dtLabel)
+            .foregroundStyle(primary ? Color.black.opacity(0.88) : Palette.labelPrimary)
             .frame(maxWidth: .infinity)
             .frame(height: 22)
             .background(
@@ -398,14 +401,14 @@ struct PanelPushButtonStyle: ButtonStyle {
                             startPoint: .top, endPoint: .bottom
                         )
                         : LinearGradient(
-                            colors: [DT.recordingChip.opacity(0.9), DT.recordingChip],
+                            colors: [Palette.surfaceChip.opacity(0.9), Palette.surfaceChip],
                             startPoint: .top, endPoint: .bottom
                         )
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .stroke(primary ? Color.white.opacity(0.18) : Color.white.opacity(0.08), lineWidth: 0.5)
+                    .stroke(primary ? Color.white.opacity(0.18) : Palette.borderHairline, lineWidth: 0.5)
             )
             .opacity(configuration.isPressed ? 0.85 : 1.0)
     }

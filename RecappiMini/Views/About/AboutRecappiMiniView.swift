@@ -85,13 +85,12 @@ struct AboutRecappiMiniView: View {
         .frame(width: 460)
         .background(
             ZStack(alignment: .topTrailing) {
-                DT.recordingShell
+                Palette.surfaceWindow
                 AboutBackgroundGrid()
                     .opacity(0.34)
             }
         )
-        .preferredColorScheme(.dark)
-        .containerBackground(DT.recordingShell, for: .window)
+        .containerBackground(Palette.surfaceWindow, for: .window)
     }
 }
 

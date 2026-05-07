@@ -37,12 +37,7 @@ struct OnboardingView: View {
                 .background(.ultraThinMaterial)
         }
         .frame(width: 540, height: 440)
-        .background(
-            LinearGradient(
-                colors: [Color(red: 0.08, green: 0.10, blue: 0.12), Color(red: 0.05, green: 0.06, blue: 0.07)],
-                startPoint: .top, endPoint: .bottom
-            )
-        )
+        .background(Palette.surfaceWindow)
         .onAppear { permissionState = CapturePermissionPrimer.shared.snapshot() }
         .onReceive(permissionPoller.$tick) { _ in
             permissionState = CapturePermissionPrimer.shared.snapshot()
@@ -334,7 +329,7 @@ struct OnboardingView: View {
         HStack(spacing: 6) {
             ForEach(OnboardingStep.allCases, id: \.self) { dot in
                 Circle()
-                    .fill(dot == step ? DT.waveformLit : Color.white.opacity(0.18))
+                    .fill(dot == step ? DT.waveformLit : Palette.borderSubtle)
                     .frame(width: 6, height: 6)
             }
         }
@@ -436,11 +431,11 @@ struct OnboardingView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.04))
+                .fill(Palette.controlFillHover)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                .strokeBorder(Palette.borderHairline, lineWidth: 1)
         )
     }
 

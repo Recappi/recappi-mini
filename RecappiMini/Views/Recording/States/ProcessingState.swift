@@ -44,7 +44,7 @@ struct ProcessingState: View {
                 let width = geo.size.width
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.white.opacity(0.08))
+                        .fill(Palette.controlFillPress)
                         .frame(height: 3)
 
                     switch phase.progressStyle {

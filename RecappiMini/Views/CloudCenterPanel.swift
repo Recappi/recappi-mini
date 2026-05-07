@@ -19,7 +19,7 @@ struct CloudCenterPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(Color.white.opacity(0.08))
+            Divider().overlay(Palette.borderHairline)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -29,8 +29,7 @@ struct CloudCenterPanel: View {
         // being pushed inward by the hidden native title bar / content
         // layout reserve.
         .ignoresSafeArea(.container, edges: [.top, .bottom])
-        .background(DT.recordingShell)
-        .preferredColorScheme(.dark)
+        .background(Palette.surfaceWindow)
         .onDisappear {
             cloudAudioPlayer.close()
         }
@@ -179,7 +178,7 @@ struct CloudCenterPanel: View {
                         .fill(.ultraThinMaterial)
                         .overlay(
                             LinearGradient(
-                                colors: [Color.white.opacity(0.055), Color.white.opacity(0.018)],
+                                colors: [Palette.controlFillHover, Palette.controlFillHover.opacity(0.3)],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -261,7 +260,7 @@ struct CloudCenterPanel: View {
             recordingsList
                 .frame(width: 292)
 
-            Divider().overlay(Color.white.opacity(0.08))
+            Divider().overlay(Palette.borderHairline)
 
             detailPane
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -702,7 +701,7 @@ struct CloudCenterPanel: View {
         .padding(.vertical, 6)
         .background(
             Capsule(style: .continuous)
-                .fill(Color.white.opacity(0.07))
+                .fill(Palette.controlFillHover)
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Cloud account status")

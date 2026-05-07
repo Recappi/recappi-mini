@@ -41,7 +41,7 @@ struct CloudSourceIcon: View {
         .frame(width: size, height: size)
         .overlay(
             RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
         )
     }
 }

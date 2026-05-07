@@ -28,7 +28,7 @@ struct CloudSidebarBillingSummary: View {
                 )
 
             Rectangle()
-                .fill(Color.white.opacity(0.08))
+                .fill(Palette.borderHairline)
                 .frame(width: 1, height: 24)
 
             HStack(spacing: 14) {
@@ -49,7 +49,7 @@ struct CloudSidebarBillingSummary: View {
             .redacted(reason: status == nil && isLoading ? .placeholder : [])
 
             Rectangle()
-                .fill(Color.white.opacity(0.08))
+                .fill(Palette.borderHairline)
                 .frame(width: 1, height: 24)
 
             Button {
@@ -95,7 +95,7 @@ struct CloudSidebarBillingSummary: View {
 
             ZStack(alignment: .leading) {
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.11))
+                    .fill(Palette.controlFillPress)
                 Capsule(style: .continuous)
                     .fill(isOverLimit ? DT.systemOrange : DT.waveformLit)
                     .frame(width: 132 * clampedProgress)
@@ -157,7 +157,7 @@ struct CloudLimitMeter: View {
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule(style: .continuous)
-                        .fill(Color.white.opacity(0.10))
+                        .fill(Palette.controlFillPress)
                     Capsule(style: .continuous)
                         .fill(isOverLimit ? DT.systemOrange : DT.waveformLit)
                         .frame(width: proxy.size.width * max(0, min(1, progress)))
@@ -257,11 +257,11 @@ struct CloudRecordingRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isSelected ? DT.recordingChip.opacity(0.82) : Color.white.opacity(0.035))
+                    .fill(isSelected ? Palette.surfaceChip.opacity(0.92) : Palette.controlFillHover.opacity(0.6))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isSelected ? DT.statusReady.opacity(0.34) : Color.white.opacity(0.045), lineWidth: 1)
+                    .strokeBorder(isSelected ? DT.statusReady.opacity(0.34) : Palette.borderHairline, lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }

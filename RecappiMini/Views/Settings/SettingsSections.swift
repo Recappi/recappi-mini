@@ -60,6 +60,28 @@ struct SettingsPermissionsSection<MicrophoneRow: View, ScreenCaptureRow: View>: 
     }
 }
 
+struct SettingsAppearanceSection: View {
+    @Binding var theme: AppTheme
+
+    var body: some View {
+        Section {
+            Picker("Theme", selection: $theme) {
+                ForEach(AppTheme.allCases) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier(AccessibilityIDs.Settings.themePicker)
+        } header: {
+            Text("Appearance")
+        } footer: {
+            Text("Choose Light, Dark, or follow your macOS appearance.")
+                .foregroundStyle(Color.dtLabelSecondary)
+                .font(.footnote)
+        }
+    }
+}
+
 struct SettingsRecordingAssistSection: View {
     @Binding var autoPrompt: Bool
 

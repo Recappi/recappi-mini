@@ -56,17 +56,17 @@ struct HeaderGlassButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Color.dtLabel)
+            .foregroundStyle(Palette.labelPrimary)
             .labelStyle(.titleAndIcon)
             .frame(maxWidth: .infinity)
             .frame(height: 30)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.white.opacity(configuration.isPressed ? 0.105 : 0.07))
+                    .fill(configuration.isPressed ? Palette.controlFillPress : Palette.controlFillHover)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(Color.white.opacity(configuration.isPressed ? 0.22 : 0.12), lineWidth: 0.75)
+                    .strokeBorder(configuration.isPressed ? Palette.borderStrong : Palette.borderSubtle, lineWidth: 0.75)
             )
             .opacity(configuration.isPressed ? 0.86 : 1)
     }

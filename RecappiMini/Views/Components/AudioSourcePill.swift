@@ -37,7 +37,7 @@ struct AudioSourcePill: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
+                    .stroke(Palette.borderSubtle, lineWidth: 0.5)
             )
             .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
         }

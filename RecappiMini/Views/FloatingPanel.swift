@@ -12,12 +12,12 @@ struct FloatingPanelChromeView<Content: View>: View {
         content
             .background {
                 RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous)
-                    .fill(Color(red: 0.179, green: 0.179, blue: 0.179))
+                    .fill(Palette.surfacePanel)
                     .allowsHitTesting(false)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous)
-                    .stroke(.white.opacity(0.06), lineWidth: 0.5)
+                    .stroke(Palette.borderHairline, lineWidth: 0.5)
                     .allowsHitTesting(false)
             }
             .clipShape(RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous))
