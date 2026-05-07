@@ -324,6 +324,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let promptTitle: String?
     }
 
+    private enum ManagedWindowCloseRoute {
+        case settings
+        case cloud
+        case liveCaptions
+        case onboarding
+        case about
+    }
+
     private var statusItem: NSStatusItem?
     private var recordingDotView: NSView?
     private var showHidePanelMenuItem: NSMenuItem?
@@ -541,7 +549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         runningAppsRefreshTask?.cancel()
         recorderStateObserver?.cancel()
         liveCaptionSessionObserver?.cancel()
-        liveCaptionWindow?.close()
+        closeLiveCaptionWindow()
         let center = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers {
             center.removeObserver(observer)
@@ -925,8 +933,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             }
             presentLiveCaptionWindow()
         } else {
-            dismissedLiveCaptionSessionID = sessionID
-            hideLiveCaptionWindow()
+            dismissLiveCaptionWindow(for: sessionID)
         }
     }
 
@@ -1025,8 +1032,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func hideLiveCaptionWindow() {
+        // Hide keeps the warm panel instance around. The panel hosts live ASR
+        // text and mode state, so transient app-state changes should not close
+        // and recreate it unless we are truly tearing the app/window down.
         liveCaptionWindow?.orderOut(nil)
         isLiveCaptionPanelPresented = false
+    }
+
+    private func dismissLiveCaptionWindow(for sessionID: String) {
+        dismissedLiveCaptionSessionID = sessionID
+        hideLiveCaptionWindow()
+    }
+
+    private func closeLiveCaptionWindow() {
+        guard let window = liveCaptionWindow else {
+            isLiveCaptionPanelPresented = false
+            return
+        }
+        liveCaptionWindow = nil
+        isLiveCaptionPanelPresented = false
+        window.delegate = nil
+        window.close()
     }
 
     private func resizeLiveCaptionWindowToContent() {
@@ -1694,17 +1720,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     func windowWillClose(_ notification: Notification) {
         guard let closingWindow = notification.object as? NSWindow else { return }
-        if closingWindow === settingsWindow {
+        guard let route = managedWindowCloseRoute(for: closingWindow) else { return }
+        handleManagedWindowClose(route)
+    }
+
+    private func managedWindowCloseRoute(for window: NSWindow) -> ManagedWindowCloseRoute? {
+        if window === settingsWindow {
+            return .settings
+        }
+        if window === cloudWindow {
+            return .cloud
+        }
+        if window === liveCaptionWindow {
+            return .liveCaptions
+        }
+        if window === onboardingWindow {
+            return .onboarding
+        }
+        if window === aboutWindow {
+            return .about
+        }
+        return nil
+    }
+
+    private func handleManagedWindowClose(_ route: ManagedWindowCloseRoute) {
+        switch route {
+        case .settings:
             settingsWindow = nil
             releaseForegroundWindowDemand()
-        } else if closingWindow === cloudWindow {
+        case .cloud:
             cloudWindow = nil
             releaseForegroundWindowDemand()
-        } else if closingWindow === liveCaptionWindow {
+        case .liveCaptions:
             liveCaptionWindow = nil
             isLiveCaptionPanelPresented = false
             restoreAccessoryActivationPolicyIfPossible()
-        } else if closingWindow === onboardingWindow {
+        case .onboarding:
             // The native title-bar close button is the onboarding escape
             // hatch. It replaces the old in-view footer Skip button, so
             // closing the window marks first-launch onboarding complete
@@ -1713,7 +1764,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             OnboardingState.didComplete = true
             onboardingWindow = nil
             releaseForegroundWindowDemand()
-        } else if closingWindow === aboutWindow {
+        case .about:
             aboutWindow = nil
             releaseForegroundWindowDemand()
         }
