@@ -1,57 +1,80 @@
 import AppKit
 import SwiftUI
 
+// MARK: - Sidebar item
+
+enum SettingsItem: Hashable {
+    case general
+    case account
+    case permissions
+    case transcription
+    case updates
+}
+
+// MARK: - Root settings view
+
 struct SettingsView: View {
     @EnvironmentObject private var config: AppConfig
     @EnvironmentObject private var sessionStore: AuthSessionStore
     @EnvironmentObject private var appUpdater: AppUpdater
+
+    @State private var selection: SettingsItem = .general
     @State private var capturePermissions = CapturePermissionSnapshot.placeholder
     @State private var permissionsBusy = false
-    @State private var billingStatus: BillingStatus?
-    @State private var billingErrorMessage: String?
-    @State private var isLoadingBilling = false
+
     let ownsForegroundWindowDemand: Bool
 
     init(ownsForegroundWindowDemand: Bool = true) {
         self.ownsForegroundWindowDemand = ownsForegroundWindowDemand
     }
 
-    private static let updateCheckDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
-
     var body: some View {
-        VStack(spacing: 0) {
-            SettingsHeader()
-            Form {
-                accountSection
-                appearanceSection
-                permissionsSection
-                recordingAssistSection
-                transcriptionSection
-                storageSection
-                updatesSection
-                supportSection
+        NavigationSplitView {
+            List(selection: $selection) {
+                Section {
+                    accountSidebarRow
+                        .tag(SettingsItem.account)
+                }
+
+                Section {
+                    SettingsSidebarRow(title: "General", systemImage: "gear", color: .gray)
+                        .tag(SettingsItem.general)
+
+                    SettingsSidebarRow(
+                        title: "Permissions",
+                        systemImage: "lock.shield",
+                        color: .orange,
+                        statusDot: permissionsStatusDot
+                    )
+                    .tag(SettingsItem.permissions)
+
+                    SettingsSidebarRow(
+                        title: "Transcription",
+                        systemImage: "text.bubble",
+                        color: .green
+                    )
+                    .tag(SettingsItem.transcription)
+                }
+
+                Section {
+                    SettingsSidebarRow(
+                        title: "Updates",
+                        systemImage: "arrow.down.circle",
+                        color: .indigo
+                    )
+                    .tag(SettingsItem.updates)
+                }
             }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
+        } detail: {
+            detailView
+                .containerBackground(Palette.surfaceWindow, for: .window)
         }
-        .background(Palette.surfaceWindow)
-        .containerBackground(Palette.surfaceWindow, for: .window)
         .navigationTitle("Recappi Mini Settings")
-        .frame(minWidth: 520, idealWidth: 560, maxWidth: 620)
+        .frame(minWidth: 720, idealWidth: 720, minHeight: 520, idealHeight: 520)
         .task {
             refreshPermissionStatus()
-            await refreshBillingStatusIfNeeded()
-        }
-        .task(id: sessionStore.currentSession?.userId) {
-            await refreshBillingStatusIfNeeded()
-        }
-        .task(id: config.cloudEnabled) {
-            await refreshBillingStatusIfNeeded()
         }
         .onDisappear {
             if ownsForegroundWindowDemand {
@@ -61,801 +84,116 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private var accountSection: some View {
-        SettingsAccountSection(
-            currentSession: sessionStore.currentSession,
-            cloudEnabled: cloudEnabledBinding,
-            isOpenCloudDisabled: !config.cloudEnabled,
-            onOpenCloud: openCloudCenter,
-            statusStrip: { accountStatusStrip },
-            identityRow: { accountIdentityRow(session: $0) },
-            signedOutRow: { signedOutAuthRow },
-            billingUsage: { billingUsageView }
-        )
-    }
-
-    @ViewBuilder
-    private var appearanceSection: some View {
-        SettingsAppearanceSection(theme: themeBinding)
-    }
-
-    @ViewBuilder
-    private var billingUsageView: some View {
-        if config.cloudEnabled, sessionStore.currentSession != nil {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Label(billingUsageTitle, systemImage: billingUsageIcon)
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(billingUsageTint)
-
-                    Spacer(minLength: 0)
-
-                    Button {
-                        Task { await refreshBillingStatus(force: true) }
-                    } label: {
-                        ZStack {
-                            Image(systemName: "arrow.clockwise")
-                                .opacity(isLoadingBilling ? 0 : 1)
-
-                            ProgressView()
-                                .controlSize(.small)
-                                .scaleEffect(0.72)
-                                .opacity(isLoadingBilling ? 1 : 0)
-                        }
-                        .frame(width: 18, height: 18)
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(isLoadingBilling)
-                    .help("Refresh usage")
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.billingRefreshButton)
-                }
-
-                if let billingStatus {
-                    VStack(alignment: .leading, spacing: 6) {
-                        usageLine(
-                            title: "Storage",
-                            value: settingsStorageUsageText(for: billingStatus),
-                            progress: settingsStorageProgress(for: billingStatus),
-                            isOverLimit: billingStatus.effectiveIsOverStorage
-                        )
-                        usageLine(
-                            title: "Minutes",
-                            value: settingsMinutesUsageText(for: billingStatus),
-                            progress: settingsMinutesProgress(for: billingStatus),
-                            isOverLimit: billingStatus.effectiveIsOverMinutes
-                        )
-                    }
-                } else {
-                    Text(billingErrorMessage ?? (isLoadingBilling ? "Loading usage…" : "Usage unavailable"))
-                        .font(.caption)
-                        .foregroundStyle(Color.dtLabelSecondary)
-                        .lineLimit(2)
-                }
-            }
-            .padding(.vertical, 2)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier(AccessibilityIDs.Settings.billingUsage)
-        }
-    }
-
-    private func usageLine(
-        title: String,
-        value: String,
-        progress: Double,
-        isOverLimit: Bool
-    ) -> some View {
-        HStack(spacing: 8) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(Color.dtLabelSecondary)
-                .frame(width: 52, alignment: .leading)
-
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule(style: .continuous)
-                        .fill(Palette.controlFillPress)
-                    Capsule(style: .continuous)
-                        .fill((isOverLimit ? DT.systemOrange : DT.waveformLit).opacity(0.72))
-                        .frame(width: proxy.size.width * max(0, min(1, progress)))
-                }
-            }
-            .frame(height: 4)
-
-            Text(value)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(isOverLimit ? DT.systemOrange : Color.dtLabelTertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .frame(width: 132, alignment: .trailing)
-        }
-    }
-
-    @ViewBuilder
-    private var permissionsSection: some View {
-        SettingsPermissionsSection(
-            permissionsBusy: permissionsBusy,
-            onRefresh: refreshPermissionStatus,
-            microphoneRow: {
-                permissionRow(
-                    title: "Microphone",
-                    state: capturePermissions.microphone,
-                    statusID: AccessibilityIDs.Settings.permissionMicrophoneStatus,
-                    requestID: AccessibilityIDs.Settings.requestMicrophoneButton,
-                    action: requestMicrophonePermission
-                )
-            },
-            screenCaptureRow: {
-                permissionRow(
-                    title: "Screen & system audio",
-                    state: capturePermissions.screenCapture,
-                    statusID: AccessibilityIDs.Settings.permissionScreenCaptureStatus,
-                    requestID: AccessibilityIDs.Settings.requestScreenCaptureButton,
-                    action: requestScreenCapturePermission
-                )
-            }
-        )
-    }
-
-    @ViewBuilder
-    private var recordingAssistSection: some View {
-        SettingsRecordingAssistSection(autoPrompt: autoPromptBinding)
-    }
-
-    @ViewBuilder
-    private var transcriptionSection: some View {
-        SettingsTranscriptionSection(
-            liveCaptionsDisplay: liveCaptionsDisplayBinding,
-            language: languageBinding
-        )
-    }
-
-    @ViewBuilder
-    private var storageSection: some View {
-        SettingsStorageSection(onOpenRecordingsFolder: openRecordingsFolder)
-    }
-
-    @ViewBuilder
-    private var updatesSection: some View {
-        SettingsUpdatesSection(
-            appUpdater: appUpdater,
-            appVersionText: appVersionText,
-            lastUpdateCheckText: lastUpdateCheckText
-        )
-    }
-
-    /// Surfaces less-frequent maintenance affordances. Currently this is
-    /// the "restart onboarding" entry — clears the persisted onboarding
-    /// flags and asks `AppDelegate` to re-present the welcome window so
-    /// the user can revisit the permission/sign-in walkthrough (useful
-    /// after wiping a permission in System Settings, or for re-running
-    /// the flow on a debug build).
-    @ViewBuilder
-    private var supportSection: some View {
-        SettingsSupportSection(
-            onRestartOnboarding: restartOnboarding,
-            onShowAbout: { AppDelegate.shared.showAboutPanel() }
-        )
-    }
-
-    private func restartOnboarding() {
-        OnboardingState.didComplete = false
-        OnboardingState.lastStep = .welcome
-        AppDelegate.shared.showOnboardingWindow()
-    }
-
-    @ViewBuilder
-    private func permissionRow(
-        title: String,
-        state: CapturePermissionSnapshot.State,
-        statusID: String,
-        requestID: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        LabeledContent(title) {
-            HStack(spacing: 8) {
-                Label(state.label, systemImage: state.systemImage)
-                    .foregroundStyle(state == .authorized ? DT.systemGreen : DT.systemOrange)
-                    .accessibilityIdentifier(statusID)
-
-                if state != .authorized {
-                    Button("Allow", action: action)
-                        .disabled(permissionsBusy)
-                        .accessibilityIdentifier(requestID)
-                }
-            }
-        }
-    }
-
-    private var signedOutText: String {
-        if let provider = sessionStore.lastOAuthProvider {
-            return "Signed out. Last used \(provider.displayName)."
-        }
-        return "Signed out."
-    }
-
-    @ViewBuilder
-    private var accountStatusStrip: some View {
-        HStack(spacing: 8) {
-            settingsStatusPill(
-                title: "Account",
-                value: accountPillValue,
-                systemImage: accountPillIcon,
-                tint: accountPillTint
+    private var detailView: some View {
+        switch selection {
+        case .general:
+            GeneralSettingsPage()
+        case .account:
+            AccountSettingsPage()
+        case .permissions:
+            PermissionsSettingsPage(
+                snapshot: $capturePermissions,
+                permissionsBusy: $permissionsBusy,
+                onRefresh: refreshPermissionStatus
             )
-            settingsStatusPill(
-                title: "Permissions",
-                value: permissionsPillValue,
-                systemImage: permissionsReady ? "checkmark.circle.fill" : "exclamationmark.circle.fill",
-                tint: permissionsReady ? DT.systemGreen : DT.systemOrange
-            )
-            settingsStatusPill(
-                title: "Cloud",
-                value: config.cloudEnabled ? "On" : "Off",
-                systemImage: config.cloudEnabled ? "icloud.fill" : "icloud.slash.fill",
-                tint: config.cloudEnabled ? DT.waveformLit : Color.dtLabelTertiary
-            )
+        case .transcription:
+            TranscriptionSettingsPage()
+        case .updates:
+            UpdatesSettingsPage()
         }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(authStatusText)
-        .accessibilityValue(authStatusText)
-        .accessibilityIdentifier(AccessibilityIDs.Settings.authStatus)
     }
 
+    // MARK: - Account sidebar row
+
+    /// Apple-Account-style sidebar entry: shows the user's avatar (or a
+    /// signed-out placeholder), name + connection state on two lines, and the
+    /// existing connected/needs-attention status dot. Placing it at the top of
+    /// the sidebar matches macOS System Settings' affordance for Apple Account.
     @ViewBuilder
-    private func accountIdentityRow(session: UserSession) -> some View {
+    private var accountSidebarRow: some View {
         HStack(spacing: 10) {
-            accountAvatar(for: session)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(sessionDisplayName(for: session))
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(Color.dtLabel)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                accountConnectionRow(for: session)
-            }
-
-            Spacer(minLength: 0)
-
-            Text("Active")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(DT.systemGreen)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(DT.systemGreen.opacity(0.14))
-                )
-
-            Menu {
-                Button(signOutButtonTitle, action: signOut)
-                    .disabled(signOutDisabled)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.signOutButton)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.dtLabelSecondary)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .disabled(sessionStore.isAuthBusy)
-            .accessibilityLabel("Account actions")
-            .accessibilityIdentifier(AccessibilityIDs.Settings.accountActionsMenu)
-        }
-        .padding(.vertical, 3)
-    }
-
-    @ViewBuilder
-    private var signedOutAuthRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                fallbackAccountAvatar()
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(signedOutTitle)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(Color.dtLabel)
-                    Text(authStatusText)
-                        .font(.caption)
-                        .foregroundStyle(Color.dtLabelSecondary)
-                        .lineLimit(2)
-                        .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
-                }
-
-                Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 8) {
-                if shouldShowSignInAgainButton {
-                    Button(signInAgainButtonTitle, action: reconnect)
-                        .controlSize(.small)
-                        .disabled(isAuthActionDisabled)
-                        .accessibilityIdentifier(AccessibilityIDs.Settings.reconnectButton)
-                }
-
-                signInButton(for: .google)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.signInGoogleButton)
-
-                signInButton(for: .github)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.signInGitHubButton)
-
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(.vertical, 3)
-    }
-
-    @ViewBuilder
-    private func signInButton(for provider: OAuthProvider) -> some View {
-        Button(action: { signIn(with: provider) }) {
-            HStack(spacing: 6) {
-                if sessionStore.authFlowPhase?.activeProvider == provider {
-                    ProgressView().controlSize(.small)
-                    Text(sessionStore.authFlowPhase?.buttonLabel ?? "Connecting…")
-                } else {
-                    Text(provider.displayName)
-                }
-            }
-        }
-        .controlSize(.small)
-        .disabled(isAuthActionDisabled)
-    }
-
-    @ViewBuilder
-    private func settingsStatusPill(
-        title: String,
-        value: String,
-        systemImage: String,
-        tint: Color
-    ) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.caption)
-                .foregroundStyle(tint)
+            AccountAvatar(session: sessionStore.currentSession, size: 40)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.caption2)
-                    .foregroundStyle(Color.dtLabelTertiary)
-                Text(value)
-                    .font(.caption)
-                    .foregroundStyle(Color.dtLabelSecondary)
+                Text(accountSidebarTitle)
+                    .font(.body.weight(.semibold))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .truncationMode(.tail)
+                Text(accountSidebarSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(Palette.labelSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer()
+
+            if let dot = accountStatusDot {
+                Circle()
+                    .fill(dot)
+                    .frame(width: 8, height: 8)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Palette.controlFillHover)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Palette.borderHairline, lineWidth: 0.5)
-                )
-        )
     }
 
-    @ViewBuilder
-    private func accountAvatar(for session: UserSession, size: CGFloat = 28) -> some View {
-        AccountAvatar(session: session, size: size)
+    private var accountSidebarTitle: String {
+        if let session = sessionStore.currentSession {
+            let name = session.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? session.email : name
+        }
+        return "Account"
     }
 
-    @ViewBuilder
-    private func fallbackAccountAvatar(size: CGFloat = 28) -> some View {
-        AccountAvatar(session: nil, size: size)
-    }
-
-    @ViewBuilder
-    private func accountConnectionRow(for session: UserSession) -> some View {
-        HStack(spacing: 4) {
+    private var accountSidebarSubtitle: String {
+        if let session = sessionStore.currentSession {
             if let provider = sessionStore.lastOAuthProvider {
-                Text("Connected with")
-                ProviderInlineMark(provider: provider, size: 12)
-                Text(provider.displayName)
-            } else {
-                Text("Connected")
+                return "Recappi Cloud · \(provider.displayName)"
             }
-            if sessionDisplayName(for: session) != session.email {
-                Text("· \(session.email)")
-                    .truncationMode(.middle)
-            }
+            return session.email
         }
-        .font(.caption)
-        .foregroundStyle(Color.dtLabelSecondary)
-        .lineLimit(1)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accountConnectionText(for: session))
-        .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
-    }
-
-    private func signedInText(for session: UserSession) -> String {
-        let expiresPrefix = session.expiresAt.prefix(10)
-        if let provider = sessionStore.lastOAuthProvider {
-            return "\(session.email) via \(provider.displayName), expires \(expiresPrefix)."
-        }
-        return "\(session.email), expires \(expiresPrefix)."
-    }
-
-    private var accountPillValue: String {
-        if sessionStore.authFlowPhase != nil {
-            return "Working"
-        }
-
         switch sessionStore.authStatus {
-        case .signedOut:
-            return "Sign in"
-        case .authenticating:
-            return "Working"
-        case .signedIn:
-            return "Active"
         case .expired:
-            return "Expired"
+            return "Session expired"
         case .failed:
-            return "Issue"
-        }
-    }
-
-    private var accountPillIcon: String {
-        if sessionStore.authFlowPhase != nil {
-            return "arrow.triangle.2.circlepath"
-        }
-
-        switch sessionStore.authStatus {
-        case .signedOut:
-            return "person.crop.circle.badge.xmark"
-        case .authenticating:
-            return "arrow.triangle.2.circlepath"
-        case .signedIn:
-            return "checkmark.circle.fill"
-        case .expired:
-            return "clock.arrow.circlepath"
-        case .failed:
-            return "xmark.circle.fill"
-        }
-    }
-
-    private var accountPillTint: Color {
-        if sessionStore.authFlowPhase != nil {
-            return DT.waveformLit
-        }
-
-        switch sessionStore.authStatus {
-        case .signedIn:
-            return DT.systemGreen
-        case .authenticating:
-            return DT.waveformLit
-        case .signedOut:
-            return Color.dtLabelTertiary
-        case .expired, .failed:
-            return DT.systemOrange
-        }
-    }
-
-    private var permissionsReady: Bool {
-        capturePermissions.microphone == .authorized && capturePermissions.screenCapture == .authorized
-    }
-
-    private var permissionsPillValue: String {
-        if permissionsReady {
-            return "Ready"
-        }
-        if capturePermissions.microphone != .authorized && capturePermissions.screenCapture != .authorized {
-            return "Needs setup"
-        }
-        if capturePermissions.microphone != .authorized {
-            return "Mic"
-        }
-        return "Screen"
-    }
-
-    private var signedOutTitle: String {
-        switch sessionStore.authStatus {
-        case .expired, .failed:
-            return "Sign in again"
+            return "Sign in needed"
         default:
             return "Sign in to Recappi Cloud"
         }
     }
 
-    private var signInAgainButtonTitle: String {
-        if let provider = sessionStore.lastOAuthProvider {
-            return "Sign in with \(provider.displayName)"
-        }
-        return "Sign in again"
-    }
+    // MARK: - Sidebar status dots
 
-    private var shouldShowSignInAgainButton: Bool {
+    private var accountStatusDot: Color? {
+        if sessionStore.authFlowPhase != nil {
+            return DT.waveformLit
+        }
         switch sessionStore.authStatus {
+        case .signedIn:
+            return config.cloudEnabled ? DT.systemGreen : nil
         case .expired, .failed:
-            return sessionStore.lastOAuthProvider != nil
+            return config.cloudEnabled ? DT.systemOrange : nil
+        case .signedOut, .authenticating:
+            return nil
+        }
+    }
+
+    private var permissionsStatusDot: Color? {
+        let mic = capturePermissions.microphone == .authorized
+        let screen = capturePermissions.screenCapture == .authorized
+        switch (mic, screen) {
+        case (true, true):
+            return DT.systemGreen
+        case (false, false):
+            return DT.systemOrange
         default:
-            return false
-        }
-    }
-
-    private func sessionDisplayName(for session: UserSession) -> String {
-        let trimmedName = session.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedName.isEmpty ? session.email : trimmedName
-    }
-
-    private func accountConnectionText(for session: UserSession) -> String {
-        let providerText: String
-        if let provider = sessionStore.lastOAuthProvider {
-            providerText = "Connected with \(provider.displayName)"
-        } else {
-            providerText = "Connected"
-        }
-        if sessionDisplayName(for: session) == session.email {
-            return providerText
-        }
-        return "\(providerText) · \(session.email)"
-    }
-
-    private var billingUsageTitle: String {
-        if let billingStatus {
-            return "\(billingStatus.tier.displayName) usage"
-        }
-        if isLoadingBilling {
-            return "Loading usage"
-        }
-        return "Cloud usage"
-    }
-
-    private var billingUsageIcon: String {
-        if isLoadingBilling {
-            return "arrow.triangle.2.circlepath"
-        }
-        if billingStatus.map(settingsIsOverAnyLimit) == true {
-            return "exclamationmark.triangle.fill"
-        }
-        return "chart.bar.xaxis"
-    }
-
-    private var billingUsageTint: Color {
-        if billingStatus.map(settingsIsOverAnyLimit) == true || billingErrorMessage != nil {
             return DT.systemOrange
         }
-        return DT.waveformLit
     }
 
-    private var signOutButtonTitle: String {
-        if sessionStore.authFlowPhase == .signingOut {
-            return "Signing out…"
-        }
-        return "Sign out"
-    }
-
-    private var signOutDisabled: Bool {
-        sessionStore.currentSession == nil || sessionStore.isAuthBusy
-    }
-
-    private var authStatusText: String {
-        if let phase = sessionStore.authFlowPhase {
-            return phase.statusText
-        }
-
-        switch sessionStore.authStatus {
-        case .signedOut:
-            return signedOutText
-        case .authenticating:
-            return "Authenticating"
-        case .signedIn(let session):
-            return signedInText(for: session)
-        case .expired:
-            return sessionStore.authStatusDetail ?? "Session expired"
-        case .failed:
-            return sessionStore.authStatusDetail ?? "Authentication failed"
-        }
-    }
-
-    private var appVersionText: String {
-        let bundle = Bundle.main
-        let shortVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        let buildNumber = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-
-        switch (shortVersion, buildNumber) {
-        case let (shortVersion?, buildNumber?) where shortVersion != buildNumber:
-            return "\(shortVersion) (\(buildNumber))"
-        case let (shortVersion?, _):
-            return shortVersion
-        case let (_, buildNumber?):
-            return buildNumber
-        default:
-            return "Unknown"
-        }
-    }
-
-    private var lastUpdateCheckText: String {
-        guard let date = appUpdater.lastUpdateCheckDate else { return "Not yet" }
-        return Self.updateCheckDateFormatter.string(from: date)
-    }
-
-    private var isAuthActionDisabled: Bool {
-        !config.cloudEnabled || sessionStore.isAuthBusy
-    }
-
-    private func signIn(with provider: OAuthProvider) {
-        let origin = config.effectiveBackendBaseURL
-        Task { @MainActor in
-            do {
-                _ = try await sessionStore.startOAuth(provider: provider, origin: origin)
-                await refreshBillingStatus(force: true)
-            } catch {
-                NSSound.beep()
-            }
-        }
-    }
-
-    private func reconnect() {
-        let origin = config.effectiveBackendBaseURL
-        Task { @MainActor in
-            do {
-                _ = try await sessionStore.reconnect(origin: origin)
-                await refreshBillingStatus(force: true)
-            } catch {
-                NSSound.beep()
-            }
-        }
-    }
-
-    private func signOut() {
-        let origin = config.effectiveBackendBaseURL
-        Task { @MainActor in
-            await sessionStore.signOut(origin: origin)
-            billingStatus = nil
-            billingErrorMessage = nil
-        }
-    }
-
-    private func openCloudCenter() {
-        AppDelegate.shared.showCloudCenter()
-    }
+    // MARK: - Permissions snapshot (lifted so the sidebar dot stays in sync with the detail page)
 
     private func refreshPermissionStatus() {
         capturePermissions = CapturePermissionPrimer.shared.snapshot()
-    }
-
-    private func requestMicrophonePermission() {
-        Task { @MainActor in
-            permissionsBusy = true
-            _ = await CapturePermissionPrimer.shared.requestMicrophoneAccess()
-            refreshPermissionStatus()
-            permissionsBusy = false
-        }
-    }
-
-    private func requestScreenCapturePermission() {
-        permissionsBusy = true
-        _ = CapturePermissionPrimer.shared.requestScreenCaptureAccess()
-        refreshPermissionStatus()
-        permissionsBusy = false
-    }
-
-    private func openRecordingsFolder() {
-        NSWorkspace.shared.open(RecordingStore.baseDirectory)
-    }
-
-    private func refreshBillingStatusIfNeeded() async {
-        guard config.cloudEnabled, sessionStore.currentSession != nil else {
-            billingStatus = nil
-            billingErrorMessage = nil
-            isLoadingBilling = false
-            return
-        }
-        guard billingStatus == nil else { return }
-        await refreshBillingStatus(force: false)
-    }
-
-    private func refreshBillingStatus(force: Bool) async {
-        guard config.cloudEnabled, sessionStore.currentSession != nil else {
-            billingStatus = nil
-            billingErrorMessage = nil
-            isLoadingBilling = false
-            return
-        }
-        guard force || billingStatus == nil else { return }
-
-        isLoadingBilling = true
-        billingErrorMessage = nil
-        do {
-            let origin = config.effectiveBackendBaseURL
-            _ = try await sessionStore.ensureAuthorized(origin: origin)
-            guard let token = sessionStore.bearerToken() else {
-                throw RecappiSessionError.notSignedIn
-            }
-            let client = RecappiAPIClient(origin: origin, bearerToken: token)
-            billingStatus = try await client.getBillingStatus()
-        } catch let error as RecappiAPIError where error == .unauthorized {
-            do {
-                let origin = config.effectiveBackendBaseURL
-                _ = try await sessionStore.handleUnauthorized(origin: origin)
-            } catch {
-                // `handleUnauthorized` already updates the visible auth state.
-            }
-            billingStatus = nil
-            billingErrorMessage = nil
-        } catch {
-            billingStatus = nil
-            billingErrorMessage = error.localizedDescription
-        }
-        isLoadingBilling = false
-    }
-
-    private func settingsStorageProgress(for status: BillingStatus) -> Double {
-        guard !status.hasUnlimitedStorage else { return 0 }
-        guard status.storageCapBytes > 0 else { return 0 }
-        return Double(status.storageBytes) / Double(status.storageCapBytes)
-    }
-
-    private func settingsMinutesProgress(for status: BillingStatus) -> Double {
-        guard !status.hasUnlimitedMinutes else { return 0 }
-        guard status.minutesCap > 0 else { return 0 }
-        return status.minutesUsed / status.minutesCap
-    }
-
-    private func settingsIsOverAnyLimit(_ status: BillingStatus) -> Bool {
-        status.effectiveIsOverAnyLimit
-    }
-
-    private func settingsStorageUsageText(for status: BillingStatus) -> String {
-        let used = ByteCountFormatter.string(fromByteCount: status.storageBytes, countStyle: .file)
-        guard !status.hasUnlimitedStorage else { return "\(used) used" }
-        let cap = ByteCountFormatter.string(fromByteCount: status.storageCapBytes, countStyle: .file)
-        return "\(used) / \(cap)"
-    }
-
-    private func settingsMinutesUsageText(for status: BillingStatus) -> String {
-        guard !status.hasUnlimitedMinutes else { return "\(settingsFormattedMinutes(status.minutesUsed)) min used" }
-        return "\(settingsFormattedMinutes(status.minutesUsed)) / \(settingsFormattedMinutes(status.minutesCap)) min"
-    }
-
-    private func settingsFormattedMinutes(_ value: Double) -> String {
-        if value.rounded() == value {
-            return String(Int(value))
-        }
-        return String(format: "%.1f", value)
-    }
-
-    private var languageBinding: Binding<String> {
-        Binding(
-            get: { config.cloudLanguage },
-            set: { config.cloudLanguage = $0 }
-        )
-    }
-
-    private var liveCaptionsDisplayBinding: Binding<Bool> {
-        Binding(
-            get: { config.liveCaptionsDisplayEnabled },
-            set: {
-                config.liveCaptionsDisplayEnabled = $0
-                AppDelegate.shared.applyLiveCaptionDisplayPreference()
-            }
-        )
-    }
-
-    private var cloudEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { config.cloudEnabled },
-            set: { config.cloudEnabled = $0 }
-        )
-    }
-
-    private var autoPromptBinding: Binding<Bool> {
-        Binding(
-            get: { config.autoPromptForActiveAudioApps },
-            set: { config.autoPromptForActiveAudioApps = $0 }
-        )
-    }
-
-    private var themeBinding: Binding<AppTheme> {
-        Binding(
-            get: { config.theme },
-            set: { config.theme = $0 }
-        )
     }
 }

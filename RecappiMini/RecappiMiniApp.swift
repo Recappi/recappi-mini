@@ -14,9 +14,9 @@ struct RecappiMiniApp: App {
 
     var body: some Scene {
         // Standalone Settings window — opened via ⌘, or the gear in the panel.
-        // .contentSize makes the window track the SwiftUI content's intrinsic
-        // size so settings sections can grow without forcing an internal
-        // scroll view.
+        // The sidebar+detail layout has no intrinsic width, so we constrain
+        // resizability with `.contentMinSize` and let the NavigationSplitView
+        // hold its 720×520 minimum from inside the SwiftUI tree.
         Settings {
             ThemedHost {
                 SettingsView()
@@ -25,7 +25,7 @@ struct RecappiMiniApp: App {
                     .environmentObject(AppUpdater.shared)
             }
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
     }
 
 }
@@ -577,10 +577,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let window = WindowFactory.createWindow(
             contentView: hostingView,
             spec: WindowFactory.WindowSpec(
-                contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
+                contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 title: "Recappi Mini Settings",
-                contentMinSize: NSSize(width: 520, height: 620)
+                contentMinSize: NSSize(width: 720, height: 520)
             ),
             delegate: self
         )
