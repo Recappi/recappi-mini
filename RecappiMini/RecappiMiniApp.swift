@@ -5,7 +5,7 @@ import SwiftUI
 
 @main
 struct RecappiMiniApp: App {
-    @StateObject private var appDelegate = AppDelegate.shared
+    @ObservedObject private var appDelegate = AppDelegate.shared
 
     init() {
         DispatchQueue.main.async {
@@ -20,6 +20,7 @@ struct RecappiMiniApp: App {
         // scroll view.
         Settings {
             SettingsView()
+                .environmentObject(AuthSessionStore.shared)
         }
         .windowResizability(.contentSize)
     }
@@ -614,7 +615,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         prepareForForegroundWindowPresentation()
 
-        let hostingView = NSHostingView(rootView: SettingsView(ownsForegroundWindowDemand: false))
+        let hostingView = NSHostingView(
+            rootView: SettingsView(ownsForegroundWindowDemand: false)
+                .environmentObject(AuthSessionStore.shared)
+        )
         let window = WindowFactory.createWindow(
             contentView: hostingView,
             spec: WindowFactory.WindowSpec(
@@ -638,7 +642,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         prepareForForegroundWindowPresentation()
 
-        let hostingView = CloudEdgeToEdgeHostingView(rootView: CloudCenterPanel(store: cloudStore, recorder: recorder))
+        let hostingView = CloudEdgeToEdgeHostingView(
+            rootView: CloudCenterPanel(store: cloudStore, recorder: recorder)
+                .environmentObject(AuthSessionStore.shared)
+        )
         // `.fullSizeContentView` lets the SwiftUI panel draw under
         // the macOS title bar so the Cloud window reads like an
         // app surface rather than a Finder document — the SwiftUI

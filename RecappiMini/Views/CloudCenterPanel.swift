@@ -5,7 +5,7 @@ struct CloudCenterPanel: View {
     @StateObject private var store: CloudLibraryStore
     @StateObject private var cloudAudioPlayer = CloudMeetingAudioPlayer()
     @ObservedObject private var recorder: AudioRecorder
-    @ObservedObject private var sessionStore = AuthSessionStore.shared
+    @EnvironmentObject private var sessionStore: AuthSessionStore
     @ObservedObject private var appDelegate = AppDelegate.shared
     @State private var showingDeleteConfirmation = false
     @State private var pendingListScrollTargetID: String?
