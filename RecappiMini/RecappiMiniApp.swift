@@ -332,6 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var panel: FloatingPanel?
     private var settingsWindow: NSWindow?
     private var cloudWindow: NSWindow?
+    private var liveCaptionWindow: NSPanel?
     private var onboardingWindow: NSWindow?
     private var aboutWindow: NSWindow?
     private let cloudStore = CloudLibraryStore()
@@ -347,6 +348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var runningAppsRefreshTask: Task<Void, Never>?
     private var runningAppsRefreshGeneration = 0
     private var recorderStateObserver: AnyCancellable?
+    private var liveCaptionSessionObserver: AnyCancellable?
     private var previousRecorderState: RecorderState = .idle
     private var workspaceObservers: [NSObjectProtocol] = []
     private var screenParametersObserver: NSObjectProtocol?
@@ -365,6 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     /// don't mistake a warm offscreen panel for an interactive one.
     @Published var panelVisible: Bool = true
     @Published private(set) var isRecording: Bool = false
+    @Published private(set) var isLiveCaptionPanelPresented = false
 
     private var effectiveActiveAudioBundleIDs: Set<String> {
         Set(recorder.runningApps.lazy.filter(\.isActive).map(\.id))
@@ -376,6 +379,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private var detectedMeetingAutoStopGraceDuration: TimeInterval {
         uiTestMode.detectedMeetingAutoStopGraceSeconds ?? 8
+    }
+
+    private var dismissedLiveCaptionSessionDefaultsKey: String {
+        "recappi.cloud.dismissedLiveCaptionSessionID"
     }
 
     private var browserMeetingPollInterval: TimeInterval {
@@ -513,6 +520,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                 }
 
                 self.notifyHiddenProcessingTransitionIfNeeded(from: previous, to: state)
+                self.reconcileLiveCaptionPanelPresentation()
+            }
+
+        liveCaptionSessionObserver = recorder.$activeRecordingID
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.reconcileLiveCaptionPanelPresentation()
+                }
             }
     }
 
@@ -523,6 +538,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         detectedMeetingAutoStopTask?.cancel()
         runningAppsRefreshTask?.cancel()
         recorderStateObserver?.cancel()
+        liveCaptionSessionObserver?.cancel()
+        liveCaptionWindow?.close()
         let center = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers {
             center.removeObserver(observer)
@@ -896,6 +913,120 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         cloudWindow = window
     }
 
+    func setLiveCaptionPanelPresented(_ presented: Bool) {
+        guard let sessionID = currentLiveCaptionSessionID else {
+            hideLiveCaptionWindow()
+            return
+        }
+
+        if presented {
+            if dismissedLiveCaptionSessionID == sessionID {
+                dismissedLiveCaptionSessionID = ""
+            }
+            presentLiveCaptionWindow()
+        } else {
+            dismissedLiveCaptionSessionID = sessionID
+            hideLiveCaptionWindow()
+        }
+    }
+
+    private var isCurrentMeetingActiveForCaptions: Bool {
+        switch recorder.state {
+        case .starting, .recording:
+            true
+        default:
+            false
+        }
+    }
+
+    private var currentLiveCaptionSessionID: String? {
+        guard isCurrentMeetingActiveForCaptions else { return nil }
+        return recorder.activeRecordingID?.uuidString ?? recorder.currentSessionDir?.path
+    }
+
+    private var dismissedLiveCaptionSessionID: String {
+        get { UserDefaults.standard.string(forKey: dismissedLiveCaptionSessionDefaultsKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: dismissedLiveCaptionSessionDefaultsKey) }
+    }
+
+    private func reconcileLiveCaptionPanelPresentation() {
+        guard let sessionID = currentLiveCaptionSessionID else {
+            hideLiveCaptionWindow()
+            return
+        }
+
+        if dismissedLiveCaptionSessionID == sessionID {
+            hideLiveCaptionWindow()
+        } else {
+            presentLiveCaptionWindow()
+        }
+    }
+
+    private func presentLiveCaptionWindow() {
+        if let liveCaptionWindow {
+            positionLiveCaptionWindow(liveCaptionWindow)
+            liveCaptionWindow.orderFrontRegardless()
+            isLiveCaptionPanelPresented = true
+            return
+        }
+
+        let rootView = LiveCaptionFloatingPanel(
+            recorder: recorder,
+            onClose: { [weak self] in
+                self?.setLiveCaptionPanelPresented(false)
+            }
+        )
+        .padding(24)
+
+        let hostingView = NSHostingView(rootView: rootView)
+        hostingView.autoresizingMask = [.width, .height]
+        hostingView.sizingOptions = [.intrinsicContentSize]
+
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 486, height: 460),
+            styleMask: [.nonactivatingPanel, .borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Recappi Live Captions"
+        window.isFloatingPanel = true
+        window.level = .floating
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.hidesOnDeactivate = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window.contentView = hostingView
+        window.delegate = self
+
+        hostingView.layoutSubtreeIfNeeded()
+        let fittingSize = hostingView.fittingSize
+        window.setContentSize(NSSize(
+            width: max(486, fittingSize.width),
+            height: max(360, fittingSize.height)
+        ))
+        positionLiveCaptionWindow(window)
+        window.orderFrontRegardless()
+
+        liveCaptionWindow = window
+        isLiveCaptionPanelPresented = true
+    }
+
+    private func hideLiveCaptionWindow() {
+        liveCaptionWindow?.orderOut(nil)
+        isLiveCaptionPanelPresented = false
+    }
+
+    private func positionLiveCaptionWindow(_ window: NSWindow) {
+        let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        var frame = window.frame
+        frame.origin.x = visibleFrame.maxX - frame.width - 24
+        frame.origin.y = visibleFrame.minY + 24
+        window.setFrame(frame, display: true)
+    }
+
     /// Present the first-launch onboarding modal. Called by
     /// `finishLaunchingIfNeeded` when `OnboardingState.shouldPresentOnLaunch`
     /// is true. The window is its own NSWindow rather than a sheet so the
@@ -996,6 +1127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         } else {
             FloatingPanelController.snapToHidden(panel)
             panelVisible = false
+        }
+        if let liveCaptionWindow, liveCaptionWindow.isVisible {
+            positionLiveCaptionWindow(liveCaptionWindow)
         }
     }
 
@@ -1488,6 +1622,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             restoreAccessoryActivationPolicyIfPossible()
         } else if closingWindow === cloudWindow {
             cloudWindow = nil
+            restoreAccessoryActivationPolicyIfPossible()
+        } else if closingWindow === liveCaptionWindow {
+            liveCaptionWindow = nil
+            isLiveCaptionPanelPresented = false
             restoreAccessoryActivationPolicyIfPossible()
         } else if closingWindow === onboardingWindow {
             // The native title-bar close button is the onboarding escape
