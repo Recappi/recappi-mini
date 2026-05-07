@@ -18,10 +18,12 @@ struct RecappiMiniApp: App {
         // size so settings sections can grow without forcing an internal
         // scroll view.
         Settings {
-            SettingsView()
-                .environmentObject(AppConfig.shared)
-                .environmentObject(AuthSessionStore.shared)
-                .environmentObject(AppUpdater.shared)
+            ThemedHost {
+                SettingsView()
+                    .environmentObject(AppConfig.shared)
+                    .environmentObject(AuthSessionStore.shared)
+                    .environmentObject(AppUpdater.shared)
+            }
         }
         .windowResizability(.contentSize)
     }
@@ -113,6 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     func finishLaunchingIfNeeded() {
         guard !didFinishLaunching else { return }
         didFinishLaunching = true
+        // Apply the user's theme before any window is created so the very
+        // first surface (status item, floating panel, onboarding) comes up
+        // in the correct appearance.
+        ThemeManager.shared.startObserving()
         NSApp.setActivationPolicy(.accessory)
         installStatusItemIfNeeded()
         appUpdater.prepareForUserInitiatedCheck = { [weak self] in
@@ -180,8 +186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         )
 
         let hostingView = FloatingPanelHostingView(
-            rootView: FloatingPanelChromeView {
-                contentView
+            rootView: ThemedHost {
+                FloatingPanelChromeView {
+                    contentView
+                }
             }
         )
         hostingView.sizingOptions = [.intrinsicContentSize]
@@ -457,8 +465,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         prepareForForegroundWindowPresentation()
 
         let hostingView = NSHostingView(
-            rootView: AboutRecappiMiniView()
-                .environmentObject(AppUpdater.shared)
+            rootView: ThemedHost {
+                AboutRecappiMiniView()
+                    .environmentObject(AppUpdater.shared)
+            }
         )
         let window = WindowFactory.createWindow(
             contentView: hostingView,
@@ -557,10 +567,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         prepareForForegroundWindowPresentation()
 
         let hostingView = NSHostingView(
-            rootView: SettingsView(ownsForegroundWindowDemand: false)
-                .environmentObject(AppConfig.shared)
-                .environmentObject(AuthSessionStore.shared)
-                .environmentObject(AppUpdater.shared)
+            rootView: ThemedHost {
+                SettingsView(ownsForegroundWindowDemand: false)
+                    .environmentObject(AppConfig.shared)
+                    .environmentObject(AuthSessionStore.shared)
+                    .environmentObject(AppUpdater.shared)
+            }
         )
         let window = WindowFactory.createWindow(
             contentView: hostingView,
@@ -586,9 +598,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         prepareForForegroundWindowPresentation()
 
         let hostingView = CloudEdgeToEdgeHostingView(
-            rootView: CloudCenterPanel(store: cloudStore, recorder: recorder)
-                .environmentObject(AuthSessionStore.shared)
-                .environmentObject(AppDelegate.shared)
+            rootView: ThemedHost {
+                CloudCenterPanel(store: cloudStore, recorder: recorder)
+                    .environmentObject(AuthSessionStore.shared)
+                    .environmentObject(AppDelegate.shared)
+            }
         )
         // `.fullSizeContentView` lets the SwiftUI panel draw under
         // the macOS title bar so the Cloud window reads like an
@@ -768,18 +782,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private func liveCaptionRootView() -> AnyView {
         AnyView(
-            LiveCaptionFloatingPanel(
-                recorder: recorder,
-                mode: liveCaptionPanelMode,
-                onToggleMode: { [weak self] in
-                    self?.toggleLiveCaptionPanelMode()
-                },
-                onClose: { [weak self] in
-                    self?.setLiveCaptionPanelPresented(false)
-                }
-            )
-            .padding(liveCaptionPanelMode.windowPadding)
-            .environmentObject(AppConfig.shared)
+            ThemedHost {
+                LiveCaptionFloatingPanel(
+                    recorder: recorder,
+                    mode: liveCaptionPanelMode,
+                    onToggleMode: { [weak self] in
+                        self?.toggleLiveCaptionPanelMode()
+                    },
+                    onClose: { [weak self] in
+                        self?.setLiveCaptionPanelPresented(false)
+                    }
+                )
+                .padding(liveCaptionPanelMode.windowPadding)
+                .environmentObject(AppConfig.shared)
+            }
         )
     }
 
@@ -810,7 +826,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let view = OnboardingView(sessionStore: AuthSessionStore.shared) { [weak self] in
             self?.completeOnboardingAndDismiss()
         }
-        let hostingView = NSHostingView(rootView: view)
+        let hostingView = NSHostingView(rootView: ThemedHost { view })
         let window = WindowFactory.createWindow(
             contentView: hostingView,
             spec: WindowFactory.WindowSpec(

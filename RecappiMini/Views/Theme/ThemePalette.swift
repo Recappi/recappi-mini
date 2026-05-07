@@ -1,0 +1,86 @@
+import AppKit
+import SwiftUI
+
+/// Semantic, appearance-aware color tokens. Each token is backed by a
+/// dynamic `NSColor` — the system re-resolves it whenever the rendering
+/// view's `effectiveAppearance` changes (which happens automatically when
+/// `NSApp.appearance` flips, see `ThemeManager`).
+///
+/// Add new design colors here rather than inlining `Color(red:…)` /
+/// `Color.white.opacity(_)` at call sites. The dark variants preserve the
+/// charcoal palette the app shipped with; light variants are tuned to read
+/// well on a near-white window without losing the existing layering.
+enum Palette {
+    // MARK: - Surfaces
+
+    /// Outermost window background (Settings, Cloud, About).
+    static let surfaceWindow = dynamic(light: 0xF7F7F8, dark: 0x1C1C1C)
+    /// Floating recording pill / settings card chrome.
+    static let surfacePanel = dynamic(light: 0xFFFFFF, dark: 0x2D2D2D)
+    /// Inset chip controls on the recording pill (stop / share / trash).
+    static let surfaceChip = dynamic(light: 0xEFEFF1, dark: 0x424242)
+    /// Elevated card surfaces (sheets, popovers).
+    static let surfaceElevated = dynamic(light: 0xFFFFFF, dark: 0x333333)
+    /// Live-captions overlay (slightly lifted from `surfacePanel` in dark).
+    static let surfaceLiveCaption = dynamic(light: 0xF2F2F4, dark: 0x474747)
+
+    // MARK: - Borders
+
+    static let borderHairline = dynamicAlpha(light: (0x000000, 0.10), dark: (0xFFFFFF, 0.06))
+    static let borderSubtle   = dynamicAlpha(light: (0x000000, 0.14), dark: (0xFFFFFF, 0.10))
+    static let borderStrong   = dynamicAlpha(light: (0x000000, 0.22), dark: (0xFFFFFF, 0.18))
+
+    // MARK: - Control fills (hover / press)
+
+    static let controlFillHover = dynamicAlpha(light: (0x000000, 0.05), dark: (0xFFFFFF, 0.07))
+    static let controlFillPress = dynamicAlpha(light: (0x000000, 0.08), dark: (0xFFFFFF, 0.12))
+
+    // MARK: - Labels (formerly `Color.white.opacity(0.92/0.62/0.38/0.16)`)
+
+    static let labelPrimary    = dynamicAlpha(light: (0x000000, 0.92), dark: (0xFFFFFF, 0.92))
+    static let labelSecondary  = dynamicAlpha(light: (0x000000, 0.60), dark: (0xFFFFFF, 0.62))
+    static let labelTertiary   = dynamicAlpha(light: (0x000000, 0.40), dark: (0xFFFFFF, 0.38))
+    static let labelQuaternary = dynamicAlpha(light: (0x000000, 0.20), dark: (0xFFFFFF, 0.16))
+
+    // MARK: - Shadows
+
+    static let shadowPanel = dynamicAlpha(light: (0x000000, 0.18), dark: (0x000000, 0.45))
+
+    // MARK: - Helpers
+
+    private static func dynamic(light: UInt32, dark: UInt32) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            NSColor(rgbHex: appearance.isDark ? dark : light)
+        })
+    }
+
+    private static func dynamicAlpha(
+        light: (UInt32, Double),
+        dark: (UInt32, Double)
+    ) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let pair = appearance.isDark ? dark : light
+            return NSColor(rgbHex: pair.0).withAlphaComponent(CGFloat(pair.1))
+        })
+    }
+}
+
+private extension NSAppearance {
+    /// `bestMatch(from:)` resolves the appearance through any inherited
+    /// vibrancy variants — so this works correctly inside sheets, sidebars,
+    /// and accent-tinted controls.
+    var isDark: Bool {
+        bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+}
+
+private extension NSColor {
+    convenience init(rgbHex: UInt32) {
+        self.init(
+            srgbRed: CGFloat((rgbHex >> 16) & 0xFF) / 255,
+            green: CGFloat((rgbHex >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgbHex & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+}

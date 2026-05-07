@@ -77,7 +77,7 @@ struct CloudMeetingPlaybackStrip: View {
         .padding(.top, 5)
         .padding(.bottom, 9)
         .frame(maxWidth: .infinity)
-        .background(Color.white.opacity(0.018))
+        .background(Palette.controlFillHover.opacity(0.4))
     }
 
     private var sliderProgress: Double {
@@ -214,7 +214,7 @@ struct CloudNowPlayingMiniPane: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.045))
+                .fill(Palette.controlFillHover)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -272,11 +272,11 @@ struct MenuIconLabel: View {
             .foregroundStyle(hovered || pressed ? Color.dtLabel : Color.dtLabelSecondary)
             .background(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .fill(Color.white.opacity(pressed ? 0.13 : (hovered ? 0.085 : 0)))
+                    .fill(pressed ? Palette.controlFillPress : (hovered ? Palette.controlFillHover : Color.clear))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .strokeBorder(Color.white.opacity(hovered || pressed ? 0.075 : 0), lineWidth: 1)
+                    .strokeBorder(hovered || pressed ? Palette.borderHairline : Color.clear, lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
             .onHover { hovered = $0 }
@@ -356,7 +356,7 @@ struct PlaybackRatePillLabel: View {
 
     private var fillColor: Color {
         if pressed {
-            return Color.white.opacity(0.20)
+            return Palette.controlFillPress
         }
         if didChange {
             return DT.waveformLit.opacity(0.24)
@@ -364,7 +364,7 @@ struct PlaybackRatePillLabel: View {
         if isActive {
             return DT.waveformLit.opacity(hovered ? 0.20 : 0.14)
         }
-        return Color.white.opacity(hovered ? 0.16 : 0.085)
+        return hovered ? Palette.controlFillPress : Palette.controlFillHover
     }
 
     private var strokeColor: Color {
@@ -374,7 +374,7 @@ struct PlaybackRatePillLabel: View {
         if isActive {
             return DT.waveformLit.opacity(hovered ? 0.55 : 0.40)
         }
-        return Color.white.opacity(hovered ? 0.34 : 0.18)
+        return hovered ? Palette.borderStrong : Palette.borderSubtle
     }
 }
 
@@ -480,14 +480,14 @@ struct CloudPlaybackWaveformScrubber: View {
     }
 
     private var playheadColor: Color {
-        Color.white.opacity(0.88)
+        Palette.labelPrimary
     }
 
     private func barColor(index: Int, count: Int) -> Color {
         if WaveformTimeline.isBarPlayed(index: index, count: count, progress: progress) {
             return DT.waveformLit.opacity(isEnabled ? 0.92 : 0.42)
         }
-        return Color.white.opacity(isEnabled ? 0.22 : 0.12)
+        return isEnabled ? Palette.labelTertiary : Palette.labelQuaternary
     }
 
     private func barHeight(index: Int, count: Int) -> CGFloat {

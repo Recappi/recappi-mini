@@ -28,6 +28,7 @@ struct SettingsView: View {
             SettingsHeader()
             Form {
                 accountSection
+                appearanceSection
                 permissionsSection
                 recordingAssistSection
                 transcriptionSection
@@ -38,9 +39,8 @@ struct SettingsView: View {
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
         }
-        .background(DT.recordingShell)
-        .preferredColorScheme(.dark)
-        .containerBackground(DT.recordingShell, for: .window)
+        .background(Palette.surfaceWindow)
+        .containerBackground(Palette.surfaceWindow, for: .window)
         .navigationTitle("Recappi Mini Settings")
         .frame(minWidth: 520, idealWidth: 560, maxWidth: 620)
         .task {
@@ -72,6 +72,11 @@ struct SettingsView: View {
             signedOutRow: { signedOutAuthRow },
             billingUsage: { billingUsageView }
         )
+    }
+
+    @ViewBuilder
+    private var appearanceSection: some View {
+        SettingsAppearanceSection(theme: themeBinding)
     }
 
     @ViewBuilder
@@ -148,7 +153,7 @@ struct SettingsView: View {
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule(style: .continuous)
-                        .fill(Color.white.opacity(0.08))
+                        .fill(Palette.controlFillPress)
                     Capsule(style: .continuous)
                         .fill((isOverLimit ? DT.systemOrange : DT.waveformLit).opacity(0.72))
                         .frame(width: proxy.size.width * max(0, min(1, progress)))
@@ -427,10 +432,10 @@ struct SettingsView: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color.white.opacity(0.055))
+                .fill(Palette.controlFillHover)
                 .overlay(
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
+                        .stroke(Palette.borderHairline, lineWidth: 0.5)
                 )
         )
     }
@@ -844,6 +849,13 @@ struct SettingsView: View {
         Binding(
             get: { config.autoPromptForActiveAudioApps },
             set: { config.autoPromptForActiveAudioApps = $0 }
+        )
+    }
+
+    private var themeBinding: Binding<AppTheme> {
+        Binding(
+            get: { config.theme },
+            set: { config.theme = $0 }
         )
     }
 }
