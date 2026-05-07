@@ -1,0 +1,98 @@
+import SwiftUI
+
+struct CloudDetailScrollableSections<Summary: View, TranscriptHeader: View, TranscriptCard: View>: View {
+    let hasSummarySection: Bool
+    let activeSegmentID: String?
+    let isPlaybackActive: Bool
+    @Binding var pendingScrollTarget: CloudDetailSection?
+    @Binding var activeDetailSection: CloudDetailSection
+    let onUpdateOffsets: ([CloudDetailSection: CGFloat]) -> Void
+
+    private let summary: Summary
+    private let transcriptHeader: TranscriptHeader
+    private let transcriptCard: TranscriptCard
+
+    init(
+        hasSummarySection: Bool,
+        activeSegmentID: String?,
+        isPlaybackActive: Bool,
+        pendingScrollTarget: Binding<CloudDetailSection?>,
+        activeDetailSection: Binding<CloudDetailSection>,
+        onUpdateOffsets: @escaping ([CloudDetailSection: CGFloat]) -> Void,
+        @ViewBuilder summary: () -> Summary,
+        @ViewBuilder transcriptHeader: () -> TranscriptHeader,
+        @ViewBuilder transcriptCard: () -> TranscriptCard
+    ) {
+        self.hasSummarySection = hasSummarySection
+        self.activeSegmentID = activeSegmentID
+        self.isPlaybackActive = isPlaybackActive
+        self._pendingScrollTarget = pendingScrollTarget
+        self._activeDetailSection = activeDetailSection
+        self.onUpdateOffsets = onUpdateOffsets
+        self.summary = summary()
+        self.transcriptHeader = transcriptHeader()
+        self.transcriptCard = transcriptCard()
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    CloudDetailSummarySection(
+                        isVisible: hasSummarySection,
+                        offsetReader: { sectionOffsetReader(.summary) }
+                    ) {
+                        summary
+                    }
+
+                    CloudDetailTranscriptSection(
+                        offsetReader: { sectionOffsetReader(.transcript) },
+                        header: { transcriptHeader },
+                        card: { transcriptCard }
+                    )
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 16)
+                .padding(.bottom, 20)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .coordinateSpace(name: "cloudDetailScroll")
+            .onChange(of: activeSegmentID) { _, id in
+                // Loading or switching recordings can make the active
+                // segment move from nil to the first row before the user
+                // has interacted with playback. Do not let that derived
+                // state yank the detail scroll away from the top; only
+                // auto-follow transcript rows while playback is advancing.
+                guard isPlaybackActive, let id else { return }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            .onChange(of: pendingScrollTarget) { _, target in
+                guard let target else { return }
+                activeDetailSection = target
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(target, anchor: .top)
+                }
+                // Hold `pendingScrollTarget` past the scroll animation
+                // duration so offset-driven updates cannot retoggle the
+                // segmented control mid-flight.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    pendingScrollTarget = nil
+                }
+            }
+            .onPreferenceChange(CloudDetailSectionOffsetPreferenceKey.self) { offsets in
+                onUpdateOffsets(offsets)
+            }
+        }
+    }
+
+    private func sectionOffsetReader(_ section: CloudDetailSection) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: CloudDetailSectionOffsetPreferenceKey.self,
+                value: [section: proxy.frame(in: .named("cloudDetailScroll")).minY]
+            )
+        }
+    }
+}
