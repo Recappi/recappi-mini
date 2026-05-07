@@ -97,9 +97,27 @@ struct AudioSourcePill: View {
             guard let apps = grouped[bucket], !apps.isEmpty else { continue }
             menu.addItem(.separator())
             menu.addItem(sectionHeader(label))
-            for app in apps { menu.addItem(menuItem(title: app.name, image: app.icon, app: app)) }
+            if bucket == .other {
+                addOtherApps(apps, to: menu)
+            } else {
+                for app in apps { menu.addItem(menuItem(title: app.name, image: app.icon, app: app)) }
+            }
         }
         return menu
+    }
+
+    private func addOtherApps(_ apps: [AudioApp], to menu: NSMenu) {
+        let overflowThreshold = 5
+        let visible = apps.prefix(overflowThreshold)
+        let overflow = apps.dropFirst(overflowThreshold)
+        for app in visible { menu.addItem(menuItem(title: app.name, image: app.icon, app: app)) }
+        guard !overflow.isEmpty else { return }
+        let moreItem = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        submenu.appearance = anchor?.window?.effectiveAppearance
+        for app in overflow { submenu.addItem(menuItem(title: app.name, image: app.icon, app: app)) }
+        moreItem.submenu = submenu
+        menu.addItem(moreItem)
     }
 
     private func menuItem(title: String, image: NSImage?, app: AudioApp?) -> NSMenuItem {
