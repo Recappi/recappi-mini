@@ -25,9 +25,18 @@ enum LiveCaptionPanelMode: String {
     var defaultWindowSize: NSSize {
         switch self {
         case .expanded:
-            return NSSize(width: 486, height: 460)
+            return NSSize(width: 402, height: 278)
         case .compact:
-            return NSSize(width: 688, height: 92)
+            return NSSize(width: 514, height: 68)
+        }
+    }
+
+    var windowPadding: CGFloat {
+        switch self {
+        case .expanded:
+            return 10
+        case .compact:
+            return 8
         }
     }
 }
@@ -48,42 +57,42 @@ struct LiveCaptionFloatingPanel: View {
                 compactBody
             }
         }
-        .background(panelBackground(cornerRadius: mode == .expanded ? 22 : 18))
+        .background(panelBackground(cornerRadius: mode == .expanded ? 16 : 14))
         .overlay(
-            RoundedRectangle(cornerRadius: mode == .expanded ? 22 : 18, style: .continuous)
-                .stroke(Color.white.opacity(0.13), lineWidth: 0.7)
+            RoundedRectangle(cornerRadius: mode == .expanded ? 16 : 14, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 0.6)
         )
-        .shadow(color: Color.black.opacity(0.24), radius: 18, x: 0, y: 10)
+        .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 6)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanel)
     }
 
     private var expandedBody: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             header
 
             liveCaptionWorkspace
         }
-        .padding(16)
-        .frame(width: 438, alignment: .topLeading)
+        .padding(12)
+        .frame(width: 360, alignment: .topLeading)
     }
 
     private var compactBody: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 7) {
+        HStack(spacing: 10) {
+            HStack(spacing: 6) {
                 Circle()
                     .fill(DT.systemRed)
-                    .frame(width: 7, height: 7)
+                    .frame(width: 6, height: 6)
                     .modifier(PulsingModifier())
                 Text(timeText(recorder.elapsedSeconds))
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(Color.dtLabelSecondary)
             }
-            .frame(width: 58, alignment: .leading)
+            .frame(width: 52, alignment: .leading)
 
             Text(captionLine)
-                .font(.system(size: 18, weight: recorder.liveCaptionText == nil ? .medium : .semibold))
+                .font(.system(size: 15, weight: recorder.liveCaptionText == nil ? .medium : .semibold))
                 .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -95,9 +104,9 @@ struct LiveCaptionFloatingPanel: View {
 
             captionControlButtons
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(width: 640, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(width: 486, alignment: .leading)
     }
 
     private func panelBackground(cornerRadius: CGFloat) -> some View {
@@ -117,19 +126,19 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var captionControlButtons: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Button(action: onToggleMode) {
                 Image(systemName: mode.toggleIcon)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
             }
-            .buttonStyle(PanelIconButtonStyle(size: 24))
+            .buttonStyle(PanelIconButtonStyle(size: 22))
             .help(mode.toggleTitle)
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
             }
-            .buttonStyle(PanelIconButtonStyle(size: 24))
+            .buttonStyle(PanelIconButtonStyle(size: 22))
             .help("Hide live captions for this meeting")
             .accessibilityLabel("Hide live captions")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionCloseButton)
@@ -137,23 +146,23 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 8) {
             liveBadge
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text("Current meeting")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
                 Text(sourceLine)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(Color.dtLabelSecondary)
                     .lineLimit(1)
             }
 
-            Spacer(minLength: 14)
+            Spacer(minLength: 10)
 
             Text(timeText(recorder.elapsedSeconds))
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(Color.dtLabelSecondary)
 
@@ -162,16 +171,16 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var liveBadge: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 6) {
             Circle()
                 .fill(DT.systemRed)
-                .frame(width: 8, height: 8)
+                .frame(width: 6, height: 6)
             Text("Live")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Color.dtLabel)
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
         .background(
             Capsule(style: .continuous)
                 .fill(DT.systemRed.opacity(0.16))
@@ -186,44 +195,44 @@ struct LiveCaptionFloatingPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Label("Live captions", systemImage: "captions.bubble.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
                 Spacer(minLength: 0)
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     liveCaptionLanguageMenu
                     systemAudioChip
                 }
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 20)
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
 
             LiveCaptionTextViewport(
                 text: captionLine,
                 isPlaceholder: recorder.liveCaptionText == nil
             )
             .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
-            .padding(.horizontal, 22)
-            .padding(.top, 18)
-            .padding(.bottom, 24)
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 14)
         }
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.05))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.045))
                 .overlay {
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.08),
+                            Color.white.opacity(0.065),
                             Color.white.opacity(0.02)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.6)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.075), lineWidth: 0.6)
         )
     }
 
@@ -243,15 +252,15 @@ struct LiveCaptionFloatingPanel: View {
         } label: {
             HStack(spacing: 5) {
                 Text(config.selectedSpeechLanguage.shortTitle)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: 7, weight: .bold))
                     .foregroundStyle(Color.dtLabelTertiary)
             }
             .foregroundStyle(Color.dtLabel)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
             .background(
                 Capsule(style: .continuous)
                     .fill(Color.white.opacity(0.08))
@@ -265,10 +274,10 @@ struct LiveCaptionFloatingPanel: View {
 
     private var systemAudioChip: some View {
         Text("System audio")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(DT.waveformLit)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
             .background(
                 Capsule(style: .continuous)
                     .fill(DT.waveformLit.opacity(0.12))
@@ -311,8 +320,8 @@ private struct LiveCaptionTextViewport: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(text)
-                        .font(.system(size: 22, weight: isPlaceholder ? .medium : .semibold))
-                        .lineSpacing(5)
+                        .font(.system(size: 16, weight: isPlaceholder ? .medium : .semibold))
+                        .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .accessibilityElement(children: .ignore)
@@ -326,7 +335,7 @@ private struct LiveCaptionTextViewport: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, minHeight: 172, maxHeight: 320, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 92, maxHeight: 172, alignment: .topLeading)
             .onAppear {
                 scrollToBottom(proxy)
             }

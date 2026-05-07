@@ -778,7 +778,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                     self?.setLiveCaptionPanelPresented(false)
                 }
             )
-            .padding(24)
+            .padding(liveCaptionPanelMode.windowPadding)
             .environmentObject(AppConfig.shared)
         )
     }
