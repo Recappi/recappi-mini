@@ -27,56 +27,6 @@ struct RecappiMiniApp: App {
     }
 
 }
-
-struct MenuBarContents: View {
-    @ObservedObject var appDelegate: AppDelegate
-    @EnvironmentObject private var appUpdater: AppUpdater
-    // `SettingsLink` won't bring the Settings window forward while the app
-    // is in `.accessory` activation mode (which we have to be in so the
-    // floating panel can coexist without a dock icon). Use the env-provided
-    // `openSettings` after temporarily promoting to `.regular`, same trick
-    // the in-panel gear button uses. `SettingsView.onDisappear` flips it
-    // back to `.accessory`.
-    @Environment(\.openSettings) private var openSettings
-
-    var body: some View {
-        Button(appDelegate.panelVisible ? "Hide Panel" : "Show Panel") {
-            appDelegate.togglePanel()
-        }
-        .keyboardShortcut("r", modifiers: [.command, .shift])
-
-        Button("Recappi Cloud…") {
-            appDelegate.showCloudCenter()
-        }
-
-        Button("Settings…") {
-            appDelegate.prepareForSettingsScenePresentation()
-            openSettings()
-        }
-        .keyboardShortcut(",", modifiers: [.command])
-
-        Divider()
-
-        Button("About Recappi Mini") {
-            AppDelegate.shared.showAboutPanel()
-        }
-
-        Divider()
-
-        Button("Check for Updates…") {
-            appUpdater.checkForUpdates()
-        }
-        .disabled(!appUpdater.canCheckForUpdates)
-
-        Divider()
-
-        Button("Quit") {
-            NSApp.terminate(nil)
-        }
-        .keyboardShortcut("q")
-    }
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWindowDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     static let shared = AppDelegate()
