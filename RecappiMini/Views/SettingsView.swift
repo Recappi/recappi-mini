@@ -62,29 +62,16 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var accountSection: some View {
-        Section {
-            accountStatusStrip
-
-            if let currentSession = sessionStore.currentSession {
-                accountIdentityRow(session: currentSession)
-            } else {
-                signedOutAuthRow
-            }
-
-            Toggle("Cloud transcription", isOn: cloudEnabledBinding)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.cloudToggle)
-
-            billingUsageView
-
-            HStack {
-                Button("Open Recappi Cloud", action: openCloudCenter)
-                    .disabled(!config.cloudEnabled)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.openCloudButton)
-                Spacer(minLength: 0)
-            }
-        } header: {
-            Text("Account")
-        }
+        SettingsAccountSection(
+            currentSession: sessionStore.currentSession,
+            cloudEnabled: cloudEnabledBinding,
+            isOpenCloudDisabled: !config.cloudEnabled,
+            onOpenCloud: openCloudCenter,
+            statusStrip: { accountStatusStrip },
+            identityRow: { accountIdentityRow(session: $0) },
+            signedOutRow: { signedOutAuthRow },
+            billingUsage: { billingUsageView }
+        )
     }
 
     @ViewBuilder
@@ -180,124 +167,55 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var permissionsSection: some View {
-        Section {
-            permissionRow(
-                title: "Microphone",
-                state: capturePermissions.microphone,
-                statusID: AccessibilityIDs.Settings.permissionMicrophoneStatus,
-                requestID: AccessibilityIDs.Settings.requestMicrophoneButton,
-                action: requestMicrophonePermission
-            )
-
-            permissionRow(
-                title: "Screen & system audio",
-                state: capturePermissions.screenCapture,
-                statusID: AccessibilityIDs.Settings.permissionScreenCaptureStatus,
-                requestID: AccessibilityIDs.Settings.requestScreenCaptureButton,
-                action: requestScreenCapturePermission
-            )
-
-            HStack {
-                Button("Refresh", action: refreshPermissionStatus)
-                    .disabled(permissionsBusy)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.refreshPermissionsButton)
-                Spacer(minLength: 0)
+        SettingsPermissionsSection(
+            permissionsBusy: permissionsBusy,
+            onRefresh: refreshPermissionStatus,
+            microphoneRow: {
+                permissionRow(
+                    title: "Microphone",
+                    state: capturePermissions.microphone,
+                    statusID: AccessibilityIDs.Settings.permissionMicrophoneStatus,
+                    requestID: AccessibilityIDs.Settings.requestMicrophoneButton,
+                    action: requestMicrophonePermission
+                )
+            },
+            screenCaptureRow: {
+                permissionRow(
+                    title: "Screen & system audio",
+                    state: capturePermissions.screenCapture,
+                    statusID: AccessibilityIDs.Settings.permissionScreenCaptureStatus,
+                    requestID: AccessibilityIDs.Settings.requestScreenCaptureButton,
+                    action: requestScreenCapturePermission
+                )
             }
-        } header: {
-            Text("Permissions")
-        }
+        )
     }
 
     @ViewBuilder
     private var recordingAssistSection: some View {
-        Section {
-            Toggle("Suggest recording when app audio starts", isOn: autoPromptBinding)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.autoPromptToggle)
-        } header: {
-            Text("Recording Assist")
-        } footer: {
-            Text("When a meeting app or browser meeting tab starts playing audio, Recappi Mini opens the panel and explains which app looks ready to record.")
-                .foregroundStyle(Color.dtLabelSecondary)
-                .font(.footnote)
-        }
+        SettingsRecordingAssistSection(autoPrompt: autoPromptBinding)
     }
 
     @ViewBuilder
     private var transcriptionSection: some View {
-        Section {
-            Toggle("Show Live Captions while recording", isOn: liveCaptionsDisplayBinding)
-                .accessibilityIdentifier(AccessibilityIDs.Settings.liveCaptionsDisplayToggle)
-
-            Picker("Speech language", selection: languageBinding) {
-                ForEach(SpeechLanguageOption.common) { option in
-                    Text(option.title).tag(option.id)
-                }
-            }
-            .accessibilityIdentifier(AccessibilityIDs.Settings.speechLanguagePicker)
-        } header: {
-            Text("Transcription")
-        } footer: {
-            Text("Live Captions are an optional floating display while recording. Speech language is also used for cloud transcription because Apple Speech cannot reliably auto-detect spoken language.")
-                .foregroundStyle(Color.dtLabelSecondary)
-                .font(.footnote)
-        }
+        SettingsTranscriptionSection(
+            liveCaptionsDisplay: liveCaptionsDisplayBinding,
+            language: languageBinding
+        )
     }
 
     @ViewBuilder
     private var storageSection: some View {
-        Section {
-            LabeledContent("Recordings folder") {
-                Button("Show in Finder", action: openRecordingsFolder)
-            }
-        } header: {
-            Text("Storage")
-        } footer: {
-            Text("Recordings are saved in ~/Documents/Recappi Mini.")
-                .foregroundStyle(Color.dtLabelSecondary)
-                .font(.footnote)
-        }
+        SettingsStorageSection(onOpenRecordingsFolder: openRecordingsFolder)
     }
 
     @ViewBuilder
     private var updatesSection: some View {
-        Section {
-            LabeledContent("Current version") {
-                Text(appVersionText)
-                    .foregroundStyle(Color.dtLabelSecondary)
-            }
-
-            LabeledContent("Last checked") {
-                Text(lastUpdateCheckText)
-                    .foregroundStyle(Color.dtLabelSecondary)
-            }
-
-            Toggle(
-                "Automatically check for updates",
-                isOn: Binding(
-                    get: { appUpdater.automaticallyChecksForUpdates },
-                    set: { appUpdater.setAutomaticallyChecksForUpdates($0) }
-                )
-            )
-
-            Toggle(
-                "Automatically download updates",
-                isOn: Binding(
-                    get: { appUpdater.automaticallyDownloadsUpdates },
-                    set: { appUpdater.setAutomaticallyDownloadsUpdates($0) }
-                )
-            )
-            .disabled(!appUpdater.automaticallyChecksForUpdates)
-
-            HStack {
-                Button("Check for Updates…") {
-                    appUpdater.checkForUpdates()
-                }
-                .disabled(!appUpdater.canCheckForUpdates)
-                Spacer(minLength: 0)
-            }
-        } header: {
-            Text("Updates")
-        }
+        SettingsUpdatesSection(
+            appUpdater: appUpdater,
+            appVersionText: appVersionText,
+            lastUpdateCheckText: lastUpdateCheckText
+        )
     }
 
     /// Surfaces less-frequent maintenance affordances. Currently this is
@@ -308,39 +226,46 @@ struct SettingsView: View {
     /// the flow on a debug build).
     @ViewBuilder
     private var supportSection: some View {
-        Section {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Restart onboarding")
-                        .font(.body)
-                    Text("Replays the welcome screen, permission walkthrough, and sign-in step.")
-                        .font(.footnote)
-                        .foregroundStyle(Color.dtLabelSecondary)
-                }
-                Spacer(minLength: 12)
-                Button("Restart") { restartOnboarding() }
-            }
-
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("About Recappi Mini")
-                        .font(.body)
-                    Text("Shows version, build, and application identity.")
-                        .font(.footnote)
-                        .foregroundStyle(Color.dtLabelSecondary)
-                }
-                Spacer(minLength: 12)
-                Button("About") { AppDelegate.shared.showAboutPanel() }
-            }
-        } header: {
-            Text("Help")
-        }
+        SettingsSupportSection(
+            onRestartOnboarding: restartOnboarding,
+            onShowAbout: { AppDelegate.shared.showAboutPanel() }
+        )
     }
 
     private func restartOnboarding() {
         OnboardingState.didComplete = false
         OnboardingState.lastStep = .welcome
         AppDelegate.shared.showOnboardingWindow()
+    }
+
+    @ViewBuilder
+    private func permissionRow(
+        title: String,
+        state: CapturePermissionSnapshot.State,
+        statusID: String,
+        requestID: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 8) {
+                Label(state.label, systemImage: state.systemImage)
+                    .foregroundStyle(state == .authorized ? DT.systemGreen : DT.systemOrange)
+                    .accessibilityIdentifier(statusID)
+
+                if state != .authorized {
+                    Button("Allow", action: action)
+                        .disabled(permissionsBusy)
+                        .accessibilityIdentifier(requestID)
+                }
+            }
+        }
+    }
+
+    private var signedOutText: String {
+        if let provider = sessionStore.lastOAuthProvider {
+            return "Signed out. Last used \(provider.displayName)."
+        }
+        return "Signed out."
     }
 
     @ViewBuilder
@@ -541,36 +466,6 @@ struct SettingsView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accountConnectionText(for: session))
         .accessibilityIdentifier(AccessibilityIDs.Settings.authStatusText)
-    }
-
-    @ViewBuilder
-    private func permissionRow(
-        title: String,
-        state: CapturePermissionSnapshot.State,
-        statusID: String,
-        requestID: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        LabeledContent(title) {
-            HStack(spacing: 8) {
-                Label(state.label, systemImage: state.systemImage)
-                    .foregroundStyle(state == .authorized ? DT.systemGreen : DT.systemOrange)
-                    .accessibilityIdentifier(statusID)
-
-                if state != .authorized {
-                    Button("Allow", action: action)
-                        .disabled(permissionsBusy)
-                        .accessibilityIdentifier(requestID)
-                }
-            }
-        }
-    }
-
-    private var signedOutText: String {
-        if let provider = sessionStore.lastOAuthProvider {
-            return "Signed out. Last used \(provider.displayName)."
-        }
-        return "Signed out."
     }
 
     private func signedInText(for session: UserSession) -> String {
@@ -950,111 +845,5 @@ struct SettingsView: View {
             get: { AppConfig.shared.autoPromptForActiveAudioApps },
             set: { AppConfig.shared.autoPromptForActiveAudioApps = $0 }
         )
-    }
-}
-
-private struct AccountAvatar: View {
-    let session: UserSession?
-    let size: CGFloat
-
-    var body: some View {
-        Group {
-            if let url = avatarURL {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    case .empty:
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: size, height: size)
-                    case .failure:
-                        fallback
-                    @unknown default:
-                        fallback
-                    }
-                }
-            } else {
-                fallback
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .overlay(
-            Circle()
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-        )
-    }
-
-    private var avatarURL: URL? {
-        guard let raw = session?.imageURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty else {
-            return nil
-        }
-        return URL(string: raw)
-    }
-
-    private var fallback: some View {
-        ZStack {
-            Circle()
-                .fill(Color.white.opacity(0.08))
-
-            if let initials, !initials.isEmpty {
-                Text(initials)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.dtLabelSecondary)
-            } else {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: size, weight: .regular))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(Color.dtLabelSecondary)
-            }
-        }
-    }
-
-    private var initials: String? {
-        guard let session else { return nil }
-        let display = session.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let source = display.isEmpty ? session.email : display
-        let parts = source
-            .split { !$0.isLetter && !$0.isNumber }
-            .prefix(2)
-        let letters = parts.compactMap(\.first).map { String($0).uppercased() }
-        return letters.joined()
-    }
-}
-
-private struct ProviderInlineMark: View {
-    let provider: OAuthProvider
-    let size: CGFloat
-
-    var body: some View {
-        Image(nsImage: provider.logoImage)
-            .resizable()
-            .scaledToFit()
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
-private struct SettingsHeader: View {
-    var body: some View {
-        HStack(spacing: 14) {
-            LogoTile(size: 40)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Recappi Mini")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Color.dtLabel)
-                Text("Menu-bar meeting recorder")
-                    .font(.footnote)
-                    .foregroundStyle(Color.dtLabelSecondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .padding(.bottom, 6)
     }
 }
