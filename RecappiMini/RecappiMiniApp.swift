@@ -21,6 +21,7 @@ struct RecappiMiniApp: App {
         Settings {
             SettingsView()
                 .environmentObject(AuthSessionStore.shared)
+                .environmentObject(AppUpdater.shared)
         }
         .windowResizability(.contentSize)
     }
@@ -29,7 +30,7 @@ struct RecappiMiniApp: App {
 
 struct MenuBarContents: View {
     @ObservedObject var appDelegate: AppDelegate
-    @ObservedObject private var appUpdater = AppUpdater.shared
+    @EnvironmentObject private var appUpdater: AppUpdater
     // `SettingsLink` won't bring the Settings window forward while the app
     // is in `.accessory` activation mode (which we have to be in so the
     // floating panel can coexist without a dock icon). Use the env-provided
@@ -518,7 +519,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         prepareForForegroundWindowPresentation()
 
-        let hostingView = NSHostingView(rootView: AboutRecappiMiniView())
+        let hostingView = NSHostingView(
+            rootView: AboutRecappiMiniView()
+                .environmentObject(AppUpdater.shared)
+        )
         let window = WindowFactory.createWindow(
             contentView: hostingView,
             spec: WindowFactory.WindowSpec(
@@ -618,6 +622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let hostingView = NSHostingView(
             rootView: SettingsView(ownsForegroundWindowDemand: false)
                 .environmentObject(AuthSessionStore.shared)
+                .environmentObject(AppUpdater.shared)
         )
         let window = WindowFactory.createWindow(
             contentView: hostingView,

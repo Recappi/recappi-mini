@@ -4,7 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject private var config = AppConfig.shared
     @EnvironmentObject private var sessionStore: AuthSessionStore
-    @ObservedObject private var appUpdater = AppUpdater.shared
+    @EnvironmentObject private var appUpdater: AppUpdater
     @State private var capturePermissions = CapturePermissionSnapshot.placeholder
     @State private var permissionsBusy = false
     @State private var billingStatus: BillingStatus?

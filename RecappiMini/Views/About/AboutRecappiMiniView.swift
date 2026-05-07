@@ -29,7 +29,7 @@ private struct AboutAppInfo {
 
 struct AboutRecappiMiniView: View {
     private let appInfo = AboutAppInfo.current
-    @ObservedObject private var appUpdater = AppUpdater.shared
+    @EnvironmentObject private var appUpdater: AppUpdater
 
     private static let websiteURL = URL(string: "https://recordmeet.ing/")!
 
