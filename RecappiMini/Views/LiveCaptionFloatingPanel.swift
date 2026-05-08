@@ -300,20 +300,18 @@ private struct LiveCaptionTextViewport: View {
     let text: String
     let isPlaceholder: Bool
 
-    @State private var renderedText = ""
-    @State private var revealTask: Task<Void, Never>?
-
     private let bottomAnchorID = "recappi-live-caption-bottom"
+    private let expandedTextWidth: CGFloat = 472
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(displayText)
+                    Text(text)
                         .font(.system(size: 15, weight: .medium))
                         .lineSpacing(4)
                         .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .frame(width: expandedTextWidth, alignment: .topLeading)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(Text(text))
                         .accessibilityValue(Text(text))
@@ -323,69 +321,17 @@ private struct LiveCaptionTextViewport: View {
                         .frame(height: 1)
                         .id(bottomAnchorID)
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(width: expandedTextWidth, alignment: .topLeading)
             }
             .scrollIndicators(.visible)
             .frame(maxWidth: .infinity, minHeight: 148, maxHeight: 218, alignment: .topLeading)
             .onAppear {
-                renderedText = text
                 scrollToBottom(proxy)
             }
-            .onDisappear {
-                revealTask?.cancel()
-                revealTask = nil
-            }
-            .onChange(of: text) { _, newText in
-                reveal(newText)
-                scrollToBottom(proxy)
-            }
-            .onChange(of: renderedText) { _, _ in
+            .onChange(of: text) { _, _ in
                 scrollToBottom(proxy)
             }
         }
-    }
-
-    private var displayText: String {
-        renderedText.isEmpty ? text : renderedText
-    }
-
-    private func reveal(_ newText: String) {
-        revealTask?.cancel()
-
-        guard !isPlaceholder else {
-            renderedText = newText
-            revealTask = nil
-            return
-        }
-
-        let oldCharacters = Array(renderedText)
-        let newCharacters = Array(newText)
-        let prefixCount = commonPrefixCount(oldCharacters, newCharacters)
-
-        guard prefixCount < newCharacters.count else {
-            renderedText = newText
-            revealTask = nil
-            return
-        }
-
-        renderedText = String(newCharacters.prefix(prefixCount))
-        revealTask = Task {
-            for count in (prefixCount + 1)...newCharacters.count {
-                if Task.isCancelled { return }
-                try? await Task.sleep(nanoseconds: 12_000_000)
-                await MainActor.run {
-                    renderedText = String(newCharacters.prefix(count))
-                }
-            }
-        }
-    }
-
-    private func commonPrefixCount(_ lhs: [Character], _ rhs: [Character]) -> Int {
-        var index = 0
-        while index < lhs.count, index < rhs.count, lhs[index] == rhs[index] {
-            index += 1
-        }
-        return index
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
