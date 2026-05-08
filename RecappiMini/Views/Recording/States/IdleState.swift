@@ -167,7 +167,7 @@ struct IdleState: View {
 
             if recorder.recordingSuggestion == nil {
                 Rectangle()
-                    .fill(Color.white.opacity(0.16))
+                    .fill(Palette.borderSubtle)
                     .frame(width: 1, height: 20)
                     .padding(.horizontal, 1)
 

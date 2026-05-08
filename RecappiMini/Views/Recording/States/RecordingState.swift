@@ -39,10 +39,10 @@ struct RecordingState: View {
                 Text(formatTime(recorder.elapsedSeconds))
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundStyle(Color.white.opacity(0.92))
+                    .foregroundStyle(Palette.labelPrimary)
                 Text("·")
                     .font(.system(size: 11))
-                    .foregroundStyle(Color.white.opacity(0.35))
+                    .foregroundStyle(Palette.labelTertiary)
                 recordingSourceView
                 Spacer(minLength: 0)
                 Button(action: onClose) {
@@ -120,7 +120,7 @@ struct RecordingState: View {
                         .frame(width: 4.5, height: 4.5)
                         .overlay(
                             Circle()
-                                .stroke(Color(red: 0.179, green: 0.179, blue: 0.179), lineWidth: 1)
+                                .stroke(Palette.surfacePanel, lineWidth: 1)
                         )
                         .offset(x: 1.5, y: 1.5)
                 }
@@ -130,7 +130,7 @@ struct RecordingState: View {
 
             Text(recordingSourceLabel)
                 .font(.system(size: 11))
-                .foregroundStyle(Color.white.opacity(0.62))
+                .foregroundStyle(Palette.labelSecondary)
                 .lineLimit(1)
         }
         .help(recordingSourceIcon == nil ? "Recording all system audio" : "Recording \(recordingSourceLabel)")

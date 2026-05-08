@@ -68,11 +68,11 @@ struct CloudSidebarBillingSummaryCompact: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.04))
+                .fill(Palette.controlFillHover)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.05), lineWidth: 0.5)
+                .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(subtitle)
@@ -131,7 +131,7 @@ struct CloudLimitMeter: View {
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     Capsule(style: .continuous)
-                        .fill(Color.white.opacity(0.10))
+                        .fill(Palette.controlFillPress)
                     Capsule(style: .continuous)
                         .fill(isOverLimit ? DT.systemOrange : DT.waveformLit)
                         .frame(width: proxy.size.width * max(0, min(1, progress)))

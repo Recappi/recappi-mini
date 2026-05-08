@@ -14,16 +14,18 @@ struct RecappiMiniApp: App {
 
     var body: some Scene {
         // Standalone Settings window — opened via ⌘, or the gear in the panel.
-        // .contentSize makes the window track the SwiftUI content's intrinsic
-        // size so settings sections can grow without forcing an internal
-        // scroll view.
+        // The sidebar+detail layout has no intrinsic width, so we constrain
+        // resizability with `.contentMinSize` and let the NavigationSplitView
+        // hold its 720×520 minimum from inside the SwiftUI tree.
         Settings {
-            SettingsView()
-                .environmentObject(AppConfig.shared)
-                .environmentObject(AuthSessionStore.shared)
-                .environmentObject(AppUpdater.shared)
+            ThemedHost {
+                SettingsView()
+                    .environmentObject(AppConfig.shared)
+                    .environmentObject(AuthSessionStore.shared)
+                    .environmentObject(AppUpdater.shared)
+            }
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
     }
 
 }
@@ -113,6 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     func finishLaunchingIfNeeded() {
         guard !didFinishLaunching else { return }
         didFinishLaunching = true
+        // Apply the user's theme before any window is created so the very
+        // first surface (status item, floating panel, onboarding) comes up
+        // in the correct appearance.
+        ThemeManager.shared.startObserving()
         NSApp.setActivationPolicy(.accessory)
         installStatusItemIfNeeded()
         appUpdater.prepareForUserInitiatedCheck = { [weak self] in
@@ -180,8 +186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         )
 
         let hostingView = FloatingPanelHostingView(
-            rootView: FloatingPanelChromeView {
-                contentView
+            rootView: ThemedHost {
+                FloatingPanelChromeView {
+                    contentView
+                }
             }
         )
         hostingView.sizingOptions = [.intrinsicContentSize]
@@ -457,8 +465,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         prepareForForegroundWindowPresentation()
 
         let hostingView = NSHostingView(
-            rootView: AboutRecappiMiniView()
-                .environmentObject(AppUpdater.shared)
+            rootView: ThemedHost {
+                AboutRecappiMiniView()
+                    .environmentObject(AppUpdater.shared)
+            }
         )
         let window = WindowFactory.createWindow(
             contentView: hostingView,
@@ -557,18 +567,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         prepareForForegroundWindowPresentation()
 
         let hostingView = NSHostingView(
-            rootView: SettingsView(ownsForegroundWindowDemand: false)
-                .environmentObject(AppConfig.shared)
-                .environmentObject(AuthSessionStore.shared)
-                .environmentObject(AppUpdater.shared)
+            rootView: ThemedHost {
+                SettingsView(ownsForegroundWindowDemand: false)
+                    .environmentObject(AppConfig.shared)
+                    .environmentObject(AuthSessionStore.shared)
+                    .environmentObject(AppUpdater.shared)
+            }
         )
         let window = WindowFactory.createWindow(
             contentView: hostingView,
             spec: WindowFactory.WindowSpec(
-                contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
+                contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 title: "Recappi Mini Settings",
-                contentMinSize: NSSize(width: 520, height: 620)
+                contentMinSize: NSSize(width: 720, height: 520)
             ),
             delegate: self
         )
@@ -586,9 +598,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         prepareForForegroundWindowPresentation()
 
         let hostingView = NSHostingView(
-            rootView: CloudCenterPanel(store: cloudStore, recorder: recorder)
-                .environmentObject(AuthSessionStore.shared)
-                .environmentObject(AppDelegate.shared)
+            rootView: ThemedHost {
+                CloudCenterPanel(store: cloudStore, recorder: recorder)
+                    .environmentObject(AuthSessionStore.shared)
+                    .environmentObject(AppDelegate.shared)
+            }
         )
         // Standard NSWindow chrome — traffic lights restored, native
         // title visible. NavigationSplitView and `.toolbar` provide the
@@ -759,18 +773,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private func liveCaptionRootView() -> AnyView {
         AnyView(
-            LiveCaptionFloatingPanel(
-                recorder: recorder,
-                mode: liveCaptionPanelMode,
-                onToggleMode: { [weak self] in
-                    self?.toggleLiveCaptionPanelMode()
-                },
-                onClose: { [weak self] in
-                    self?.setLiveCaptionPanelPresented(false)
-                }
-            )
-            .padding(liveCaptionPanelMode.windowPadding)
-            .environmentObject(AppConfig.shared)
+            ThemedHost {
+                LiveCaptionFloatingPanel(
+                    recorder: recorder,
+                    mode: liveCaptionPanelMode,
+                    onToggleMode: { [weak self] in
+                        self?.toggleLiveCaptionPanelMode()
+                    },
+                    onClose: { [weak self] in
+                        self?.setLiveCaptionPanelPresented(false)
+                    }
+                )
+                .padding(liveCaptionPanelMode.windowPadding)
+                .environmentObject(AppConfig.shared)
+            }
         )
     }
 
@@ -801,7 +817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let view = OnboardingView(sessionStore: AuthSessionStore.shared) { [weak self] in
             self?.completeOnboardingAndDismiss()
         }
-        let hostingView = NSHostingView(rootView: view)
+        let hostingView = NSHostingView(rootView: ThemedHost { view })
         let window = WindowFactory.createWindow(
             contentView: hostingView,
             spec: WindowFactory.WindowSpec(

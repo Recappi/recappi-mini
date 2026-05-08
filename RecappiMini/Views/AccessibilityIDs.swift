@@ -21,6 +21,7 @@ enum AccessibilityIDs {
         static let refreshPermissionsButton = "recappi.settings.refreshPermissionsButton"
         static let liveCaptionsDisplayToggle = "recappi.settings.liveCaptionsDisplayToggle"
         static let speechLanguagePicker = "recappi.settings.speechLanguagePicker"
+        static let themePicker = "recappi.settings.themePicker"
     }
 
     enum Panel {

@@ -27,8 +27,7 @@ struct CloudCenterPanel: View {
         .navigationTitle("Recappi Cloud")
         .navigationSubtitle(headerSubtitle)
         .toolbar { toolbarContent }
-        .containerBackground(DT.recordingShell, for: .window)
-        .preferredColorScheme(.dark)
+        .containerBackground(Palette.surfaceWindow, for: .window)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.window)
         .onDisappear {
@@ -602,7 +601,7 @@ struct CloudCenterPanel: View {
         .padding(.vertical, 6)
         .background(
             Capsule(style: .continuous)
-                .fill(Color.white.opacity(0.07))
+                .fill(Palette.controlFillHover)
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Cloud account status")

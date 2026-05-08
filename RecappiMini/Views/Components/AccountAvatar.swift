@@ -31,7 +31,7 @@ struct AccountAvatar: View {
         .clipShape(Circle())
         .overlay(
             Circle()
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                .stroke(Palette.borderHairline, lineWidth: 0.5)
         )
     }
 
@@ -46,7 +46,7 @@ struct AccountAvatar: View {
     private var fallback: some View {
         ZStack {
             Circle()
-                .fill(Color.white.opacity(0.08))
+                .fill(Palette.controlFillPress)
 
             if let initials, !initials.isEmpty {
                 Text(initials)
