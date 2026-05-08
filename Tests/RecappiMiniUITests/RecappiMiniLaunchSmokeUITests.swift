@@ -85,7 +85,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
     }
 
     func testLiveCaptionsOpenCurrentMeetingCloudPanel() throws {
-        let longCaption = (1...24)
+        let longCaption = (1...36)
             .map { "Short realtime chunk \($0) keeps flowing" }
             .joined(separator: " ") + " Final bottom phrase should remain visible."
 
@@ -125,8 +125,8 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         )
         XCTAssertGreaterThanOrEqual(
             captionViewport.frame.height,
-            240,
-            "Expected live captions to keep a usable scroll viewport height."
+            310,
+            "Expected live captions to fill the expanded panel height instead of leaving a large empty lower area."
         )
         XCTAssertGreaterThan(
             caption.frame.height,

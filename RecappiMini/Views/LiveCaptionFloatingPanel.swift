@@ -25,9 +25,9 @@ enum LiveCaptionPanelMode: String {
     var defaultWindowSize: NSSize {
         switch self {
         case .expanded:
-            return NSSize(width: 542, height: 440)
+            return NSSize(width: 542, height: 526)
         case .compact:
-            return NSSize(width: 542, height: 92)
+            return NSSize(width: 542, height: 104)
         }
     }
 
@@ -78,7 +78,7 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var compactBody: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             HStack(spacing: 6) {
                 Circle()
                     .fill(DT.systemRed)
@@ -95,6 +95,7 @@ struct LiveCaptionFloatingPanel: View {
                 .font(.system(size: 15, weight: recorder.liveCaptionText == nil ? .medium : .semibold))
                 .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
                 .lineLimit(2)
+                .truncationMode(.head)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .ignore)
@@ -224,7 +225,7 @@ struct LiveCaptionFloatingPanel: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Palette.borderHairline, lineWidth: 0.6)
         )
-        .frame(height: 318, alignment: .topLeading)
+        .frame(height: 404, alignment: .topLeading)
     }
 
     private var liveCaptionLanguageMenu: some View {
@@ -291,9 +292,9 @@ struct LiveCaptionFloatingPanel: View {
         let text = captionLine
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
-        guard text.count > 92 else { return text }
+        guard text.count > 76 else { return text }
 
-        let tail = String(text.suffix(92))
+        let tail = String(text.suffix(76))
         if let firstSpace = tail.firstIndex(where: \.isWhitespace) {
             let trimmed = tail[tail.index(after: firstSpace)...]
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -343,7 +344,7 @@ private struct LiveCaptionTextViewport: View {
             .contentShape(Rectangle())
             .scrollIndicators(.visible)
             .frame(width: expandedTextWidth, alignment: .topLeading)
-            .frame(height: 246, alignment: .topLeading)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
             .onAppear {
                 scrollToBottom(proxy)
             }
