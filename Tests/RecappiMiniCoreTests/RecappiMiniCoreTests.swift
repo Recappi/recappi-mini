@@ -315,6 +315,39 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(snapshots.map(\.isFinal), [false, false, false, true])
     }
 
+    func testBackendRealtimeTranscriberFinalTranscriptReplacesPartial() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en"
+        ) { _ in }
+
+        let snapshots = [
+            transcriber.handleTranscriptDeltaForTesting("Helo", itemID: "item-a"),
+            transcriber.handleTranscriptCompletionForTesting("Hello", itemID: "item-a"),
+        ].compactMap { $0 }
+
+        XCTAssertEqual(snapshots.map(\.text), ["Helo", "Hello"])
+        XCTAssertEqual(snapshots.map(\.isFinal), [false, true])
+    }
+
+    func testBackendRealtimeTranscriberKeepsConcurrentItemsSeparate() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en"
+        ) { _ in }
+
+        let snapshots = [
+            transcriber.handleTranscriptDeltaForTesting("Hel", itemID: "item-a"),
+            transcriber.handleTranscriptDeltaForTesting("Go", itemID: "item-b"),
+            transcriber.handleTranscriptDeltaForTesting("lo", itemID: "item-a"),
+            transcriber.handleTranscriptCompletionForTesting(nil, itemID: "item-a"),
+            transcriber.handleTranscriptCompletionForTesting("Good", itemID: "item-b"),
+        ].compactMap { $0 }
+
+        XCTAssertEqual(snapshots.map(\.text), ["Hel", "Go", "Hello", "Hello", "Good"])
+        XCTAssertEqual(snapshots.map(\.isFinal), [false, false, false, true, true])
+    }
+
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {
         let data = """
         {

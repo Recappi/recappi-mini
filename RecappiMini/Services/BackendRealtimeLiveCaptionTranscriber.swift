@@ -23,7 +23,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private var entries: [LiveCaptionEntry] = []
     private var latestPartialEntry: LiveCaptionEntry?
     private var lastPublishedText: String?
-    private var partialTranscriptText = ""
+    private var partialTranscriptTextByItem: [TranscriptItemKey: String] = [:]
     private var hasUncommittedAudio = false
     private var uncommittedAudioByteCount = 0
 
@@ -152,11 +152,11 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
         switch event.type {
         case "conversation.item.input_audio_transcription.delta":
-            if let snapshot = appendTranscriptDelta(event.delta) {
+            if let snapshot = appendTranscriptDelta(event.delta, key: event.transcriptItemKey) {
                 publishFromCallback(snapshot)
             }
         case "conversation.item.input_audio_transcription.completed":
-            if let snapshot = completeTranscript(event.transcript) {
+            if let snapshot = completeTranscript(event.transcript, key: event.transcriptItemKey) {
                 publishFromCallback(snapshot)
             }
         case "error":
@@ -168,31 +168,40 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     }
 
 #if DEBUG
-    func handleTranscriptDeltaForTesting(_ delta: String) -> LiveCaptionSnapshot? {
-        appendTranscriptDelta(delta)
+    func handleTranscriptDeltaForTesting(
+        _ delta: String,
+        itemID: String? = nil,
+        contentIndex: Int? = nil
+    ) -> LiveCaptionSnapshot? {
+        appendTranscriptDelta(delta, key: .init(itemID: itemID, contentIndex: contentIndex))
     }
 
-    func handleTranscriptCompletionForTesting(_ transcript: String?) -> LiveCaptionSnapshot? {
-        completeTranscript(transcript)
+    func handleTranscriptCompletionForTesting(
+        _ transcript: String?,
+        itemID: String? = nil,
+        contentIndex: Int? = nil
+    ) -> LiveCaptionSnapshot? {
+        completeTranscript(transcript, key: .init(itemID: itemID, contentIndex: contentIndex))
     }
 #endif
 
-    private func appendTranscriptDelta(_ rawDelta: String?) -> LiveCaptionSnapshot? {
+    private func appendTranscriptDelta(_ rawDelta: String?, key: TranscriptItemKey) -> LiveCaptionSnapshot? {
         guard let delta = rawDelta, !delta.isEmpty else { return nil }
 
         return stateQueue.sync { () -> LiveCaptionSnapshot? in
-            partialTranscriptText += delta
-            let text = partialTranscriptText.trimmingCharacters(in: .whitespacesAndNewlines)
+            partialTranscriptTextByItem[key, default: ""] += delta
+            let text = (partialTranscriptTextByItem[key] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
             return applyTranscriptTextLocked(text, isFinal: false)
         }
     }
 
-    private func completeTranscript(_ rawTranscript: String?) -> LiveCaptionSnapshot? {
+    private func completeTranscript(_ rawTranscript: String?, key: TranscriptItemKey) -> LiveCaptionSnapshot? {
         return stateQueue.sync { () -> LiveCaptionSnapshot? in
-            let text = (rawTranscript ?? partialTranscriptText)
+            let text = (rawTranscript ?? partialTranscriptTextByItem[key] ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            partialTranscriptText = ""
+            partialTranscriptTextByItem[key] = nil
             guard !text.isEmpty else { return nil }
             return applyTranscriptTextLocked(text, isFinal: true)
         }
@@ -455,13 +464,40 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
 private struct RealtimeEvent: Decodable {
     let type: String
+    let itemID: String?
+    let contentIndex: Int?
     let delta: String?
     let transcript: String?
     let error: RealtimeError?
+
+    var transcriptItemKey: TranscriptItemKey {
+        .init(itemID: itemID, contentIndex: contentIndex)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case itemID = "item_id"
+        case contentIndex = "content_index"
+        case delta
+        case transcript
+        case error
+    }
 }
 
 private struct RealtimeError: Decodable {
     let message: String?
+}
+
+private struct TranscriptItemKey: Hashable {
+    private static let fallbackItemID = "__recappi_transcript_item"
+
+    let itemID: String
+    let contentIndex: Int
+
+    init(itemID: String?, contentIndex: Int?) {
+        self.itemID = itemID ?? Self.fallbackItemID
+        self.contentIndex = contentIndex ?? 0
+    }
 }
 
 private final class ConverterInputState: @unchecked Sendable {
