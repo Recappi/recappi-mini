@@ -233,11 +233,7 @@ struct RecappiAPIClient: Sendable {
                 language: language,
                 delay: "low",
                 expiresAfterSeconds: 60,
-                turnDetection: OpenAIRealtimeServerVAD(
-                    threshold: 0.5,
-                    prefixPaddingMs: 300,
-                    silenceDurationMs: 700
-                )
+                turnDetection: .none
             )
         )
         let (data, response) = try await session.data(for: request)

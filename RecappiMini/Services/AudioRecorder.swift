@@ -769,7 +769,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         if AppConfig.shared.backendRealtimeLiveCaptionsEnabled {
             startLiveCaptionProvider(
                 for: systemOutput,
-                localeIdentifier: AppConfig.shared.selectedSpeechLanguage.id
+                localeIdentifier: AppConfig.shared.normalizedCloudLanguage
             )
             return
         }
@@ -804,7 +804,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             )
             let backendTranscriber = BackendRealtimeLiveCaptionTranscriber(
                 client: client,
-                language: localeIdentifier
+                language: Self.normalizedRealtimeLanguage(localeIdentifier)
             ) { [weak self] snapshot in
                 self?.applyLiveCaptionSnapshot(snapshot)
             }
@@ -832,6 +832,14 @@ final class AudioRecorder: NSObject, ObservableObject {
             liveTranscriber?.append(sampleBuffer)
         }
         liveTranscriber.start(localeIdentifier: localeIdentifier)
+    }
+
+    private static func normalizedRealtimeLanguage(_ localeIdentifier: String) -> String {
+        let trimmed = localeIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let base = trimmed.split(separator: "-").first, !base.isEmpty {
+            return String(base)
+        }
+        return "en"
     }
 
     private func stopLiveCaptions(saveTo sessionDir: URL?) {

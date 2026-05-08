@@ -5,7 +5,7 @@ struct OpenAIRealtimeTranscriptionSessionRequest: Encodable {
     let language: String
     let delay: String
     let expiresAfterSeconds: Int
-    let turnDetection: OpenAIRealtimeServerVAD
+    let turnDetection: OpenAIRealtimeTurnDetection
 
     enum CodingKeys: String, CodingKey {
         case mode
@@ -16,18 +16,10 @@ struct OpenAIRealtimeTranscriptionSessionRequest: Encodable {
     }
 }
 
-struct OpenAIRealtimeServerVAD: Encodable {
-    let type = "server_vad"
-    let threshold: Double
-    let prefixPaddingMs: Int
-    let silenceDurationMs: Int
+struct OpenAIRealtimeTurnDetection: Encodable {
+    let type: String
 
-    enum CodingKeys: String, CodingKey {
-        case type
-        case threshold
-        case prefixPaddingMs
-        case silenceDurationMs
-    }
+    static let none = OpenAIRealtimeTurnDetection(type: "none")
 }
 
 struct OpenAIRealtimeSessionClaim: Decodable, Sendable {

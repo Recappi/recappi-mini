@@ -6,6 +6,8 @@ import Foundation
 final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable {
     private static let maxPendingAudioBuffers = 8
     private static let maxSavedEntryCount = 240
+    private static let manualCommitByteThreshold = 67_200
+    private static let minimumManualCommitByteCount = 4_800
     private static let targetSampleRate: Double = 24_000
 
     private let inputQueue = DispatchQueue(label: "RecappiMini.BackendRealtimeLiveCaptionTranscriber.input")
@@ -21,6 +23,8 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private var entries: [LiveCaptionEntry] = []
     private var latestPartialEntry: LiveCaptionEntry?
     private var lastPublishedText: String?
+    private var hasUncommittedAudio = false
+    private var uncommittedAudioByteCount = 0
 
     init(
         client: RecappiAPIClient,
@@ -57,7 +61,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     func stop(saveTo sessionDir: URL?) {
         inputQueue.sync {
             isAcceptingInput = false
-            sendEvent(["type": "input_audio_buffer.commit"])
+            commitPendingAudio(force: true)
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             webSocketTask = nil
         }
@@ -90,6 +94,8 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             inputQueue.sync {
                 webSocketTask = task
                 isAcceptingInput = true
+                hasUncommittedAudio = false
+                uncommittedAudioByteCount = 0
             }
             task.resume()
             receiveLoop(task)
@@ -191,6 +197,20 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             "type": "input_audio_buffer.append",
             "audio": data.base64EncodedString(),
         ])
+        hasUncommittedAudio = true
+        uncommittedAudioByteCount += data.count
+
+        if uncommittedAudioByteCount >= Self.manualCommitByteThreshold {
+            commitPendingAudio()
+        }
+    }
+
+    private func commitPendingAudio(force: Bool = false) {
+        guard hasUncommittedAudio else { return }
+        guard force || uncommittedAudioByteCount >= Self.minimumManualCommitByteCount else { return }
+        sendEvent(["type": "input_audio_buffer.commit"])
+        hasUncommittedAudio = false
+        uncommittedAudioByteCount = 0
     }
 
     private func sendEvent(_ event: [String: Any]) {
