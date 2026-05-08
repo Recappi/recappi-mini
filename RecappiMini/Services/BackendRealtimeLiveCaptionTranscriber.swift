@@ -293,10 +293,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .suffix(Self.maxVisibleEntryCount)
 
-        let text = visibleItems
-            .map(\.text)
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = Self.displayText(from: visibleItems)
         guard !text.isEmpty else { return nil }
 
         let isFinal = visibleItems.allSatisfy(\.isFinal)
@@ -306,6 +303,40 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         lastPublishedText = text
         lastPublishedIsFinal = isFinal
         return .init(phase: .listening, text: text, isFinal: isFinal, message: nil)
+    }
+
+    private static func displayText(from items: ArraySlice<TranscriptItem>) -> String {
+        items.reduce(into: "") { result, item in
+            appendDisplayText(Self.normalizedDisplayFragment(item.text), to: &result)
+        }
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func normalizedDisplayFragment(_ text: String) -> String {
+        text
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
+    private static func appendDisplayText(_ fragment: String, to result: inout String) {
+        guard !fragment.isEmpty else { return }
+        guard let previous = result.last, let next = fragment.first else {
+            result.append(fragment)
+            return
+        }
+
+        if shouldInsertDisplaySpace(between: previous, and: next) {
+            result.append(" ")
+        }
+        result.append(fragment)
+    }
+
+    private static func shouldInsertDisplaySpace(between previous: Character, and next: Character) -> Bool {
+        if previous.isWhitespace || next.isWhitespace { return false }
+        if next.isPunctuation || next.isSymbol { return false }
+        if previous.isPunctuation || previous.isSymbol { return true }
+        if previous.isCJK || next.isCJK { return false }
+        return true
     }
 
     private func sendAudio(_ data: Data) {
@@ -610,6 +641,17 @@ private struct TranscriptItemKey: Hashable {
     init(itemID: String?, contentIndex: Int?) {
         self.itemID = itemID ?? Self.fallbackItemID
         self.contentIndex = contentIndex ?? 0
+    }
+}
+
+private extension Character {
+    var isCJK: Bool {
+        unicodeScalars.contains { scalar in
+            (0x4E00...0x9FFF).contains(scalar.value) ||
+                (0x3400...0x4DBF).contains(scalar.value) ||
+                (0x3040...0x30FF).contains(scalar.value) ||
+                (0xAC00...0xD7AF).contains(scalar.value)
+        }
     }
 }
 

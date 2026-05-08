@@ -86,8 +86,8 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
     func testLiveCaptionsOpenCurrentMeetingCloudPanel() throws {
         let longCaption = (1...24)
-            .map { "Live caption line \($0) keeps moving while the meeting continues." }
-            .joined(separator: "\n") + "\nFinal bottom line should remain visible."
+            .map { "Short realtime chunk \($0) keeps flowing" }
+            .joined(separator: " ") + " Final bottom phrase should remain visible."
 
         let app = launchRecappiApp(
             authToken: "invalid-test-token",
@@ -148,8 +148,12 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             .compactMap { $0 }
             .joined(separator: " ")
         XCTAssertTrue(
-            captionText.localizedCaseInsensitiveContains("Final bottom line"),
+            captionText.localizedCaseInsensitiveContains("Final bottom phrase"),
             "Expected simulated caption text in Cloud, got: \(captionText)"
+        )
+        XCTAssertFalse(
+            captionText.contains("\nShort realtime chunk"),
+            "Short upstream chunks should flow as wrapped text instead of one forced line per item."
         )
         XCTAssertFalse(
             uiElement(app, id: UITestIDs.Panel.liveCaptionText).exists,
@@ -187,8 +191,13 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             .compactMap { $0 }
             .joined(separator: " ")
         XCTAssertTrue(
-            compactText.localizedCaseInsensitiveContains("Final bottom line"),
-            "Expected compact mode to show the latest caption line, got: \(compactText)"
+            compactText.localizedCaseInsensitiveContains("Final bottom phrase"),
+            "Expected compact mode to show the latest flowing caption phrase, got: \(compactText)"
+        )
+        XCTAssertGreaterThan(
+            compactText.count,
+            45,
+            "Compact mode should show recent flowing context, not one tiny upstream chunk."
         )
         XCTAssertFalse(
             compactText.contains("...") || compactText.contains("…"),

@@ -358,7 +358,7 @@ final class RecappiMiniCoreTests: XCTestCase {
             transcriber.handleTranscriptCompletionForTesting("Good", itemID: "item-b"),
         ].compactMap { $0 }
 
-        XCTAssertEqual(snapshots.map(\.text), ["Hel", "Hel\nGo", "Hello\nGo", "Hello\nGood"])
+        XCTAssertEqual(snapshots.map(\.text), ["Hel", "Hel Go", "Hello Go", "Hello Good"])
         XCTAssertEqual(snapshots.map(\.isFinal), [false, false, false, true])
     }
 
@@ -375,7 +375,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         let reorderedSnapshot = transcriber.handleTranscriptCompletionForTesting("Second", itemID: "item-b")
 
         XCTAssertEqual(firstSnapshot?.text, "Second")
-        XCTAssertEqual(reorderedSnapshot?.text, "First\nSecond")
+        XCTAssertEqual(reorderedSnapshot?.text, "First Second")
         XCTAssertEqual(reorderedSnapshot?.isFinal, false)
     }
 
@@ -390,7 +390,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         let reorderedSnapshot = transcriber.handleTranscriptDeltaForTesting("First", itemID: "item-a")
         let finalSnapshot = transcriber.handleTranscriptCompletionForTesting("Second", itemID: "item-b")
 
-        XCTAssertEqual(reorderedSnapshot?.text, "First\nSecond")
+        XCTAssertEqual(reorderedSnapshot?.text, "First Second")
         XCTAssertNil(finalSnapshot)
     }
 
@@ -408,7 +408,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertNil(lateSnapshot)
     }
 
-    func testBackendRealtimeTranscriberPublishesScrollableCaptionHistory() {
+    func testBackendRealtimeTranscriberPublishesContinuousCaptionHistory() {
         let transcriber = BackendRealtimeLiveCaptionTranscriber(
             client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
             language: "en"
@@ -426,7 +426,25 @@ final class RecappiMiniCoreTests: XCTestCase {
         let text = snapshot?.text ?? ""
         XCTAssertTrue(text.contains("Caption history line 1"))
         XCTAssertTrue(text.contains("Caption history line 12"))
-        XCTAssertGreaterThanOrEqual(text.split(whereSeparator: \.isNewline).count, 12)
+        XCTAssertFalse(text.contains("\n"))
+        XCTAssertTrue(text.contains("line 1 Caption history"))
+    }
+
+    func testBackendRealtimeTranscriberJoinsShortChineseItemsWithoutForcedLineBreaks() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "zh"
+        ) { _ in }
+
+        var snapshot: LiveCaptionSnapshot?
+        ["这个", "实时字幕", "应该", "自然换行", "不要每段一行"].enumerated().forEach { index, text in
+            snapshot = transcriber.handleTranscriptCompletionForTesting(
+                text,
+                itemID: "item-\(index)"
+            )
+        }
+
+        XCTAssertEqual(snapshot?.text, "这个实时字幕应该自然换行不要每段一行")
     }
 
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {

@@ -288,11 +288,18 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var compactCaptionLine: String {
-        let lines = captionLine
-            .split(whereSeparator: \.isNewline)
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        return lines.last ?? captionLine
+        let text = captionLine
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard text.count > 92 else { return text }
+
+        let tail = String(text.suffix(92))
+        if let firstSpace = tail.firstIndex(where: \.isWhitespace) {
+            let trimmed = tail[tail.index(after: firstSpace)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return tail.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var sourceLine: String {
@@ -312,7 +319,7 @@ private struct LiveCaptionTextViewport: View {
     let text: String
     let isPlaceholder: Bool
 
-    private let bottomAnchorID = "recappi-live-caption-bottom"
+    private let textAnchorID = "recappi-live-caption-text"
     private let expandedTextWidth: CGFloat = 472
 
     var body: some View {
@@ -328,10 +335,7 @@ private struct LiveCaptionTextViewport: View {
                         .accessibilityLabel(Text(text))
                         .accessibilityValue(Text(text))
                         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
-
-                    Color.clear
-                        .frame(height: 1)
-                        .id(bottomAnchorID)
+                        .id(textAnchorID)
                 }
                 .frame(width: expandedTextWidth, alignment: .topLeading)
             }
@@ -351,7 +355,7 @@ private struct LiveCaptionTextViewport: View {
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         DispatchQueue.main.async {
-            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+            proxy.scrollTo(textAnchorID, anchor: .bottom)
         }
     }
 }
