@@ -20,10 +20,10 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private var webSocketTask: URLSessionWebSocketTask?
     private var isAcceptingInput = false
     private var pendingAudioBufferCount = 0
-    private var entries: [LiveCaptionEntry] = []
-    private var latestPartialEntry: LiveCaptionEntry?
     private var lastPublishedText: String?
-    private var partialTranscriptTextByItem: [TranscriptItemKey: String] = [:]
+    private var transcriptTimeline: [TranscriptItemKey] = []
+    private var transcriptItems: [TranscriptItemKey: TranscriptItem] = [:]
+    private var fallbackSequence = 0
     private var hasUncommittedAudio = false
     private var uncommittedAudioByteCount = 0
 
@@ -151,6 +151,8 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         }
 
         switch event.type {
+        case "input_audio_buffer.committed":
+            registerCommittedItem(event.transcriptItemKey, previousItemID: event.previousItemID)
         case "conversation.item.input_audio_transcription.delta":
             if let snapshot = appendTranscriptDelta(event.delta, key: event.transcriptItemKey) {
                 publishFromCallback(snapshot)
@@ -176,6 +178,10 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         appendTranscriptDelta(delta, key: .init(itemID: itemID, contentIndex: contentIndex))
     }
 
+    func handleCommittedItemForTesting(itemID: String, previousItemID: String? = nil) {
+        registerCommittedItem(.init(itemID: itemID, contentIndex: nil), previousItemID: previousItemID)
+    }
+
     func handleTranscriptCompletionForTesting(
         _ transcript: String?,
         itemID: String? = nil,
@@ -189,44 +195,72 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         guard let delta = rawDelta, !delta.isEmpty else { return nil }
 
         return stateQueue.sync { () -> LiveCaptionSnapshot? in
-            partialTranscriptTextByItem[key, default: ""] += delta
-            let text = (partialTranscriptTextByItem[key] ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            return applyTranscriptTextLocked(text, isFinal: false)
+            let existing = ensureTranscriptItemLocked(key)
+            transcriptItems[key] = existing.appending(delta)
+            return publishTimelineSnapshotLocked()
         }
     }
 
     private func completeTranscript(_ rawTranscript: String?, key: TranscriptItemKey) -> LiveCaptionSnapshot? {
         return stateQueue.sync { () -> LiveCaptionSnapshot? in
-            let text = (rawTranscript ?? partialTranscriptTextByItem[key] ?? "")
+            let existing = ensureTranscriptItemLocked(key)
+            let text = (rawTranscript ?? existing.text)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            partialTranscriptTextByItem[key] = nil
             guard !text.isEmpty else { return nil }
-            return applyTranscriptTextLocked(text, isFinal: true)
+            transcriptItems[key] = existing.replacingText(text, isFinal: true)
+            return publishTimelineSnapshotLocked(force: true)
         }
     }
 
-    private func applyTranscriptTextLocked(_ text: String, isFinal: Bool) -> LiveCaptionSnapshot? {
+    private func registerCommittedItem(_ key: TranscriptItemKey, previousItemID: String?) {
+        stateQueue.sync {
+            let existing = ensureTranscriptItemLocked(key)
+            transcriptItems[key] = existing
+            guard let previousItemID, !previousItemID.isEmpty else { return }
+            moveTranscriptItemLocked(key, afterItemID: previousItemID)
+        }
+    }
+
+    private func ensureTranscriptItemLocked(_ key: TranscriptItemKey) -> TranscriptItem {
+        if let item = transcriptItems[key] {
+            return item
+        }
+
+        fallbackSequence += 1
+        let item = TranscriptItem(text: "", isFinal: false, sequence: fallbackSequence)
+        transcriptItems[key] = item
+        transcriptTimeline.append(key)
+        return item
+    }
+
+    private func moveTranscriptItemLocked(_ key: TranscriptItemKey, afterItemID previousItemID: String) {
+        guard let currentIndex = transcriptTimeline.firstIndex(of: key),
+              let previousIndex = transcriptTimeline.lastIndex(where: { $0.itemID == previousItemID }) else {
+            return
+        }
+
+        let removed = transcriptTimeline.remove(at: currentIndex)
+        let adjustedPreviousIndex = currentIndex < previousIndex ? previousIndex - 1 : previousIndex
+        transcriptTimeline.insert(removed, at: min(adjustedPreviousIndex + 1, transcriptTimeline.count))
+    }
+
+    private func publishTimelineSnapshotLocked(force: Bool = false) -> LiveCaptionSnapshot? {
+        let visibleItems = transcriptTimeline
+            .compactMap { transcriptItems[$0] }
+            .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .suffix(4)
+
+        let text = visibleItems
+            .map(\.text)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+
+        let isFinal = visibleItems.allSatisfy(\.isFinal)
         if lastPublishedText == text, !isFinal {
             return nil
         }
         lastPublishedText = text
-        let entry = LiveCaptionEntry(
-            text: text,
-            isFinal: isFinal,
-            startedAtMs: nil,
-            endedAtMs: nil
-        )
-        if isFinal {
-            latestPartialEntry = nil
-            if entries.last?.text != entry.text {
-                entries.append(entry)
-                trimEntriesLocked()
-            }
-        } else {
-            latestPartialEntry = entry
-        }
         return .init(phase: .listening, text: text, isFinal: isFinal, message: nil)
     }
 
@@ -278,9 +312,21 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
     private func saveEntries(to sessionDir: URL) {
         let finalEntries = stateQueue.sync {
-            let finals = entries.filter(\.isFinal)
-            if !finals.isEmpty { return finals }
-            return latestPartialEntry.map { [$0] } ?? []
+            let orderedEntries = transcriptTimeline
+                .compactMap { transcriptItems[$0] }
+                .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .suffix(Self.maxSavedEntryCount)
+                .map {
+                    LiveCaptionEntry(
+                        text: $0.text,
+                        isFinal: $0.isFinal,
+                        startedAtMs: nil,
+                        endedAtMs: nil
+                    )
+                }
+            let finalEntries = orderedEntries.filter(\.isFinal)
+            if !finalEntries.isEmpty { return finalEntries }
+            return Array(orderedEntries.suffix(1))
         }
         guard !finalEntries.isEmpty,
               let data = try? JSONEncoder().encode(finalEntries) else {
@@ -308,8 +354,10 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     }
 
     private func trimEntriesLocked() {
-        guard entries.count > Self.maxSavedEntryCount else { return }
-        entries.removeFirst(entries.count - Self.maxSavedEntryCount)
+        guard transcriptTimeline.count > Self.maxSavedEntryCount else { return }
+        let removed = transcriptTimeline.prefix(transcriptTimeline.count - Self.maxSavedEntryCount)
+        removed.forEach { transcriptItems[$0] = nil }
+        transcriptTimeline.removeFirst(transcriptTimeline.count - Self.maxSavedEntryCount)
     }
 
     private static func realtimePCMData(from sampleBuffer: CMSampleBuffer) -> Data? {
@@ -465,6 +513,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 private struct RealtimeEvent: Decodable {
     let type: String
     let itemID: String?
+    let previousItemID: String?
     let contentIndex: Int?
     let delta: String?
     let transcript: String?
@@ -477,6 +526,7 @@ private struct RealtimeEvent: Decodable {
     enum CodingKeys: String, CodingKey {
         case type
         case itemID = "item_id"
+        case previousItemID = "previous_item_id"
         case contentIndex = "content_index"
         case delta
         case transcript
@@ -486,6 +536,20 @@ private struct RealtimeEvent: Decodable {
 
 private struct RealtimeError: Decodable {
     let message: String?
+}
+
+private struct TranscriptItem {
+    let text: String
+    let isFinal: Bool
+    let sequence: Int
+
+    func appending(_ delta: String) -> TranscriptItem {
+        .init(text: text + delta, isFinal: false, sequence: sequence)
+    }
+
+    func replacingText(_ text: String, isFinal: Bool) -> TranscriptItem {
+        .init(text: text, isFinal: isFinal, sequence: sequence)
+    }
 }
 
 private struct TranscriptItemKey: Hashable {

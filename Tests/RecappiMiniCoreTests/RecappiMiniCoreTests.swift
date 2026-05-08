@@ -344,8 +344,25 @@ final class RecappiMiniCoreTests: XCTestCase {
             transcriber.handleTranscriptCompletionForTesting("Good", itemID: "item-b"),
         ].compactMap { $0 }
 
-        XCTAssertEqual(snapshots.map(\.text), ["Hel", "Go", "Hello", "Hello", "Good"])
-        XCTAssertEqual(snapshots.map(\.isFinal), [false, false, false, true, true])
+        XCTAssertEqual(snapshots.map(\.text), ["Hel", "Hel\nGo", "Hello\nGo", "Hello\nGood"])
+        XCTAssertEqual(snapshots.map(\.isFinal), [false, false, false, true])
+    }
+
+    func testBackendRealtimeTranscriberUsesPreviousItemIDForOrdering() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en"
+        ) { _ in }
+
+        transcriber.handleCommittedItemForTesting(itemID: "item-b")
+        let firstSnapshot = transcriber.handleTranscriptDeltaForTesting("Second", itemID: "item-b")
+        _ = transcriber.handleTranscriptDeltaForTesting("First", itemID: "item-a")
+        transcriber.handleCommittedItemForTesting(itemID: "item-b", previousItemID: "item-a")
+        let reorderedSnapshot = transcriber.handleTranscriptCompletionForTesting("Second", itemID: "item-b")
+
+        XCTAssertEqual(firstSnapshot?.text, "Second")
+        XCTAssertEqual(reorderedSnapshot?.text, "First\nSecond")
+        XCTAssertEqual(reorderedSnapshot?.isFinal, false)
     }
 
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {
