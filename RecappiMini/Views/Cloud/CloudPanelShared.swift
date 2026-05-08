@@ -52,41 +52,6 @@ struct FlowLayout: Layout {
     }
 }
 
-struct HeaderGlassButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Palette.labelPrimary)
-            .labelStyle(.titleAndIcon)
-            .frame(maxWidth: .infinity)
-            .frame(height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(configuration.isPressed ? Palette.controlFillPress : Palette.controlFillHover)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(configuration.isPressed ? Palette.borderStrong : Palette.borderSubtle, lineWidth: 0.75)
-            )
-            .opacity(configuration.isPressed ? 0.86 : 1)
-    }
-}
-
-/// Empty `NSView` whose only purpose is to opt into AppKit's
-/// "click-and-drag the background to move the window" behaviour. We
-/// drop one of these behind the Cloud header so the user can grab any
-/// non-interactive pixel of our SwiftUI chrome and reposition the
-/// window — replacing the affordance the native title bar used to
-/// provide before we hid the traffic lights.
-struct WindowDragHandle: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { DraggableView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    private final class DraggableView: NSView {
-        override var mouseDownCanMoveWindow: Bool { true }
-    }
-}
-
 enum CloudDetailSection: Hashable {
     case summary
     case transcript
