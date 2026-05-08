@@ -23,6 +23,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private var entries: [LiveCaptionEntry] = []
     private var latestPartialEntry: LiveCaptionEntry?
     private var lastPublishedText: String?
+    private var partialTranscriptText = ""
     private var hasUncommittedAudio = false
     private var uncommittedAudioByteCount = 0
 
@@ -151,9 +152,13 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
         switch event.type {
         case "conversation.item.input_audio_transcription.delta":
-            publishText(event.delta, isFinal: false)
+            if let snapshot = appendTranscriptDelta(event.delta) {
+                publishFromCallback(snapshot)
+            }
         case "conversation.item.input_audio_transcription.completed":
-            publishText(event.transcript, isFinal: true)
+            if let snapshot = completeTranscript(event.transcript) {
+                publishFromCallback(snapshot)
+            }
         case "error":
             let message = event.error?.message ?? "Backend Realtime failed."
             publishFromCallback(.init(phase: .failed, text: nil, isFinal: false, message: message))
@@ -162,34 +167,58 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         }
     }
 
-    private func publishText(_ rawText: String?, isFinal: Bool) {
-        let text = rawText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !text.isEmpty else { return }
+#if DEBUG
+    func handleTranscriptDeltaForTesting(_ delta: String) -> LiveCaptionSnapshot? {
+        appendTranscriptDelta(delta)
+    }
 
-        stateQueue.async { [weak self] in
-            guard let self else { return }
-            if self.lastPublishedText == text, !isFinal {
-                return
-            }
-            self.lastPublishedText = text
-            let entry = LiveCaptionEntry(
-                text: text,
-                isFinal: isFinal,
-                startedAtMs: nil,
-                endedAtMs: nil
-            )
-            if isFinal {
-                self.latestPartialEntry = nil
-                if self.entries.last?.text != entry.text {
-                    self.entries.append(entry)
-                    self.trimEntriesLocked()
-                }
-            } else {
-                self.latestPartialEntry = entry
-            }
+    func handleTranscriptCompletionForTesting(_ transcript: String?) -> LiveCaptionSnapshot? {
+        completeTranscript(transcript)
+    }
+#endif
+
+    private func appendTranscriptDelta(_ rawDelta: String?) -> LiveCaptionSnapshot? {
+        guard let delta = rawDelta, !delta.isEmpty else { return nil }
+
+        return stateQueue.sync { () -> LiveCaptionSnapshot? in
+            partialTranscriptText += delta
+            let text = partialTranscriptText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return applyTranscriptTextLocked(text, isFinal: false)
         }
+    }
 
-        publishFromCallback(.init(phase: .listening, text: text, isFinal: isFinal, message: nil))
+    private func completeTranscript(_ rawTranscript: String?) -> LiveCaptionSnapshot? {
+        return stateQueue.sync { () -> LiveCaptionSnapshot? in
+            let text = (rawTranscript ?? partialTranscriptText)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            partialTranscriptText = ""
+            guard !text.isEmpty else { return nil }
+            return applyTranscriptTextLocked(text, isFinal: true)
+        }
+    }
+
+    private func applyTranscriptTextLocked(_ text: String, isFinal: Bool) -> LiveCaptionSnapshot? {
+        if lastPublishedText == text, !isFinal {
+            return nil
+        }
+        lastPublishedText = text
+        let entry = LiveCaptionEntry(
+            text: text,
+            isFinal: isFinal,
+            startedAtMs: nil,
+            endedAtMs: nil
+        )
+        if isFinal {
+            latestPartialEntry = nil
+            if entries.last?.text != entry.text {
+                entries.append(entry)
+                trimEntriesLocked()
+            }
+        } else {
+            latestPartialEntry = entry
+        }
+        return .init(phase: .listening, text: text, isFinal: isFinal, message: nil)
     }
 
     private func sendAudio(_ data: Data) {

@@ -297,6 +297,24 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(turnDetection["type"] as? String, "none")
     }
 
+    func testBackendRealtimeTranscriberAccumulatesStreamingDeltas() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en"
+        ) { _ in }
+
+        let snapshots = [
+            transcriber.handleTranscriptDeltaForTesting("Hel"),
+            transcriber.handleTranscriptDeltaForTesting("lo"),
+            transcriber.handleTranscriptDeltaForTesting(" world"),
+            transcriber.handleTranscriptCompletionForTesting(nil),
+        ].compactMap { $0 }
+
+        XCTAssertEqual(snapshots.count, 4)
+        XCTAssertEqual(snapshots.map(\.text), ["Hel", "Hello", "Hello world", "Hello world"])
+        XCTAssertEqual(snapshots.map(\.isFinal), [false, false, false, true])
+    }
+
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {
         let data = """
         {
