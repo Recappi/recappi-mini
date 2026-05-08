@@ -211,6 +211,97 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         add(attachment)
     }
 
+    func testLiveCaptionsExpandedPanelFitsMediumCaptionGeometry() throws {
+        let mediumCaption = """
+        这一期我们声港的地方我要去一个特别的很多观众都知道，过去几年瞬间消息主要关注的一个方向就是医药健康领域经常提到虽然创新那种研发还是美国主导的。但药品原料粉末中国早就占据了大头。
+        """
+
+        let app = launchRecappiApp(
+            authToken: "invalid-test-token",
+            simulatedLiveCaptionText: mediumCaption
+        )
+
+        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
+        XCTAssertTrue(recordButton.waitForExistence(timeout: 10), "Expected record button.")
+        recordButton.click()
+
+        let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
+        XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions panel.")
+
+        let captionViewport = app.scrollViews[UITestIDs.Cloud.currentMeetingCaptionViewport]
+        XCTAssertTrue(captionViewport.waitForExistence(timeout: 10), "Expected caption viewport.")
+
+        let caption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
+        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Expected caption text.")
+
+        let geometry = """
+        panel.frame=\(currentMeetingPanel.frame)
+        captionViewport.frame=\(captionViewport.frame)
+        caption.frame=\(caption.frame)
+        """
+        let attachment = XCTAttachment(string: geometry)
+        attachment.name = "live-caption-medium-geometry"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        let leftGutter = captionViewport.frame.minX - currentMeetingPanel.frame.minX
+        let rightGutter = currentMeetingPanel.frame.maxX - captionViewport.frame.maxX
+        XCTAssertLessThanOrEqual(
+            abs(leftGutter - rightGutter),
+            8,
+            "Expanded captions should keep left/right gutters balanced, got left=\(leftGutter) right=\(rightGutter)."
+        )
+        XCTAssertLessThanOrEqual(
+            rightGutter,
+            32,
+            "Expanded captions should not leave a large unused right gutter."
+        )
+        XCTAssertGreaterThanOrEqual(
+            caption.frame.height,
+            captionViewport.frame.height * 0.55,
+            "A medium caption should size the viewport around the text instead of leaving the text in the top half of a large empty container."
+        )
+    }
+
+    func testLiveCaptionsCompactModeShowsCoherentLatestSentence() throws {
+        let liveCaption = """
+        这个就是典型的例子。确实能够活起来有它的暴力人体细胞题里面有一层内膜。细胞里有食物的能量跟水力发电
+        """
+
+        let app = launchRecappiApp(
+            authToken: "invalid-test-token",
+            simulatedLiveCaptionText: liveCaption
+        )
+
+        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
+        XCTAssertTrue(recordButton.waitForExistence(timeout: 10), "Expected record button.")
+        recordButton.click()
+
+        let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
+        XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions panel.")
+
+        let modeButton = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
+        XCTAssertTrue(modeButton.waitForExistence(timeout: 10), "Expected a compact/expanded mode control.")
+        modeButton.click()
+
+        let compactCaption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
+        XCTAssertTrue(compactCaption.waitForExistence(timeout: 5), "Expected compact caption text.")
+        let compactText = [compactCaption.label, compactCaption.value as? String]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        XCTAssertEqual(
+            compactText,
+            "细胞里有食物的能量跟水力发电",
+            "Compact mode should show the latest coherent sentence, not a hard character suffix from the middle of a thought."
+        )
+        XCTAssertFalse(
+            compactText.contains("...") || compactText.contains("…"),
+            "Compact live captions should not rely on visual ellipsis for the newest content."
+        )
+    }
+
     func testDetectedMeetingSuggestionAutoStopsWhenAudioEnds() throws {
         let app = launchRecappiApp(
             authToken: "invalid-test-token",

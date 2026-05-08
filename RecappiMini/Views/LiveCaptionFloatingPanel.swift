@@ -25,7 +25,7 @@ enum LiveCaptionPanelMode: String {
     var defaultWindowSize: NSSize {
         switch self {
         case .expanded:
-            return NSSize(width: 542, height: 526)
+            return NSSize(width: 542, height: 420)
         case .compact:
             return NSSize(width: 542, height: 104)
         }
@@ -38,6 +38,10 @@ enum LiveCaptionPanelMode: String {
         case .compact:
             return 8
         }
+    }
+
+    var contentWidth: CGFloat {
+        defaultWindowSize.width - (windowPadding * 2)
     }
 }
 
@@ -74,7 +78,7 @@ struct LiveCaptionFloatingPanel: View {
             liveCaptionWorkspace
         }
         .padding(12)
-        .frame(width: 500, alignment: .topLeading)
+        .frame(width: mode.contentWidth, alignment: .topLeading)
     }
 
     private var compactBody: some View {
@@ -107,7 +111,7 @@ struct LiveCaptionFloatingPanel: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .frame(width: 514, alignment: .leading)
+        .frame(width: mode.contentWidth, alignment: .leading)
     }
 
     private func panelBackground(cornerRadius: CGFloat) -> some View {
@@ -208,7 +212,8 @@ struct LiveCaptionFloatingPanel: View {
 
             LiveCaptionTextViewport(
                 text: captionLine,
-                isPlaceholder: recorder.liveCaptionText == nil
+                isPlaceholder: recorder.liveCaptionText == nil,
+                viewportHeight: liveCaptionViewportHeight
             )
             .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
             .padding(.horizontal, 14)
@@ -225,7 +230,7 @@ struct LiveCaptionFloatingPanel: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Palette.borderHairline, lineWidth: 0.6)
         )
-        .frame(height: 404, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var liveCaptionLanguageMenu: some View {
@@ -292,15 +297,23 @@ struct LiveCaptionFloatingPanel: View {
         let text = captionLine
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
-        guard text.count > 76 else { return text }
+        let maxCompactCharacters = text.containsCJK ? 44 : 82
+        guard text.count > maxCompactCharacters else { return text }
 
-        let tail = String(text.suffix(76))
-        if let firstSpace = tail.firstIndex(where: \.isWhitespace) {
-            let trimmed = tail[tail.index(after: firstSpace)...]
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
+        if let sentenceTail = text.lastSentenceTail(maxLength: maxCompactCharacters) {
+            return sentenceTail
         }
-        return tail.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return text.compactTail(maxLength: maxCompactCharacters)
+    }
+
+    private var liveCaptionViewportHeight: CGFloat {
+        guard recorder.liveCaptionText != nil else { return 118 }
+        let text = captionLine
+        let lineCapacity: CGFloat = text.containsCJK ? 34 : 62
+        let estimatedLines = ceil(CGFloat(max(text.count, 1)) / lineCapacity)
+        let estimatedHeight = (estimatedLines * 23) + 10
+        return min(318, max(118, estimatedHeight))
     }
 
     private var sourceLine: String {
@@ -319,9 +332,9 @@ struct LiveCaptionFloatingPanel: View {
 private struct LiveCaptionTextViewport: View {
     let text: String
     let isPlaceholder: Bool
+    let viewportHeight: CGFloat
 
     private let textAnchorID = "recappi-live-caption-text"
-    private let expandedTextWidth: CGFloat = 472
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -331,20 +344,20 @@ private struct LiveCaptionTextViewport: View {
                         .font(.system(size: 15, weight: .medium))
                         .lineSpacing(4)
                         .fixedSize(horizontal: false, vertical: true)
-                        .frame(width: expandedTextWidth, alignment: .topLeading)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(Text(text))
                         .accessibilityValue(Text(text))
                         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
                         .id(textAnchorID)
                 }
-                .frame(width: expandedTextWidth, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionViewport)
             .contentShape(Rectangle())
             .scrollIndicators(.visible)
-            .frame(width: expandedTextWidth, alignment: .topLeading)
-            .frame(maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(height: viewportHeight, alignment: .topLeading)
             .onAppear {
                 scrollToBottom(proxy)
             }
@@ -357,6 +370,54 @@ private struct LiveCaptionTextViewport: View {
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         DispatchQueue.main.async {
             proxy.scrollTo(textAnchorID, anchor: .bottom)
+        }
+    }
+}
+
+private extension String {
+    var containsCJK: Bool {
+        contains { $0.isCJK }
+    }
+
+    func compactTail(maxLength: Int) -> String {
+        let tail = String(suffix(maxLength))
+        guard !containsCJK,
+              let firstSpace = tail.firstIndex(where: \.isWhitespace) else {
+            return tail.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let trimmed = tail[tail.index(after: firstSpace)...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? tail.trimmingCharacters(in: .whitespacesAndNewlines) : trimmed
+    }
+
+    func lastSentenceTail(maxLength: Int) -> String? {
+        let delimiters = CharacterSet(charactersIn: "。！？.!?；;")
+        var bestStart: String.Index?
+        var index = startIndex
+
+        while index < endIndex {
+            let scalar = self[index].unicodeScalars.first
+            if let scalar, delimiters.contains(scalar) {
+                bestStart = self.index(after: index)
+            }
+            index = self.index(after: index)
+        }
+
+        guard let bestStart else { return nil }
+        let candidate = self[bestStart...].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty, candidate.count <= maxLength else { return nil }
+        return candidate
+    }
+}
+
+private extension Character {
+    var isCJK: Bool {
+        unicodeScalars.contains { scalar in
+            (0x4E00...0x9FFF).contains(scalar.value) ||
+                (0x3400...0x4DBF).contains(scalar.value) ||
+                (0x3040...0x30FF).contains(scalar.value) ||
+                (0xAC00...0xD7AF).contains(scalar.value)
         }
     }
 }
