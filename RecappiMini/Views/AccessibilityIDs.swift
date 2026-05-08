@@ -20,7 +20,6 @@ enum AccessibilityIDs {
         static let requestScreenCaptureButton = "recappi.settings.requestScreenCaptureButton"
         static let refreshPermissionsButton = "recappi.settings.refreshPermissionsButton"
         static let liveCaptionsDisplayToggle = "recappi.settings.liveCaptionsDisplayToggle"
-        static let experimentalCodexRealtimeToggle = "recappi.settings.experimentalCodexRealtimeToggle"
         static let speechLanguagePicker = "recappi.settings.speechLanguagePicker"
         static let themePicker = "recappi.settings.themePicker"
     }
