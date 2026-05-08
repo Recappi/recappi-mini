@@ -585,35 +585,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         prepareForForegroundWindowPresentation()
 
-        let hostingView = CloudEdgeToEdgeHostingView(
+        let hostingView = NSHostingView(
             rootView: CloudCenterPanel(store: cloudStore, recorder: recorder)
                 .environmentObject(AuthSessionStore.shared)
                 .environmentObject(AppDelegate.shared)
         )
-        // `.fullSizeContentView` lets the SwiftUI panel draw under
-        // the macOS title bar so the Cloud window reads like an
-        // app surface rather than a Finder document — the SwiftUI
-        // header already shows "Recappi Cloud", a status chip, and
-        // a refresh button, which would be redundant alongside the
-        // native title text.
+        // Standard NSWindow chrome — traffic lights restored, native
+        // title visible. NavigationSplitView and `.toolbar` provide the
+        // sidebar Liquid Glass material and the title-bar action items;
+        // there is no SwiftUI-owned header anymore.
         let window = WindowFactory.createWindow(
             contentView: hostingView,
             spec: WindowFactory.WindowSpec(
-                contentRect: NSRect(x: 0, y: 0, width: 920, height: 760),
+                contentRect: NSRect(x: 0, y: 0, width: 1080, height: 760),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 title: "Recappi Cloud",
-                titleVisibility: .hidden,
-                hiddenStandardButtons: [.closeButton, .miniaturizeButton, .zoomButton],
-                contentMinSize: NSSize(width: 840, height: 680)
+                contentMinSize: NSSize(width: 880, height: 600)
             ),
             delegate: self
         )
-        // Keep the underlying `.titled` mask (so the window registers
-        // as a real titled window and `performClose` from the SwiftUI
-        // header still does the right thing), but make the bar
-        // transparent, hide the title text, and pull the traffic-light
-        // controls out of the chrome so the SwiftUI header can render
-        // its logo flush to the leading edge.
+        window.toolbarStyle = .unified
         window.makeKeyAndOrderFront(nil)
         managedWindows.cloudWindow = window
     }
