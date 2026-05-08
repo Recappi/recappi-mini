@@ -93,5 +93,7 @@ enum AccessibilityIDs {
         static let downloadAudioButton = "recappi.cloud.downloadAudioButton"
         static let deleteButton = "recappi.cloud.deleteButton"
         static let confirmDeleteButton = "recappi.cloud.confirmDeleteButton"
+        static let accountMenu = "recappi.cloud.accountMenu"
+        static let openWebDashboardButton = "recappi.cloud.openWebDashboardButton"
     }
 }

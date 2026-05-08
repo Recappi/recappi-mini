@@ -36,7 +36,11 @@ struct AboutRecappiMiniView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 18) {
-                AboutHeroMark()
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 96, height: 96)
+                    .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -61,7 +65,7 @@ struct AboutRecappiMiniView: View {
             .padding(.bottom, 18)
 
             Divider()
-                .overlay(Color.white.opacity(0.08))
+                .overlay(Palette.borderHairline)
 
             HStack(spacing: 10) {
                 Button {
@@ -83,79 +87,7 @@ struct AboutRecappiMiniView: View {
             .padding(.vertical, 16)
         }
         .frame(width: 460)
-        .background(
-            ZStack(alignment: .topTrailing) {
-                Palette.surfaceWindow
-                AboutBackgroundGrid()
-                    .opacity(0.34)
-            }
-        )
         .containerBackground(Palette.surfaceWindow, for: .window)
-    }
-}
-
-private struct AboutHeroMark: View {
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.14),
-                            Color.white.opacity(0.045),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.11), lineWidth: 1)
-                )
-
-            VStack(spacing: 10) {
-                LogoTile(size: 54)
-                    .accessibilityHidden(true)
-
-                HStack(spacing: 4) {
-                    ForEach(0..<12, id: \.self) { index in
-                        Capsule(style: .continuous)
-                            .fill(index.isMultiple(of: 3) ? DT.waveformLit : Color.white.opacity(0.48))
-                            .frame(width: 3, height: CGFloat([10, 18, 14, 24, 12, 20, 28, 16, 22, 11, 17, 13][index]))
-                    }
-                }
-                .frame(height: 30)
-
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(DT.systemRed)
-                        .frame(width: 6, height: 6)
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(Color.white.opacity(0.28))
-                        .frame(width: 46, height: 4)
-                }
-            }
-        }
-        .frame(width: 132, height: 154)
-        .shadow(color: .black.opacity(0.24), radius: 18, y: 12)
-    }
-}
-
-private struct AboutBackgroundGrid: View {
-    var body: some View {
-        VStack(alignment: .trailing, spacing: 7) {
-            ForEach(0..<9, id: \.self) { row in
-                HStack(spacing: 7) {
-                    ForEach(0..<10, id: \.self) { column in
-                        RoundedRectangle(cornerRadius: 1.2, style: .continuous)
-                            .fill((row + column).isMultiple(of: 4) ? DT.waveformLit.opacity(0.34) : Color.white.opacity(0.13))
-                            .frame(width: 3, height: 3)
-                    }
-                }
-            }
-        }
-        .padding(.top, 18)
-        .padding(.trailing, 18)
     }
 }
 
@@ -187,39 +119,18 @@ private struct AboutButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(primary ? Color.black.opacity(0.88) : Color.dtLabel)
+            .foregroundStyle(primary ? Color.black.opacity(0.88) : Palette.labelPrimary)
             .labelStyle(.titleAndIcon)
             .frame(maxWidth: .infinity)
             .frame(height: 30)
             .background(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .fill(background(isPressed: configuration.isPressed))
+                    .fill(primary ? DT.waveformLit : Palette.controlFillHover)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .stroke(primary ? Color.white.opacity(0.2) : Color.white.opacity(0.09), lineWidth: 0.5)
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
             )
             .opacity(configuration.isPressed ? 0.84 : 1)
-    }
-
-    private func background(isPressed: Bool) -> some ShapeStyle {
-        if primary {
-            return AnyShapeStyle(LinearGradient(
-                colors: [
-                    DT.waveformLit.opacity(isPressed ? 0.82 : 1),
-                    DT.accentGreenDeep.opacity(isPressed ? 0.82 : 1),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            ))
-        }
-        return AnyShapeStyle(LinearGradient(
-            colors: [
-                DT.recordingChip.opacity(isPressed ? 0.95 : 0.82),
-                DT.recordingChip.opacity(isPressed ? 0.86 : 0.70),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        ))
     }
 }

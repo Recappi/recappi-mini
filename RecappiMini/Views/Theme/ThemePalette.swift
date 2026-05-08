@@ -23,6 +23,16 @@ enum Palette {
     static let surfaceElevated = dynamic(light: 0xFFFFFF, dark: 0x333333)
     /// Live-captions overlay (slightly lifted from `surfacePanel` in dark).
     static let surfaceLiveCaption = dynamic(light: 0xF2F2F4, dark: 0x474747)
+    /// Reading-pane card background (transcript card, summary insight cards).
+    /// Light: clean white inset against the slightly off-white window;
+    /// dark: charcoal step lighter than `surfaceWindow` so cards lift cleanly
+    /// without the old `ultraThinMaterial + black 0.24` muddied look.
+    static let surfaceCard = dynamic(light: 0xFFFFFF, dark: 0x232323)
+    /// Subtle inset for rows inside `surfaceCard` (e.g. transcript segments).
+    /// Designed to be barely-there in both modes.
+    static let surfaceCardSubtle = dynamicAlpha(light: (0x000000, 0.025), dark: (0xFFFFFF, 0.012))
+    /// Selected/active row tint inside a card (slightly more visible).
+    static let surfaceCardSubtleActive = dynamicAlpha(light: (0x000000, 0.045), dark: (0xFFFFFF, 0.035))
 
     // MARK: - Borders
 

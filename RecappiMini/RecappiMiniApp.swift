@@ -26,6 +26,16 @@ struct RecappiMiniApp: App {
             }
         }
         .windowResizability(.contentMinSize)
+        .commands {
+            // Replace the system's standard "About Recappi Mini" menu item
+            // (which opens `orderFrontStandardAboutPanel(_:)`) so the menu
+            // bar surfaces our custom AboutRecappiMiniView instead.
+            CommandGroup(replacing: .appInfo) {
+                Button("About Recappi Mini") {
+                    AppDelegate.shared.showAboutPanel()
+                }
+            }
+        }
     }
 
 }
@@ -600,6 +610,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let hostingView = NSHostingView(
             rootView: ThemedHost {
                 CloudCenterPanel(store: cloudStore, recorder: recorder)
+                    .environmentObject(AppConfig.shared)
                     .environmentObject(AuthSessionStore.shared)
                     .environmentObject(AppDelegate.shared)
             }
