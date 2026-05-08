@@ -125,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     func finishLaunchingIfNeeded() {
         guard !didFinishLaunching else { return }
         didFinishLaunching = true
+        NSApp.delegate = self
         // Apply the user's theme before any window is created so the very
         // first surface (status item, floating panel, onboarding) comes up
         // in the correct appearance.
@@ -144,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             }
         }
         appUpdater.start()
+        CodexAppServerManager.shared.startObserving()
         configureNotifications()
 
         // First-launch onboarding (intro → permissions → sign-in). Skipped
@@ -252,6 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                 if self.isRecording != isRecording {
                     self.isRecording = isRecording
                     self.updateStatusItemRecordingState(isRecording)
+                    self.syncCodexRealtimeForRecordingState(isRecording)
                 }
 
                 self.notifyHiddenProcessingTransitionIfNeeded(from: previous, to: state)
@@ -274,6 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         runningAppsRefreshTask?.cancel()
         recorderStateObserver?.cancel()
         liveCaptionSessionObserver?.cancel()
+        CodexAppServerManager.shared.stop()
         closeLiveCaptionWindow()
         let center = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers {
@@ -409,6 +413,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             startRecordingDotPulse()
         } else {
             stopRecordingDotPulse()
+        }
+    }
+
+    private func syncCodexRealtimeForRecordingState(_ isRecording: Bool) {
+        guard AppConfig.shared.experimentalCodexRealtimeEnabled else { return }
+        if isRecording {
+            CodexAppServerManager.shared.startIfNeeded()
+        } else {
+            CodexAppServerManager.shared.stop()
         }
     }
 

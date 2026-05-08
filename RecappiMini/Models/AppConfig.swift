@@ -39,6 +39,7 @@ final class AppConfig: ObservableObject {
     @AppStorage("cloudEnabled") var cloudEnabled: Bool = true
     @AppStorage("autoPromptForActiveAudioApps") var autoPromptForActiveAudioApps: Bool = true
     @AppStorage("liveCaptionsDisplayEnabled") var liveCaptionsDisplayEnabled: Bool = true
+    @AppStorage("experimentalCodexRealtimeEnabled") var experimentalCodexRealtimeEnabled: Bool = false
     @AppStorage("appTheme") var theme: AppTheme = .light
 
     @AppStorage("speechLanguage") var cloudLanguage: String = "en-US"

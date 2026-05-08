@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TranscriptionSettingsPage: View {
     @EnvironmentObject private var config: AppConfig
+    @ObservedObject private var codexAppServer = CodexAppServerManager.shared
 
     var body: some View {
         Form {
@@ -27,6 +28,21 @@ struct TranscriptionSettingsPage: View {
                     .foregroundStyle(Palette.labelSecondary)
                     .font(.footnote)
             }
+
+            Section {
+                Toggle("Use Codex Realtime", isOn: codexRealtimeBinding)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.experimentalCodexRealtimeToggle)
+
+                Text(codexRealtimeStatusText)
+                    .foregroundStyle(Palette.labelSecondary)
+                    .font(.footnote)
+            } header: {
+                Text("Experimental")
+            } footer: {
+                Text("Starts a local Codex app-server for a future Realtime meeting panel. This is off by default and uses the local Codex login on this Mac.")
+                    .foregroundStyle(Palette.labelSecondary)
+                    .font(.footnote)
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
@@ -47,5 +63,32 @@ struct TranscriptionSettingsPage: View {
                 AppDelegate.shared.applyLiveCaptionDisplayPreference()
             }
         )
+    }
+
+    private var codexRealtimeBinding: Binding<Bool> {
+        Binding(
+            get: { config.experimentalCodexRealtimeEnabled },
+            set: {
+                config.experimentalCodexRealtimeEnabled = $0
+                CodexAppServerManager.shared.syncWithPreference()
+            }
+        )
+    }
+
+    private var codexRealtimeStatusText: String {
+        guard config.experimentalCodexRealtimeEnabled else {
+            return "Off. Apple Speech remains the default live caption path."
+        }
+
+        switch codexAppServer.state {
+        case .stopped:
+            return "Waiting to start Codex app-server."
+        case .starting:
+            return "Starting Codex app-server..."
+        case .running:
+            return "Codex app-server is running for experimental Realtime."
+        case .failed(let message):
+            return message
+        }
     }
 }
