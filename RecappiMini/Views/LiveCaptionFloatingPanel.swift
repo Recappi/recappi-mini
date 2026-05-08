@@ -25,9 +25,9 @@ enum LiveCaptionPanelMode: String {
     var defaultWindowSize: NSSize {
         switch self {
         case .expanded:
-            return NSSize(width: 542, height: 306)
+            return NSSize(width: 542, height: 440)
         case .compact:
-            return NSSize(width: 514, height: 68)
+            return NSSize(width: 542, height: 92)
         }
     }
 
@@ -91,22 +91,22 @@ struct LiveCaptionFloatingPanel: View {
             }
             .frame(width: 52, alignment: .leading)
 
-            Text(captionLine)
+            Text(compactCaptionLine)
                 .font(.system(size: 15, weight: recorder.liveCaptionText == nil ? .medium : .semibold))
                 .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
-                .lineLimit(1)
-                .truncationMode(.tail)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(captionLine))
-                .accessibilityValue(Text(captionLine))
+                .accessibilityLabel(Text(compactCaptionLine))
+                .accessibilityValue(Text(compactCaptionLine))
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
 
             captionControlButtons
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .frame(width: 486, alignment: .leading)
+        .frame(width: 514, alignment: .leading)
     }
 
     private func panelBackground(cornerRadius: CGFloat) -> some View {
@@ -131,6 +131,7 @@ struct LiveCaptionFloatingPanel: View {
             }
             .buttonStyle(PanelIconButtonStyle(size: 22))
             .help(mode.toggleTitle)
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanelModeButton)
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
@@ -212,7 +213,9 @@ struct LiveCaptionFloatingPanel: View {
             .padding(.horizontal, 14)
             .padding(.top, 12)
             .padding(.bottom, 14)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
         }
+        .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Palette.controlFillHover)
@@ -221,6 +224,7 @@ struct LiveCaptionFloatingPanel: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Palette.borderHairline, lineWidth: 0.6)
         )
+        .frame(height: 318, alignment: .topLeading)
     }
 
     private var liveCaptionLanguageMenu: some View {
@@ -283,6 +287,14 @@ struct LiveCaptionFloatingPanel: View {
         return "Listening for meeting audio…"
     }
 
+    private var compactCaptionLine: String {
+        let lines = captionLine
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return lines.last ?? captionLine
+    }
+
     private var sourceLine: String {
         recorder.recordingAppName ?? recorder.selectedApp?.name ?? "All system audio"
     }
@@ -323,8 +335,11 @@ private struct LiveCaptionTextViewport: View {
                 }
                 .frame(width: expandedTextWidth, alignment: .topLeading)
             }
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionViewport)
+            .contentShape(Rectangle())
             .scrollIndicators(.visible)
-            .frame(maxWidth: .infinity, minHeight: 148, maxHeight: 218, alignment: .topLeading)
+            .frame(width: expandedTextWidth, alignment: .topLeading)
+            .frame(height: 246, alignment: .topLeading)
             .onAppear {
                 scrollToBottom(proxy)
             }
@@ -336,9 +351,7 @@ private struct LiveCaptionTextViewport: View {
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.16)) {
-                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-            }
+            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
         }
     }
 }

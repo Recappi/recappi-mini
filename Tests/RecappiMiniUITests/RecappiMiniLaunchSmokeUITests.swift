@@ -85,7 +85,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
     }
 
     func testLiveCaptionsOpenCurrentMeetingCloudPanel() throws {
-        let longCaption = (1...14)
+        let longCaption = (1...24)
             .map { "Live caption line \($0) keeps moving while the meeting continues." }
             .joined(separator: "\n") + "\nFinal bottom line should remain visible."
 
@@ -111,6 +111,37 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let caption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
         XCTAssertTrue(caption.waitForExistence(timeout: 10), "Expected current-meeting captions in Cloud.")
+        let captionViewport = app.scrollViews[UITestIDs.Cloud.currentMeetingCaptionViewport]
+        XCTAssertTrue(captionViewport.waitForExistence(timeout: 10), "Expected current-meeting caption viewport.")
+        XCTAssertGreaterThanOrEqual(
+            captionViewport.frame.width,
+            450,
+            "Expected live captions to use the expanded panel width, not collapse into a narrow column."
+        )
+        XCTAssertGreaterThanOrEqual(
+            caption.frame.width,
+            430,
+            "Expected live caption text to wrap at the expanded viewport width."
+        )
+        XCTAssertGreaterThanOrEqual(
+            captionViewport.frame.height,
+            240,
+            "Expected live captions to keep a usable scroll viewport height."
+        )
+        XCTAssertGreaterThan(
+            caption.frame.height,
+            captionViewport.frame.height + 24,
+            "Expected long live captions to overflow the viewport so the panel can scroll."
+        )
+        XCTAssertTrue(captionViewport.isHittable, "Expected the whole live caption viewport to accept scroll gestures.")
+        let viewportGeometry = """
+        captionViewport.frame=\(captionViewport.frame)
+        caption.frame=\(caption.frame)
+        """
+        let viewportAttachment = XCTAttachment(string: viewportGeometry)
+        viewportAttachment.name = "live-caption-viewport-geometry"
+        viewportAttachment.lifetime = .keepAlways
+        add(viewportAttachment)
         let languageMenu = uiElement(app, id: UITestIDs.Cloud.currentMeetingLanguageMenu)
         XCTAssertTrue(languageMenu.waitForExistence(timeout: 10), "Expected a Live Caption language selector in Cloud.")
         let captionText = [caption.label, caption.value as? String]
@@ -145,6 +176,23 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         XCTAssertTrue(
             currentMeetingPanel.waitForExistence(timeout: 5),
             "Expected the Cloud header toggle to reopen the floating Live Caption panel."
+        )
+
+        let modeButton = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
+        XCTAssertTrue(modeButton.waitForExistence(timeout: 10), "Expected a compact/expanded mode control.")
+        modeButton.click()
+        let compactCaption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
+        XCTAssertTrue(compactCaption.waitForExistence(timeout: 5), "Expected compact caption text.")
+        let compactText = [compactCaption.label, compactCaption.value as? String]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        XCTAssertTrue(
+            compactText.localizedCaseInsensitiveContains("Final bottom line"),
+            "Expected compact mode to show the latest caption line, got: \(compactText)"
+        )
+        XCTAssertFalse(
+            compactText.contains("...") || compactText.contains("…"),
+            "Compact live captions should not render a truncated history string."
         )
 
         let screenshot = XCUIScreen.main.screenshot()

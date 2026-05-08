@@ -6,6 +6,7 @@ import Foundation
 final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable {
     private static let maxPendingAudioBuffers = 8
     private static let maxSavedEntryCount = 240
+    private static let maxVisibleEntryCount = 24
     private static let manualCommitByteThreshold = 67_200
     private static let minimumManualCommitByteCount = 4_800
     private static let targetSampleRate: Double = 24_000
@@ -290,7 +291,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         let visibleItems = transcriptTimeline
             .compactMap { transcriptItems[$0] }
             .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .suffix(4)
+            .suffix(Self.maxVisibleEntryCount)
 
         let text = visibleItems
             .map(\.text)

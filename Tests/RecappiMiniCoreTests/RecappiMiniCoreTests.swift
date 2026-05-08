@@ -408,6 +408,27 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertNil(lateSnapshot)
     }
 
+    func testBackendRealtimeTranscriberPublishesScrollableCaptionHistory() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en"
+        ) { _ in }
+
+        var snapshot: LiveCaptionSnapshot?
+        for index in 1...12 {
+            let itemID = "item-\(index)"
+            snapshot = transcriber.handleTranscriptCompletionForTesting(
+                "Caption history line \(index)",
+                itemID: itemID
+            )
+        }
+
+        let text = snapshot?.text ?? ""
+        XCTAssertTrue(text.contains("Caption history line 1"))
+        XCTAssertTrue(text.contains("Caption history line 12"))
+        XCTAssertGreaterThanOrEqual(text.split(whereSeparator: \.isNewline).count, 12)
+    }
+
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {
         let data = """
         {
