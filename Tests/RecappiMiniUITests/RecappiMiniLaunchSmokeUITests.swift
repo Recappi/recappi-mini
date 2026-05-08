@@ -101,6 +101,11 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         let cloudButton = app.buttons[UITestIDs.Panel.cloudButton]
         XCTAssertTrue(cloudButton.waitForExistence(timeout: 10), "Expected recording panel to keep a Cloud live captions entry point.")
 
+        XCTAssertFalse(
+            uiElement(app, id: UITestIDs.Cloud.window).waitForExistence(timeout: 2),
+            "Recording should not open the full Cloud window automatically."
+        )
+
         let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
         XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions to open in an independent Cloud floating panel.")
 
@@ -133,6 +138,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             "A dismissed Live Caption panel should stay hidden for the current recording session."
         )
 
+        cloudButton.click()
         let toggleCaptionPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaptionToggleButton)
         XCTAssertTrue(toggleCaptionPanel.waitForExistence(timeout: 10), "Expected Cloud header to keep a lightweight Live Caption toggle.")
         toggleCaptionPanel.click()
@@ -291,8 +297,12 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         XCTAssertTrue(recordButton.waitForExistence(timeout: 15), "Expected Record button.")
         recordButton.click()
 
+        let cloudButton = app.buttons[UITestIDs.Panel.cloudButton]
+        XCTAssertTrue(cloudButton.waitForExistence(timeout: 10), "Expected recording panel to keep a Cloud entry point.")
+        cloudButton.click()
+
         let cloudWindow = uiElement(app, id: UITestIDs.Cloud.window)
-        XCTAssertTrue(cloudWindow.waitForExistence(timeout: 15), "Expected Cloud window to open after recording starts.")
+        XCTAssertTrue(cloudWindow.waitForExistence(timeout: 15), "Expected Cloud window to open when requested during recording.")
 
         let recordingsList = uiElement(app, id: UITestIDs.Cloud.recordingsList)
         XCTAssertTrue(recordingsList.waitForExistence(timeout: 30), "Expected Cloud recordings list while local recording is active.")

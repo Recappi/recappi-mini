@@ -25,7 +25,7 @@ enum LiveCaptionPanelMode: String {
     var defaultWindowSize: NSSize {
         switch self {
         case .expanded:
-            return NSSize(width: 402, height: 278)
+            return NSSize(width: 542, height: 306)
         case .compact:
             return NSSize(width: 514, height: 68)
         }
@@ -62,7 +62,7 @@ struct LiveCaptionFloatingPanel: View {
             RoundedRectangle(cornerRadius: mode == .expanded ? 16 : 14, style: .continuous)
                 .stroke(Palette.borderSubtle, lineWidth: 0.6)
         )
-        .shadow(color: Palette.shadowPanel, radius: 12, x: 0, y: 6)
+        .shadow(color: Palette.shadowPanel.opacity(0.42), radius: 5, x: 0, y: 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanel)
     }
@@ -74,7 +74,7 @@ struct LiveCaptionFloatingPanel: View {
             liveCaptionWorkspace
         }
         .padding(12)
-        .frame(width: 360, alignment: .topLeading)
+        .frame(width: 500, alignment: .topLeading)
     }
 
     private var compactBody: some View {
@@ -300,15 +300,18 @@ private struct LiveCaptionTextViewport: View {
     let text: String
     let isPlaceholder: Bool
 
+    @State private var renderedText = ""
+    @State private var revealTask: Task<Void, Never>?
+
     private let bottomAnchorID = "recappi-live-caption-bottom"
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(text)
-                        .font(.system(size: 16, weight: isPlaceholder ? .medium : .semibold))
-                        .lineSpacing(3)
+                    Text(displayText)
+                        .font(.system(size: 15, weight: .medium))
+                        .lineSpacing(4)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .accessibilityElement(children: .ignore)
@@ -322,14 +325,67 @@ private struct LiveCaptionTextViewport: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, minHeight: 92, maxHeight: 172, alignment: .topLeading)
+            .scrollIndicators(.visible)
+            .frame(maxWidth: .infinity, minHeight: 148, maxHeight: 218, alignment: .topLeading)
             .onAppear {
+                renderedText = text
                 scrollToBottom(proxy)
             }
-            .onChange(of: text) { _, _ in
+            .onDisappear {
+                revealTask?.cancel()
+                revealTask = nil
+            }
+            .onChange(of: text) { _, newText in
+                reveal(newText)
+                scrollToBottom(proxy)
+            }
+            .onChange(of: renderedText) { _, _ in
                 scrollToBottom(proxy)
             }
         }
+    }
+
+    private var displayText: String {
+        renderedText.isEmpty ? text : renderedText
+    }
+
+    private func reveal(_ newText: String) {
+        revealTask?.cancel()
+
+        guard !isPlaceholder else {
+            renderedText = newText
+            revealTask = nil
+            return
+        }
+
+        let oldCharacters = Array(renderedText)
+        let newCharacters = Array(newText)
+        let prefixCount = commonPrefixCount(oldCharacters, newCharacters)
+
+        guard prefixCount < newCharacters.count else {
+            renderedText = newText
+            revealTask = nil
+            return
+        }
+
+        renderedText = String(newCharacters.prefix(prefixCount))
+        revealTask = Task {
+            for count in (prefixCount + 1)...newCharacters.count {
+                if Task.isCancelled { return }
+                try? await Task.sleep(nanoseconds: 12_000_000)
+                await MainActor.run {
+                    renderedText = String(newCharacters.prefix(count))
+                }
+            }
+        }
+    }
+
+    private func commonPrefixCount(_ lhs: [Character], _ rhs: [Character]) -> Int {
+        var index = 0
+        while index < lhs.count, index < rhs.count, lhs[index] == rhs[index] {
+            index += 1
+        }
+        return index
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {

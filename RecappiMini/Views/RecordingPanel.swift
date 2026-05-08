@@ -150,7 +150,6 @@ struct RecordingPanel: View {
                 NSLog("[Recappi] startRecording() calling AudioRecorder.startRecording()")
                 try await recorder.startRecording()
                 NSLog("[Recappi] startRecording() returned, state now = \(recorder.state)")
-                onOpenCloud()
             } catch {
                 NSLog("[Recappi] startRecording() error: \(error)")
                 recorder.state = .error(message: error.localizedDescription)
