@@ -47,6 +47,7 @@ struct CloudRecordingDetail: View {
         readerPane
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .toolbar { detailToolbarContent }
         .onAppear {
             detailWaveform.load(url: playbackAudioURL)
             refreshPlayerMetadataIfNeeded()
@@ -100,7 +101,7 @@ struct CloudRecordingDetail: View {
                 detailNavigationRow
             }
 
-            Divider().overlay(Color.white.opacity(0.08))
+            Divider().overlay(Palette.borderHairline)
 
             CloudDetailScrollableSections(
                 hasSummarySection: hasSummarySection,
@@ -118,7 +119,7 @@ struct CloudRecordingDetail: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider().overlay(Color.white.opacity(0.08))
+            Divider().overlay(Palette.borderHairline)
 
             CloudDetailPlaybackSection {
                 bottomPlaybackBar
@@ -180,11 +181,11 @@ struct CloudRecordingDetail: View {
         .padding(2)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color.white.opacity(0.045))
+                .fill(Palette.controlFillHover)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+                .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
         )
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -211,7 +212,7 @@ struct CloudRecordingDetail: View {
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isActive ? Color.white.opacity(0.13) : Color.clear)
+                    .fill(isActive ? Palette.controlFillPress : Color.clear)
             )
             .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         }
@@ -380,7 +381,7 @@ struct CloudRecordingDetail: View {
     @ViewBuilder
     private func summaryQuoteSection(items: [String]) -> some View {
         if !items.isEmpty {
-            summarySectionBlock(title: "Notable quotes", systemImage: "quote.bubble", accent: Color.white.opacity(0.42)) {
+            summarySectionBlock(title: "Notable quotes", systemImage: "quote.bubble", accent: Palette.labelTertiary) {
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(Array(items.enumerated()), id: \.offset) { entry in
                         markdownText(entry.element)
@@ -392,7 +393,7 @@ struct CloudRecordingDetail: View {
                             .padding(.leading, 9)
                             .overlay(alignment: .leading) {
                                 RoundedRectangle(cornerRadius: 1, style: .continuous)
-                                    .fill(Color.white.opacity(0.14))
+                                    .fill(Palette.borderSubtle)
                                     .frame(width: 2)
                             }
                     }
@@ -486,15 +487,11 @@ struct CloudRecordingDetail: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.black.opacity(0.24))
-                )
+                .fill(Palette.surfaceCard)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.09), lineWidth: 1)
+                .strokeBorder(Palette.borderHairline, lineWidth: 1)
         )
         .accessibilityIdentifier(accessibilityID)
     }
@@ -593,48 +590,42 @@ struct CloudRecordingDetail: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            .layoutPriority(1)
-            .frame(minWidth: 0)
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: 6) {
-                headerLocalActionButton
-
-                if let recordingWebURL {
-                    Button {
-                        NSWorkspace.shared.open(recordingWebURL)
-                    } label: {
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.system(size: 12.5, weight: .semibold))
-                    }
-                    .buttonStyle(PanelIconButtonStyle(size: 28))
-                    .help("Open in browser")
-                    .accessibilityLabel("Open in browser")
-                    .accessibilityIdentifier(AccessibilityIDs.Cloud.openRecordingInBrowserButton)
-                }
-
-                Button {
-                    isShowingRecordingInfo.toggle()
-                } label: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 12.5, weight: .semibold))
-                }
-                .buttonStyle(PanelIconButtonStyle(size: 28))
-                .help(recordingInfoHelpText)
-                .popover(isPresented: $isShowingRecordingInfo, arrowEdge: .top) {
-                    recordingInfoPopover
-                }
-                .accessibilityLabel("Recording details")
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingInfoButton)
-
-                recordingActionsMenu
-            }
-            .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
+                .frame(minWidth: 0)
         }
     }
 
-    private var headerLocalActionButton: some View {
+    @ToolbarContentBuilder
+    private var detailToolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            toolbarLocalActionButton
+
+            if let recordingWebURL {
+                Button {
+                    NSWorkspace.shared.open(recordingWebURL)
+                } label: {
+                    Label("Open in browser", systemImage: "arrow.up.right.square")
+                }
+                .help("Open in browser")
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.openRecordingInBrowserButton)
+            }
+
+            Button {
+                isShowingRecordingInfo.toggle()
+            } label: {
+                Label("Recording details", systemImage: "info.circle")
+            }
+            .help(recordingInfoHelpText)
+            .popover(isPresented: $isShowingRecordingInfo, arrowEdge: .top) {
+                recordingInfoPopover
+            }
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingInfoButton)
+
+            recordingActionsMenu
+        }
+    }
+
+    private var toolbarLocalActionButton: some View {
         Button {
             if localSessionURL == nil {
                 onSyncToLocal()
@@ -642,21 +633,18 @@ struct CloudRecordingDetail: View {
                 onRevealLocalSession()
             }
         } label: {
-            ZStack {
-                Image(systemName: localSessionURL == nil ? "arrow.down.doc" : "folder")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .opacity(isSyncingToLocal ? 0 : 1)
-
+            if isSyncingToLocal {
                 ProgressView()
                     .controlSize(.small)
-                    .scaleEffect(0.62)
-                    .opacity(isSyncingToLocal ? 1 : 0)
+            } else {
+                Label(
+                    localSessionURL == nil ? "Sync to local" : "Open local session",
+                    systemImage: localSessionURL == nil ? "arrow.down.doc" : "folder"
+                )
             }
         }
-        .buttonStyle(PanelIconButtonStyle(size: 28))
         .disabled(isSyncingToLocal)
         .help(localSessionURL == nil ? "Sync to local" : "Open local session")
-        .accessibilityLabel(localSessionURL == nil ? "Sync to local" : "Open local session")
         .accessibilityIdentifier(localSessionURL == nil ? AccessibilityIDs.Cloud.syncToLocalButton : AccessibilityIDs.Cloud.revealLocalSessionButton)
     }
 
@@ -695,13 +683,10 @@ struct CloudRecordingDetail: View {
                 .disabled(isDeleting)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.deleteButton)
         } label: {
-            MenuIconLabel(systemName: "ellipsis", size: 28)
+            Label("More actions", systemImage: "ellipsis")
         }
-        .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: 28, height: 28)
         .help("More actions")
-        .accessibilityLabel("More actions")
         .accessibilityIdentifier(AccessibilityIDs.Cloud.moreActionsButton)
     }
 
@@ -735,7 +720,7 @@ struct CloudRecordingDetail: View {
             }
 
             if let localSessionURL {
-                Divider().overlay(Color.white.opacity(0.08))
+                Divider().overlay(Palette.borderHairline)
 
                 HStack(spacing: 8) {
                     Image(systemName: "folder")
@@ -892,7 +877,7 @@ struct CloudRecordingDetail: View {
                     .foregroundStyle(Color.dtLabelTertiary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Capsule(style: .continuous).fill(Color.white.opacity(0.055)))
+                    .background(Capsule(style: .continuous).fill(Palette.controlFillHover))
             }
             Spacer(minLength: 0)
             ZStack {
@@ -1005,7 +990,7 @@ struct CloudRecordingDetail: View {
         let activeSegmentID = activeSegmentID(in: segmentRows)
         ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(segmentRows.isEmpty ? 0.18 : 0.24))
+                .fill(Palette.surfaceCard)
 
             if !segmentRows.isEmpty {
                 // `LazyVStack` (vs `VStack`): only the segments inside the
@@ -1058,7 +1043,7 @@ struct CloudRecordingDetail: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                .strokeBorder(Palette.borderHairline, lineWidth: 1)
         )
         .transaction { transaction in
             transaction.animation = nil
@@ -1126,7 +1111,7 @@ private struct CloudTranscriptSegmentRow: View {
         Button(action: onSelect) {
             HStack(alignment: .top, spacing: 12) {
                 Capsule(style: .continuous)
-                    .fill(isActive ? DT.waveformLit.opacity(0.9) : Color.white.opacity(0.055))
+                    .fill(isActive ? DT.waveformLit.opacity(0.9) : Palette.controlFillHover)
                     .frame(width: isActive ? 2 : 3)
                     .padding(.vertical, 2)
 
@@ -1156,11 +1141,11 @@ private struct CloudTranscriptSegmentRow: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isActive ? Color.white.opacity(0.035) : Color.white.opacity(0.012))
+                    .fill(isActive ? Palette.surfaceCardSubtleActive : Palette.surfaceCardSubtle)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isActive ? Color.white.opacity(0.05) : Color.white.opacity(0.018), lineWidth: 1)
+                    .strokeBorder(Palette.borderHairline, lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }

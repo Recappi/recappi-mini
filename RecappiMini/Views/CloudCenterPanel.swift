@@ -7,9 +7,13 @@ struct CloudCenterPanel: View {
     @ObservedObject private var recorder: AudioRecorder
     @EnvironmentObject private var sessionStore: AuthSessionStore
     @EnvironmentObject private var appDelegate: AppDelegate
+    @EnvironmentObject private var config: AppConfig
     @State private var showingDeleteConfirmation = false
     @State private var pendingListScrollTargetID: String?
     @State private var pendingProcessingAction: CloudRecordingProcessingAction?
+    @State private var contextMenuTargetRecording: CloudRecording?
+    @State private var pendingRenameRecording: CloudRecording?
+    @State private var renameDraft: String = ""
 
     init(store: CloudLibraryStore = CloudLibraryStore(), recorder: AudioRecorder) {
         _store = StateObject(wrappedValue: store)
@@ -67,6 +71,40 @@ struct CloudCenterPanel: View {
         } message: {
             Text(pendingProcessingAction?.confirmationMessage ?? "")
         }
+        .alert(
+            "Rename recording",
+            isPresented: renameAlertBinding,
+            presenting: pendingRenameRecording
+        ) { recording in
+            TextField("Title", text: $renameDraft)
+            Button("Save") {
+                // TODO: wire to backend rename endpoint once it lands.
+                // The right-click → Rename UI is in place (this alert + the
+                // sidebar menu item), but `RecappiAPIClient` has no PATCH
+                // /api/recordings/{id} yet. When the endpoint exists, send
+                // `renameDraft` (after trimming) for `recording.id`, then
+                // refresh the row optimistically through `store`.
+                _ = recording
+                _ = renameDraft
+                pendingRenameRecording = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingRenameRecording = nil
+            }
+        } message: { _ in
+            Text("Choose a new title for this recording.")
+        }
+    }
+
+    private var renameAlertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingRenameRecording != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingRenameRecording = nil
+                }
+            }
+        )
     }
 
     // MARK: - Toolbar
@@ -131,20 +169,11 @@ struct CloudCenterPanel: View {
     private var sidebar: some View {
         ScrollViewReader { proxy in
             List(selection: selectionBinding) {
-                if shouldShowBillingSummary {
-                    Section {
-                        CloudSidebarBillingSummaryCompact(
-                            status: store.billingStatus,
-                            errorMessage: store.billingErrorMessage,
-                            isLoading: store.billingStatus == nil && store.isLoadingBilling,
-                            isOpeningBilling: store.isOpeningBilling,
-                            onOpenBilling: { Task { await store.openBillingPortalOrPlans() } },
-                            onOpenPlans: store.openPlansPage
-                        )
+                Section {
+                    accountHeaderMenu
                         .listRowInsets(EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
-                    }
                 }
 
                 ForEach(recordingDateSections) { section in
@@ -152,14 +181,15 @@ struct CloudCenterPanel: View {
                         ForEach(section.recordings) { recording in
                             CloudRecordingRow(
                                 recording: recording,
-                                latestJobStatus: store.transcriptionJobsByRecordingID[recording.id]?.first?.status,
-                                isSelected: store.selectedRecordingID == recording.id,
-                                isNowPlaying: cloudAudioPlayer.currentRecordingID == recording.id
+                                isSelected: store.selectedRecordingID == recording.id
                             )
                             .tag(recording.id)
                             .id(recording.id)
                             .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
                             .listRowSeparator(.hidden)
+                            .contextMenu {
+                                rowContextMenu(for: recording)
+                            }
                         }
                     }
                 }
@@ -207,10 +237,7 @@ struct CloudCenterPanel: View {
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.nowPlayingDock)
             }
 
-            HStack {
-                authStatusChip
-                Spacer(minLength: 0)
-            }
+            openRecappiCloudButton
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -218,6 +245,39 @@ struct CloudCenterPanel: View {
         .overlay(alignment: .top) {
             Divider().opacity(0.6)
         }
+    }
+
+    private var openRecappiCloudButton: some View {
+        Button {
+            if let url = URL(string: config.effectiveBackendBaseURL) {
+                NSWorkspace.shared.open(url)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text("Open Recappi Cloud")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Palette.labelPrimary)
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Palette.labelSecondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Palette.controlFillHover)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("Open Recappi Cloud in your browser")
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.openWebDashboardButton)
     }
 
     // MARK: - Detail content
@@ -275,8 +335,205 @@ struct CloudCenterPanel: View {
         }
     }
 
-    private var shouldShowBillingSummary: Bool {
-        store.billingStatus != nil || store.isLoadingBilling || store.billingErrorMessage != nil
+    // MARK: - Sidebar account header
+
+    /// Top-of-sidebar account row, mirroring the Settings panel's affordance.
+    /// We deliberately drive the popup from a plain `Button` + `NSMenu`
+    /// instead of a SwiftUI `Menu { } label: { ... }`: on macOS, a custom
+    /// Menu label with `.menuStyle(.borderlessButton)` strips inner frame
+    /// and `clipShape` modifiers (the avatar would render as an unclipped
+    /// full-resolution image and the subtitle/background/chevron disappear).
+    /// The Button preserves the Settings-style row chrome verbatim, and
+    /// `NSMenu.popUp(positioning:at:in:)` gives us a native macOS popup
+    /// anchored under the row.
+    private var accountHeaderMenu: some View {
+        Button(action: presentAccountMenu) {
+            accountHeaderLabel
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.accountMenu)
+    }
+
+    private var accountHeaderLabel: some View {
+        HStack(spacing: 10) {
+            AccountAvatar(session: sessionStore.currentSession, size: 32)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(accountHeaderTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.labelPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(accountHeaderSubtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.labelSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Palette.labelTertiary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Palette.controlFillHover)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func presentAccountMenu() {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        // Usage section (signed in + billing loaded).
+        if sessionStore.currentSession != nil, let billing = store.billingStatus {
+            let header = NSMenuItem(title: "Usage", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+
+            menu.addItem(disabledMenuItem(title: "    Storage  \(billing.storageUsageText)"))
+            menu.addItem(disabledMenuItem(title: "    Minutes  \(billing.minutesUsageText)"))
+
+            let billingItem = closureMenuItem(title: "Manage billing…", systemImage: "creditcard") { [store] in
+                Task { @MainActor in await store.openBillingPortalOrPlans() }
+            }
+            menu.addItem(billingItem)
+
+            menu.addItem(.separator())
+        }
+
+        // Theme submenu.
+        let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
+        themeItem.image = NSImage(systemSymbolName: "paintbrush", accessibilityDescription: nil)
+        let themeSub = NSMenu()
+        themeSub.autoenablesItems = false
+        for option in AppTheme.allCases {
+            let item = closureMenuItem(title: option.displayName, systemImage: nil) { [config] in
+                config.theme = option
+            }
+            item.state = (config.theme == option) ? .on : .off
+            themeSub.addItem(item)
+        }
+        themeItem.submenu = themeSub
+        menu.addItem(themeItem)
+
+        // Settings…
+        menu.addItem(closureMenuItem(title: "Settings…", systemImage: "gear") {
+            AppDelegate.shared.showSettingsWindow()
+        })
+
+        menu.addItem(.separator())
+
+        // Sign in / sign out.
+        if sessionStore.currentSession != nil {
+            menu.addItem(closureMenuItem(title: "Sign out", systemImage: "rectangle.portrait.and.arrow.right") { [sessionStore, config] in
+                Task { @MainActor in await sessionStore.signOut(origin: config.effectiveBackendBaseURL) }
+            })
+        } else {
+            menu.addItem(closureMenuItem(title: "Sign in with Google", systemImage: "person.crop.circle.badge.plus") { [store] in
+                Task { @MainActor in await store.signIn(with: .google) }
+            })
+            menu.addItem(closureMenuItem(title: "Sign in with GitHub", systemImage: "person.crop.circle.badge.plus") { [store] in
+                Task { @MainActor in await store.signIn(with: .github) }
+            })
+        }
+
+        // Anchor the popup under the button's frame using the current event.
+        if let event = NSApp.currentEvent,
+           let view = event.window?.contentView {
+            NSMenu.popUpContextMenu(menu, with: event, for: view)
+        } else {
+            // Fallback: pop at mouse cursor.
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        }
+    }
+
+    private func disabledMenuItem(title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        return item
+    }
+
+    private func closureMenuItem(title: String, systemImage: String?, action: @escaping () -> Void) -> NSMenuItem {
+        let target = MenuClosureTarget(action: action)
+        let item = NSMenuItem(title: title, action: #selector(MenuClosureTarget.invoke), keyEquivalent: "")
+        item.target = target
+        item.representedObject = target  // retain
+        if let symbol = systemImage {
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        }
+        return item
+    }
+
+    private var accountHeaderTitle: String {
+        if let session = sessionStore.currentSession {
+            let name = session.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? session.email : name
+        }
+        return "Sign in"
+    }
+
+    private var accountHeaderSubtitle: String {
+        if let session = sessionStore.currentSession {
+            return session.email
+        }
+        switch sessionStore.authStatus {
+        case .expired:
+            return "Session expired"
+        case .failed:
+            return "Sign in needed"
+        default:
+            return "Recappi Cloud"
+        }
+    }
+
+    // MARK: - Row context menu
+
+    @ViewBuilder
+    private func rowContextMenu(for recording: CloudRecording) -> some View {
+        Button("Rename…", systemImage: "pencil") {
+            renameDraft = recording.presentationTitle
+            pendingRenameRecording = recording
+        }
+
+        Divider()
+
+        Button("Open in browser", systemImage: "arrow.up.right.square") {
+            if let url = cloudRecordingWebURL(
+                recordingID: recording.id,
+                backendBaseURL: config.effectiveBackendBaseURL
+            ) {
+                NSWorkspace.shared.open(url)
+            }
+        }
+
+        if store.localSessionURLsByRecordingID[recording.id] == nil {
+            Button("Sync to Mac", systemImage: "arrow.down.doc") {
+                store.select(recording)
+                Task { await store.syncSelectedRecordingToLocal() }
+            }
+        } else {
+            Button("Reveal local copy", systemImage: "folder") {
+                store.select(recording)
+                store.revealSelectedLocalSession()
+            }
+        }
+
+        Divider()
+
+        Button("Delete recording", systemImage: "trash", role: .destructive) {
+            store.select(recording)
+            showingDeleteConfirmation = true
+        }
     }
 
     // MARK: - Detail pane
@@ -583,49 +840,6 @@ struct CloudCenterPanel: View {
         }
     }
 
-    // MARK: - Auth chip (sidebar bottom)
-
-    private var authStatusChip: some View {
-        let chip = statusChipContent
-        return HStack(spacing: 6) {
-            Circle()
-                .fill(chip.color)
-                .frame(width: 7, height: 7)
-            Text(chip.text)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.dtLabelSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Palette.controlFillHover)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Cloud account status")
-        .accessibilityValue(chip.text)
-        .accessibilityIdentifier(AccessibilityIDs.Cloud.authStatus)
-    }
-
-    private var statusChipContent: (text: String, color: Color) {
-        if sessionStore.isAuthBusy {
-            return ("Connecting", DT.waveformLit)
-        }
-
-        switch sessionStore.authStatus {
-        case .signedIn(let session):
-            return (session.email, DT.systemGreen)
-        case .expired:
-            return ("Expired", DT.systemOrange)
-        case .failed:
-            return ("Needs attention", DT.systemOrange)
-        case .signedOut, .authenticating:
-            return ("Signed out", DT.systemOrange)
-        }
-    }
-
     // MARK: - Subtitle text
 
     private var headerSubtitle: String {
@@ -787,5 +1001,19 @@ extension BillingStatus {
             return String(Int(value))
         }
         return String(format: "%.1f", value)
+    }
+}
+
+/// Bridges a Swift closure to `NSMenuItem`'s Objective-C selector contract.
+/// Retained on the menu item via `representedObject` so the closure stays
+/// alive while the menu is on screen.
+@MainActor
+private final class MenuClosureTarget: NSObject {
+    let action: () -> Void
+    init(action: @escaping () -> Void) {
+        self.action = action
+    }
+    @objc func invoke() {
+        action()
     }
 }
