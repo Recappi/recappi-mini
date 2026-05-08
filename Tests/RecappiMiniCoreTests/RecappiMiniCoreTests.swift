@@ -278,6 +278,31 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testRealtimeTranscriptionSessionRequestMatchesBackendContract() throws {
+        let body = try JSONEncoder().encode(
+            OpenAIRealtimeTranscriptionSessionRequest(
+                language: "en-US",
+                delay: "low",
+                expiresAfterSeconds: 60,
+                turnDetection: OpenAIRealtimeServerVAD(
+                    threshold: 0.5,
+                    prefixPaddingMs: 300,
+                    silenceDurationMs: 700
+                )
+            )
+        )
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let turnDetection = try XCTUnwrap(json["turnDetection"] as? [String: Any])
+
+        XCTAssertEqual(json["mode"] as? String, "transcription")
+        XCTAssertEqual(json["language"] as? String, "en-US")
+        XCTAssertEqual(json["delay"] as? String, "low")
+        XCTAssertEqual(json["expiresAfterSeconds"] as? Int, 60)
+        XCTAssertEqual(turnDetection["type"] as? String, "server_vad")
+        XCTAssertEqual(turnDetection["prefixPaddingMs"] as? Int, 300)
+        XCTAssertEqual(turnDetection["silenceDurationMs"] as? Int, 700)
+    }
+
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {
         let data = """
         {

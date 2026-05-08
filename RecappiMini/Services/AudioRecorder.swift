@@ -465,23 +465,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             sysOut.onMeterFrame = { [weak self] frame in
                 self?.ingestMeterFrame(frame)
             }
-            if #available(macOS 26.0, *) {
-                let speechStatus = await LiveCaptionTranscriber.requestSpeechAuthorizationIfNeeded()
-                if speechStatus == .authorized {
-                    let liveTranscriber = LiveCaptionTranscriber { [weak self] snapshot in
-                        self?.applyLiveCaptionSnapshot(snapshot)
-                    }
-                    self.liveCaptionTranscriber = liveTranscriber
-                    sysOut.onLiveCaptionSampleBuffer = { [weak liveTranscriber] sampleBuffer in
-                        liveTranscriber?.append(sampleBuffer)
-                    }
-                    liveTranscriber.start(localeIdentifier: AppConfig.shared.selectedSpeechLanguage.id)
-                } else {
-                    liveCaptionMessage = "Enable Speech Recognition to use live captions."
-                }
-            } else {
-                liveCaptionMessage = "Live captions require macOS 26."
-            }
+            await startLiveCaptions(for: sysOut)
             self.systemOutput = sysOut
 
             let filter: SCContentFilter
@@ -769,16 +753,76 @@ final class AudioRecorder: NSObject, ObservableObject {
         systemOutput.onLiveCaptionSampleBuffer = nil
         stopLiveCaptions(oldTranscriber, saveTo: nil)
 
+        liveCaptionText = nil
+        liveCaptionMessage = "Switching live caption language…"
+        liveCaptionIsFinal = false
+
+        startLiveCaptionProvider(for: systemOutput, localeIdentifier: localeIdentifier)
+    }
+
+    private func startLiveCaptions(for systemOutput: SystemAudioOutput) async {
+        guard #available(macOS 26.0, *) else {
+            liveCaptionMessage = "Live captions require macOS 26."
+            return
+        }
+
+        if AppConfig.shared.backendRealtimeLiveCaptionsEnabled {
+            startLiveCaptionProvider(
+                for: systemOutput,
+                localeIdentifier: AppConfig.shared.selectedSpeechLanguage.id
+            )
+            return
+        }
+
+        let speechStatus = await LiveCaptionTranscriber.requestSpeechAuthorizationIfNeeded()
+        guard speechStatus == .authorized else {
+            liveCaptionMessage = "Enable Speech Recognition to use live captions."
+            return
+        }
+
+        startLiveCaptionProvider(
+            for: systemOutput,
+            localeIdentifier: AppConfig.shared.selectedSpeechLanguage.id
+        )
+    }
+
+    private func startLiveCaptionProvider(
+        for systemOutput: SystemAudioOutput,
+        localeIdentifier: String
+    ) {
+        if AppConfig.shared.backendRealtimeLiveCaptionsEnabled {
+            guard let bearerToken = AuthSessionStore.shared.bearerToken() else {
+                liveCaptionMessage = "Sign in to Recappi Cloud to use backend live captions."
+                liveCaptionText = nil
+                liveCaptionIsFinal = false
+                return
+            }
+
+            let client = RecappiAPIClient(
+                origin: AppConfig.shared.effectiveBackendBaseURL,
+                bearerToken: bearerToken
+            )
+            let backendTranscriber = BackendRealtimeLiveCaptionTranscriber(
+                client: client,
+                language: localeIdentifier
+            ) { [weak self] snapshot in
+                self?.applyLiveCaptionSnapshot(snapshot)
+            }
+            liveCaptionTranscriber = backendTranscriber
+            systemOutput.onLiveCaptionSampleBuffer = { [weak backendTranscriber] sampleBuffer in
+                backendTranscriber?.append(sampleBuffer)
+            }
+            backendTranscriber.start()
+            return
+        }
+
+        guard #available(macOS 26.0, *) else { return }
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
             liveCaptionText = nil
             liveCaptionMessage = "Enable Speech Recognition to use live captions."
             liveCaptionIsFinal = false
             return
         }
-
-        liveCaptionText = nil
-        liveCaptionMessage = "Switching live caption language…"
-        liveCaptionIsFinal = false
 
         let liveTranscriber = LiveCaptionTranscriber { [weak self] snapshot in
             self?.applyLiveCaptionSnapshot(snapshot)
@@ -796,6 +840,9 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private func stopLiveCaptions(_ transcriber: Any?, saveTo sessionDir: URL?) {
         if #available(macOS 26.0, *), let transcriber = transcriber as? LiveCaptionTranscriber {
+            transcriber.stop(saveTo: sessionDir)
+        }
+        if let transcriber = transcriber as? BackendRealtimeLiveCaptionTranscriber {
             transcriber.stop(saveTo: sessionDir)
         }
     }

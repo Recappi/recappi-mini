@@ -27,6 +27,15 @@ struct TranscriptionSettingsPage: View {
                     .foregroundStyle(Palette.labelSecondary)
                     .font(.footnote)
             }
+
+            Section {
+                Toggle("Use backend Realtime captions", isOn: backendRealtimeBinding)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.backendRealtimeLiveCaptionsToggle)
+            } footer: {
+                Text("Experimental. When enabled, Recappi streams live caption audio through the authenticated backend Realtime WebSocket instead of Apple Speech.")
+                    .foregroundStyle(Palette.labelSecondary)
+                    .font(.footnote)
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
@@ -46,6 +55,13 @@ struct TranscriptionSettingsPage: View {
                 config.liveCaptionsDisplayEnabled = $0
                 AppDelegate.shared.applyLiveCaptionDisplayPreference()
             }
+        )
+    }
+
+    private var backendRealtimeBinding: Binding<Bool> {
+        Binding(
+            get: { config.backendRealtimeLiveCaptionsEnabled },
+            set: { config.backendRealtimeLiveCaptionsEnabled = $0 }
         )
     }
 }

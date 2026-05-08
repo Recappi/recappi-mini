@@ -351,7 +351,7 @@ struct CloudCenterPanel: View {
             accountHeaderLabel
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(AccessibilityIDs.Cloud.accountMenu)
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.authStatus)
     }
 
     private var accountHeaderLabel: some View {

@@ -225,6 +225,26 @@ struct RecappiAPIClient: Sendable {
         return try JSONDecoder().decode(BillingURLResponse.self, from: data)
     }
 
+    func createRealtimeTranscriptionSession(language: String) async throws -> OpenAIRealtimeSessionClaim {
+        var request = try makeRequest(path: "/api/openai/realtime/sessions", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(
+            OpenAIRealtimeTranscriptionSessionRequest(
+                language: language,
+                delay: "low",
+                expiresAfterSeconds: 60,
+                turnDetection: OpenAIRealtimeServerVAD(
+                    threshold: 0.5,
+                    prefixPaddingMs: 300,
+                    silenceDurationMs: 700
+                )
+            )
+        )
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        return try JSONDecoder().decode(OpenAIRealtimeSessionClaim.self, from: data)
+    }
+
     func abortRecordingIfNeeded(recordingId: String) async {
         guard var request = try? makeRequest(path: "/api/recordings/\(recordingId)/abort", method: "POST") else {
             return
