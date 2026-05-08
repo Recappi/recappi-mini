@@ -21,8 +21,10 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private var isAcceptingInput = false
     private var pendingAudioBufferCount = 0
     private var lastPublishedText: String?
+    private var lastPublishedIsFinal: Bool?
     private var transcriptTimeline: [TranscriptItemKey] = []
     private var transcriptItems: [TranscriptItemKey: TranscriptItem] = [:]
+    private var pendingPreviousItemIDByKey: [TranscriptItemKey: String] = [:]
     private var fallbackSequence = 0
     private var hasUncommittedAudio = false
     private var uncommittedAudioByteCount = 0
@@ -98,6 +100,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
                 hasUncommittedAudio = false
                 uncommittedAudioByteCount = 0
             }
+            resetTranscriptState()
             task.resume()
             receiveLoop(task)
 
@@ -196,6 +199,15 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
         return stateQueue.sync { () -> LiveCaptionSnapshot? in
             let existing = ensureTranscriptItemLocked(key)
+            guard !existing.isFinal else {
+                NSLog(
+                    "[Recappi] [realtime-stream] discarded_late_delta item_id=%@ content_index=%d delta_chars=%d reason=after_completed",
+                    key.itemID,
+                    key.contentIndex,
+                    delta.count
+                )
+                return nil
+            }
             transcriptItems[key] = existing.appending(delta)
             return publishTimelineSnapshotLocked()
         }
@@ -208,7 +220,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
             transcriptItems[key] = existing.replacingText(text, isFinal: true)
-            return publishTimelineSnapshotLocked(force: true)
+            return publishTimelineSnapshotLocked()
         }
     }
 
@@ -217,7 +229,22 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             let existing = ensureTranscriptItemLocked(key)
             transcriptItems[key] = existing
             guard let previousItemID, !previousItemID.isEmpty else { return }
-            moveTranscriptItemLocked(key, afterItemID: previousItemID)
+            if moveTranscriptItemLocked(key, afterItemID: previousItemID) {
+                pendingPreviousItemIDByKey[key] = nil
+            } else {
+                pendingPreviousItemIDByKey[key] = previousItemID
+            }
+        }
+    }
+
+    private func resetTranscriptState() {
+        stateQueue.sync {
+            lastPublishedText = nil
+            lastPublishedIsFinal = nil
+            transcriptTimeline = []
+            transcriptItems = [:]
+            pendingPreviousItemIDByKey = [:]
+            fallbackSequence = 0
         }
     }
 
@@ -233,18 +260,33 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         return item
     }
 
-    private func moveTranscriptItemLocked(_ key: TranscriptItemKey, afterItemID previousItemID: String) {
+    @discardableResult
+    private func moveTranscriptItemLocked(_ key: TranscriptItemKey, afterItemID previousItemID: String) -> Bool {
         guard let currentIndex = transcriptTimeline.firstIndex(of: key),
               let previousIndex = transcriptTimeline.lastIndex(where: { $0.itemID == previousItemID }) else {
-            return
+            return false
         }
 
         let removed = transcriptTimeline.remove(at: currentIndex)
         let adjustedPreviousIndex = currentIndex < previousIndex ? previousIndex - 1 : previousIndex
         transcriptTimeline.insert(removed, at: min(adjustedPreviousIndex + 1, transcriptTimeline.count))
+        return true
     }
 
-    private func publishTimelineSnapshotLocked(force: Bool = false) -> LiveCaptionSnapshot? {
+    private func resolvePendingPlacementsLocked(afterItemID itemID: String) {
+        let pendingKeys = pendingPreviousItemIDByKey
+            .filter { $0.value == itemID }
+            .map(\.key)
+
+        for key in pendingKeys where moveTranscriptItemLocked(key, afterItemID: itemID) {
+            pendingPreviousItemIDByKey[key] = nil
+        }
+    }
+
+    private func publishTimelineSnapshotLocked() -> LiveCaptionSnapshot? {
+        resolveAllPendingPlacementsLocked()
+        trimTranscriptTimelineLocked()
+
         let visibleItems = transcriptTimeline
             .compactMap { transcriptItems[$0] }
             .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -257,10 +299,11 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         guard !text.isEmpty else { return nil }
 
         let isFinal = visibleItems.allSatisfy(\.isFinal)
-        if lastPublishedText == text, !isFinal {
+        if lastPublishedText == text, lastPublishedIsFinal == isFinal {
             return nil
         }
         lastPublishedText = text
+        lastPublishedIsFinal = isFinal
         return .init(phase: .listening, text: text, isFinal: isFinal, message: nil)
     }
 
@@ -275,6 +318,11 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         if uncommittedAudioByteCount >= Self.manualCommitByteThreshold {
             commitPendingAudio()
         }
+    }
+
+    private func resolveAllPendingPlacementsLocked() {
+        let knownItemIDs = Set(transcriptTimeline.map(\.itemID))
+        knownItemIDs.forEach { resolvePendingPlacementsLocked(afterItemID: $0) }
     }
 
     private func commitPendingAudio(force: Bool = false) {
@@ -353,7 +401,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         pendingLock.unlock()
     }
 
-    private func trimEntriesLocked() {
+    private func trimTranscriptTimelineLocked() {
         guard transcriptTimeline.count > Self.maxSavedEntryCount else { return }
         let removed = transcriptTimeline.prefix(transcriptTimeline.count - Self.maxSavedEntryCount)
         removed.forEach { transcriptItems[$0] = nil }

@@ -315,6 +315,20 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(snapshots.map(\.isFinal), [false, false, false, true])
     }
 
+    func testBackendRealtimeTranscriberAccumulatesRepeatedSameItemDeltas() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en"
+        ) { _ in }
+
+        let snapshots = ["1", "2", "3", "4", "5"].compactMap {
+            transcriber.handleTranscriptDeltaForTesting($0, itemID: "item-a")
+        }
+
+        XCTAssertEqual(snapshots.last?.text, "12345")
+        XCTAssertEqual(snapshots.last?.isFinal, false)
+    }
+
     func testBackendRealtimeTranscriberFinalTranscriptReplacesPartial() {
         let transcriber = BackendRealtimeLiveCaptionTranscriber(
             client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
@@ -363,6 +377,35 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(firstSnapshot?.text, "Second")
         XCTAssertEqual(reorderedSnapshot?.text, "First\nSecond")
         XCTAssertEqual(reorderedSnapshot?.isFinal, false)
+    }
+
+    func testBackendRealtimeTranscriberResolvesForwardPreviousItemID() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en"
+        ) { _ in }
+
+        transcriber.handleCommittedItemForTesting(itemID: "item-b", previousItemID: "item-a")
+        _ = transcriber.handleTranscriptDeltaForTesting("Second", itemID: "item-b")
+        let reorderedSnapshot = transcriber.handleTranscriptDeltaForTesting("First", itemID: "item-a")
+        let finalSnapshot = transcriber.handleTranscriptCompletionForTesting("Second", itemID: "item-b")
+
+        XCTAssertEqual(reorderedSnapshot?.text, "First\nSecond")
+        XCTAssertNil(finalSnapshot)
+    }
+
+    func testBackendRealtimeTranscriberIgnoresLateDeltaAfterCompletion() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en"
+        ) { _ in }
+
+        _ = transcriber.handleTranscriptDeltaForTesting("Hel", itemID: "item-a")
+        let finalSnapshot = transcriber.handleTranscriptCompletionForTesting("Hello", itemID: "item-a")
+        let lateSnapshot = transcriber.handleTranscriptDeltaForTesting(" world", itemID: "item-a")
+
+        XCTAssertEqual(finalSnapshot?.text, "Hello")
+        XCTAssertNil(lateSnapshot)
     }
 
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {
