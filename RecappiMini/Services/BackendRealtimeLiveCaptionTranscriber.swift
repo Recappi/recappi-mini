@@ -902,21 +902,11 @@ private final class BilingualSegmentBuilder {
     }
 
     private func finalizeCompletedBoundaries() {
-        while true {
-            // The translation stream has no shared item_id/final events, and
-            // production smoke showed that it may merge/split or even run
-            // ahead of the source transcript. Punctuation-only sentence
-            // pairing can therefore create confidently wrong rows. Keep
-            // bilingual text as a pending block and only make large soft-cap
-            // cuts, where readability matters more than exact sentence count.
-            if let sourceBoundary = Self.forceBoundary(in: pending.sourceText),
-               let translationBoundary = Self.forceBoundary(in: pending.translatedText) {
-                finalizeBoundary(sourceBoundary, translationBoundary)
-                continue
-            }
-
-            return
-        }
+        // The translation stream has no shared item_id/final events, and
+        // production smoke showed that it may merge/split or run ahead of the
+        // source transcript. Client-side punctuation or length cuts can split
+        // sentences in the wrong place, so the live bilingual view now keeps
+        // the active upstream block intact until the session flushes.
     }
 
     /// Force-finalize the active segment, e.g. when the session is

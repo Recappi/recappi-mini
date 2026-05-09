@@ -638,7 +638,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
-    func testBackendRealtimeTranslationForceBreaksLongUnpunctuatedStream() {
+    func testBackendRealtimeTranslationKeepsLongStreamsPendingWithoutClientSideCuts() {
         let transcriber = BackendRealtimeLiveCaptionTranscriber(
             client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
             language: "en",
@@ -652,8 +652,10 @@ final class RecappiMiniCoreTests: XCTestCase {
             String(repeating: "很长但是没有标点的翻译内容", count: 16)
         )
 
-        XCTAssertGreaterThanOrEqual(snapshot?.segments.count ?? 0, 2)
-        XCTAssertEqual(snapshot?.segments.first?.isFinal, true)
+        XCTAssertEqual(snapshot?.segments.count, 1)
+        XCTAssertEqual(snapshot?.segments.first?.isFinal, false)
+        XCTAssertTrue(snapshot?.segments.first?.sourceText.contains("long unpunctuated source phrase") == true)
+        XCTAssertTrue(snapshot?.segments.first?.translatedText?.contains("很长但是没有标点的翻译内容") == true)
     }
 
     @MainActor

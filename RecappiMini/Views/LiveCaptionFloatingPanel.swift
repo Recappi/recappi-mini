@@ -558,8 +558,8 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = false
+        scrollView.hasVerticalScroller = false
+        scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.scrollerStyle = .overlay
