@@ -33,12 +33,15 @@ enum AudioLevelExtractor {
         _ sampleBuffer: CMSampleBuffer,
         bucketCount: Int = AudioSpectrumConfiguration.bucketCount
     ) -> AudioMeterFrame {
+        guard bucketCount > 0 else {
+            return AudioMeterFrame(peak: 0, bands: [])
+        }
         guard
             let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
             let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
             let asbdPtr = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
         else {
-            return AudioMeterFrame(peak: 0, bands: Array(repeating: 0, count: bucketCount))
+            return silence(bucketCount: bucketCount)
         }
 
         var totalLength = 0
@@ -50,21 +53,31 @@ enum AudioLevelExtractor {
             totalLengthOut: &totalLength,
             dataPointerOut: &dataPointer
         )
-        guard status == kCMBlockBufferNoErr, let raw = dataPointer else {
-            return AudioMeterFrame(peak: 0, bands: Array(repeating: 0, count: bucketCount))
+        guard status == kCMBlockBufferNoErr, let raw = dataPointer, totalLength > 0 else {
+            return silence(bucketCount: bucketCount)
         }
 
         let asbd = asbdPtr.pointee
         let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
-        let channels = max(Int(asbd.mChannelsPerFrame), 1)
+        let channels = Int(asbd.mChannelsPerFrame)
+        guard (1...32).contains(channels),
+              asbd.mSampleRate.isFinite,
+              asbd.mSampleRate > 0 else {
+            return silence(bucketCount: bucketCount)
+        }
 
         let declaredFrames = CMSampleBufferGetNumSamples(sampleBuffer)
         let maxMeterFrames = 4_096
 
         if isFloat, asbd.mBitsPerChannel == 32 {
             let rawSampleCount = totalLength / MemoryLayout<Float>.size
-            let declaredSampleCount = declaredFrames > 0 ? declaredFrames * channels : rawSampleCount
+            let declaredSampleCount = safeDeclaredSampleCount(
+                declaredFrames: declaredFrames,
+                channels: channels,
+                fallback: rawSampleCount
+            )
             let count = min(rawSampleCount, declaredSampleCount)
+            guard count > 0 else { return silence(bucketCount: bucketCount) }
             return raw.withMemoryRebound(to: Float.self, capacity: count) { ptr in
                 let totalFrames = count / channels
                 let frameCount = min(totalFrames, maxMeterFrames)
@@ -79,8 +92,13 @@ enum AudioLevelExtractor {
 
         if asbd.mBitsPerChannel == 16 {
             let rawSampleCount = totalLength / MemoryLayout<Int16>.size
-            let declaredSampleCount = declaredFrames > 0 ? declaredFrames * channels : rawSampleCount
+            let declaredSampleCount = safeDeclaredSampleCount(
+                declaredFrames: declaredFrames,
+                channels: channels,
+                fallback: rawSampleCount
+            )
             let count = min(rawSampleCount, declaredSampleCount)
+            guard count > 0 else { return silence(bucketCount: bucketCount) }
             return raw.withMemoryRebound(to: Int16.self, capacity: count) { ptr in
                 let totalFrames = count / channels
                 let frameCount = min(totalFrames, maxMeterFrames)
@@ -93,7 +111,7 @@ enum AudioLevelExtractor {
             }
         }
 
-        return AudioMeterFrame(peak: 0, bands: Array(repeating: 0, count: bucketCount))
+        return silence(bucketCount: bucketCount)
     }
 
     private static func collapseToMono(
@@ -112,8 +130,15 @@ enum AudioLevelExtractor {
     }
 
     private static func analyze(samples: [Float], sampleRate: Double, bucketCount: Int) -> AudioMeterFrame {
+        guard bucketCount > 0 else {
+            return AudioMeterFrame(peak: 0, bands: [])
+        }
         guard !samples.isEmpty else {
-            return AudioMeterFrame(peak: 0, bands: Array(repeating: 0, count: bucketCount))
+            return silence(bucketCount: bucketCount)
+        }
+        guard sampleRate.isFinite, sampleRate > 0 else {
+            let peak = min(samples.reduce(Float(0)) { max($0, abs($1)) }, 1)
+            return AudioMeterFrame(peak: peak, bands: Array(repeating: peak, count: bucketCount))
         }
 
         var peak: Float = 0
@@ -221,5 +246,19 @@ enum AudioLevelExtractor {
         }
 
         return AudioMeterFrame(peak: min(peak, 1), bands: normalizedBands)
+    }
+
+    private static func silence(bucketCount: Int) -> AudioMeterFrame {
+        AudioMeterFrame(peak: 0, bands: Array(repeating: 0, count: max(bucketCount, 0)))
+    }
+
+    private static func safeDeclaredSampleCount(
+        declaredFrames: Int,
+        channels: Int,
+        fallback: Int
+    ) -> Int {
+        guard declaredFrames > 0 else { return fallback }
+        let multiplied = declaredFrames.multipliedReportingOverflow(by: channels)
+        return multiplied.overflow ? fallback : multiplied.partialValue
     }
 }

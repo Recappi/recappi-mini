@@ -1621,6 +1621,50 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(peakIndex ?? 0, Int(Double(bands.count) * 0.68))
     }
 
+    func testSpectrumExtractorHandlesInvalidBucketCountWithoutTrap() {
+        let sampleRate = 48_000.0
+        let samples = sineWave(
+            frequency: 1_000,
+            sampleRate: sampleRate,
+            duration: 0.04,
+            amplitude: 0.7
+        )
+
+        XCTAssertEqual(
+            AudioLevelExtractor.analyzeSamplesForTesting(samples, sampleRate: sampleRate, bucketCount: 0),
+            []
+        )
+        XCTAssertEqual(
+            AudioLevelExtractor.analyzeSamplesForTesting(samples, sampleRate: sampleRate, bucketCount: -4),
+            []
+        )
+    }
+
+    func testSpectrumExtractorHandlesInvalidSampleRateWithoutTrap() {
+        let samples = sineWave(
+            frequency: 1_000,
+            sampleRate: 48_000,
+            duration: 0.04,
+            amplitude: 0.7
+        )
+
+        let zeroRateBands = AudioLevelExtractor.analyzeSamplesForTesting(
+            samples,
+            sampleRate: 0,
+            bucketCount: 8
+        )
+        let nanRateBands = AudioLevelExtractor.analyzeSamplesForTesting(
+            samples,
+            sampleRate: .nan,
+            bucketCount: 8
+        )
+
+        XCTAssertEqual(zeroRateBands.count, 8)
+        XCTAssertEqual(nanRateBands.count, 8)
+        XCTAssertTrue(zeroRateBands.allSatisfy { $0.isFinite })
+        XCTAssertTrue(nanRateBands.allSatisfy { $0.isFinite })
+    }
+
     func testSpectrumBucketsSpreadAcrossRangeForMultiBandSignal() {
         let sampleRate = 48_000.0
         let components: [(Double, Float)] = [
