@@ -4,6 +4,24 @@ import CoreMedia
 import Foundation
 import Speech
 
+/// A single utterance / sentence-sized chunk of caption content. The
+/// transcriber emits segments keyed by a stable `id` (e.g. the OpenAI
+/// Realtime `item_id`) so consumers can incrementally update one segment
+/// at a time without reflowing the whole transcript, and so a future
+/// translation layer can hang `translatedText` off the same segment id.
+///
+/// `sequence` preserves the ordering produced upstream — the timeline
+/// is a list of segments sorted by sequence, which is more reliable
+/// than sorting by id when the Realtime stream backfills items via
+/// `previous_item_id`.
+struct LiveCaptionSegment: Equatable, Sendable, Codable {
+    let id: String
+    let sourceText: String
+    let translatedText: String?
+    let isFinal: Bool
+    let sequence: Int
+}
+
 struct LiveCaptionSnapshot: Equatable, Sendable {
     enum Phase: String, Equatable, Sendable {
         case preparing
