@@ -96,12 +96,15 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         startFixtureRecording(in: app)
 
-        let cloudButton = app.buttons[UITestIDs.Panel.cloudButton]
-        XCTAssertTrue(cloudButton.waitForExistence(timeout: 10), "Expected recording panel to keep a Cloud live captions entry point.")
         let panelCaptionsButton = app.buttons[UITestIDs.Panel.liveCaptionsButton]
         XCTAssertTrue(
             panelCaptionsButton.waitForExistence(timeout: 10),
             "Expected recording panel to expose a direct live captions reopen button."
+        )
+        let cloudButton = app.buttons[UITestIDs.Panel.cloudButton]
+        XCTAssertFalse(
+            cloudButton.waitForExistence(timeout: 1),
+            "Recording panel should keep Cloud chrome out of the compact control row."
         )
 
         XCTAssertFalse(

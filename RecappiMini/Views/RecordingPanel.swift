@@ -37,15 +37,6 @@ struct RecordingPanel: View {
             .onReceive(recorder.$autoStopRequest.compactMap { $0 }) { _ in
                 stopRecording()
             }
-            .sheet(item: $preflightStartKind) { startKind in
-                RecordingPreflightSheet(
-                    showsTranslation: $preflightShowsTranslation,
-                    targetLanguage: $preflightTargetLanguage,
-                    backendRealtimeEnabled: config.backendRealtimeLiveCaptionsEnabled,
-                    onCancel: { preflightStartKind = nil },
-                    onStart: { startRecordingAfterPreflight(startKind) }
-                )
-            }
     }
 
     private var panelPadding: EdgeInsets {
@@ -54,17 +45,21 @@ struct RecordingPanel: View {
     }
 
     private var contentHeight: CGFloat {
+        if preflightStartKind != nil {
+            return 182
+        }
+
         switch recorder.state {
         case .idle, .starting:
-            recorder.recordingSuggestion == nil && recorder.meetingPrompt == nil ? 28 : 48
+            return recorder.recordingSuggestion == nil && recorder.meetingPrompt == nil ? 28 : 48
         case .recording:
-            48
+            return 48
         case .processing:
-            50
+            return 50
         case .done(let result):
-            doneContentHeight(for: result)
+            return doneContentHeight(for: result)
         case .error(let message):
-            errorContentHeight(for: message)
+            return errorContentHeight(for: message)
         }
     }
 
@@ -97,54 +92,63 @@ struct RecordingPanel: View {
 
     @ViewBuilder
     private var mainView: some View {
-        switch recorder.state {
-        case .idle:
-            IdleState(
-                recorder: recorder,
-                isStarting: false,
-                onCloud: onOpenCloud,
-                onRecord: startRecording,
-                onRecordSuggestion: startSuggestedRecording,
-                onClose: onClosePanel
+        if let preflightStartKind {
+            RecordingPreflightSheet(
+                showsTranslation: $preflightShowsTranslation,
+                targetLanguage: $preflightTargetLanguage,
+                backendRealtimeEnabled: config.backendRealtimeLiveCaptionsEnabled,
+                onCancel: { self.preflightStartKind = nil },
+                onStart: { startRecordingAfterPreflight(preflightStartKind) }
             )
-        case .starting:
-            IdleState(
-                recorder: recorder,
-                isStarting: true,
-                onCloud: onOpenCloud,
-                onRecord: startRecording,
-                onRecordSuggestion: startSuggestedRecording,
-                onClose: onClosePanel
-            )
-        case .recording:
-            RecordingState(
-                recorder: recorder,
-                onDiscard: discardRecording,
-                onStop: stopRecording,
-                onCloud: onOpenCloud,
-                onClose: onClosePanel
-            )
-        case .processing(let phase):
-            ProcessingState(
-                phase: phase,
-                onClose: detachCurrentProcessingToBackground
-            )
-        case .done(let r):
-            DoneState(
-                result: r,
-                onShow: onOpenCloud,
-                onCopy: { copyTranscript(r) },
-                onNew: { recorder.reset() }
-            )
-        case .error(let message):
-            ErrorState(
-                recorder: recorder,
-                message: message,
-                onShow: { if let dir = recorder.lastSessionDir { onOpenFolder(dir) } },
-                onSettings: presentSettings,
-                onRetry: { retryProcessing(message) },
-                onDismiss: { recorder.reset() }
-            )
+        } else {
+            switch recorder.state {
+            case .idle:
+                IdleState(
+                    recorder: recorder,
+                    isStarting: false,
+                    onCloud: onOpenCloud,
+                    onRecord: startRecording,
+                    onRecordSuggestion: startSuggestedRecording,
+                    onClose: onClosePanel
+                )
+            case .starting:
+                IdleState(
+                    recorder: recorder,
+                    isStarting: true,
+                    onCloud: onOpenCloud,
+                    onRecord: startRecording,
+                    onRecordSuggestion: startSuggestedRecording,
+                    onClose: onClosePanel
+                )
+            case .recording:
+                RecordingState(
+                    recorder: recorder,
+                    onDiscard: discardRecording,
+                    onStop: stopRecording,
+                    onClose: onClosePanel
+                )
+            case .processing(let phase):
+                ProcessingState(
+                    phase: phase,
+                    onClose: detachCurrentProcessingToBackground
+                )
+            case .done(let r):
+                DoneState(
+                    result: r,
+                    onShow: onOpenCloud,
+                    onCopy: { copyTranscript(r) },
+                    onNew: { recorder.reset() }
+                )
+            case .error(let message):
+                ErrorState(
+                    recorder: recorder,
+                    message: message,
+                    onShow: { if let dir = recorder.lastSessionDir { onOpenFolder(dir) } },
+                    onSettings: presentSettings,
+                    onRetry: { retryProcessing(message) },
+                    onDismiss: { recorder.reset() }
+                )
+            }
         }
     }
 
@@ -362,7 +366,7 @@ private struct RecordingPreflightSheet: View {
                 Text("Before recording")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Palette.labelPrimary)
-                Text("Choose the live caption display for this meeting. You can change deeper language defaults in Settings.")
+                Text("Choose the live caption display for this recording.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(Palette.labelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -402,8 +406,9 @@ private struct RecordingPreflightSheet: View {
                     .accessibilityIdentifier(AccessibilityIDs.Panel.preflightStartButton)
             }
         }
-        .padding(20)
-        .frame(width: 360)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Panel.preflightSheet)
     }

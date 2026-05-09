@@ -21,7 +21,6 @@ struct RecordingState: View {
     @AppStorage("recappi.panel.recordingWaveformMode") private var waveformModeRaw = WaveformMode.spectrum.rawValue
     var onDiscard: () -> Void
     var onStop: () -> Void
-    var onCloud: () -> Void
     var onClose: () -> Void
 
     var body: some View {
@@ -65,14 +64,6 @@ struct RecordingState: View {
                 .buttonStyle(.plain)
                 .help(waveformHelpText)
                 .accessibilityIdentifier(AccessibilityIDs.Panel.waveformToggle)
-
-                Button(action: onCloud) {
-                    Image(systemName: "cloud")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(PanelIconButtonStyle())
-                .help("Open Cloud live captions")
-                .accessibilityIdentifier(AccessibilityIDs.Panel.cloudButton)
 
                 Button {
                     AppDelegate.shared.setLiveCaptionPanelPresented(true)

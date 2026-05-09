@@ -726,9 +726,7 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             appliedPlaceholder = isPlaceholder
 
             if scrollToBottom {
-                DispatchQueue.main.async { [weak self] in
-                    self?.scrollViewToBottom()
-                }
+                scrollViewToBottom()
             }
         }
 
@@ -761,8 +759,7 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
                 }
             }
 
-            if attributed.string == appliedText {
-                if scrollToBottom { scrollViewToBottom() }
+            if attributed.string == appliedText && !appliedPlaceholder {
                 return
             }
 
@@ -774,9 +771,7 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             appliedPlaceholder = false
 
             if scrollToBottom {
-                DispatchQueue.main.async { [weak self] in
-                    self?.scrollViewToBottom()
-                }
+                scrollViewToBottom()
             }
         }
 
@@ -818,7 +813,10 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
 
         private func scrollViewToBottom() {
             guard let scrollView = scrollView,
-                  let docView = scrollView.documentView else { return }
+                  let docView = scrollView.documentView,
+                  let textView = textView,
+                  let textContainer = textView.textContainer else { return }
+            textView.layoutManager?.ensureLayout(for: textContainer)
             let docHeight = docView.frame.height
             let visibleHeight = scrollView.contentView.bounds.height
             let targetY = max(0, docHeight - visibleHeight)
