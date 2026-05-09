@@ -257,9 +257,9 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             "Expanded captions should not leave a large unused right gutter."
         )
         XCTAssertGreaterThanOrEqual(
-            caption.frame.height,
-            captionViewport.frame.height * 0.55,
-            "A medium caption should size the viewport around the text instead of leaving the text in the top half of a large empty container."
+            captionViewport.frame.height,
+            currentMeetingPanel.frame.height * 0.60,
+            "Expanded captions should make the scrollable viewport occupy the panel body, not only the top half."
         )
     }
 
@@ -286,6 +286,21 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let compactCaption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
         XCTAssertTrue(compactCaption.waitForExistence(timeout: 5), "Expected compact caption text.")
+        let compactModeButton = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
+        XCTAssertTrue(compactModeButton.exists, "Expected compact mode control to remain visible.")
+        let compactElapsedTime = app.staticTexts[UITestIDs.Cloud.currentMeetingCaptionElapsedTime]
+        XCTAssertTrue(compactElapsedTime.exists, "Expected compact elapsed time to remain visible.")
+        let compactPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
+        let compactGeometry = """
+        compactPanel.frame=\(compactPanel.frame)
+        compactCaption.frame=\(compactCaption.frame)
+        compactElapsedTime.frame=\(compactElapsedTime.frame)
+        compactModeButton.frame=\(compactModeButton.frame)
+        """
+        let attachment = XCTAttachment(string: compactGeometry)
+        attachment.name = "live-caption-compact-geometry"
+        attachment.lifetime = .keepAlways
+        add(attachment)
         let compactText = [compactCaption.label, compactCaption.value as? String]
             .compactMap { $0 }
             .joined(separator: " ")
@@ -299,6 +314,16 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         XCTAssertFalse(
             compactText.contains("...") || compactText.contains("…"),
             "Compact live captions should not rely on visual ellipsis for the newest content."
+        )
+        XCTAssertLessThanOrEqual(
+            abs(compactCaption.frame.midY - compactModeButton.frame.midY),
+            8,
+            "Compact caption text and controls should share a visual center line."
+        )
+        XCTAssertLessThanOrEqual(
+            abs(compactCaption.frame.midY - compactElapsedTime.frame.midY),
+            8,
+            "Compact caption text and elapsed time should share a visual center line."
         )
     }
 

@@ -25,7 +25,7 @@ enum LiveCaptionPanelMode: String {
     var defaultWindowSize: NSSize {
         switch self {
         case .expanded:
-            return NSSize(width: 542, height: 420)
+            return NSSize(width: 542, height: 526)
         case .compact:
             return NSSize(width: 542, height: 104)
         }
@@ -82,7 +82,7 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var compactBody: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
             HStack(spacing: 6) {
                 Circle()
                     .fill(DT.systemRed)
@@ -92,6 +92,7 @@ struct LiveCaptionFloatingPanel: View {
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(Color.dtLabelSecondary)
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionElapsedTime)
             }
             .frame(width: 52, alignment: .leading)
 
@@ -212,8 +213,7 @@ struct LiveCaptionFloatingPanel: View {
 
             LiveCaptionTextViewport(
                 text: captionLine,
-                isPlaceholder: recorder.liveCaptionText == nil,
-                viewportHeight: liveCaptionViewportHeight
+                isPlaceholder: recorder.liveCaptionText == nil
             )
             .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
             .padding(.horizontal, 14)
@@ -307,15 +307,6 @@ struct LiveCaptionFloatingPanel: View {
         return text.compactTail(maxLength: maxCompactCharacters)
     }
 
-    private var liveCaptionViewportHeight: CGFloat {
-        guard recorder.liveCaptionText != nil else { return 118 }
-        let text = captionLine
-        let lineCapacity: CGFloat = text.containsCJK ? 34 : 62
-        let estimatedLines = ceil(CGFloat(max(text.count, 1)) / lineCapacity)
-        let estimatedHeight = (estimatedLines * 23) + 10
-        return min(318, max(118, estimatedHeight))
-    }
-
     private var sourceLine: String {
         recorder.recordingAppName ?? recorder.selectedApp?.name ?? "All system audio"
     }
@@ -332,9 +323,9 @@ struct LiveCaptionFloatingPanel: View {
 private struct LiveCaptionTextViewport: View {
     let text: String
     let isPlaceholder: Bool
-    let viewportHeight: CGFloat
 
     private let textAnchorID = "recappi-live-caption-text"
+    private let viewportHeight: CGFloat = 350
 
     var body: some View {
         ScrollViewReader { proxy in

@@ -74,6 +74,7 @@ enum AccessibilityIDs {
         static let currentMeetingCaptionCloseButton = "recappi.cloud.currentMeetingCaptionCloseButton"
         static let currentMeetingCaptionViewport = "recappi.cloud.currentMeetingCaptionViewport"
         static let currentMeetingCaption = "recappi.cloud.currentMeetingCaption"
+        static let currentMeetingCaptionElapsedTime = "recappi.cloud.currentMeetingCaptionElapsedTime"
         static let currentMeetingLanguageMenu = "recappi.cloud.currentMeetingLanguageMenu"
         static let loadMoreButton = "recappi.cloud.loadMoreButton"
         static let summaryText = "recappi.cloud.summaryText"
