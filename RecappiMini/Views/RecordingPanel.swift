@@ -7,8 +7,12 @@ import SwiftUI
 struct RecordingPanel: View {
     @ObservedObject var recorder: AudioRecorder
     @Environment(\.openSettings) private var openSettings
+    @ObservedObject private var config = AppConfig.shared
     @State private var visibleProcessingSessionID: UUID?
     @State private var detachProcessingWhenReady = false
+    @State private var preflightStartKind: RecordingPreflightStartKind?
+    @State private var preflightShowsTranslation = AppConfig.shared.liveCaptionsBilingualEnabled
+    @State private var preflightTargetLanguage = AppConfig.shared.liveCaptionsTranslationTargetLanguage
 
     let onOpenFolder: (URL) -> Void
     let onOpenCloud: () -> Void
@@ -32,6 +36,15 @@ struct RecordingPanel: View {
             // rounded pill shape.
             .onReceive(recorder.$autoStopRequest.compactMap { $0 }) { _ in
                 stopRecording()
+            }
+            .sheet(item: $preflightStartKind) { startKind in
+                RecordingPreflightSheet(
+                    showsTranslation: $preflightShowsTranslation,
+                    targetLanguage: $preflightTargetLanguage,
+                    backendRealtimeEnabled: config.backendRealtimeLiveCaptionsEnabled,
+                    onCancel: { preflightStartKind = nil },
+                    onStart: { startRecordingAfterPreflight(startKind) }
+                )
             }
     }
 
@@ -145,8 +158,21 @@ struct RecordingPanel: View {
     }
 
     private func startRecording() {
+        preparePreflightDefaults()
+        preflightStartKind = .manual
+    }
+
+    private func startRecordingAfterPreflight(_ kind: RecordingPreflightStartKind) {
+        AppConfig.shared.liveCaptionsBilingualEnabled = preflightShowsTranslation
+        AppConfig.shared.liveCaptionsTranslationTargetLanguage =
+            LiveCaptionTranslationTargetLanguageOption.normalizedCode(preflightTargetLanguage)
+        preflightStartKind = nil
+
         Task {
             do {
+                if kind == .suggested {
+                    guard recorder.acceptRecordingSuggestion() else { return }
+                }
                 NSLog("[Recappi] startRecording() calling AudioRecorder.startRecording()")
                 try await recorder.startRecording()
                 NSLog("[Recappi] startRecording() returned, state now = \(recorder.state)")
@@ -158,8 +184,14 @@ struct RecordingPanel: View {
     }
 
     private func startSuggestedRecording() {
-        guard recorder.acceptRecordingSuggestion() else { return }
-        startRecording()
+        preparePreflightDefaults()
+        preflightStartKind = .suggested
+    }
+
+    private func preparePreflightDefaults() {
+        preflightShowsTranslation = config.backendRealtimeLiveCaptionsEnabled
+            && config.liveCaptionsBilingualEnabled
+        preflightTargetLanguage = config.liveCaptionsTranslationTargetLanguage
     }
 
     private func stopRecording() {
@@ -308,4 +340,78 @@ struct RecordingPanel: View {
         }
     }
 
+}
+
+private enum RecordingPreflightStartKind: String, Identifiable {
+    case manual
+    case suggested
+
+    var id: String { rawValue }
+}
+
+private struct RecordingPreflightSheet: View {
+    @Binding var showsTranslation: Bool
+    @Binding var targetLanguage: String
+    let backendRealtimeEnabled: Bool
+    let onCancel: () -> Void
+    let onStart: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Before recording")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Palette.labelPrimary)
+                Text("Choose the live caption display for this meeting. You can change deeper language defaults in Settings.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Palette.labelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Show translation", isOn: $showsTranslation)
+                    .toggleStyle(.switch)
+                    .disabled(!backendRealtimeEnabled)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.preflightShowTranslationToggle)
+
+                if showsTranslation {
+                    Picker("Translate to", selection: normalizedTargetLanguageBinding) {
+                        ForEach(LiveCaptionTranslationTargetLanguageOption.common) { option in
+                            Text(option.title).tag(option.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .disabled(!backendRealtimeEnabled)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.preflightTargetLanguagePicker)
+                }
+
+                if !backendRealtimeEnabled {
+                    Text("Translation requires backend Realtime live captions in Settings.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.labelTertiary)
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.preflightCancelButton)
+                Button("Start recording", action: onStart)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.preflightStartButton)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AccessibilityIDs.Panel.preflightSheet)
+    }
+
+    private var normalizedTargetLanguageBinding: Binding<String> {
+        Binding(
+            get: { LiveCaptionTranslationTargetLanguageOption.normalizedCode(targetLanguage) },
+            set: { targetLanguage = LiveCaptionTranslationTargetLanguageOption.normalizedCode($0) }
+        )
+    }
 }

@@ -26,6 +26,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published private(set) var liveCaptionSegments: [LiveCaptionSegment] = []
     @Published private(set) var liveCaptionMessage: String?
     @Published private(set) var liveCaptionStatusPhase: LiveCaptionSnapshot.Phase?
+    @Published private(set) var activeLiveCaptionConfiguration: LiveCaptionRecordingConfiguration?
     /// True when every segment in `liveCaptionSegments` is `isFinal`. UI
     /// can use this to gate animations or styling for "stable" captions.
     @Published private(set) var liveCaptionIsFinal: Bool = false
@@ -436,6 +437,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         activeRecordingID = UUID()
         let metadata = recordingSessionMetadata()
         let autoStopContext = detectedMeetingContextForNextRecording()
+        activeLiveCaptionConfiguration = liveCaptionRecordingConfiguration()
         pendingDetectedMeetingRecordingContext = nil
         recordingSuggestion = nil
         meetingPrompt = nil
@@ -553,6 +555,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             }
         } catch {
             activeRecordingID = nil
+            activeLiveCaptionConfiguration = nil
             detectedMeetingRecordingContext = nil
             stopMonitoringOutputDeviceChanges()
             self.micSession?.stopRunning()
@@ -571,6 +574,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         detectedMeetingRecordingContext = nil
+        activeLiveCaptionConfiguration = nil
         self.state = .processing(.savingAudio)
         self.timer?.invalidate()
         self.timer = nil
@@ -702,6 +706,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         liveCaptionCarryoverSegments = []
         liveCaptionMessage = nil
         liveCaptionStatusPhase = nil
+        activeLiveCaptionConfiguration = nil
         liveCaptionIsFinal = false
         activeRecordingID = nil
         sessionDir = nil
@@ -868,10 +873,11 @@ final class AudioRecorder: NSObject, ObservableObject {
             // source row); otherwise we mint the standard transcription
             // session. The transcriber multiplexes both shapes so the
             // rest of the pipeline doesn't care.
-            let mode: BackendRealtimeLiveCaptionTranscriber.Mode = AppConfig.shared.liveCaptionsBilingualEnabled
+            let lockedConfig = activeLiveCaptionConfiguration ?? liveCaptionRecordingConfiguration()
+            let mode: BackendRealtimeLiveCaptionTranscriber.Mode = lockedConfig.showsTranslation
                 ? .translation(
                     targetLanguage: Self.normalizedRealtimeTranslationTargetLanguage(
-                        AppConfig.shared.liveCaptionsTranslationTargetLanguage
+                        lockedConfig.targetLanguage
                     )
                 )
                 : .transcription
@@ -918,6 +924,16 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private static func normalizedRealtimeTranslationTargetLanguage(_ language: String) -> String {
         LiveCaptionTranslationTargetLanguageOption.normalizedCode(language)
+    }
+
+    private func liveCaptionRecordingConfiguration() -> LiveCaptionRecordingConfiguration {
+        LiveCaptionRecordingConfiguration(
+            showsTranslation: AppConfig.shared.backendRealtimeLiveCaptionsEnabled
+                && AppConfig.shared.liveCaptionsBilingualEnabled,
+            targetLanguage: Self.normalizedRealtimeTranslationTargetLanguage(
+                AppConfig.shared.liveCaptionsTranslationTargetLanguage
+            )
+        )
     }
 
     private func stopLiveCaptions(saveTo sessionDir: URL?) {
@@ -1020,6 +1036,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.liveCaptionCarryoverSegments = []
         self.liveCaptionMessage = nil
         self.liveCaptionStatusPhase = nil
+        self.activeLiveCaptionConfiguration = liveCaptionRecordingConfiguration()
         self.liveCaptionIsFinal = false
         if let simulatedLiveCaptionText = uiTestMode.simulatedLiveCaptionText,
            !simulatedLiveCaptionText.isEmpty {

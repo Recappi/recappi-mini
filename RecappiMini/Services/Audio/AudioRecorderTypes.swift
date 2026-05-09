@@ -50,6 +50,11 @@ struct AutoStopRecordingRequest: Equatable, Identifiable, Sendable {
     let context: DetectedMeetingRecordingContext
 }
 
+struct LiveCaptionRecordingConfiguration: Equatable, Sendable {
+    let showsTranslation: Bool
+    let targetLanguage: String
+}
+
 /// Bundle-ID whitelists for smart sorting. Helpers / renderers are filtered
 /// out at the refresh step, so we classify by the user-visible parent bundle.
 enum AudioAppCategories {

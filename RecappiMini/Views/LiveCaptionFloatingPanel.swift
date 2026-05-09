@@ -261,9 +261,7 @@ struct LiveCaptionFloatingPanel: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
                 Spacer(minLength: 0)
-                HStack(spacing: 6) {
-                    translationDisplayToggle
-                }
+                liveCaptionModeStatus
             }
             .padding(.horizontal, 14)
             .padding(.top, 12)
@@ -297,36 +295,42 @@ struct LiveCaptionFloatingPanel: View {
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionWorkspace)
     }
 
-    private var translationDisplayToggle: some View {
-        Button {
-            recorder.setLiveCaptionsBilingualEnabled(!config.liveCaptionsBilingualEnabled)
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: config.liveCaptionsBilingualEnabled ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 10, weight: .semibold))
-                Text("Show translation")
-                    .font(.system(size: 10, weight: .semibold))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(config.liveCaptionsBilingualEnabled ? Color.dtLabel : Color.dtLabelSecondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(config.liveCaptionsBilingualEnabled ? Palette.controlFillPress : Palette.controlFillHover)
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(Palette.borderHairline, lineWidth: 0.6)
-            )
+    private var liveCaptionModeStatus: some View {
+        HStack(spacing: 5) {
+            Image(systemName: liveCaptionShowsTranslation ? "translate" : "text.alignleft")
+                .font(.system(size: 10, weight: .semibold))
+            Text(liveCaptionModeStatusText)
+                .font(.system(size: 10, weight: .semibold))
+                .lineLimit(1)
         }
-        .buttonStyle(.plain)
-        .disabled(!config.backendRealtimeLiveCaptionsEnabled)
-        .opacity(config.backendRealtimeLiveCaptionsEnabled ? 1 : 0.55)
-        .help(config.liveCaptionsBilingualEnabled ? "Hide translation" : "Show translation")
-        .accessibilityLabel("Show translation")
-        .accessibilityValue(config.liveCaptionsBilingualEnabled ? "On" : "Off")
-        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingBilingualToggle)
+        .foregroundStyle(Color.dtLabelSecondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Palette.controlFillHover)
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Palette.borderHairline, lineWidth: 0.6)
+        )
+        .help("Caption display is chosen before recording starts.")
+    }
+
+    private var liveCaptionShowsTranslation: Bool {
+        recorder.activeLiveCaptionConfiguration?.showsTranslation
+            ?? config.liveCaptionsBilingualEnabled
+    }
+
+    private var liveCaptionModeStatusText: String {
+        let lockedConfig = recorder.activeLiveCaptionConfiguration
+        guard liveCaptionShowsTranslation else {
+            return "Original"
+        }
+        let target = LiveCaptionTranslationTargetLanguageOption
+            .option(for: lockedConfig?.targetLanguage ?? config.liveCaptionsTranslationTargetLanguage)
+            .shortTitle
+        return "Translation \(target)"
     }
 
     /// True when the recorder has at least one accumulated caption

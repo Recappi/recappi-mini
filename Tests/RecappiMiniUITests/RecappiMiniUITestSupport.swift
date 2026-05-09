@@ -27,6 +27,11 @@ enum UITestIDs {
         static let cloudButton = "recappi.panel.cloudButton"
         static let liveCaptionsButton = "recappi.panel.liveCaptionsButton"
         static let liveCaptionText = "recappi.panel.liveCaptionText"
+        static let preflightSheet = "recappi.panel.preflightSheet"
+        static let preflightShowTranslationToggle = "recappi.panel.preflightShowTranslationToggle"
+        static let preflightTargetLanguagePicker = "recappi.panel.preflightTargetLanguagePicker"
+        static let preflightStartButton = "recappi.panel.preflightStartButton"
+        static let preflightCancelButton = "recappi.panel.preflightCancelButton"
         static let processingTitle = "recappi.panel.processingTitle"
         static let doneTitle = "recappi.panel.doneTitle"
         static let errorTitle = "recappi.panel.errorTitle"
@@ -333,13 +338,60 @@ extension XCTestCase {
     }
 
     func startAndStopFixtureRecording(in app: XCUIApplication) {
-        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
-        XCTAssertTrue(recordButton.waitForExistence(timeout: 15), "Expected Record button.")
-        recordButton.click()
+        startFixtureRecording(in: app)
 
         let stopButton = app.buttons[UITestIDs.Panel.stopButton]
         XCTAssertTrue(stopButton.waitForExistence(timeout: 15), "Expected Stop button.")
         stopButton.click()
+    }
+
+    func startFixtureRecording(
+        in app: XCUIApplication,
+        showTranslation: Bool? = nil,
+        targetLanguageLabel: String? = nil
+    ) {
+        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
+        XCTAssertTrue(recordButton.waitForExistence(timeout: 15), "Expected Record button.")
+        recordButton.click()
+        completeRecordingPreflight(
+            in: app,
+            showTranslation: showTranslation,
+            targetLanguageLabel: targetLanguageLabel
+        )
+    }
+
+    func completeRecordingPreflight(
+        in app: XCUIApplication,
+        showTranslation: Bool? = nil,
+        targetLanguageLabel: String? = nil
+    ) {
+        let sheet = uiElement(app, id: UITestIDs.Panel.preflightSheet)
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "Expected recording preflight sheet.")
+
+        let toggle = uiElement(app, id: UITestIDs.Panel.preflightShowTranslationToggle)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "Expected Show translation toggle.")
+        if let showTranslation {
+            let value = [toggle.value as? String, toggle.label]
+                .compactMap { $0 }
+                .joined(separator: " ")
+            let isOn = value.localizedCaseInsensitiveContains("on")
+            if isOn != showTranslation {
+                toggle.click()
+            }
+        }
+
+        if let targetLanguageLabel {
+            let picker = uiElement(app, id: UITestIDs.Panel.preflightTargetLanguagePicker)
+            XCTAssertTrue(picker.waitForExistence(timeout: 5), "Expected target language picker.")
+            picker.click()
+            let option = app.menuItems[targetLanguageLabel].firstMatch
+            XCTAssertTrue(option.waitForExistence(timeout: 5), "Expected target language option \(targetLanguageLabel).")
+            option.click()
+        }
+
+        let startButton = app.buttons[UITestIDs.Panel.preflightStartButton]
+        XCTAssertTrue(startButton.waitForExistence(timeout: 5), "Expected preflight Start button.")
+        startButton.click()
     }
 
     func waitForCompletion(in app: XCUIApplication, timeout: TimeInterval = 180) {

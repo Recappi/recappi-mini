@@ -63,7 +63,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let recordButton = app.buttons[UITestIDs.Panel.recordButton]
         XCTAssertTrue(recordButton.waitForExistence(timeout: 10), "Expected regular record button to remain available.")
-        recordButton.click()
+        startFixtureRecording(in: app)
 
         let stopButton = app.buttons[UITestIDs.Panel.stopButton]
         XCTAssertTrue(stopButton.waitForExistence(timeout: 15), "Expected recording to start from the manual record button.")
@@ -94,9 +94,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             simulatedLiveCaptionText: longCaption
         )
 
-        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
-        XCTAssertTrue(recordButton.waitForExistence(timeout: 10), "Expected record button.")
-        recordButton.click()
+        startFixtureRecording(in: app)
 
         let cloudButton = app.buttons[UITestIDs.Panel.cloudButton]
         XCTAssertTrue(cloudButton.waitForExistence(timeout: 10), "Expected recording panel to keep a Cloud live captions entry point.")
@@ -148,7 +146,10 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         viewportAttachment.lifetime = .keepAlways
         add(viewportAttachment)
         let bilingualToggle = uiElement(app, id: UITestIDs.Cloud.currentMeetingBilingualToggle)
-        XCTAssertTrue(bilingualToggle.waitForExistence(timeout: 10), "Expected a Show translation control in the Live Caption panel.")
+        XCTAssertFalse(
+            bilingualToggle.waitForExistence(timeout: 1),
+            "Recording-time translation controls should stay out of the Live Caption panel."
+        )
         let captionText = [caption.label, caption.value as? String]
             .compactMap { $0 }
             .joined(separator: " ")
@@ -223,9 +224,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             simulatedLiveCaptionText: mediumCaption
         )
 
-        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
-        XCTAssertTrue(recordButton.waitForExistence(timeout: 10), "Expected record button.")
-        recordButton.click()
+        startFixtureRecording(in: app)
 
         let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
         XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions panel.")
@@ -279,9 +278,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             simulatedLiveCaptionText: liveCaption
         )
 
-        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
-        XCTAssertTrue(recordButton.waitForExistence(timeout: 10), "Expected record button.")
-        recordButton.click()
+        startFixtureRecording(in: app)
 
         let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
         XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions panel.")
@@ -369,6 +366,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         let suggestion = uiElement(app, id: UITestIDs.Panel.recordingSuggestion)
         XCTAssertTrue(suggestion.waitForExistence(timeout: 15), "Expected auto-prompt suggestion banner.")
         suggestion.click()
+        completeRecordingPreflight(in: app)
 
         let stopButton = app.buttons[UITestIDs.Panel.stopButton]
         XCTAssertTrue(stopButton.waitForExistence(timeout: 15), "Expected suggested app recording to start.")
@@ -497,9 +495,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let app = launchRecappiApp(authToken: authToken)
 
-        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
-        XCTAssertTrue(recordButton.waitForExistence(timeout: 15), "Expected Record button.")
-        recordButton.click()
+        startFixtureRecording(in: app)
 
         let cloudButton = app.buttons[UITestIDs.Panel.cloudButton]
         XCTAssertTrue(cloudButton.waitForExistence(timeout: 10), "Expected recording panel to keep a Cloud entry point.")
