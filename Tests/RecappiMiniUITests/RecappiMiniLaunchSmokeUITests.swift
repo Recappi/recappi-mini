@@ -100,6 +100,11 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let cloudButton = app.buttons[UITestIDs.Panel.cloudButton]
         XCTAssertTrue(cloudButton.waitForExistence(timeout: 10), "Expected recording panel to keep a Cloud live captions entry point.")
+        let panelCaptionsButton = app.buttons[UITestIDs.Panel.liveCaptionsButton]
+        XCTAssertTrue(
+            panelCaptionsButton.waitForExistence(timeout: 10),
+            "Expected recording panel to expose a direct live captions reopen button."
+        )
 
         XCTAssertFalse(
             uiElement(app, id: UITestIDs.Cloud.window).waitForExistence(timeout: 2),
@@ -142,10 +147,8 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         viewportAttachment.name = "live-caption-viewport-geometry"
         viewportAttachment.lifetime = .keepAlways
         add(viewportAttachment)
-        let languageMenu = uiElement(app, id: UITestIDs.Cloud.currentMeetingLanguageMenu)
-        XCTAssertTrue(languageMenu.waitForExistence(timeout: 10), "Expected a Live Caption language selector in Cloud.")
         let bilingualToggle = uiElement(app, id: UITestIDs.Cloud.currentMeetingBilingualToggle)
-        XCTAssertTrue(bilingualToggle.waitForExistence(timeout: 10), "Expected a bilingual captions control in the Live Caption panel.")
+        XCTAssertTrue(bilingualToggle.waitForExistence(timeout: 10), "Expected a Show translation control in the Live Caption panel.")
         let captionText = [caption.label, caption.value as? String]
             .compactMap { $0 }
             .joined(separator: " ")
@@ -175,13 +178,10 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             "A dismissed Live Caption panel should stay hidden for the current recording session."
         )
 
-        cloudButton.click()
-        let toggleCaptionPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaptionToggleButton)
-        XCTAssertTrue(toggleCaptionPanel.waitForExistence(timeout: 10), "Expected Cloud header to keep a lightweight Live Caption toggle.")
-        toggleCaptionPanel.click()
+        panelCaptionsButton.click()
         XCTAssertTrue(
             currentMeetingPanel.waitForExistence(timeout: 5),
-            "Expected the Cloud header toggle to reopen the floating Live Caption panel."
+            "Expected the recording-panel captions button to reopen the floating Live Caption panel."
         )
 
         let modeButton = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]

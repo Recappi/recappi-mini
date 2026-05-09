@@ -654,6 +654,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         }
     }
 
+    var canShowLiveCaptionPanel: Bool {
+        AppConfig.shared.liveCaptionsDisplayEnabled && currentLiveCaptionSessionID != nil
+    }
+
     func toggleLiveCaptionPanelMode() {
         switch liveCaptionPanelMode {
         case .expanded:

@@ -516,10 +516,10 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(completedTranslation?.segments.count, 1)
         XCTAssertEqual(completedTranslation?.segments[0].sourceText, "Recappi many automation smoke test.")
         XCTAssertEqual(completedTranslation?.segments[0].translatedText, "回顾这些 mini 自动化冒烟测试。")
-        XCTAssertEqual(completedTranslation?.segments[0].isFinal, true)
+        XCTAssertEqual(completedTranslation?.segments[0].isFinal, false)
     }
 
-    func testBackendRealtimeTranslationCutsCompletedSentencesInsideContinuousStream() {
+    func testBackendRealtimeTranslationKeepsCompletedSentencesAsPendingBlock() {
         let transcriber = BackendRealtimeLiveCaptionTranscriber(
             client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
             language: "en",
@@ -533,10 +533,13 @@ final class RecappiMiniCoreTests: XCTestCase {
             "我们开启了不少自动化冒烟测试。这句话应该能通过上传和转录。"
         )
 
-        XCTAssertGreaterThanOrEqual(snapshot?.segments.count ?? 0, 2)
-        XCTAssertEqual(snapshot?.segments.first?.sourceText, "We copy many automation smoke tests.")
-        XCTAssertEqual(snapshot?.segments.first?.translatedText, "我们开启了不少自动化冒烟测试。")
-        XCTAssertEqual(snapshot?.segments.first?.isFinal, true)
+        XCTAssertEqual(snapshot?.segments.count, 1)
+        XCTAssertEqual(
+            snapshot?.segments.first?.sourceText,
+            "We copy many automation smoke tests. This sentence should survive upload and transcription."
+        )
+        XCTAssertEqual(snapshot?.segments.first?.translatedText, "我们开启了不少自动化冒烟测试。这句话应该能通过上传和转录。")
+        XCTAssertEqual(snapshot?.segments.first?.isFinal, false)
     }
 
     func testBackendRealtimeTranslationWaitsWhenTranslationTrailsSourceSentence() {
@@ -556,10 +559,58 @@ final class RecappiMiniCoreTests: XCTestCase {
 
         let caughtUpSnapshot = transcriber.handleBilingualTranslationDeltaForTesting("。第二句也结束。")
 
-        XCTAssertGreaterThanOrEqual(caughtUpSnapshot?.segments.count ?? 0, 2)
-        XCTAssertEqual(caughtUpSnapshot?.segments.first?.sourceText, "First complete sentence.")
-        XCTAssertEqual(caughtUpSnapshot?.segments.first?.translatedText, "第一句还没结束。")
-        XCTAssertEqual(caughtUpSnapshot?.segments.first?.isFinal, true)
+        XCTAssertEqual(caughtUpSnapshot?.segments.count, 1)
+        XCTAssertEqual(caughtUpSnapshot?.segments.first?.sourceText, "First complete sentence. Second complete sentence.")
+        XCTAssertEqual(caughtUpSnapshot?.segments.first?.translatedText, "第一句还没结束。第二句也结束。")
+        XCTAssertEqual(caughtUpSnapshot?.segments.first?.isFinal, false)
+    }
+
+    func testBackendRealtimeTranslationHoldsMismatchedSentenceCountsAsPendingBlock() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en",
+            mode: .translation(targetLanguage: "zh")
+        ) { _ in }
+
+        _ = transcriber.handleBilingualSourceDeltaForTesting(
+            "Today we tested bilingual live captions with the RealMediaPath. The first sentence should become its own segment."
+        )
+        let snapshot = transcriber.handleBilingualTranslationDeltaForTesting(
+            "今天我们测试了双语即时字幕,配合真实媒体路径。"
+        )
+
+        XCTAssertEqual(snapshot?.segments.count, 1)
+        XCTAssertEqual(snapshot?.segments.first?.isFinal, false)
+        XCTAssertEqual(
+            snapshot?.segments.first?.sourceText,
+            "Today we tested bilingual live captions with the RealMediaPath. The first sentence should become its own segment."
+        )
+        XCTAssertEqual(snapshot?.segments.first?.translatedText, "今天我们测试了双语即时字幕,配合真实媒体路径。")
+    }
+
+    func testBackendRealtimeTranslationWaitsWhenTranslationRunsAheadOfSource() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "zh",
+            mode: .translation(targetLanguage: "en")
+        ) { _ in }
+
+        _ = transcriber.handleBilingualSourceDeltaForTesting("第一句。")
+        _ = transcriber.handleBilingualTranslationDeltaForTesting("The first sentence.")
+        let aheadSnapshot = transcriber.handleBilingualTranslationDeltaForTesting(" The second sentence")
+
+        XCTAssertEqual(aheadSnapshot?.segments.count, 1)
+        XCTAssertEqual(aheadSnapshot?.segments.first?.sourceText, "第一句。")
+        XCTAssertEqual(aheadSnapshot?.segments.first?.translatedText, "The first sentence. The second sentence")
+        XCTAssertEqual(aheadSnapshot?.segments.first?.isFinal, false)
+
+        _ = transcriber.handleBilingualSourceDeltaForTesting("第二句。")
+        let caughtUpSnapshot = transcriber.handleBilingualTranslationDeltaForTesting(".")
+
+        XCTAssertEqual(caughtUpSnapshot?.segments.count, 1)
+        XCTAssertEqual(caughtUpSnapshot?.segments.first?.sourceText, "第一句。第二句。")
+        XCTAssertEqual(caughtUpSnapshot?.segments.first?.translatedText, "The first sentence. The second sentence.")
+        XCTAssertEqual(caughtUpSnapshot?.segments.first?.isFinal, false)
     }
 
     func testBackendRealtimeTranslationDoesNotCutSourceCommasAsSentenceBoundaries() {
@@ -576,14 +627,14 @@ final class RecappiMiniCoreTests: XCTestCase {
             "第一部分,仍然是同一句话。第二句也结束。"
         )
 
-        XCTAssertGreaterThanOrEqual(snapshot?.segments.count ?? 0, 2)
+        XCTAssertEqual(snapshot?.segments.count, 1)
         XCTAssertEqual(
             snapshot?.segments.first?.sourceText,
-            "First clause, still the same sentence."
+            "First clause, still the same sentence. Second complete sentence."
         )
         XCTAssertEqual(
             snapshot?.segments.first?.translatedText,
-            "第一部分,仍然是同一句话。"
+            "第一部分,仍然是同一句话。第二句也结束。"
         )
     }
 
@@ -603,6 +654,33 @@ final class RecappiMiniCoreTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(snapshot?.segments.count ?? 0, 2)
         XCTAssertEqual(snapshot?.segments.first?.isFinal, true)
+    }
+
+    @MainActor
+    func testLiveCaptionCarryoverPreservesHistoryAcrossRestartSnapshots() {
+        let carryover = [
+            LiveCaptionSegment(
+                id: "old-1",
+                sourceText: "Existing original line.",
+                translatedText: "已有翻译。",
+                isFinal: true,
+                sequence: 0
+            )
+        ]
+        let incoming = [
+            LiveCaptionSegment(
+                id: "new-1",
+                sourceText: "New original line.",
+                translatedText: nil,
+                isFinal: false,
+                sequence: 1
+            )
+        ]
+
+        let merged = AudioRecorder.mergedLiveCaptionSegments(carryover: carryover, incoming: incoming)
+
+        XCTAssertEqual(merged.map(\.sourceText), ["Existing original line.", "New original line."])
+        XCTAssertEqual(merged.first?.translatedText, "已有翻译。")
     }
 
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {

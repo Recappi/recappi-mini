@@ -25,6 +25,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// paragraph breaks + future bilingual rendering.
     @Published private(set) var liveCaptionSegments: [LiveCaptionSegment] = []
     @Published private(set) var liveCaptionMessage: String?
+    @Published private(set) var liveCaptionStatusPhase: LiveCaptionSnapshot.Phase?
     /// True when every segment in `liveCaptionSegments` is `isFinal`. UI
     /// can use this to gate animations or styling for "stable" captions.
     @Published private(set) var liveCaptionIsFinal: Bool = false
@@ -42,6 +43,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var stream: SCStream?
     private var systemOutput: SystemAudioOutput?
     private var liveCaptionTranscriber: Any?
+    private var liveCaptionCarryoverSegments: [LiveCaptionSegment] = []
     private let systemCaptureQueue = DispatchQueue(label: "RecappiMini.SystemCapture")
     private var audioDeviceMonitor: DefaultAudioDeviceMonitor?
     private var currentOutputAudioDeviceID: AudioDeviceID?
@@ -697,7 +699,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         lastLevelPublish = 0
         lastHistoryPublish = 0
         liveCaptionSegments = []
+        liveCaptionCarryoverSegments = []
         liveCaptionMessage = nil
+        liveCaptionStatusPhase = nil
         liveCaptionIsFinal = false
         activeRecordingID = nil
         sessionDir = nil
@@ -729,6 +733,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func applyLiveCaptionSnapshot(_ snapshot: LiveCaptionSnapshot) {
+        liveCaptionStatusPhase = snapshot.phase
         switch snapshot.phase {
         case .preparing, .listening:
             liveCaptionMessage = snapshot.message
@@ -748,9 +753,21 @@ final class AudioRecorder: NSObject, ObservableObject {
         // existing segments untouched so the panel does not flash the
         // placeholder during a brief preparing/listening round-trip.
         if !snapshot.segments.isEmpty {
-            liveCaptionSegments = snapshot.segments
-            liveCaptionIsFinal = snapshot.allSegmentsFinal
+            liveCaptionSegments = Self.mergedLiveCaptionSegments(
+                carryover: liveCaptionCarryoverSegments,
+                incoming: snapshot.segments
+            )
+            liveCaptionIsFinal = liveCaptionCarryoverSegments.allSatisfy(\.isFinal) && snapshot.allSegmentsFinal
         }
+    }
+
+    static func mergedLiveCaptionSegments(
+        carryover: [LiveCaptionSegment],
+        incoming: [LiveCaptionSegment]
+    ) -> [LiveCaptionSegment] {
+        guard !carryover.isEmpty else { return incoming }
+        guard !incoming.isEmpty else { return carryover }
+        return carryover + incoming
     }
 
     func setSpeechLanguage(_ localeIdentifier: String) {
@@ -796,8 +813,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         systemOutput.onLiveCaptionSampleBuffer = nil
         stopLiveCaptions(oldTranscriber, saveTo: nil)
 
-        liveCaptionSegments = []
+        liveCaptionCarryoverSegments = liveCaptionSegments
         liveCaptionMessage = message
+        liveCaptionStatusPhase = .preparing
         liveCaptionIsFinal = false
 
         startLiveCaptionProvider(for: systemOutput, localeIdentifier: localeIdentifier)
@@ -836,7 +854,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         if AppConfig.shared.backendRealtimeLiveCaptionsEnabled {
             guard let bearerToken = AuthSessionStore.shared.bearerToken() else {
                 liveCaptionMessage = "Sign in to Recappi Cloud to use backend live captions."
-                liveCaptionSegments = []
+                liveCaptionStatusPhase = .unavailable
                 liveCaptionIsFinal = false
                 return
             }
@@ -874,8 +892,8 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         guard #available(macOS 26.0, *) else { return }
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
-            liveCaptionSegments = []
             liveCaptionMessage = "Enable Speech Recognition to use live captions."
+            liveCaptionStatusPhase = .unavailable
             liveCaptionIsFinal = false
             return
         }
@@ -999,7 +1017,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.lastLevelPublish = 0
         self.lastHistoryPublish = 0
         self.liveCaptionSegments = []
+        self.liveCaptionCarryoverSegments = []
         self.liveCaptionMessage = nil
+        self.liveCaptionStatusPhase = nil
         self.liveCaptionIsFinal = false
         if let simulatedLiveCaptionText = uiTestMode.simulatedLiveCaptionText,
            !simulatedLiveCaptionText.isEmpty {

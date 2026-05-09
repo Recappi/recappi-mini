@@ -74,6 +74,17 @@ struct RecordingState: View {
                 .help("Open Cloud live captions")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.cloudButton)
 
+                Button {
+                    AppDelegate.shared.setLiveCaptionPanelPresented(true)
+                } label: {
+                    Image(systemName: AppDelegate.shared.isLiveCaptionPanelPresented ? "captions.bubble.fill" : "captions.bubble")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(PanelIconButtonStyle())
+                .disabled(!AppDelegate.shared.canShowLiveCaptionPanel)
+                .help(AppDelegate.shared.isLiveCaptionPanelPresented ? "Live captions are open" : "Show live captions")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.liveCaptionsButton)
+
                 Button(action: onDiscard) {
                     Image(systemName: "trash")
                         .font(.system(size: 12))

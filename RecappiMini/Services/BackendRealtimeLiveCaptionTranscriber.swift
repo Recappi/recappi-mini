@@ -2,6 +2,7 @@ import AppKit
 @preconcurrency import AVFoundation
 import CoreMedia
 import Foundation
+import os
 
 final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable {
     /// Two distinct upstream session shapes — different OpenAI models,
@@ -37,6 +38,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private static let manualCommitByteThreshold = 67_200
     private static let minimumManualCommitByteCount = 4_800
     private static let targetSampleRate: Double = 24_000
+    private static let bilingualLog = Logger(subsystem: "recappi.bilingual", category: "live-captions")
 
     private let inputQueue = DispatchQueue(label: "RecappiMini.BackendRealtimeLiveCaptionTranscriber.input")
     private let stateQueue = DispatchQueue(label: "RecappiMini.BackendRealtimeLiveCaptionTranscriber.state")
@@ -213,14 +215,18 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         // into `BilingualSegmentBuilder`, which decides finalize
         // boundaries from punctuation + silence.
         case "session.input_transcript.delta":
-            if let delta = event.delta, !delta.isEmpty,
-               let snapshot = ingestBilingualDelta(.source, text: delta) {
-                publishFromCallback(snapshot)
+            if let delta = event.delta, !delta.isEmpty {
+                Self.bilingualLog.info("source.delta: \(delta, privacy: .private)")
+                if let snapshot = ingestBilingualDelta(.source, text: delta) {
+                    publishFromCallback(snapshot)
+                }
             }
         case "session.output_transcript.delta":
-            if let delta = event.delta, !delta.isEmpty,
-               let snapshot = ingestBilingualDelta(.translation, text: delta) {
-                publishFromCallback(snapshot)
+            if let delta = event.delta, !delta.isEmpty {
+                Self.bilingualLog.info("target.delta: \(delta, privacy: .private)")
+                if let snapshot = ingestBilingualDelta(.translation, text: delta) {
+                    publishFromCallback(snapshot)
+                }
             }
         case "error":
             let message = event.error?.message ?? "Backend Realtime failed."
@@ -897,14 +903,12 @@ private final class BilingualSegmentBuilder {
 
     private func finalizeCompletedBoundaries() {
         while true {
-            if let sourceBoundary = Self.completedSentenceBoundary(in: pending.sourceText),
-               let translationBoundary = Self.completedSentenceBoundary(in: pending.translatedText),
-               sourceBoundary.segmentText.count >= Self.minSegmentBoundaryChars(for: sourceBoundary.segmentText),
-               translationBoundary.segmentText.count >= Self.minSegmentBoundaryChars(for: translationBoundary.segmentText) {
-                finalizeBoundary(sourceBoundary, translationBoundary)
-                continue
-            }
-
+            // The translation stream has no shared item_id/final events, and
+            // production smoke showed that it may merge/split or even run
+            // ahead of the source transcript. Punctuation-only sentence
+            // pairing can therefore create confidently wrong rows. Keep
+            // bilingual text as a pending block and only make large soft-cap
+            // cuts, where readability matters more than exact sentence count.
             if let sourceBoundary = Self.forceBoundary(in: pending.sourceText),
                let translationBoundary = Self.forceBoundary(in: pending.translatedText) {
                 finalizeBoundary(sourceBoundary, translationBoundary)
@@ -948,7 +952,7 @@ private final class BilingualSegmentBuilder {
 
     func snapshot() -> [LiveCaptionSegment] {
         var segments = finalized
-        if pending.hasContent {
+        if !pending.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             segments.append(
                 LiveCaptionSegment(
                     id: "bilingual-\(nextSequence)",
@@ -999,6 +1003,34 @@ private final class BilingualSegmentBuilder {
             cursor = next
         }
         return nil
+    }
+
+    private static func completedSentenceBoundaries(in text: String) -> [String.Index] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var result: [String.Index] = []
+        var cursor = trimmed.startIndex
+        while cursor < trimmed.endIndex {
+            let character = trimmed[cursor]
+            guard character.isLiveCaptionSentenceEnding else {
+                cursor = trimmed.index(after: cursor)
+                continue
+            }
+
+            let next = trimmed.index(after: cursor)
+            if next == trimmed.endIndex {
+                result.append(cursor)
+                break
+            }
+
+            let nextCharacter = trimmed[next]
+            if nextCharacter.isWhitespace || nextCharacter.isCJK {
+                result.append(cursor)
+            }
+            cursor = next
+        }
+        return result
     }
 
     private static func forceBoundary(in text: String) -> TextBoundary? {

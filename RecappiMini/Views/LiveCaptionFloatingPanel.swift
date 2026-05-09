@@ -262,12 +262,7 @@ struct LiveCaptionFloatingPanel: View {
                     .foregroundStyle(Color.dtLabel)
                 Spacer(minLength: 0)
                 HStack(spacing: 6) {
-                    bilingualModeControl
-                    if config.liveCaptionsBilingualEnabled {
-                        bilingualTargetLanguageMenu
-                    }
-                    liveCaptionLanguageMenu
-                    systemAudioChip
+                    translationDisplayToggle
                 }
             }
             .padding(.horizontal, 14)
@@ -276,7 +271,8 @@ struct LiveCaptionFloatingPanel: View {
             LiveCaptionTextViewport(
                 segments: viewportSegments,
                 placeholderText: captionLine,
-                isPlaceholder: !hasLiveCaptionSegments
+                isPlaceholder: !hasLiveCaptionSegments,
+                errorMessage: liveCaptionErrorMessage
             )
             .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
             .padding(.horizontal, 14)
@@ -301,130 +297,36 @@ struct LiveCaptionFloatingPanel: View {
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionWorkspace)
     }
 
-    private var liveCaptionLanguageMenu: some View {
-        Menu {
-            ForEach(SpeechLanguageOption.common) { option in
-                Button {
-                    recorder.setSpeechLanguage(option.id)
-                } label: {
-                    if option.id == config.selectedSpeechLanguage.id {
-                        Label(option.title, systemImage: "checkmark")
-                    } else {
-                        Text(option.title)
-                    }
-                }
-            }
+    private var translationDisplayToggle: some View {
+        Button {
+            recorder.setLiveCaptionsBilingualEnabled(!config.liveCaptionsBilingualEnabled)
         } label: {
             HStack(spacing: 5) {
-                Text(config.selectedSpeechLanguage.shortTitle)
+                Image(systemName: config.liveCaptionsBilingualEnabled ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Show translation")
                     .font(.system(size: 10, weight: .semibold))
                     .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(Color.dtLabelTertiary)
             }
-            .foregroundStyle(Color.dtLabel)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
+            .foregroundStyle(config.liveCaptionsBilingualEnabled ? Color.dtLabel : Color.dtLabelSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Palette.controlFillHover)
+                    .fill(config.liveCaptionsBilingualEnabled ? Palette.controlFillPress : Palette.controlFillHover)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Palette.borderHairline, lineWidth: 0.6)
             )
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .help("Live caption language")
-        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingLanguageMenu)
-    }
-
-    private var bilingualModeControl: some View {
-        HStack(spacing: 0) {
-            Button {
-                recorder.setLiveCaptionsBilingualEnabled(false)
-            } label: {
-                Text("原文")
-                    .font(.system(size: 10, weight: .semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .frame(minWidth: 34)
-            }
-            .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: !config.liveCaptionsBilingualEnabled))
-
-            Button {
-                recorder.setLiveCaptionsBilingualEnabled(true)
-            } label: {
-                Text("双语")
-                    .font(.system(size: 10, weight: .semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .frame(minWidth: 34)
-            }
-            .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: config.liveCaptionsBilingualEnabled))
-        }
-        .background(
-            Capsule(style: .continuous)
-                .fill(Palette.controlFillHover)
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(Palette.borderHairline, lineWidth: 0.6)
-        )
+        .buttonStyle(.plain)
         .disabled(!config.backendRealtimeLiveCaptionsEnabled)
         .opacity(config.backendRealtimeLiveCaptionsEnabled ? 1 : 0.55)
-        .help("Switch live captions between original-only and bilingual mode")
-        .accessibilityElement(children: .contain)
+        .help(config.liveCaptionsBilingualEnabled ? "Hide translation" : "Show translation")
+        .accessibilityLabel("Show translation")
+        .accessibilityValue(config.liveCaptionsBilingualEnabled ? "On" : "Off")
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingBilingualToggle)
-    }
-
-    private var bilingualTargetLanguageMenu: some View {
-        let selected = LiveCaptionTranslationTargetLanguageOption.option(
-            for: config.liveCaptionsTranslationTargetLanguage
-        )
-        return Menu {
-            ForEach(LiveCaptionTranslationTargetLanguageOption.common) { option in
-                Button {
-                    recorder.setLiveCaptionsTranslationTargetLanguage(option.id)
-                } label: {
-                    if option.id == selected.id {
-                        Label(option.title, systemImage: "checkmark")
-                    } else {
-                        Text(option.title)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text("→ \(selected.shortTitle)")
-                    .font(.system(size: 10, weight: .semibold))
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(Color.dtLabelTertiary)
-            }
-            .foregroundStyle(Color.dtLabel)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Palette.controlFillHover)
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .help("Translation target language")
-        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingBilingualTargetLanguageMenu)
-    }
-
-    private var systemAudioChip: some View {
-        Text("System audio")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(DT.waveformLit)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(DT.waveformLit.opacity(0.12))
-            )
     }
 
     /// True when the recorder has at least one accumulated caption
@@ -437,6 +339,14 @@ struct LiveCaptionFloatingPanel: View {
             return true
         }
         return !recorder.liveCaptionSegments.isEmpty
+    }
+
+    private var liveCaptionErrorMessage: String? {
+        guard recorder.liveCaptionStatusPhase == .failed || recorder.liveCaptionStatusPhase == .unavailable else {
+            return nil
+        }
+        let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return message?.isEmpty == false ? message : nil
     }
 
     /// Segment list passed into the expanded viewport. Mirrors the
@@ -541,13 +451,26 @@ private struct LiveCaptionTextViewport: View {
     let segments: [LiveCaptionSegment]
     let placeholderText: String
     let isPlaceholder: Bool
+    let errorMessage: String?
 
     var body: some View {
-        LiveCaptionAppKitTextView(
-            segments: segments,
-            placeholderText: placeholderText,
-            isPlaceholder: isPlaceholder
-        )
+        ZStack(alignment: .topLeading) {
+            if errorMessage != nil, isPlaceholder {
+                Color.clear
+            } else {
+                LiveCaptionAppKitTextView(
+                    segments: segments,
+                    placeholderText: placeholderText,
+                    isPlaceholder: isPlaceholder
+                )
+            }
+
+            if let errorMessage {
+                LiveCaptionErrorBanner(message: errorMessage)
+                    .padding(.top, 2)
+                    .padding(.trailing, 2)
+            }
+        }
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionViewport)
         .accessibilityLabel(Text(displayedAccessibilityLabel))
         .accessibilityValue(Text(displayedAccessibilityLabel))
@@ -558,6 +481,7 @@ private struct LiveCaptionTextViewport: View {
     }
 
     private var displayedAccessibilityLabel: String {
+        if let errorMessage { return errorMessage }
         if isPlaceholder { return placeholderText }
         return segments
             .map { segment in
@@ -567,6 +491,31 @@ private struct LiveCaptionTextViewport: View {
                 return segment.sourceText
             }
             .joined(separator: "\n")
+    }
+}
+
+private struct LiveCaptionErrorBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold))
+            Text(message)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(2)
+        }
+        .foregroundStyle(Color.dtLabelSecondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Palette.controlFillPress)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Palette.borderHairline, lineWidth: 0.6)
+        )
     }
 }
 
@@ -610,7 +559,7 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.scrollerStyle = .overlay
-        scrollView.verticalScrollElasticity = .allowed
+        scrollView.verticalScrollElasticity = .none
 
         let textView = NSTextView(frame: .zero)
         textView.isEditable = false
@@ -808,6 +757,11 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
                 }
             }
 
+            if attributed.string == appliedText {
+                if scrollToBottom { scrollViewToBottom() }
+                return
+            }
+
             storage.setAttributedString(attributed)
             // Snapshot the joined text so a switch back to monolingual
             // (e.g. user toggles bilingual off mid-session) doesn't see
@@ -864,6 +818,11 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             let docHeight = docView.frame.height
             let visibleHeight = scrollView.contentView.bounds.height
             let targetY = max(0, docHeight - visibleHeight)
+            let currentY = scrollView.contentView.bounds.origin.y
+            guard abs(currentY - targetY) > 1 else {
+                shouldFollowTail = true
+                return
+            }
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
             scrollView.reflectScrolledClipView(scrollView.contentView)
             shouldFollowTail = true
