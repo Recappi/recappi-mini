@@ -24,8 +24,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private var webSocketTask: URLSessionWebSocketTask?
     private var isAcceptingInput = false
     private var pendingAudioBufferCount = 0
-    private var lastPublishedText: String?
-    private var lastPublishedIsFinal: Bool?
+    private var lastPublishedSegments: [LiveCaptionSegment] = []
     private var transcriptTimeline: [TranscriptItemKey] = []
     private var transcriptItems: [TranscriptItemKey: TranscriptItem] = [:]
     private var pendingPreviousItemIDByKey: [TranscriptItemKey: String] = [:]
@@ -79,12 +78,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     }
 
     private func run() async {
-        await publish(.init(
-            phase: .preparing,
-            text: nil,
-            isFinal: false,
-            message: "Preparing backend live captions..."
-        ))
+        await publish(.statusOnly(phase: .preparing, message: "Preparing backend live captions..."))
 
         do {
             let claim = try await client.createRealtimeTranscriptionSession(language: language)
@@ -111,19 +105,9 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             // No trailing dots: compact mode just had a mojibake/`…`
             // regression and a bare status reads cleanly without
             // looking like a caption-truncation indicator.
-            await publish(.init(
-                phase: .listening,
-                text: nil,
-                isFinal: false,
-                message: "Listening with backend Realtime"
-            ))
+            await publish(.statusOnly(phase: .listening, message: "Listening with backend Realtime"))
         } catch {
-            await publish(.init(
-                phase: .failed,
-                text: nil,
-                isFinal: false,
-                message: error.localizedDescription
-            ))
+            await publish(.statusOnly(phase: .failed, message: error.localizedDescription))
         }
     }
 
@@ -135,12 +119,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
                 self.consume(message)
                 self.receiveLoop(task)
             case .failure(let error):
-                self.publishFromCallback(.init(
-                    phase: .failed,
-                    text: nil,
-                    isFinal: false,
-                    message: error.localizedDescription
-                ))
+                self.publishFromCallback(.statusOnly(phase: .failed, message: error.localizedDescription))
             }
         }
     }
@@ -173,7 +152,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             }
         case "error":
             let message = event.error?.message ?? "Backend Realtime failed."
-            publishFromCallback(.init(phase: .failed, text: nil, isFinal: false, message: message))
+            publishFromCallback(.statusOnly(phase: .failed, message: message))
         default:
             break
         }
@@ -246,8 +225,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
     private func resetTranscriptState() {
         stateQueue.sync {
-            lastPublishedText = nil
-            lastPublishedIsFinal = nil
+            lastPublishedSegments = []
             transcriptTimeline = []
             transcriptItems = [:]
             pendingPreviousItemIDByKey = [:]
@@ -294,57 +272,54 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         resolveAllPendingPlacementsLocked()
         trimTranscriptTimelineLocked()
 
-        // Publish the FULL timeline: the panel viewport supports
-        // follow-tail scrolling so the user can read everything we
-        // have. `maxSavedEntryCount` already bounds memory.
-        let visibleItems = transcriptTimeline
-            .compactMap { transcriptItems[$0] }
-            .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-        let text = Self.displayText(from: visibleItems)
-        guard !text.isEmpty else { return nil }
-
-        let isFinal = visibleItems.allSatisfy(\.isFinal)
-        if lastPublishedText == text, lastPublishedIsFinal == isFinal {
-            return nil
+        // Build segment list from the visible timeline. We keep one
+        // `LiveCaptionSegment` per `TranscriptItemKey` (which itself is
+        // keyed by OpenAI Realtime `item_id` + content slot), so a
+        // logical utterance always has a stable segment id — exactly
+        // what the UI / future translation layer needs to update one
+        // segment in place without re-flowing the whole transcript.
+        let segments: [LiveCaptionSegment] = transcriptTimeline.compactMap { key in
+            guard let item = transcriptItems[key] else { return nil }
+            let normalized = Self.normalizedSegmentText(item.text)
+            guard !normalized.isEmpty else { return nil }
+            return LiveCaptionSegment(
+                id: Self.segmentIdentifier(for: key),
+                sourceText: normalized,
+                translatedText: nil,
+                isFinal: item.isFinal,
+                sequence: item.sequence
+            )
         }
-        lastPublishedText = text
-        lastPublishedIsFinal = isFinal
-        return .init(phase: .listening, text: text, isFinal: isFinal, message: nil)
+        guard !segments.isEmpty else { return nil }
+
+        if segments == lastPublishedSegments { return nil }
+        lastPublishedSegments = segments
+
+        let allFinal = segments.allSatisfy(\.isFinal)
+        return LiveCaptionSnapshot(
+            phase: .listening,
+            segments: segments,
+            allSegmentsFinal: allFinal,
+            message: nil
+        )
     }
 
-    private static func displayText(from items: some Sequence<TranscriptItem>) -> String {
-        items.reduce(into: "") { result, item in
-            appendDisplayText(Self.normalizedDisplayFragment(item.text), to: &result)
-        }
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Stable id used by the UI / translation cache. Combining
+    /// `item_id` and `content_index` keeps the id unique even when one
+    /// Realtime item carries multiple content slots.
+    private static func segmentIdentifier(for key: TranscriptItemKey) -> String {
+        key.contentIndex == 0
+            ? key.itemID
+            : "\(key.itemID)#\(key.contentIndex)"
     }
 
-    private static func normalizedDisplayFragment(_ text: String) -> String {
+    /// Collapse runs of whitespace into single spaces. Segment-level
+    /// rendering joins segments with `\n` (or richer attribute breaks)
+    /// in the UI layer, so each segment text stays single-line.
+    private static func normalizedSegmentText(_ text: String) -> String {
         text
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
-    }
-
-    private static func appendDisplayText(_ fragment: String, to result: inout String) {
-        guard !fragment.isEmpty else { return }
-        guard let previous = result.last, let next = fragment.first else {
-            result.append(fragment)
-            return
-        }
-
-        if shouldInsertDisplaySpace(between: previous, and: next) {
-            result.append(" ")
-        }
-        result.append(fragment)
-    }
-
-    private static func shouldInsertDisplaySpace(between previous: Character, and next: Character) -> Bool {
-        if previous.isWhitespace || next.isWhitespace { return false }
-        if next.isPunctuation || next.isSymbol { return false }
-        if previous.isPunctuation || previous.isSymbol { return true }
-        if previous.isCJK || next.isCJK { return false }
-        return true
     }
 
     private func sendAudio(_ data: Data) {

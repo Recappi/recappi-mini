@@ -141,8 +141,8 @@ struct LiveCaptionFloatingPanel: View {
                 )
                 .overlay(alignment: .leading) {
                     Text(compactCaptionLine)
-                        .font(.system(size: 15, weight: recorder.liveCaptionText == nil ? .medium : .semibold))
-                        .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
+                        .font(.system(size: 15, weight: hasLiveCaptionSegments ? .semibold : .medium))
+                        .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
                         .lineSpacing(2)
                         .multilineTextAlignment(.leading)
                         .lineLimit(2)
@@ -271,9 +271,9 @@ struct LiveCaptionFloatingPanel: View {
 
             LiveCaptionTextViewport(
                 text: captionLine,
-                isPlaceholder: recorder.liveCaptionText == nil
+                isPlaceholder: !hasLiveCaptionSegments
             )
-            .foregroundStyle(recorder.liveCaptionText == nil ? Color.dtLabelSecondary : Color.dtLabel)
+            .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
             .padding(.horizontal, 14)
             .padding(.top, 12)
             .padding(.bottom, 14)
@@ -344,6 +344,18 @@ struct LiveCaptionFloatingPanel: View {
             )
     }
 
+    /// True when the recorder has at least one accumulated caption
+    /// segment (the placeholder ↔ "real caption" toggle for the panel).
+    /// Honors the `LIVE_CAPTION_DEBUG_TEXT` override so debug fixtures
+    /// look like real captions to the UI.
+    private var hasLiveCaptionSegments: Bool {
+        if let debugText = ProcessInfo.processInfo.environment["LIVE_CAPTION_DEBUG_TEXT"],
+           !debugText.isEmpty {
+            return true
+        }
+        return !recorder.liveCaptionSegments.isEmpty
+    }
+
     private var captionLine: String {
         // Debug hook: when `LIVE_CAPTION_DEBUG_TEXT` is set, override the
         // caption with fixture text so layout/scroll can be exercised
@@ -352,9 +364,16 @@ struct LiveCaptionFloatingPanel: View {
            !debugText.isEmpty {
             return debugText
         }
-        if let text = recorder.liveCaptionText?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !text.isEmpty {
-            return text
+        // Natural paragraph breaks: each segment becomes its own line.
+        // The expanded NSTextView happily renders these `\n`s; the
+        // compact bar applies `lineLimit(2)` and pre-truncation so the
+        // joined text still fits in two lines.
+        let joined = recorder.liveCaptionSegments
+            .map(\.sourceText)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !joined.isEmpty {
+            return joined
         }
         if let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
            !message.isEmpty {

@@ -18,8 +18,15 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var audioLevel: Float = 0
     @Published var audioSpectrumLevels: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
     @Published var audioLevelHistory: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
-    @Published private(set) var liveCaptionText: String?
+    /// Ordered live-caption segments produced by the active transcriber.
+    /// Empty when no caption history has been accumulated yet (or after
+    /// an explicit reset). UI consumers branch on `isEmpty` for the
+    /// placeholder state and read segment-level metadata for natural
+    /// paragraph breaks + future bilingual rendering.
+    @Published private(set) var liveCaptionSegments: [LiveCaptionSegment] = []
     @Published private(set) var liveCaptionMessage: String?
+    /// True when every segment in `liveCaptionSegments` is `isFinal`. UI
+    /// can use this to gate animations or styling for "stable" captions.
     @Published private(set) var liveCaptionIsFinal: Bool = false
     @Published private(set) var activeRecordingID: UUID?
     /// Session directory of the most-recent (or in-progress) recording.
@@ -689,7 +696,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
         lastLevelPublish = 0
         lastHistoryPublish = 0
-        liveCaptionText = nil
+        liveCaptionSegments = []
         liveCaptionMessage = nil
         liveCaptionIsFinal = false
         activeRecordingID = nil
@@ -727,17 +734,22 @@ final class AudioRecorder: NSObject, ObservableObject {
             liveCaptionMessage = snapshot.message
         case .unavailable, .failed:
             // Surface the error/reconnect status via `liveCaptionMessage`
-            // but do NOT wipe `liveCaptionText`: a transient WebSocket
-            // failure should not erase the caption history the user has
-            // already accumulated. Preserving the last-known transcript
-            // means a flaky network surfaces as a status badge while the
-            // user keeps reading what they already had.
+            // but do NOT wipe `liveCaptionSegments`: a transient
+            // WebSocket failure should not erase the caption history
+            // the user has already accumulated. Preserving the last-
+            // known segments means a flaky network surfaces as a
+            // status badge while the user keeps reading what they
+            // already had.
             liveCaptionMessage = snapshot.message
         }
 
-        if let text = snapshot.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
-            liveCaptionText = text
-            liveCaptionIsFinal = snapshot.isFinal
+        // Only adopt segments when the snapshot actually carries them
+        // (typical for `.listening`); status-only snapshots leave the
+        // existing segments untouched so the panel does not flash the
+        // placeholder during a brief preparing/listening round-trip.
+        if !snapshot.segments.isEmpty {
+            liveCaptionSegments = snapshot.segments
+            liveCaptionIsFinal = snapshot.allSegmentsFinal
         }
     }
 
@@ -758,7 +770,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         systemOutput.onLiveCaptionSampleBuffer = nil
         stopLiveCaptions(oldTranscriber, saveTo: nil)
 
-        liveCaptionText = nil
+        liveCaptionSegments = []
         liveCaptionMessage = "Switching live caption language…"
         liveCaptionIsFinal = false
 
@@ -798,7 +810,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         if AppConfig.shared.backendRealtimeLiveCaptionsEnabled {
             guard let bearerToken = AuthSessionStore.shared.bearerToken() else {
                 liveCaptionMessage = "Sign in to Recappi Cloud to use backend live captions."
-                liveCaptionText = nil
+                liveCaptionSegments = []
                 liveCaptionIsFinal = false
                 return
             }
@@ -823,7 +835,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         guard #available(macOS 26.0, *) else { return }
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
-            liveCaptionText = nil
+            liveCaptionSegments = []
             liveCaptionMessage = "Enable Speech Recognition to use live captions."
             liveCaptionIsFinal = false
             return
@@ -943,12 +955,23 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
         self.lastLevelPublish = 0
         self.lastHistoryPublish = 0
-        self.liveCaptionText = nil
+        self.liveCaptionSegments = []
         self.liveCaptionMessage = nil
         self.liveCaptionIsFinal = false
         if let simulatedLiveCaptionText = uiTestMode.simulatedLiveCaptionText,
            !simulatedLiveCaptionText.isEmpty {
-            self.liveCaptionText = simulatedLiveCaptionText
+            // UI tests inject a single fixture string; surface it as one
+            // simulated segment with a stable id so consumers exercise
+            // the segment-aware code path even without a real upstream.
+            self.liveCaptionSegments = [
+                LiveCaptionSegment(
+                    id: "ui-test-fixture",
+                    sourceText: simulatedLiveCaptionText,
+                    translatedText: nil,
+                    isFinal: false,
+                    sequence: 0
+                )
+            ]
             self.liveCaptionIsFinal = false
         }
         self.detectedMeetingRecordingContext = autoStopContext

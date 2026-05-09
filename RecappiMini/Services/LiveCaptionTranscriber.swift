@@ -31,9 +31,26 @@ struct LiveCaptionSnapshot: Equatable, Sendable {
     }
 
     let phase: Phase
-    let text: String?
-    let isFinal: Bool
+    /// Ordered segments in the visible timeline. Empty when the
+    /// transcriber has nothing to display yet (`.preparing`,
+    /// `.unavailable`, `.failed` with no captured caption history, etc).
+    let segments: [LiveCaptionSegment]
+    /// Convenience: true when every segment in `segments` has
+    /// `isFinal == true`. Lets consumers distinguish a stable transcript
+    /// from one that still has streaming deltas.
+    let allSegmentsFinal: Bool
     let message: String?
+
+    /// Joined `sourceText` of all segments, separated by `\n`. Useful
+    /// for accessibility labels, saved-transcript writers, and the
+    /// "is the panel showing a placeholder?" check (empty == placeholder).
+    var joinedSourceText: String {
+        segments.map(\.sourceText).joined(separator: "\n")
+    }
+
+    static func statusOnly(phase: Phase, message: String?) -> LiveCaptionSnapshot {
+        .init(phase: phase, segments: [], allSegmentsFinal: false, message: message)
+    }
 }
 
 struct LiveCaptionEntry: Codable, Equatable, Sendable {
@@ -131,25 +148,20 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
     }
 
     private func run(localeIdentifier: String) async {
-        await publish(.init(phase: .preparing, text: nil, isFinal: false, message: "Preparing live captions…"))
+        await publish(.statusOnly(phase: .preparing, message: "Preparing live captions…"))
 
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
-            await publish(.init(
-                phase: .unavailable,
-                text: nil,
-                isFinal: false,
-                message: "Enable Speech Recognition to use live captions."
-            ))
+            await publish(.statusOnly(phase: .unavailable, message: "Enable Speech Recognition to use live captions."))
             return
         }
 
         let locale = Locale(identifier: localeIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "en-US" : localeIdentifier)
         guard let recognizer = SFSpeechRecognizer(locale: locale) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")) else {
-            await publish(.init(phase: .unavailable, text: nil, isFinal: false, message: "Live captions are not available for this language."))
+            await publish(.statusOnly(phase: .unavailable, message: "Live captions are not available for this language."))
             return
         }
         guard recognizer.isAvailable else {
-            await publish(.init(phase: .unavailable, text: nil, isFinal: false, message: "Live captions are temporarily unavailable."))
+            await publish(.statusOnly(phase: .unavailable, message: "Live captions are temporarily unavailable."))
             return
         }
 
@@ -175,16 +187,14 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
                 if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 216 {
                     return
                 }
-                self?.publishFromRecognitionCallback(.init(
+                self?.publishFromRecognitionCallback(.statusOnly(
                     phase: .failed,
-                    text: nil,
-                    isFinal: false,
                     message: error.localizedDescription
                 ))
             }
         }
 
-        await publish(.init(phase: .listening, text: nil, isFinal: false, message: "Listening for live captions…"))
+        await publish(.statusOnly(phase: .listening, message: "Listening for live captions…"))
     }
 
     private func consume(_ result: SFSpeechRecognitionResult) -> LiveCaptionSnapshot? {
@@ -220,7 +230,25 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
             }
         }
 
-        return .init(phase: .listening, text: text, isFinal: isFinal, message: nil)
+        // SFSpeechRecognizer hands us a single rolling transcript per
+        // recognition session, not pre-sliced segments — so we surface
+        // it as one segment whose id is stable for the lifetime of the
+        // current speech result. The backend Realtime transcriber emits
+        // many segments keyed by `item_id`; this fallback path emits a
+        // single `sf-current` segment that gets replaced in place.
+        let segment = LiveCaptionSegment(
+            id: "sf-current",
+            sourceText: text,
+            translatedText: nil,
+            isFinal: isFinal,
+            sequence: 0
+        )
+        return LiveCaptionSnapshot(
+            phase: .listening,
+            segments: [segment],
+            allSegmentsFinal: isFinal,
+            message: nil
+        )
     }
 
     private func publish(_ snapshot: LiveCaptionSnapshot) async {
@@ -304,10 +332,8 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
                 if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 216 {
                     return
                 }
-                self?.publishFromRecognitionCallback(.init(
+                self?.publishFromRecognitionCallback(.statusOnly(
                     phase: .failed,
-                    text: nil,
-                    isFinal: false,
                     message: error.localizedDescription
                 ))
             }
