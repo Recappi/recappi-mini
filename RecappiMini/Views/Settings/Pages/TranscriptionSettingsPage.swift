@@ -104,7 +104,7 @@ struct TranscriptionSettingsPage: View {
 /// English/Chinese conversations. Users still get the full set via
 /// the Realtime endpoint if a future picker grows.
 private enum BilingualTargetLanguage: String, CaseIterable, Identifiable {
-    case zhHans = "zh-Hans"
+    case chinese = "zh"
     case english = "en"
     case japanese = "ja"
     case korean = "ko"
@@ -116,7 +116,7 @@ private enum BilingualTargetLanguage: String, CaseIterable, Identifiable {
     var code: String { rawValue }
     var title: String {
         switch self {
-        case .zhHans: return "Simplified Chinese (zh-Hans)"
+        case .chinese: return "Chinese (zh)"
         case .english: return "English (en)"
         case .japanese: return "Japanese (ja)"
         case .korean: return "Korean (ko)"

@@ -49,9 +49,9 @@ final class AppConfig: ObservableObject {
     @AppStorage("liveCaptionsBilingualEnabled") var liveCaptionsBilingualEnabled: Bool = false
     /// Target language for bilingual translation. Mirrors the OpenAI
     /// translation endpoint's `target_language` field; common values
-    /// `zh-Hans`, `en`, `ja`, `ko`, `fr`, `de`, `es`. Default mirrors
+    /// `zh`, `en`, `ja`, `ko`, `fr`, `de`, `es`. Default mirrors
     /// the source language picker so a fresh user gets a sensible pair.
-    @AppStorage("liveCaptionsTranslationTargetLanguage") var liveCaptionsTranslationTargetLanguage: String = "zh-Hans"
+    @AppStorage("liveCaptionsTranslationTargetLanguage") var liveCaptionsTranslationTargetLanguage: String = "zh"
     @AppStorage("appTheme") var theme: AppTheme = .light
 
     @AppStorage("speechLanguage") var cloudLanguage: String = "en-US"

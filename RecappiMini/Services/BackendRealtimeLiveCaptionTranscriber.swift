@@ -267,6 +267,14 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     ) -> LiveCaptionSnapshot? {
         completeTranscript(transcript, key: .init(itemID: itemID, contentIndex: contentIndex))
     }
+
+    func handleBilingualSourceDeltaForTesting(_ delta: String) -> LiveCaptionSnapshot? {
+        ingestBilingualDelta(.source, text: delta)
+    }
+
+    func handleBilingualTranslationDeltaForTesting(_ delta: String) -> LiveCaptionSnapshot? {
+        ingestBilingualDelta(.translation, text: delta)
+    }
 #endif
 
     private func appendTranscriptDelta(_ rawDelta: String?, key: TranscriptItemKey) -> LiveCaptionSnapshot? {
@@ -361,24 +369,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         resolveAllPendingPlacementsLocked()
         trimTranscriptTimelineLocked()
 
-        // Build segment list from the visible timeline. We keep one
-        // `LiveCaptionSegment` per `TranscriptItemKey` (which itself is
-        // keyed by OpenAI Realtime `item_id` + content slot), so a
-        // logical utterance always has a stable segment id — exactly
-        // what the UI / future translation layer needs to update one
-        // segment in place without re-flowing the whole transcript.
-        let segments: [LiveCaptionSegment] = transcriptTimeline.compactMap { key in
-            guard let item = transcriptItems[key] else { return nil }
-            let normalized = Self.normalizedSegmentText(item.text)
-            guard !normalized.isEmpty else { return nil }
-            return LiveCaptionSegment(
-                id: Self.segmentIdentifier(for: key),
-                sourceText: normalized,
-                translatedText: nil,
-                isFinal: item.isFinal,
-                sequence: item.sequence
-            )
-        }
+        let segments = displaySegmentsLocked()
         guard !segments.isEmpty else { return nil }
 
         if segments == lastPublishedSegments { return nil }
@@ -391,6 +382,62 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             allSegmentsFinal: allFinal,
             message: nil
         )
+    }
+
+    private func displaySegmentsLocked() -> [LiveCaptionSegment] {
+        struct DisplaySegment {
+            let id: String
+            var sourceText: String
+            var isFinal: Bool
+            let sequence: Int
+
+            var liveCaptionSegment: LiveCaptionSegment {
+                LiveCaptionSegment(
+                    id: id,
+                    sourceText: sourceText,
+                    translatedText: nil,
+                    isFinal: isFinal,
+                    sequence: sequence
+                )
+            }
+        }
+
+        var segments: [LiveCaptionSegment] = []
+        var current: DisplaySegment?
+
+        for key in transcriptTimeline {
+            guard let item = transcriptItems[key] else { continue }
+            let normalized = Self.normalizedSegmentText(item.text)
+            guard !normalized.isEmpty else { continue }
+
+            if var active = current {
+                if Self.shouldStartNewDisplaySegment(after: active.sourceText) {
+                    segments.append(active.liveCaptionSegment)
+                    current = DisplaySegment(
+                        id: Self.segmentIdentifier(for: key),
+                        sourceText: normalized,
+                        isFinal: item.isFinal,
+                        sequence: item.sequence
+                    )
+                } else {
+                    Self.appendDisplayText(normalized, to: &active.sourceText)
+                    active.isFinal = active.isFinal && item.isFinal
+                    current = active
+                }
+            } else {
+                current = DisplaySegment(
+                    id: Self.segmentIdentifier(for: key),
+                    sourceText: normalized,
+                    isFinal: item.isFinal,
+                    sequence: item.sequence
+                )
+            }
+        }
+
+        if let current {
+            segments.append(current.liveCaptionSegment)
+        }
+        return segments
     }
 
     /// Stable id used by the UI / translation cache. Combining
@@ -409,6 +456,34 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         text
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
+    }
+
+    private static func shouldStartNewDisplaySegment(after text: String) -> Bool {
+        guard let last = text.trimmingCharacters(in: .whitespacesAndNewlines).last else {
+            return false
+        }
+        return last.isLiveCaptionSentenceEnding
+    }
+
+    private static func appendDisplayText(_ fragment: String, to result: inout String) {
+        guard !fragment.isEmpty else { return }
+        guard let previous = result.last, let next = fragment.first else {
+            result.append(fragment)
+            return
+        }
+
+        if shouldInsertDisplaySpace(between: previous, and: next) {
+            result.append(" ")
+        }
+        result.append(fragment)
+    }
+
+    private static func shouldInsertDisplaySpace(between previous: Character, and next: Character) -> Bool {
+        if previous.isWhitespace || next.isWhitespace { return false }
+        if next.isPunctuation || next.isSymbol { return false }
+        if previous.isPunctuation || previous.isSymbol { return true }
+        if previous.isCJK || next.isCJK { return false }
+        return true
     }
 
     private func sendAudio(_ data: Data) {
@@ -474,6 +549,28 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
     private func saveEntries(to sessionDir: URL) {
         let finalEntries = stateQueue.sync {
+            if let builder = bilingualBuilder {
+                builder.finalizePending()
+                let orderedEntries = builder.snapshot()
+                    .suffix(Self.maxSavedEntryCount)
+                    .compactMap { segment -> LiveCaptionEntry? in
+                        let text = [segment.sourceText, segment.translatedText]
+                            .compactMap { value -> String? in
+                                let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                                return trimmed.isEmpty ? nil : trimmed
+                            }
+                            .joined(separator: "\n")
+                        guard !text.isEmpty else { return nil }
+                        return LiveCaptionEntry(
+                            text: text,
+                            isFinal: true,
+                            startedAtMs: nil,
+                            endedAtMs: nil
+                        )
+                    }
+                return Array(orderedEntries)
+            }
+
             let orderedEntries = transcriptTimeline
                 .compactMap { transcriptItems[$0] }
                 .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -742,11 +839,10 @@ private enum BilingualStream {
 ///   element of `snapshot()`; finalized utterances precede it.
 /// - Each finalized segment carries a stable id (`bilingual-N`) so the
 ///   UI can stably render & cache.
-/// - `sourceText` and `translatedText` are merged by id; the segmenter
-///   does not require source and target to finalize at the same time —
-///   whichever comes first triggers the boundary, the other catches up.
+/// - `sourceText` and `translatedText` are merged by id. We wait for
+///   both streams to look sentence-complete before finalizing because
+///   production smoke showed translation deltas can trail the source.
 private final class BilingualSegmentBuilder {
-    private static let sourceSentenceEndings: Set<Character> = [".", "!", "?", "。", "！", "？"]
     /// Min chars in either buffer before a sentence-ending punctuation
     /// is taken as a real segment boundary. Avoids breaking on a stray
     /// "Mr." or short interjections.
@@ -774,16 +870,15 @@ private final class BilingualSegmentBuilder {
             pending.translatedText += delta
         }
 
-        // Boundary heuristic: source ends in sentence punctuation AND
-        // both buffers have minimum content. Translation may finalize
-        // a moment later — the next `output_transcript.delta` will
-        // continue updating the still-active segment until the next
-        // boundary. We rely on the 3-second flush behavior of OpenAI's
-        // translation endpoint to back-fill remaining translation.
+        // Boundary heuristic: source and translation must both end in
+        // sentence punctuation. Cutting on source punctuation alone can
+        // split one translated sentence across two UI segments.
         guard pending.sourceText.count >= Self.minSegmentBoundaryChars,
               pending.translatedText.count >= Self.minSegmentBoundaryChars,
               let lastSourceChar = pending.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).last,
-              Self.sourceSentenceEndings.contains(lastSourceChar) else {
+              let lastTranslationChar = pending.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).last,
+              lastSourceChar.isLiveCaptionSentenceEnding,
+              lastTranslationChar.isLiveCaptionSentenceEnding else {
             return
         }
         finalizePending()
@@ -823,6 +918,10 @@ private final class BilingualSegmentBuilder {
 }
 
 private extension Character {
+    var isLiveCaptionSentenceEnding: Bool {
+        [".", "!", "?", "。", "！", "？"].contains(self)
+    }
+
     var isCJK: Bool {
         unicodeScalars.contains { scalar in
             (0x4E00...0x9FFF).contains(scalar.value) ||

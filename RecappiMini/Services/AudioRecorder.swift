@@ -825,7 +825,11 @@ final class AudioRecorder: NSObject, ObservableObject {
             // session. The transcriber multiplexes both shapes so the
             // rest of the pipeline doesn't care.
             let mode: BackendRealtimeLiveCaptionTranscriber.Mode = AppConfig.shared.liveCaptionsBilingualEnabled
-                ? .translation(targetLanguage: AppConfig.shared.liveCaptionsTranslationTargetLanguage)
+                ? .translation(
+                    targetLanguage: Self.normalizedRealtimeTranslationTargetLanguage(
+                        AppConfig.shared.liveCaptionsTranslationTargetLanguage
+                    )
+                )
                 : .transcription
             let backendTranscriber = BackendRealtimeLiveCaptionTranscriber(
                 client: client,
@@ -866,6 +870,18 @@ final class AudioRecorder: NSObject, ObservableObject {
             return String(base)
         }
         return "en"
+    }
+
+    private static func normalizedRealtimeTranslationTargetLanguage(_ language: String) -> String {
+        let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch trimmed {
+        case "zh-Hans", "zh-CN", "zh_TW", "zh-TW":
+            return "zh"
+        case "":
+            return "zh"
+        default:
+            return trimmed
+        }
     }
 
     private func stopLiveCaptions(saveTo sessionDir: URL?) {

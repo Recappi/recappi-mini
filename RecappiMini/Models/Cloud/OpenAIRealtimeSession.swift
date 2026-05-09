@@ -27,7 +27,7 @@ struct OpenAIRealtimeTranslationSessionRequest: Encodable {
     let mode = "translation"
     /// Source-language hint forwarded to the upstream Whisper model.
     let language: String
-    /// Target language for the translated transcript (e.g. `zh-Hans`,
+    /// Target language for the translated transcript (e.g. `zh`,
     /// `en`, `ja`). Maps directly to the `target_language` field on
     /// the OpenAI translation session config.
     let targetLanguage: String

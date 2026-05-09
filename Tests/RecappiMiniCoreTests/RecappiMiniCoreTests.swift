@@ -297,6 +297,24 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(turnDetection["type"] as? String, "none")
     }
 
+    func testRealtimeTranslationSessionRequestUsesOpenAILanguageCodes() throws {
+        let body = try JSONEncoder().encode(
+            OpenAIRealtimeTranslationSessionRequest(
+                language: "en",
+                targetLanguage: "zh",
+                delay: "low",
+                expiresAfterSeconds: 60,
+                includeSourceTranscript: true
+            )
+        )
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+        XCTAssertEqual(json["mode"] as? String, "translation")
+        XCTAssertEqual(json["language"] as? String, "en")
+        XCTAssertEqual(json["targetLanguage"] as? String, "zh")
+        XCTAssertEqual(json["includeSourceTranscript"] as? Bool, true)
+    }
+
     func testBackendRealtimeTranscriberAccumulatesStreamingDeltas() {
         let transcriber = BackendRealtimeLiveCaptionTranscriber(
             client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
@@ -311,8 +329,8 @@ final class RecappiMiniCoreTests: XCTestCase {
         ].compactMap { $0 }
 
         XCTAssertEqual(snapshots.count, 4)
-        XCTAssertEqual(snapshots.map(\.text), ["Hel", "Hello", "Hello world", "Hello world"])
-        XCTAssertEqual(snapshots.map(\.isFinal), [false, false, false, true])
+        XCTAssertEqual(snapshots.map(\.joinedSourceText), ["Hel", "Hello", "Hello world", "Hello world"])
+        XCTAssertEqual(snapshots.map(\.allSegmentsFinal), [false, false, false, true])
     }
 
     func testBackendRealtimeTranscriberAccumulatesRepeatedSameItemDeltas() {
@@ -325,8 +343,8 @@ final class RecappiMiniCoreTests: XCTestCase {
             transcriber.handleTranscriptDeltaForTesting($0, itemID: "item-a")
         }
 
-        XCTAssertEqual(snapshots.last?.text, "12345")
-        XCTAssertEqual(snapshots.last?.isFinal, false)
+        XCTAssertEqual(snapshots.last?.joinedSourceText, "12345")
+        XCTAssertEqual(snapshots.last?.allSegmentsFinal, false)
     }
 
     func testBackendRealtimeTranscriberFinalTranscriptReplacesPartial() {
@@ -340,8 +358,8 @@ final class RecappiMiniCoreTests: XCTestCase {
             transcriber.handleTranscriptCompletionForTesting("Hello", itemID: "item-a"),
         ].compactMap { $0 }
 
-        XCTAssertEqual(snapshots.map(\.text), ["Helo", "Hello"])
-        XCTAssertEqual(snapshots.map(\.isFinal), [false, true])
+        XCTAssertEqual(snapshots.map(\.joinedSourceText), ["Helo", "Hello"])
+        XCTAssertEqual(snapshots.map(\.allSegmentsFinal), [false, true])
     }
 
     func testBackendRealtimeTranscriberKeepsConcurrentItemsSeparate() {
@@ -358,8 +376,8 @@ final class RecappiMiniCoreTests: XCTestCase {
             transcriber.handleTranscriptCompletionForTesting("Good", itemID: "item-b"),
         ].compactMap { $0 }
 
-        XCTAssertEqual(snapshots.map(\.text), ["Hel", "Hel Go", "Hello Go", "Hello Good"])
-        XCTAssertEqual(snapshots.map(\.isFinal), [false, false, false, true])
+        XCTAssertEqual(snapshots.map(\.joinedSourceText), ["Hel", "Hel Go", "Hello Go", "Hello Good"])
+        XCTAssertEqual(snapshots.map(\.allSegmentsFinal), [false, false, false, true])
     }
 
     func testBackendRealtimeTranscriberUsesPreviousItemIDForOrdering() {
@@ -374,9 +392,9 @@ final class RecappiMiniCoreTests: XCTestCase {
         transcriber.handleCommittedItemForTesting(itemID: "item-b", previousItemID: "item-a")
         let reorderedSnapshot = transcriber.handleTranscriptCompletionForTesting("Second", itemID: "item-b")
 
-        XCTAssertEqual(firstSnapshot?.text, "Second")
-        XCTAssertEqual(reorderedSnapshot?.text, "First Second")
-        XCTAssertEqual(reorderedSnapshot?.isFinal, false)
+        XCTAssertEqual(firstSnapshot?.joinedSourceText, "Second")
+        XCTAssertEqual(reorderedSnapshot?.joinedSourceText, "First Second")
+        XCTAssertEqual(reorderedSnapshot?.allSegmentsFinal, false)
     }
 
     func testBackendRealtimeTranscriberResolvesForwardPreviousItemID() {
@@ -390,7 +408,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         let reorderedSnapshot = transcriber.handleTranscriptDeltaForTesting("First", itemID: "item-a")
         let finalSnapshot = transcriber.handleTranscriptCompletionForTesting("Second", itemID: "item-b")
 
-        XCTAssertEqual(reorderedSnapshot?.text, "First Second")
+        XCTAssertEqual(reorderedSnapshot?.joinedSourceText, "First Second")
         XCTAssertNil(finalSnapshot)
     }
 
@@ -404,7 +422,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         let finalSnapshot = transcriber.handleTranscriptCompletionForTesting("Hello", itemID: "item-a")
         let lateSnapshot = transcriber.handleTranscriptDeltaForTesting(" world", itemID: "item-a")
 
-        XCTAssertEqual(finalSnapshot?.text, "Hello")
+        XCTAssertEqual(finalSnapshot?.joinedSourceText, "Hello")
         XCTAssertNil(lateSnapshot)
     }
 
@@ -423,7 +441,7 @@ final class RecappiMiniCoreTests: XCTestCase {
             )
         }
 
-        let text = snapshot?.text ?? ""
+        let text = snapshot?.joinedSourceText ?? ""
         XCTAssertTrue(text.contains("Caption history line 1"))
         XCTAssertTrue(text.contains("Caption history line 12"))
         XCTAssertFalse(text.contains("\n"))
@@ -444,7 +462,43 @@ final class RecappiMiniCoreTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(snapshot?.text, "这个实时字幕应该自然换行不要每段一行")
+        XCTAssertEqual(snapshot?.joinedSourceText, "这个实时字幕应该自然换行不要每段一行")
+    }
+
+    func testBackendRealtimeTranscriberStartsNewDisplaySegmentAfterSentenceBoundary() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en"
+        ) { _ in }
+
+        _ = transcriber.handleTranscriptCompletionForTesting("First sentence.", itemID: "item-a")
+        let snapshot = transcriber.handleTranscriptCompletionForTesting("Second sentence.", itemID: "item-b")
+
+        XCTAssertEqual(snapshot?.joinedSourceText, "First sentence.\nSecond sentence.")
+        XCTAssertEqual(snapshot?.segments.count, 2)
+    }
+
+    func testBackendRealtimeTranslationWaitsForBothStreamsBeforeFinalizingSegment() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en",
+            mode: .translation(targetLanguage: "zh")
+        ) { _ in }
+
+        _ = transcriber.handleBilingualSourceDeltaForTesting("Recappi many automation smoke test.")
+        let partialTranslation = transcriber.handleBilingualTranslationDeltaForTesting("回顾这些 mini 自动化冒烟测试")
+
+        XCTAssertEqual(partialTranslation?.segments.count, 1)
+        XCTAssertEqual(partialTranslation?.segments[0].sourceText, "Recappi many automation smoke test.")
+        XCTAssertEqual(partialTranslation?.segments[0].translatedText, "回顾这些 mini 自动化冒烟测试")
+        XCTAssertEqual(partialTranslation?.segments[0].isFinal, false)
+
+        let completedTranslation = transcriber.handleBilingualTranslationDeltaForTesting("。")
+
+        XCTAssertEqual(completedTranslation?.segments.count, 1)
+        XCTAssertEqual(completedTranslation?.segments[0].sourceText, "Recappi many automation smoke test.")
+        XCTAssertEqual(completedTranslation?.segments[0].translatedText, "回顾这些 mini 自动化冒烟测试。")
+        XCTAssertEqual(completedTranslation?.segments[0].isFinal, true)
     }
 
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {
