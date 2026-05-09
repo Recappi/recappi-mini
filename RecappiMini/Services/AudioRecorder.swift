@@ -1036,7 +1036,16 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.liveCaptionCarryoverSegments = []
         self.liveCaptionMessage = nil
         self.liveCaptionStatusPhase = nil
-        self.activeLiveCaptionConfiguration = liveCaptionRecordingConfiguration()
+        let simulatedTranslation = uiTestMode.simulatedLiveCaptionTranslationText?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.activeLiveCaptionConfiguration = simulatedTranslation?.isEmpty == false
+            ? LiveCaptionRecordingConfiguration(
+                showsTranslation: true,
+                targetLanguage: Self.normalizedRealtimeTranslationTargetLanguage(
+                    AppConfig.shared.liveCaptionsTranslationTargetLanguage
+                )
+            )
+            : liveCaptionRecordingConfiguration()
         self.liveCaptionIsFinal = false
         if let simulatedLiveCaptionText = uiTestMode.simulatedLiveCaptionText,
            !simulatedLiveCaptionText.isEmpty {
@@ -1047,7 +1056,7 @@ final class AudioRecorder: NSObject, ObservableObject {
                 LiveCaptionSegment(
                     id: "ui-test-fixture",
                     sourceText: simulatedLiveCaptionText,
-                    translatedText: nil,
+                    translatedText: simulatedTranslation?.isEmpty == false ? simulatedTranslation : nil,
                     isFinal: false,
                     sequence: 0
                 )

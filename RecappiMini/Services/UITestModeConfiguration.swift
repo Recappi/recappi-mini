@@ -19,6 +19,7 @@ struct UITestModeConfiguration {
     let hiddenAutoPromptSnoozeSeconds: TimeInterval?
     let detectedMeetingAutoStopGraceSeconds: TimeInterval?
     let simulatedLiveCaptionText: String?
+    let simulatedLiveCaptionTranslationText: String?
     let openCloudWindowOnLaunch: Bool
     /// Test-only override: pretend the selected recording has a newer cloud
     /// version after each detail refresh, so reviewers can see the
@@ -82,6 +83,8 @@ struct UITestModeConfiguration {
             detectedMeetingAutoStopGraceSeconds = nil
         }
         simulatedLiveCaptionText = env["RECAPPI_TEST_LIVE_CAPTION_TEXT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        simulatedLiveCaptionTranslationText = env["RECAPPI_TEST_LIVE_CAPTION_TRANSLATION_TEXT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let bundleID = env["RECAPPI_TEST_AUTO_PROMPT_BUNDLE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)

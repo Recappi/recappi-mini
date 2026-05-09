@@ -52,10 +52,13 @@ enum UITestIDs {
         static let currentMeetingPanel = "recappi.cloud.currentMeetingPanel"
         static let currentMeetingPanelModeButton = "recappi.cloud.currentMeetingPanelModeButton"
         static let currentMeetingCaptionToggleButton = "recappi.cloud.currentMeetingCaptionToggleButton"
+        static let currentMeetingTranslationToggleButton = "recappi.cloud.currentMeetingTranslationToggleButton"
         static let currentMeetingCaptionCloseButton = "recappi.cloud.currentMeetingCaptionCloseButton"
         static let currentMeetingCaptionWorkspace = "recappi.cloud.currentMeetingCaptionWorkspace"
         static let currentMeetingCaptionViewport = "recappi.cloud.currentMeetingCaptionViewport"
         static let currentMeetingCaption = "recappi.cloud.currentMeetingCaption"
+        static let currentMeetingTranslationViewport = "recappi.cloud.currentMeetingTranslationViewport"
+        static let currentMeetingTranslation = "recappi.cloud.currentMeetingTranslation"
         static let currentMeetingCaptionElapsedTime = "recappi.cloud.currentMeetingCaptionElapsedTime"
         static let currentMeetingLanguageMenu = "recappi.cloud.currentMeetingLanguageMenu"
         static let currentMeetingBilingualToggle = "recappi.cloud.currentMeetingBilingualToggle"
@@ -119,6 +122,7 @@ extension XCTestCase {
         hiddenAutoPromptSnoozeSeconds: TimeInterval? = nil,
         detectedMeetingAutoStopGraceSeconds: TimeInterval? = nil,
         simulatedLiveCaptionText: String? = nil,
+        simulatedLiveCaptionTranslationText: String? = nil,
         openCloudWindowOnLaunch: Bool = false
     ) -> XCUIApplication {
         terminateExistingRecappiInstances()
@@ -151,6 +155,9 @@ extension XCTestCase {
         }
         if let simulatedLiveCaptionText, !simulatedLiveCaptionText.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_LIVE_CAPTION_TEXT"] = simulatedLiveCaptionText
+        }
+        if let simulatedLiveCaptionTranslationText, !simulatedLiveCaptionTranslationText.isEmpty {
+            app.launchEnvironment["RECAPPI_TEST_LIVE_CAPTION_TRANSLATION_TEXT"] = simulatedLiveCaptionTranslationText
         }
         if openCloudWindowOnLaunch {
             app.launchEnvironment["RECAPPI_TEST_OPEN_CLOUD_WINDOW"] = "1"
@@ -456,6 +463,18 @@ extension XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return !element.exists
+    }
+
+    @discardableResult
+    func waitUntilEnabled(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && element.isEnabled {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return element.exists && element.isEnabled
     }
 
     private func authStatusSnapshot(from element: XCUIElement) -> String {

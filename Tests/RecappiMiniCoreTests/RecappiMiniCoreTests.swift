@@ -3,6 +3,53 @@ import XCTest
 @testable import RecappiMini
 
 final class RecappiMiniCoreTests: XCTestCase {
+    func testLiveCaptionSentenceSplitterSplitsEnglishAndKeepsPendingTail() {
+        let segments = LiveCaptionSentenceSplitter.split(
+            "If you have a team, pay attention. It is a very important thing. You should pay them too",
+            mode: .source
+        )
+
+        XCTAssertEqual(
+            segments,
+            [
+                "If you have a team, pay attention.",
+                "It is a very important thing.",
+                "You should pay them too",
+            ]
+        )
+    }
+
+    func testLiveCaptionSentenceSplitterAvoidsCommonEnglishFalseBoundaries() {
+        let segments = LiveCaptionSentenceSplitter.split(
+            "Dr. Smith measured 1.5 liters. Then he left.",
+            mode: .source
+        )
+
+        XCTAssertEqual(
+            segments,
+            [
+                "Dr. Smith measured 1.5 liters.",
+                "Then he left.",
+            ]
+        )
+    }
+
+    func testLiveCaptionSentenceSplitterSplitsCJKWithClosingQuoteAndPendingTail() {
+        let segments = LiveCaptionSentenceSplitter.split(
+            "他说「这个很重要。」然后大家都点头！最后一句还没结束",
+            mode: .translation
+        )
+
+        XCTAssertEqual(
+            segments,
+            [
+                "他说「这个很重要。」",
+                "然后大家都点头！",
+                "最后一句还没结束",
+            ]
+        )
+    }
+
     func testNormalizeBearerSupportsRawTokenAndHeader() throws {
         XCTAssertEqual(AuthSessionStore.normalizeBearerToken("abc.123"), "abc.123")
         XCTAssertEqual(AuthSessionStore.normalizeBearerToken("Bearer xyz.789"), "xyz.789")

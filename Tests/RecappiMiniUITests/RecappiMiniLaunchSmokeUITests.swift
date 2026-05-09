@@ -85,7 +85,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
     }
 
     func testLiveCaptionsOpenCurrentMeetingCloudPanel() throws {
-        let longCaption = (1...36)
+        let longCaption = (1...220)
             .map { "Short realtime chunk \($0) keeps flowing" }
             .joined(separator: " ") + " Final bottom phrase should remain visible."
 
@@ -215,6 +215,71 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         attachment.name = "live-caption-current-meeting-cloud-panel"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testLiveCaptionsBilingualPanelShowsIndependentStreams() throws {
+        let sourceText = "If you have a team, pay attention. It is a very important thing. You should pay them too"
+        let translationText = "如果你有一个团队，要多关注他们。这是一件很重要的事情。你也应该付钱给他们"
+
+        let app = launchRecappiApp(
+            authToken: "invalid-test-token",
+            simulatedLiveCaptionText: sourceText,
+            simulatedLiveCaptionTranslationText: translationText
+        )
+
+        startFixtureRecording(in: app, showTranslation: true)
+
+        let captionViewport = app.scrollViews[UITestIDs.Cloud.currentMeetingCaptionViewport]
+        XCTAssertTrue(captionViewport.waitForExistence(timeout: 10), "Expected source caption viewport.")
+        let translationViewport = app.scrollViews[UITestIDs.Cloud.currentMeetingTranslationViewport]
+        XCTAssertTrue(translationViewport.waitForExistence(timeout: 10), "Expected translation viewport.")
+
+        let caption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
+        let captionText = [caption.label, caption.value as? String]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+        XCTAssertTrue(captionText.contains("If you have a team, pay attention."))
+        XCTAssertTrue(captionText.contains("It is a very important thing."))
+        XCTAssertTrue(captionText.contains("You should pay them too"))
+
+        let translation = uiElement(app, id: UITestIDs.Cloud.currentMeetingTranslation)
+        let translationTextValue = [translation.label, translation.value as? String]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+        XCTAssertTrue(translationTextValue.contains("如果你有一个团队，要多关注他们。"))
+        XCTAssertTrue(translationTextValue.contains("这是一件很重要的事情。"))
+        XCTAssertTrue(translationTextValue.contains("你也应该付钱给他们"))
+
+        let captionToggle = app.buttons[UITestIDs.Cloud.currentMeetingCaptionToggleButton]
+        let translationToggle = app.buttons[UITestIDs.Cloud.currentMeetingTranslationToggleButton]
+        XCTAssertTrue(captionToggle.waitForExistence(timeout: 5), "Expected caption pane toggle.")
+        XCTAssertTrue(translationToggle.waitForExistence(timeout: 5), "Expected translation pane toggle.")
+
+        XCTAssertTrue(waitUntilEnabled(translationToggle, timeout: 5), "Expected translation pane toggle to be enabled while both panes are visible.")
+        translationToggle.click()
+        XCTAssertTrue(
+            waitForNonExistence(of: translationViewport, timeout: 5),
+            "Expected translation pane to hide when caption stays visible."
+        )
+        XCTAssertTrue(captionViewport.exists, "Caption pane should remain visible.")
+        XCTAssertFalse(
+            captionToggle.isEnabled,
+            "The remaining visible pane toggle should be disabled so both panes cannot be hidden."
+        )
+
+        translationToggle.click()
+        XCTAssertTrue(translationViewport.waitForExistence(timeout: 5), "Expected translation pane to return.")
+        XCTAssertTrue(waitUntilEnabled(captionToggle, timeout: 5), "Expected caption pane toggle to be enabled while both panes are visible.")
+        captionToggle.click()
+        XCTAssertTrue(
+            waitForNonExistence(of: captionViewport, timeout: 5),
+            "Expected caption pane to hide when translation stays visible."
+        )
+        XCTAssertTrue(translationViewport.exists, "Translation pane should remain visible.")
+        XCTAssertFalse(
+            translationToggle.isEnabled,
+            "The remaining visible pane toggle should be disabled so both panes cannot be hidden."
+        )
     }
 
     func testLiveCaptionsExpandedPanelFitsMediumCaptionGeometry() throws {

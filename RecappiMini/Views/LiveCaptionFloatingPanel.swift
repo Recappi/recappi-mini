@@ -28,7 +28,7 @@ enum LiveCaptionPanelMode: String {
             // First-open default. The user can drag the panel taller
             // for more caption history; we no longer pin the SwiftUI
             // tree to a hard-coded height so the resize sticks.
-            return NSSize(width: 542, height: 420)
+            return NSSize(width: 820, height: 420)
         case .compact:
             return NSSize(width: 542, height: 104)
         }
@@ -60,6 +60,7 @@ enum LiveCaptionPanelMode: String {
 struct LiveCaptionFloatingPanel: View {
     @ObservedObject var recorder: AudioRecorder
     @EnvironmentObject private var config: AppConfig
+    @State private var paneVisibility: LiveCaptionPaneVisibility = .both
     let mode: LiveCaptionPanelMode
     let onToggleMode: () -> Void
     let onClose: () -> Void
@@ -140,7 +141,7 @@ struct LiveCaptionFloatingPanel: View {
                     maxHeight: Self.compactCaptionTwoLineHeight
                 )
                 .overlay(alignment: .leading) {
-                    Text(compactCaptionLine)
+                    Text(compactDisplayLine)
                         .font(.system(size: 15, weight: hasLiveCaptionSegments ? .semibold : .medium))
                         .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
                         .lineSpacing(2)
@@ -149,8 +150,8 @@ struct LiveCaptionFloatingPanel: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(compactCaptionLine))
-                .accessibilityValue(Text(compactCaptionLine))
+                .accessibilityLabel(Text(compactDisplayLine))
+                .accessibilityValue(Text(compactDisplayLine))
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
 
             HStack(alignment: .center, spacing: 6) {
@@ -261,22 +262,22 @@ struct LiveCaptionFloatingPanel: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
                 Spacer(minLength: 0)
+                if liveCaptionShowsTranslation {
+                    paneVisibilityControls
+                }
                 liveCaptionModeStatus
             }
             .padding(.horizontal, 14)
             .padding(.top, 12)
 
-            LiveCaptionTextViewport(
-                segments: viewportSegments,
-                placeholderText: captionLine,
-                isPlaceholder: !hasLiveCaptionSegments,
-                errorMessage: liveCaptionErrorMessage
-            )
-            .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .padding(.bottom, 14)
-            .frame(maxHeight: .infinity, alignment: .topLeading)
+            GeometryReader { proxy in
+                liveCaptionPaneGrid
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+                    .padding(.bottom, 14)
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
@@ -293,6 +294,175 @@ struct LiveCaptionFloatingPanel: View {
         ))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionWorkspace)
+    }
+
+    private var paneVisibilityControls: some View {
+        HStack(spacing: 4) {
+            Button {
+                togglePane(.captionOnly)
+            } label: {
+                Text("Caption")
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: paneVisibility.showsCaption))
+            .disabled(paneVisibility == .captionOnly)
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionToggleButton)
+
+            Button {
+                togglePane(.translationOnly)
+            } label: {
+                Text("Translation")
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+            }
+            .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: paneVisibility.showsTranslation))
+            .disabled(paneVisibility == .translationOnly)
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingTranslationToggleButton)
+        }
+        .padding(2)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Palette.controlFillHover)
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Palette.borderHairline, lineWidth: 0.6)
+        )
+        .help("Show or hide each live caption stream. At least one panel stays visible.")
+    }
+
+    private func togglePane(_ pane: LiveCaptionPaneVisibility) {
+        switch (pane, paneVisibility) {
+        case (.captionOnly, .both):
+            paneVisibility = .translationOnly
+        case (.captionOnly, .translationOnly):
+            paneVisibility = .both
+        case (.translationOnly, .both):
+            paneVisibility = .captionOnly
+        case (.translationOnly, .captionOnly):
+            paneVisibility = .both
+        default:
+            break
+        }
+    }
+
+    private var captionPlaceholderText: String {
+        if let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !message.isEmpty {
+            return message
+        }
+        return "Listening for caption audio"
+    }
+
+    private var translationPlaceholderText: String {
+        if !sourceStreamText.isEmpty {
+            return "Waiting for translation"
+        }
+        return "Listening for translation"
+    }
+
+    private var sourceStreamText: String {
+        if let debugText = ProcessInfo.processInfo.environment["LIVE_CAPTION_DEBUG_TEXT"],
+           !debugText.isEmpty {
+            return debugText
+        }
+        return normalizedStreamText(recorder.liveCaptionSegments.map(\.sourceText))
+    }
+
+    private var translationStreamText: String {
+        let translated = recorder.liveCaptionSegments.compactMap { segment in
+            let text = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return text.isEmpty ? nil : text
+        }
+        return normalizedStreamText(translated)
+    }
+
+    private var sourcePaneSegments: [LiveCaptionSegment] {
+        paneSegments(
+            text: sourceStreamText,
+            mode: .source,
+            idPrefix: "caption"
+        )
+    }
+
+    private var translationPaneSegments: [LiveCaptionSegment] {
+        paneSegments(
+            text: translationStreamText,
+            mode: .translation,
+            idPrefix: "translation"
+        )
+    }
+
+    private func normalizedStreamText(_ chunks: [String]) -> String {
+        chunks
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
+    private func paneSegments(
+        text: String,
+        mode: LiveCaptionSentenceSplitter.Mode,
+        idPrefix: String
+    ) -> [LiveCaptionSegment] {
+        let sentences = LiveCaptionSentenceSplitter.split(text, mode: mode)
+        return sentences.enumerated().map { index, sentence in
+            LiveCaptionSegment(
+                id: "\(idPrefix)-sentence-\(index)",
+                sourceText: sentence,
+                translatedText: nil,
+                isFinal: index < sentences.count - 1,
+                sequence: index
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var liveCaptionPaneGrid: some View {
+        if liveCaptionShowsTranslation {
+            HStack(alignment: .top, spacing: 10) {
+                if paneVisibility.showsCaption {
+                    LiveCaptionStreamPane(
+                        title: "Caption",
+                        systemImage: "captions.bubble",
+                        segments: sourcePaneSegments,
+                        placeholderText: captionPlaceholderText,
+                        isPlaceholder: sourcePaneSegments.isEmpty,
+                        errorMessage: liveCaptionErrorMessage,
+                        viewportID: AccessibilityIDs.Cloud.currentMeetingCaptionViewport,
+                        textID: AccessibilityIDs.Cloud.currentMeetingCaption
+                    )
+                }
+                if paneVisibility.showsTranslation {
+                    LiveCaptionStreamPane(
+                        title: "Translation",
+                        systemImage: "translate",
+                        segments: translationPaneSegments,
+                        placeholderText: translationPlaceholderText,
+                        isPlaceholder: translationPaneSegments.isEmpty,
+                        errorMessage: nil,
+                        viewportID: AccessibilityIDs.Cloud.currentMeetingTranslationViewport,
+                        textID: AccessibilityIDs.Cloud.currentMeetingTranslation
+                    )
+                }
+            }
+            .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
+        } else {
+            LiveCaptionTextViewport(
+                segments: viewportSegments,
+                placeholderText: captionLine,
+                isPlaceholder: !hasLiveCaptionSegments,
+                errorMessage: liveCaptionErrorMessage,
+                viewportID: AccessibilityIDs.Cloud.currentMeetingCaptionViewport,
+                textID: AccessibilityIDs.Cloud.currentMeetingCaption
+            )
+            .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
+        }
     }
 
     private var liveCaptionModeStatus: some View {
@@ -330,7 +500,7 @@ struct LiveCaptionFloatingPanel: View {
         let target = LiveCaptionTranslationTargetLanguageOption
             .option(for: lockedConfig?.targetLanguage ?? config.liveCaptionsTranslationTargetLanguage)
             .shortTitle
-        return "Translation \(target)"
+        return "Caption + \(target)"
     }
 
     /// True when the recorder has at least one accumulated caption
@@ -429,6 +599,27 @@ struct LiveCaptionFloatingPanel: View {
         return String(tail[afterSpace...])
     }
 
+    private var compactDisplayLine: String {
+        guard liveCaptionShowsTranslation, !paneVisibility.showsCaption else {
+            return compactCaptionLine
+        }
+        let normalized = translationStreamText
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard !normalized.isEmpty else { return "Waiting for translation" }
+        let containsCJK = normalized.contains(where: \.isCompactCJK)
+        let budget = containsCJK
+            ? Self.compactCaptionMaxCJKCharacters
+            : Self.compactCaptionMaxASCIICharacters
+        guard normalized.count > budget else { return normalized }
+        let tail = String(normalized.suffix(budget))
+        if containsCJK { return tail }
+        guard let firstSpace = tail.firstIndex(where: \.isWhitespace) else { return tail }
+        let afterSpace = tail.index(after: firstSpace)
+        guard afterSpace < tail.endIndex else { return tail }
+        return String(tail[afterSpace...])
+    }
+
     private static let compactCaptionMaxASCIICharacters: Int = 90
     private static let compactCaptionMaxCJKCharacters: Int = 44
 
@@ -451,33 +642,72 @@ struct LiveCaptionFloatingPanel: View {
     }
 }
 
+private struct LiveCaptionStreamPane: View {
+    let title: String
+    let systemImage: String
+    let segments: [LiveCaptionSegment]
+    let placeholderText: String
+    let isPlaceholder: Bool
+    let errorMessage: String?
+    let viewportID: String
+    let textID: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color.dtLabelSecondary)
+                .lineLimit(1)
+
+            LiveCaptionTextViewport(
+                segments: segments,
+                placeholderText: placeholderText,
+                isPlaceholder: isPlaceholder,
+                errorMessage: errorMessage,
+                viewportID: viewportID,
+                textID: textID
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
 private struct LiveCaptionTextViewport: View {
     let segments: [LiveCaptionSegment]
     let placeholderText: String
     let isPlaceholder: Bool
     let errorMessage: String?
+    let viewportID: String
+    let textID: String
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            if errorMessage != nil, isPlaceholder {
-                Color.clear
-            } else {
-                LiveCaptionAppKitTextView(
-                    segments: segments,
-                    placeholderText: placeholderText,
-                    isPlaceholder: isPlaceholder
-                )
-            }
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                if errorMessage != nil, isPlaceholder {
+                    Color.clear
+                } else {
+                    LiveCaptionAppKitTextView(
+                        segments: segments,
+                        placeholderText: placeholderText,
+                        isPlaceholder: isPlaceholder,
+                        viewportID: viewportID,
+                        textID: textID
+                    )
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                }
 
-            if let errorMessage {
-                LiveCaptionErrorBanner(message: errorMessage)
-                    .padding(.top, 2)
-                    .padding(.trailing, 2)
+                if let errorMessage {
+                    LiveCaptionErrorBanner(message: errorMessage)
+                        .padding(.top, 2)
+                        .padding(.trailing, 2)
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
-        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionViewport)
+        .accessibilityIdentifier(viewportID)
         .accessibilityLabel(Text(displayedAccessibilityLabel))
         .accessibilityValue(Text(displayedAccessibilityLabel))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .modifier(LiveCaptionDebugLayoutBorder(
             color: .blue,
             label: "viewport"
@@ -553,6 +783,8 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
     let segments: [LiveCaptionSegment]
     let placeholderText: String
     let isPlaceholder: Bool
+    let viewportID: String
+    let textID: String
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -586,8 +818,8 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
         // scroll view exposes the viewport identifier; the text view
         // exposes the caption text identifier (the same constant the
         // SwiftUI compact body uses, kept in sync via AccessibilityIDs).
-        scrollView.setAccessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionViewport)
-        textView.setAccessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
+        scrollView.setAccessibilityIdentifier(viewportID)
+        textView.setAccessibilityIdentifier(textID)
         scrollView.documentView = textView
 
         // Watch the NSClipView so we know when the user scrolls away

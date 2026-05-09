@@ -55,6 +55,22 @@ struct LiveCaptionRecordingConfiguration: Equatable, Sendable {
     let targetLanguage: String
 }
 
+enum LiveCaptionPaneVisibility: String, CaseIterable, Identifiable, Sendable {
+    case both
+    case captionOnly
+    case translationOnly
+
+    var id: String { rawValue }
+
+    var showsCaption: Bool {
+        self != .translationOnly
+    }
+
+    var showsTranslation: Bool {
+        self != .captionOnly
+    }
+}
+
 /// Bundle-ID whitelists for smart sorting. Helpers / renderers are filtered
 /// out at the refresh step, so we classify by the user-visible parent bundle.
 enum AudioAppCategories {
