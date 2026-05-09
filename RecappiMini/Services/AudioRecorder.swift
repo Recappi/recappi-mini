@@ -726,8 +726,13 @@ final class AudioRecorder: NSObject, ObservableObject {
         case .preparing, .listening:
             liveCaptionMessage = snapshot.message
         case .unavailable, .failed:
+            // Surface the error/reconnect status via `liveCaptionMessage`
+            // but do NOT wipe `liveCaptionText`: a transient WebSocket
+            // failure should not erase the caption history the user has
+            // already accumulated. Preserving the last-known transcript
+            // means a flaky network surfaces as a status badge while the
+            // user keeps reading what they already had.
             liveCaptionMessage = snapshot.message
-            liveCaptionText = nil
         }
 
         if let text = snapshot.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {

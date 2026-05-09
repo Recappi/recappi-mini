@@ -712,15 +712,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             return
         }
 
-        let hostingView = NSHostingView(rootView: liveCaptionRootView())
-        hostingView.sizingOptions = [.intrinsicContentSize]
+        let hostingView = LiveCaptionPassthroughHostingView(rootView: liveCaptionRootView())
+        // Empty sizingOptions makes NSHostingView track the NSWindow's
+        // content bounds (including user resizes) rather than pin to
+        // SwiftUI's intrinsic size. `GeometryReader` inside
+        // `LiveCaptionFloatingPanel` then reads that real height.
+        hostingView.sizingOptions = []
 
+        // `.titled` + `.resizable` (without `.fullSizeContentView`) is
+        // what gives us standard NSWindow edge-drag resize handles —
+        // a pure `.borderless` panel does not honor `.resizable` on
+        // macOS. The title chrome is hidden below so visually it still
+        // reads as a floating panel.
         let window = WindowFactory.createPanel(
             contentView: hostingView,
             spec: WindowFactory.PanelSpec(
                 contentRect: NSRect(origin: .zero, size: liveCaptionPanelMode.defaultWindowSize),
-                styleMask: [.nonactivatingPanel, .borderless],
-                title: "Recappi Live Captions"
+                styleMask: [.nonactivatingPanel, .titled, .resizable],
+                title: "Recappi Live Captions",
+                hasShadow: true,
+                titleVisibility: .hidden,
+                titlebarAppearsTransparent: true,
+                hiddenStandardButtons: [.closeButton, .miniaturizeButton, .zoomButton]
             ),
             delegate: self
         )
@@ -731,11 +744,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             width: max(liveCaptionPanelMode.defaultWindowSize.width, fittingSize.width),
             height: max(liveCaptionPanelMode.defaultWindowSize.height, fittingSize.height)
         ))
+        applyLiveCaptionContentSizeConstraints(window, mode: liveCaptionPanelMode)
         positionLiveCaptionWindow(window)
         window.orderFrontRegardless()
 
         managedWindows.liveCaptionWindow = window
         isLiveCaptionPanelPresented = true
+    }
+
+    /// Width/height floor + ceiling for the live caption NSPanel.
+    /// Expanded reserves space for the header + a usable viewport;
+    /// compact pins to its nominal default so the two-line caption +
+    /// control cluster cannot be squashed.
+    private func applyLiveCaptionContentSizeConstraints(_ window: NSWindow, mode: LiveCaptionPanelMode) {
+        switch mode {
+        case .expanded:
+            window.contentMinSize = NSSize(width: 380, height: 280)
+            window.contentMaxSize = NSSize(width: 900, height: 1200)
+        case .compact:
+            window.contentMinSize = mode.defaultWindowSize
+            window.contentMaxSize = NSSize(width: 900, height: mode.defaultWindowSize.height)
+        }
     }
 
     private func hideLiveCaptionWindow() {
@@ -764,7 +793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private func resizeLiveCaptionWindowToContent() {
         guard let liveCaptionWindow = managedWindows.liveCaptionWindow,
-              let hostingView = liveCaptionWindow.contentView as? NSHostingView<AnyView> else {
+              let hostingView = liveCaptionWindow.contentView as? LiveCaptionPassthroughHostingView<AnyView> else {
             managedWindows.liveCaptionWindow?.setContentSize(liveCaptionPanelMode.defaultWindowSize)
             if let liveCaptionWindow = managedWindows.liveCaptionWindow {
                 positionLiveCaptionWindow(liveCaptionWindow)
@@ -775,14 +804,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         hostingView.rootView = liveCaptionRootView()
         hostingView.layoutSubtreeIfNeeded()
         let fittingSize = hostingView.fittingSize
+
+        // Capture the visual bottom edge BEFORE resizing. NSWindow
+        // origin is bottom-left, so `frame.origin.y` is the bottom edge
+        // in Cocoa screen coords. `setContentSize` would otherwise
+        // re-anchor at the top-left, but the user parks this panel near
+        // the dock and expects the bottom edge to stay put while the
+        // top edge slides up/down on mode toggle.
+        let previousBottomY = liveCaptionWindow.frame.origin.y
+        applyLiveCaptionContentSizeConstraints(liveCaptionWindow, mode: liveCaptionPanelMode)
         liveCaptionWindow.setContentSize(NSSize(
             width: max(liveCaptionPanelMode.defaultWindowSize.width, fittingSize.width),
             height: max(liveCaptionPanelMode.defaultWindowSize.height, fittingSize.height)
         ))
-        positionLiveCaptionWindow(liveCaptionWindow)
+        var anchoredFrame = liveCaptionWindow.frame
+        anchoredFrame.origin.y = previousBottomY
+        liveCaptionWindow.setFrame(anchoredFrame, display: true)
     }
 
     private func liveCaptionRootView() -> AnyView {
+        // No `windowPadding`: pinning the SwiftUI tree flush to the
+        // NSWindow frame keeps the visible rounded edge aligned with
+        // the AppKit resize hit-zone. NSWindow draws its own shadow
+        // outside the frame (via `panel.hasShadow = true`).
         AnyView(
             ThemedHost {
                 LiveCaptionFloatingPanel(
@@ -795,7 +839,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                         self?.setLiveCaptionPanelPresented(false)
                     }
                 )
-                .padding(liveCaptionPanelMode.windowPadding)
                 .environmentObject(AppConfig.shared)
             }
         )
@@ -1442,5 +1485,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         completionHandler([.banner, .list, .sound])
+    }
+}
+
+/// Drops mouse hits on the four rounded-corner gaps outside the
+/// visible panel surface so clicks pass through to whatever's behind.
+/// The corners are computed geometrically — `super.hitTest` returns
+/// `self` for any point in bounds, so a "result === self → nil" check
+/// would also swallow legitimate SwiftUI button taps.
+final class LiveCaptionPassthroughHostingView<Content: View>: NSHostingView<Content> {
+    /// Outer bound of the visible rounded surface. The SwiftUI tree
+    /// paints 16pt expanded / 14pt compact; 16pt is the conservative
+    /// outer bound — anything inside the larger inset is opaque in
+    /// both modes.
+    private let cornerRadius: CGFloat = 16
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let bounds = self.bounds
+        // Reject only points outside the rounded rect (the four corner
+        // gaps where the surface is fully transparent). Everywhere
+        // inside is visible chrome and must keep receiving events.
+        let dx = max(bounds.minX + cornerRadius - point.x, point.x - (bounds.maxX - cornerRadius), 0)
+        let dy = max(bounds.minY + cornerRadius - point.y, point.y - (bounds.maxY - cornerRadius), 0)
+        if dx > 0 && dy > 0 && (dx * dx + dy * dy) > cornerRadius * cornerRadius {
+            return nil
+        }
+        return super.hitTest(point)
     }
 }

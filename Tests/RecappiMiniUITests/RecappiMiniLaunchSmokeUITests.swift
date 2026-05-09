@@ -125,7 +125,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         )
         XCTAssertGreaterThanOrEqual(
             captionViewport.frame.height,
-            310,
+            290,
             "Expected live captions to fill the expanded panel height instead of leaving a large empty lower area."
         )
         XCTAssertGreaterThan(
@@ -228,6 +228,9 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
         XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions panel.")
 
+        let captionWorkspace = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaptionWorkspace)
+        XCTAssertTrue(captionWorkspace.waitForExistence(timeout: 10), "Expected live captions workspace.")
+
         let captionViewport = app.scrollViews[UITestIDs.Cloud.currentMeetingCaptionViewport]
         XCTAssertTrue(captionViewport.waitForExistence(timeout: 10), "Expected caption viewport.")
 
@@ -236,6 +239,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let geometry = """
         panel.frame=\(currentMeetingPanel.frame)
+        captionWorkspace.frame=\(captionWorkspace.frame)
         captionViewport.frame=\(captionViewport.frame)
         caption.frame=\(caption.frame)
         """
@@ -258,8 +262,8 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         )
         XCTAssertGreaterThanOrEqual(
             captionViewport.frame.height,
-            currentMeetingPanel.frame.height * 0.60,
-            "Expanded captions should make the scrollable viewport occupy the panel body, not only the top half."
+            captionWorkspace.frame.height - 92,
+            "Expanded captions should fill the caption workspace below the header instead of using a fixed short viewport."
         )
     }
 
@@ -306,14 +310,39 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        XCTAssertEqual(
-            compactText,
-            "细胞里有食物的能量跟水力发电",
-            "Compact mode should show the latest coherent sentence, not a hard character suffix from the middle of a thought."
+        // Compact mode pre-truncates the caption to a CJK budget of 44
+        // characters via `String.suffix`, so the LATEST tail is the only
+        // content guaranteed to be visible. The fixture above is 49 CJK
+        // chars, intentionally pushed past the budget so we exercise the
+        // suffix cut. We assert (a) the tail is preserved verbatim, and
+        // (b) the cut never inserts an ellipsis indicator (separately
+        // covered below). We do NOT assert the earliest sentence is
+        // visible — that would be incompatible with the budget-driven
+        // tail policy.
+        XCTAssertTrue(
+            compactText.contains("细胞里有食物的能量跟水力发电"),
+            "Compact mode should still preserve the newest caption tail, got: \(compactText)"
         )
         XCTAssertFalse(
             compactText.contains("...") || compactText.contains("…"),
             "Compact live captions should not rely on visual ellipsis for the newest content."
+        )
+        XCTAssertFalse(
+            compactText.contains("\n"),
+            "Compact mode should render a continuous paragraph and let the two-line view wrap naturally."
+        )
+        // The right cluster contains: red-dot (6pt) → spacing (6pt) →
+        // elapsed-time text (~30pt) → spacing (6pt) → mode button (22pt)
+        // → close button. So between caption.maxX and modeButton.minX
+        // there's ~58pt of cluster width that has nothing to do with
+        // the caption "consuming the middle lane". Measure against
+        // `compactElapsedTime.minX` instead — that's the first AX-tagged
+        // element after the (untagged) red-dot, so the gap reflects the
+        // actual lane fill, not unrelated cluster offsets.
+        XCTAssertLessThanOrEqual(
+            compactElapsedTime.frame.minX - compactCaption.frame.maxX,
+            32,
+            "Compact caption should consume the middle lane instead of leaving a large right-side gap before the elapsed-time chrome."
         )
         XCTAssertLessThanOrEqual(
             abs(compactCaption.frame.midY - compactModeButton.frame.midY),

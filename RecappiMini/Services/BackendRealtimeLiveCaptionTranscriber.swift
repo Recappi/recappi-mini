@@ -5,8 +5,11 @@ import Foundation
 
 final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable {
     private static let maxPendingAudioBuffers = 8
-    private static let maxSavedEntryCount = 240
-    private static let maxVisibleEntryCount = 24
+    /// Memory safety net (~10h of fast continuous speech). The panel
+    /// renders the FULL stored timeline; the cap only prevents a
+    /// runaway session from growing unbounded. If this ever trips in
+    /// production, spill to disk rather than clip the UI.
+    private static let maxSavedEntryCount = 10_000
     private static let manualCommitByteThreshold = 67_200
     private static let minimumManualCommitByteCount = 4_800
     private static let targetSampleRate: Double = 24_000
@@ -105,11 +108,14 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             task.resume()
             receiveLoop(task)
 
+            // No trailing dots: compact mode just had a mojibake/`…`
+            // regression and a bare status reads cleanly without
+            // looking like a caption-truncation indicator.
             await publish(.init(
                 phase: .listening,
                 text: nil,
                 isFinal: false,
-                message: "Listening with backend Realtime..."
+                message: "Listening with backend Realtime"
             ))
         } catch {
             await publish(.init(
@@ -288,10 +294,12 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         resolveAllPendingPlacementsLocked()
         trimTranscriptTimelineLocked()
 
+        // Publish the FULL timeline: the panel viewport supports
+        // follow-tail scrolling so the user can read everything we
+        // have. `maxSavedEntryCount` already bounds memory.
         let visibleItems = transcriptTimeline
             .compactMap { transcriptItems[$0] }
             .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .suffix(Self.maxVisibleEntryCount)
 
         let text = Self.displayText(from: visibleItems)
         guard !text.isEmpty else { return nil }
@@ -305,7 +313,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         return .init(phase: .listening, text: text, isFinal: isFinal, message: nil)
     }
 
-    private static func displayText(from items: ArraySlice<TranscriptItem>) -> String {
+    private static func displayText(from items: some Sequence<TranscriptItem>) -> String {
         items.reduce(into: "") { result, item in
             appendDisplayText(Self.normalizedDisplayFragment(item.text), to: &result)
         }

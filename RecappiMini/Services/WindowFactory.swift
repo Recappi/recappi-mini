@@ -27,6 +27,12 @@ enum WindowFactory {
         var isMovableByWindowBackground = true
         var isReleasedWhenClosed = false
         var collectionBehavior: NSWindow.CollectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        // Title-bar chrome controls — used to keep a chromeless
+        // floating-panel look when `.titled` is in the styleMask
+        // (needed for `.resizable` to work on a panel).
+        var titleVisibility: NSWindow.TitleVisibility = .visible
+        var titlebarAppearsTransparent = false
+        var hiddenStandardButtons: [NSWindow.ButtonType] = []
     }
 
     @MainActor
@@ -71,6 +77,11 @@ enum WindowFactory {
         panel.isMovableByWindowBackground = spec.isMovableByWindowBackground
         panel.isReleasedWhenClosed = spec.isReleasedWhenClosed
         panel.collectionBehavior = spec.collectionBehavior
+        panel.titleVisibility = spec.titleVisibility
+        panel.titlebarAppearsTransparent = spec.titlebarAppearsTransparent
+        for button in spec.hiddenStandardButtons {
+            panel.standardWindowButton(button)?.isHidden = true
+        }
         panel.contentView = contentView
         panel.delegate = delegate
         return panel
