@@ -411,7 +411,10 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             guard !normalized.isEmpty else { continue }
 
             if var active = current {
-                if Self.shouldStartNewDisplaySegment(after: active.sourceText) {
+                if Self.shouldStartNewDisplaySegment(
+                    after: active.sourceText,
+                    beforeAppending: normalized
+                ) {
                     segments.append(active.liveCaptionSegment)
                     current = DisplaySegment(
                         id: Self.segmentIdentifier(for: key),
@@ -458,11 +461,28 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             .joined(separator: " ")
     }
 
-    private static func shouldStartNewDisplaySegment(after text: String) -> Bool {
+    private static func shouldStartNewDisplaySegment(
+        after text: String,
+        beforeAppending fragment: String
+    ) -> Bool {
+        if shouldStartNewDisplaySegmentAfterSentenceBoundary(text) {
+            return true
+        }
+
+        let proposedLength = text.count + fragment.count
+        let softLimit = displaySegmentSoftLimit(for: text + fragment)
+        return text.count >= softLimit || proposedLength >= softLimit * 2
+    }
+
+    private static func shouldStartNewDisplaySegmentAfterSentenceBoundary(_ text: String) -> Bool {
         guard let last = text.trimmingCharacters(in: .whitespacesAndNewlines).last else {
             return false
         }
         return last.isLiveCaptionSentenceEnding
+    }
+
+    private static func displaySegmentSoftLimit(for text: String) -> Int {
+        text.contains(where: \.isCJK) ? 72 : 140
     }
 
     private static func appendDisplayText(_ fragment: String, to result: inout String) {
@@ -847,6 +867,8 @@ private final class BilingualSegmentBuilder {
     /// is taken as a real segment boundary. Avoids breaking on a stray
     /// "Mr." or short interjections.
     private static let minSegmentBoundaryChars = 12
+    private static let softCapASCIIChars = 220
+    private static let softCapCJKChars = 60
 
     private struct Pending {
         var sourceText: String = ""
@@ -870,18 +892,27 @@ private final class BilingualSegmentBuilder {
             pending.translatedText += delta
         }
 
-        // Boundary heuristic: source and translation must both end in
-        // sentence punctuation. Cutting on source punctuation alone can
-        // split one translated sentence across two UI segments.
-        guard pending.sourceText.count >= Self.minSegmentBoundaryChars,
-              pending.translatedText.count >= Self.minSegmentBoundaryChars,
-              let lastSourceChar = pending.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).last,
-              let lastTranslationChar = pending.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).last,
-              lastSourceChar.isLiveCaptionSentenceEnding,
-              lastTranslationChar.isLiveCaptionSentenceEnding else {
+        finalizeCompletedBoundaries()
+    }
+
+    private func finalizeCompletedBoundaries() {
+        while true {
+            if let sourceBoundary = Self.completedSentenceBoundary(in: pending.sourceText),
+               let translationBoundary = Self.completedSentenceBoundary(in: pending.translatedText),
+               sourceBoundary.segmentText.count >= Self.minSegmentBoundaryChars(for: sourceBoundary.segmentText),
+               translationBoundary.segmentText.count >= Self.minSegmentBoundaryChars(for: translationBoundary.segmentText) {
+                finalizeBoundary(sourceBoundary, translationBoundary)
+                continue
+            }
+
+            if let sourceBoundary = Self.forceBoundary(in: pending.sourceText),
+               let translationBoundary = Self.forceBoundary(in: pending.translatedText) {
+                finalizeBoundary(sourceBoundary, translationBoundary)
+                continue
+            }
+
             return
         }
-        finalizePending()
     }
 
     /// Force-finalize the active segment, e.g. when the session is
@@ -900,6 +931,21 @@ private final class BilingualSegmentBuilder {
         pending = Pending()
     }
 
+    private func finalizeBoundary(_ sourceBoundary: TextBoundary, _ translationBoundary: TextBoundary) {
+        let segment = LiveCaptionSegment(
+            id: "bilingual-\(nextSequence)",
+            sourceText: sourceBoundary.segmentText,
+            translatedText: translationBoundary.segmentText,
+            isFinal: true,
+            sequence: nextSequence
+        )
+        finalized.append(segment)
+        nextSequence += 1
+        pending.sourceText = sourceBoundary.remainder
+        pending.translatedText = translationBoundary.remainder
+        pending.isFinal = false
+    }
+
     func snapshot() -> [LiveCaptionSegment] {
         var segments = finalized
         if pending.hasContent {
@@ -914,6 +960,85 @@ private final class BilingualSegmentBuilder {
             )
         }
         return segments
+    }
+
+    private struct TextBoundary {
+        let segmentText: String
+        let remainder: String
+    }
+
+    private static func minSegmentBoundaryChars(for text: String) -> Int {
+        text.contains(where: \.isCJK) ? 4 : minSegmentBoundaryChars
+    }
+
+    private static func completedSentenceBoundary(in text: String) -> TextBoundary? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        var cursor = trimmed.startIndex
+        while cursor < trimmed.endIndex {
+            let character = trimmed[cursor]
+            guard character.isLiveCaptionSentenceEnding else {
+                cursor = trimmed.index(after: cursor)
+                continue
+            }
+
+            let next = trimmed.index(after: cursor)
+            if next == trimmed.endIndex {
+                return TextBoundary(segmentText: trimmed, remainder: "")
+            }
+
+            let nextCharacter = trimmed[next]
+            if nextCharacter.isWhitespace || nextCharacter.isCJK {
+                let segment = String(trimmed[..<next])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let remainder = String(trimmed[next...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return TextBoundary(segmentText: segment, remainder: remainder)
+            }
+            cursor = next
+        }
+        return nil
+    }
+
+    private static func forceBoundary(in text: String) -> TextBoundary? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let limit = trimmed.contains(where: \.isCJK) ? softCapCJKChars : softCapASCIIChars
+        guard trimmed.count >= limit else { return nil }
+
+        if let lastSentenceEnd = trimmed.lastIndex(where: \.isLiveCaptionSentenceEnding) {
+            let afterEnd = trimmed.index(after: lastSentenceEnd)
+            let segment = String(trimmed[..<afterEnd])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let remainder = String(trimmed[afterEnd...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !segment.isEmpty, !remainder.isEmpty {
+                return TextBoundary(segmentText: segment, remainder: remainder)
+            }
+        }
+
+        let cutIndex = preferredHardCutIndex(in: trimmed, limit: limit)
+        let segment = String(trimmed[..<cutIndex])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let remainder = String(trimmed[cutIndex...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !segment.isEmpty, !remainder.isEmpty else { return nil }
+        return TextBoundary(segmentText: segment, remainder: remainder)
+    }
+
+    private static func preferredHardCutIndex(in text: String, limit: Int) -> String.Index {
+        let target = text.index(text.startIndex, offsetBy: limit)
+        guard !text.contains(where: \.isCJK) else { return target }
+
+        var cursor = target
+        while cursor > text.startIndex {
+            let previous = text.index(before: cursor)
+            if text[previous].isWhitespace {
+                return cursor
+            }
+            cursor = previous
+        }
+        return target
     }
 }
 

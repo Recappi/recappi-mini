@@ -761,7 +761,33 @@ final class AudioRecorder: NSObject, ObservableObject {
         restartLiveCaptions(localeIdentifier: selected.id)
     }
 
-    private func restartLiveCaptions(localeIdentifier: String) {
+    func setLiveCaptionsBilingualEnabled(_ enabled: Bool) {
+        AppConfig.shared.liveCaptionsBilingualEnabled = enabled
+
+        guard state == .recording else { return }
+        restartLiveCaptions(
+            localeIdentifier: AppConfig.shared.backendRealtimeLiveCaptionsEnabled
+                ? AppConfig.shared.normalizedCloudLanguage
+                : AppConfig.shared.selectedSpeechLanguage.id,
+            message: "Switching live caption mode…"
+        )
+    }
+
+    func setLiveCaptionsTranslationTargetLanguage(_ language: String) {
+        AppConfig.shared.liveCaptionsTranslationTargetLanguage =
+            LiveCaptionTranslationTargetLanguageOption.normalizedCode(language)
+
+        guard state == .recording, AppConfig.shared.liveCaptionsBilingualEnabled else { return }
+        restartLiveCaptions(
+            localeIdentifier: AppConfig.shared.normalizedCloudLanguage,
+            message: "Switching translation language…"
+        )
+    }
+
+    private func restartLiveCaptions(
+        localeIdentifier: String,
+        message: String = "Switching live caption language…"
+    ) {
         guard #available(macOS 26.0, *) else { return }
         guard let systemOutput else { return }
 
@@ -771,7 +797,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         stopLiveCaptions(oldTranscriber, saveTo: nil)
 
         liveCaptionSegments = []
-        liveCaptionMessage = "Switching live caption language…"
+        liveCaptionMessage = message
         liveCaptionIsFinal = false
 
         startLiveCaptionProvider(for: systemOutput, localeIdentifier: localeIdentifier)
@@ -873,15 +899,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     private static func normalizedRealtimeTranslationTargetLanguage(_ language: String) -> String {
-        let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch trimmed {
-        case "zh-Hans", "zh-CN", "zh_TW", "zh-TW":
-            return "zh"
-        case "":
-            return "zh"
-        default:
-            return trimmed
-        }
+        LiveCaptionTranslationTargetLanguageOption.normalizedCode(language)
     }
 
     private func stopLiveCaptions(saveTo sessionDir: URL?) {

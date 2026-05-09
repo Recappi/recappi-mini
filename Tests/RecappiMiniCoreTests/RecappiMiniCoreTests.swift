@@ -444,8 +444,8 @@ final class RecappiMiniCoreTests: XCTestCase {
         let text = snapshot?.joinedSourceText ?? ""
         XCTAssertTrue(text.contains("Caption history line 1"))
         XCTAssertTrue(text.contains("Caption history line 12"))
-        XCTAssertFalse(text.contains("\n"))
-        XCTAssertTrue(text.contains("line 1 Caption history"))
+        XCTAssertTrue(text.contains("\n"), "Long caption history should soft-break into display segments, got: \(text)")
+        XCTAssertGreaterThanOrEqual(snapshot?.segments.count ?? 0, 2)
     }
 
     func testBackendRealtimeTranscriberJoinsShortChineseItemsWithoutForcedLineBreaks() {
@@ -478,6 +478,24 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(snapshot?.segments.count, 2)
     }
 
+    func testBackendRealtimeTranscriberSoftBreaksLongUnpunctuatedSegments() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "zh"
+        ) { _ in }
+
+        var snapshot: LiveCaptionSnapshot?
+        for index in 0..<12 {
+            snapshot = transcriber.handleTranscriptCompletionForTesting(
+                "这是一段没有标点但是会持续很久的实时字幕内容",
+                itemID: "item-\(index)"
+            )
+        }
+
+        XCTAssertGreaterThanOrEqual(snapshot?.segments.count ?? 0, 2)
+        XCTAssertTrue(snapshot?.joinedSourceText.contains("\n") == true)
+    }
+
     func testBackendRealtimeTranslationWaitsForBothStreamsBeforeFinalizingSegment() {
         let transcriber = BackendRealtimeLiveCaptionTranscriber(
             client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
@@ -499,6 +517,92 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(completedTranslation?.segments[0].sourceText, "Recappi many automation smoke test.")
         XCTAssertEqual(completedTranslation?.segments[0].translatedText, "回顾这些 mini 自动化冒烟测试。")
         XCTAssertEqual(completedTranslation?.segments[0].isFinal, true)
+    }
+
+    func testBackendRealtimeTranslationCutsCompletedSentencesInsideContinuousStream() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en",
+            mode: .translation(targetLanguage: "zh")
+        ) { _ in }
+
+        _ = transcriber.handleBilingualSourceDeltaForTesting(
+            "We copy many automation smoke tests. This sentence should survive upload and transcription."
+        )
+        let snapshot = transcriber.handleBilingualTranslationDeltaForTesting(
+            "我们开启了不少自动化冒烟测试。这句话应该能通过上传和转录。"
+        )
+
+        XCTAssertGreaterThanOrEqual(snapshot?.segments.count ?? 0, 2)
+        XCTAssertEqual(snapshot?.segments.first?.sourceText, "We copy many automation smoke tests.")
+        XCTAssertEqual(snapshot?.segments.first?.translatedText, "我们开启了不少自动化冒烟测试。")
+        XCTAssertEqual(snapshot?.segments.first?.isFinal, true)
+    }
+
+    func testBackendRealtimeTranslationWaitsWhenTranslationTrailsSourceSentence() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en",
+            mode: .translation(targetLanguage: "zh")
+        ) { _ in }
+
+        _ = transcriber.handleBilingualSourceDeltaForTesting(
+            "First complete sentence. Second complete sentence."
+        )
+        let trailingSnapshot = transcriber.handleBilingualTranslationDeltaForTesting("第一句还没结束")
+
+        XCTAssertEqual(trailingSnapshot?.segments.count, 1)
+        XCTAssertEqual(trailingSnapshot?.segments.first?.isFinal, false)
+
+        let caughtUpSnapshot = transcriber.handleBilingualTranslationDeltaForTesting("。第二句也结束。")
+
+        XCTAssertGreaterThanOrEqual(caughtUpSnapshot?.segments.count ?? 0, 2)
+        XCTAssertEqual(caughtUpSnapshot?.segments.first?.sourceText, "First complete sentence.")
+        XCTAssertEqual(caughtUpSnapshot?.segments.first?.translatedText, "第一句还没结束。")
+        XCTAssertEqual(caughtUpSnapshot?.segments.first?.isFinal, true)
+    }
+
+    func testBackendRealtimeTranslationDoesNotCutSourceCommasAsSentenceBoundaries() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en",
+            mode: .translation(targetLanguage: "zh")
+        ) { _ in }
+
+        _ = transcriber.handleBilingualSourceDeltaForTesting(
+            "First clause, still the same sentence. Second complete sentence."
+        )
+        let snapshot = transcriber.handleBilingualTranslationDeltaForTesting(
+            "第一部分,仍然是同一句话。第二句也结束。"
+        )
+
+        XCTAssertGreaterThanOrEqual(snapshot?.segments.count ?? 0, 2)
+        XCTAssertEqual(
+            snapshot?.segments.first?.sourceText,
+            "First clause, still the same sentence."
+        )
+        XCTAssertEqual(
+            snapshot?.segments.first?.translatedText,
+            "第一部分,仍然是同一句话。"
+        )
+    }
+
+    func testBackendRealtimeTranslationForceBreaksLongUnpunctuatedStream() {
+        let transcriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123"),
+            language: "en",
+            mode: .translation(targetLanguage: "zh")
+        ) { _ in }
+
+        _ = transcriber.handleBilingualSourceDeltaForTesting(
+            String(repeating: "long unpunctuated source phrase ", count: 12)
+        )
+        let snapshot = transcriber.handleBilingualTranslationDeltaForTesting(
+            String(repeating: "很长但是没有标点的翻译内容", count: 16)
+        )
+
+        XCTAssertGreaterThanOrEqual(snapshot?.segments.count ?? 0, 2)
+        XCTAssertEqual(snapshot?.segments.first?.isFinal, true)
     }
 
     func testTranscriptResponseDecodesBackendSegmentsJSON() throws {

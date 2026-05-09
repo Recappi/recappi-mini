@@ -43,8 +43,8 @@ struct TranscriptionSettingsPage: View {
                     .disabled(!config.backendRealtimeLiveCaptionsEnabled)
 
                 Picker("Translation target language", selection: bilingualTargetLanguageBinding) {
-                    ForEach(BilingualTargetLanguage.allCases) { option in
-                        Text(option.title).tag(option.code)
+                    ForEach(LiveCaptionTranslationTargetLanguageOption.common) { option in
+                        Text(option.title).tag(option.id)
                     }
                 }
                 .disabled(!config.backendRealtimeLiveCaptionsEnabled || !config.liveCaptionsBilingualEnabled)
@@ -95,34 +95,5 @@ struct TranscriptionSettingsPage: View {
             get: { config.liveCaptionsTranslationTargetLanguage },
             set: { config.liveCaptionsTranslationTargetLanguage = $0 }
         )
-    }
-}
-
-/// Common target languages for the bilingual translation Realtime
-/// session. The OpenAI translation endpoint accepts ISO codes; we
-/// keep the picker tight to the languages users typically pair with
-/// English/Chinese conversations. Users still get the full set via
-/// the Realtime endpoint if a future picker grows.
-private enum BilingualTargetLanguage: String, CaseIterable, Identifiable {
-    case chinese = "zh"
-    case english = "en"
-    case japanese = "ja"
-    case korean = "ko"
-    case french = "fr"
-    case german = "de"
-    case spanish = "es"
-
-    var id: String { rawValue }
-    var code: String { rawValue }
-    var title: String {
-        switch self {
-        case .chinese: return "Chinese (zh)"
-        case .english: return "English (en)"
-        case .japanese: return "Japanese (ja)"
-        case .korean: return "Korean (ko)"
-        case .french: return "French (fr)"
-        case .german: return "German (de)"
-        case .spanish: return "Spanish (es)"
-        }
     }
 }

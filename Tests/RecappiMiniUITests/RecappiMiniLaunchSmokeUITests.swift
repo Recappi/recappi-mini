@@ -144,6 +144,8 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         add(viewportAttachment)
         let languageMenu = uiElement(app, id: UITestIDs.Cloud.currentMeetingLanguageMenu)
         XCTAssertTrue(languageMenu.waitForExistence(timeout: 10), "Expected a Live Caption language selector in Cloud.")
+        let bilingualToggle = uiElement(app, id: UITestIDs.Cloud.currentMeetingBilingualToggle)
+        XCTAssertTrue(bilingualToggle.waitForExistence(timeout: 10), "Expected a bilingual captions control in the Live Caption panel.")
         let captionText = [caption.label, caption.value as? String]
             .compactMap { $0 }
             .joined(separator: " ")

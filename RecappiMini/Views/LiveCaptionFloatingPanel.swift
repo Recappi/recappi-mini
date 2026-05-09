@@ -262,6 +262,10 @@ struct LiveCaptionFloatingPanel: View {
                     .foregroundStyle(Color.dtLabel)
                 Spacer(minLength: 0)
                 HStack(spacing: 6) {
+                    bilingualModeControl
+                    if config.liveCaptionsBilingualEnabled {
+                        bilingualTargetLanguageMenu
+                    }
                     liveCaptionLanguageMenu
                     systemAudioChip
                 }
@@ -331,6 +335,84 @@ struct LiveCaptionFloatingPanel: View {
         .menuIndicator(.hidden)
         .help("Live caption language")
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingLanguageMenu)
+    }
+
+    private var bilingualModeControl: some View {
+        HStack(spacing: 0) {
+            Button {
+                recorder.setLiveCaptionsBilingualEnabled(false)
+            } label: {
+                Text("原文")
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .frame(minWidth: 34)
+            }
+            .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: !config.liveCaptionsBilingualEnabled))
+
+            Button {
+                recorder.setLiveCaptionsBilingualEnabled(true)
+            } label: {
+                Text("双语")
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .frame(minWidth: 34)
+            }
+            .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: config.liveCaptionsBilingualEnabled))
+        }
+        .background(
+            Capsule(style: .continuous)
+                .fill(Palette.controlFillHover)
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Palette.borderHairline, lineWidth: 0.6)
+        )
+        .disabled(!config.backendRealtimeLiveCaptionsEnabled)
+        .opacity(config.backendRealtimeLiveCaptionsEnabled ? 1 : 0.55)
+        .help("Switch live captions between original-only and bilingual mode")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingBilingualToggle)
+    }
+
+    private var bilingualTargetLanguageMenu: some View {
+        let selected = LiveCaptionTranslationTargetLanguageOption.option(
+            for: config.liveCaptionsTranslationTargetLanguage
+        )
+        return Menu {
+            ForEach(LiveCaptionTranslationTargetLanguageOption.common) { option in
+                Button {
+                    recorder.setLiveCaptionsTranslationTargetLanguage(option.id)
+                } label: {
+                    if option.id == selected.id {
+                        Label(option.title, systemImage: "checkmark")
+                    } else {
+                        Text(option.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text("→ \(selected.shortTitle)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(Color.dtLabelTertiary)
+            }
+            .foregroundStyle(Color.dtLabel)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Palette.controlFillHover)
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help("Translation target language")
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingBilingualTargetLanguageMenu)
     }
 
     private var systemAudioChip: some View {
@@ -485,6 +567,24 @@ private struct LiveCaptionTextViewport: View {
                 return segment.sourceText
             }
             .joined(separator: "\n")
+    }
+}
+
+private struct LiveCaptionSegmentedButtonStyle: ButtonStyle {
+    let isSelected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(isSelected ? Color.dtLabel : Color.dtLabelSecondary)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(
+                        isSelected
+                            ? DT.waveformLit.opacity(0.16)
+                            : (configuration.isPressed ? Palette.controlFillHover : Color.clear)
+                    )
+            )
+            .contentShape(Capsule(style: .continuous))
     }
 }
 

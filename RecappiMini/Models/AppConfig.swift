@@ -31,6 +31,38 @@ struct SpeechLanguageOption: Identifiable, Hashable, Sendable {
     }
 }
 
+struct LiveCaptionTranslationTargetLanguageOption: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let shortTitle: String
+
+    static let common: [LiveCaptionTranslationTargetLanguageOption] = [
+        .init(id: "zh", title: "Chinese (zh)", shortTitle: "ZH"),
+        .init(id: "en", title: "English (en)", shortTitle: "EN"),
+        .init(id: "ja", title: "Japanese (ja)", shortTitle: "JA"),
+        .init(id: "ko", title: "Korean (ko)", shortTitle: "KO"),
+        .init(id: "fr", title: "French (fr)", shortTitle: "FR"),
+        .init(id: "de", title: "German (de)", shortTitle: "DE"),
+        .init(id: "es", title: "Spanish (es)", shortTitle: "ES"),
+    ]
+
+    static func option(for id: String) -> LiveCaptionTranslationTargetLanguageOption {
+        let normalized = normalizedCode(id)
+        return common.first(where: { $0.id == normalized }) ?? common[0]
+    }
+
+    static func normalizedCode(_ raw: String) -> String {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "zh-Hans", "zh-CN", "zh-TW":
+            return "zh"
+        case let trimmed where !trimmed.isEmpty:
+            return trimmed
+        default:
+            return "zh"
+        }
+    }
+}
+
 @MainActor
 final class AppConfig: ObservableObject {
     static let shared = AppConfig()
