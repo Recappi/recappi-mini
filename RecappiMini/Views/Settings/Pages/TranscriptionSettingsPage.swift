@@ -36,6 +36,24 @@ struct TranscriptionSettingsPage: View {
                     .foregroundStyle(Palette.labelSecondary)
                     .font(.footnote)
             }
+
+            Section {
+                Toggle("Bilingual captions (original + translation)", isOn: bilingualBinding)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.liveCaptionsBilingualToggle)
+                    .disabled(!config.backendRealtimeLiveCaptionsEnabled)
+
+                Picker("Translation target language", selection: bilingualTargetLanguageBinding) {
+                    ForEach(BilingualTargetLanguage.allCases) { option in
+                        Text(option.title).tag(option.code)
+                    }
+                }
+                .disabled(!config.backendRealtimeLiveCaptionsEnabled || !config.liveCaptionsBilingualEnabled)
+                .accessibilityIdentifier(AccessibilityIDs.Settings.liveCaptionsBilingualTargetLanguagePicker)
+            } footer: {
+                Text("When enabled, the live caption panel renders both the original transcript and a translation in the target language. Requires backend Realtime captions and uses OpenAI's translation Realtime endpoint.")
+                    .foregroundStyle(Palette.labelSecondary)
+                    .font(.footnote)
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
@@ -63,5 +81,48 @@ struct TranscriptionSettingsPage: View {
             get: { config.backendRealtimeLiveCaptionsEnabled },
             set: { config.backendRealtimeLiveCaptionsEnabled = $0 }
         )
+    }
+
+    private var bilingualBinding: Binding<Bool> {
+        Binding(
+            get: { config.liveCaptionsBilingualEnabled },
+            set: { config.liveCaptionsBilingualEnabled = $0 }
+        )
+    }
+
+    private var bilingualTargetLanguageBinding: Binding<String> {
+        Binding(
+            get: { config.liveCaptionsTranslationTargetLanguage },
+            set: { config.liveCaptionsTranslationTargetLanguage = $0 }
+        )
+    }
+}
+
+/// Common target languages for the bilingual translation Realtime
+/// session. The OpenAI translation endpoint accepts ISO codes; we
+/// keep the picker tight to the languages users typically pair with
+/// English/Chinese conversations. Users still get the full set via
+/// the Realtime endpoint if a future picker grows.
+private enum BilingualTargetLanguage: String, CaseIterable, Identifiable {
+    case zhHans = "zh-Hans"
+    case english = "en"
+    case japanese = "ja"
+    case korean = "ko"
+    case french = "fr"
+    case german = "de"
+    case spanish = "es"
+
+    var id: String { rawValue }
+    var code: String { rawValue }
+    var title: String {
+        switch self {
+        case .zhHans: return "Simplified Chinese (zh-Hans)"
+        case .english: return "English (en)"
+        case .japanese: return "Japanese (ja)"
+        case .korean: return "Korean (ko)"
+        case .french: return "French (fr)"
+        case .german: return "German (de)"
+        case .spanish: return "Spanish (es)"
+        }
     }
 }

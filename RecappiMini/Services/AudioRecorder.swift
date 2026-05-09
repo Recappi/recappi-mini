@@ -819,9 +819,18 @@ final class AudioRecorder: NSObject, ObservableObject {
                 origin: AppConfig.shared.effectiveBackendBaseURL,
                 bearerToken: bearerToken
             )
+            // Bilingual toggle picks the OpenAI translation session
+            // (`includeSourceTranscript=true` so we still get the
+            // source row); otherwise we mint the standard transcription
+            // session. The transcriber multiplexes both shapes so the
+            // rest of the pipeline doesn't care.
+            let mode: BackendRealtimeLiveCaptionTranscriber.Mode = AppConfig.shared.liveCaptionsBilingualEnabled
+                ? .translation(targetLanguage: AppConfig.shared.liveCaptionsTranslationTargetLanguage)
+                : .transcription
             let backendTranscriber = BackendRealtimeLiveCaptionTranscriber(
                 client: client,
-                language: Self.normalizedRealtimeLanguage(localeIdentifier)
+                language: Self.normalizedRealtimeLanguage(localeIdentifier),
+                mode: mode
             ) { [weak self] snapshot in
                 self?.applyLiveCaptionSnapshot(snapshot)
             }

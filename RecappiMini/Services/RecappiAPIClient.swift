@@ -241,6 +241,30 @@ struct RecappiAPIClient: Sendable {
         return try JSONDecoder().decode(OpenAIRealtimeSessionClaim.self, from: data)
     }
 
+    /// Mint a bilingual (translation) Realtime session. Backend proxies
+    /// the OpenAI translation endpoint and rewrites events on the way
+    /// in/out; the returned `OpenAIRealtimeSessionClaim.mode` is
+    /// `"translation"`.
+    func createRealtimeTranslationSession(
+        language: String,
+        targetLanguage: String
+    ) async throws -> OpenAIRealtimeSessionClaim {
+        var request = try makeRequest(path: "/api/openai/realtime/sessions", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(
+            OpenAIRealtimeTranslationSessionRequest(
+                language: language,
+                targetLanguage: targetLanguage,
+                delay: "low",
+                expiresAfterSeconds: 60,
+                includeSourceTranscript: true
+            )
+        )
+        let (data, response) = try await session.data(for: request)
+        try Self.validate(response: response, data: data)
+        return try JSONDecoder().decode(OpenAIRealtimeSessionClaim.self, from: data)
+    }
+
     func abortRecordingIfNeeded(recordingId: String) async {
         guard var request = try? makeRequest(path: "/api/recordings/\(recordingId)/abort", method: "POST") else {
             return

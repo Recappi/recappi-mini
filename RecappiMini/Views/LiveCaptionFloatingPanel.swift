@@ -270,7 +270,8 @@ struct LiveCaptionFloatingPanel: View {
             .padding(.top, 12)
 
             LiveCaptionTextViewport(
-                text: captionLine,
+                segments: viewportSegments,
+                placeholderText: captionLine,
                 isPlaceholder: !hasLiveCaptionSegments
             )
             .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
@@ -356,6 +357,26 @@ struct LiveCaptionFloatingPanel: View {
         return !recorder.liveCaptionSegments.isEmpty
     }
 
+    /// Segment list passed into the expanded viewport. Mirrors the
+    /// recorder's segments in normal use; substitutes a single
+    /// fixture segment when `LIVE_CAPTION_DEBUG_TEXT` is set so the
+    /// AppKit text view exercises the same code path under tests.
+    private var viewportSegments: [LiveCaptionSegment] {
+        if let debugText = ProcessInfo.processInfo.environment["LIVE_CAPTION_DEBUG_TEXT"],
+           !debugText.isEmpty {
+            return [
+                LiveCaptionSegment(
+                    id: "debug-fixture",
+                    sourceText: debugText,
+                    translatedText: nil,
+                    isFinal: false,
+                    sequence: 0
+                )
+            ]
+        }
+        return recorder.liveCaptionSegments
+    }
+
     private var captionLine: String {
         // Debug hook: when `LIVE_CAPTION_DEBUG_TEXT` is set, override the
         // caption with fixture text so layout/scroll can be exercised
@@ -435,18 +456,35 @@ struct LiveCaptionFloatingPanel: View {
 }
 
 private struct LiveCaptionTextViewport: View {
-    let text: String
+    let segments: [LiveCaptionSegment]
+    let placeholderText: String
     let isPlaceholder: Bool
 
     var body: some View {
-        LiveCaptionAppKitTextView(text: text, isPlaceholder: isPlaceholder)
-            .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionViewport)
-            .accessibilityLabel(Text(text))
-            .accessibilityValue(Text(text))
-            .modifier(LiveCaptionDebugLayoutBorder(
-                color: .blue,
-                label: "viewport"
-            ))
+        LiveCaptionAppKitTextView(
+            segments: segments,
+            placeholderText: placeholderText,
+            isPlaceholder: isPlaceholder
+        )
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionViewport)
+        .accessibilityLabel(Text(displayedAccessibilityLabel))
+        .accessibilityValue(Text(displayedAccessibilityLabel))
+        .modifier(LiveCaptionDebugLayoutBorder(
+            color: .blue,
+            label: "viewport"
+        ))
+    }
+
+    private var displayedAccessibilityLabel: String {
+        if isPlaceholder { return placeholderText }
+        return segments
+            .map { segment in
+                if let translated = segment.translatedText, !translated.isEmpty {
+                    return "\(segment.sourceText)\n\(translated)"
+                }
+                return segment.sourceText
+            }
+            .joined(separator: "\n")
     }
 }
 
@@ -459,7 +497,8 @@ private struct LiveCaptionTextViewport: View {
 /// update. If the user has manually scrolled up, the viewport stays put
 /// until they scroll back down.
 private struct LiveCaptionAppKitTextView: NSViewRepresentable {
-    let text: String
+    let segments: [LiveCaptionSegment]
+    let placeholderText: String
     let isPlaceholder: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -510,13 +549,23 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             object: scrollView.contentView
         )
 
-        context.coordinator.applyText(text, isPlaceholder: isPlaceholder, scrollToBottom: true)
+        context.coordinator.applySegments(
+            segments,
+            placeholderText: placeholderText,
+            isPlaceholder: isPlaceholder,
+            scrollToBottom: true
+        )
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         let shouldScroll = context.coordinator.shouldFollowTail
-        context.coordinator.applyText(text, isPlaceholder: isPlaceholder, scrollToBottom: shouldScroll)
+        context.coordinator.applySegments(
+            segments,
+            placeholderText: placeholderText,
+            isPlaceholder: isPlaceholder,
+            scrollToBottom: shouldScroll
+        )
     }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
@@ -547,17 +596,49 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             shouldFollowTail = visibleBottom + slack >= docHeight
         }
 
-        func applyText(_ text: String, isPlaceholder: Bool, scrollToBottom: Bool) {
+        func applySegments(
+            _ segments: [LiveCaptionSegment],
+            placeholderText: String,
+            isPlaceholder: Bool,
+            scrollToBottom: Bool
+        ) {
             guard let textView = textView, let storage = textView.textStorage else { return }
+
+            // Bilingual mode is detected per-update from segment payload:
+            // any non-empty `translatedText` triggers attributed-string
+            // rendering with secondary-color translation rows. Pure-
+            // transcription updates fall through to the common-prefix
+            // incremental path so streaming deltas don't reflow the
+            // whole transcript on every glyph.
+            let isBilingual = segments.contains { ($0.translatedText?.isEmpty == false) }
+
+            if isPlaceholder {
+                applyFlatText(placeholderText, isPlaceholder: true, scrollToBottom: scrollToBottom, storage: storage)
+                return
+            }
+
+            if isBilingual {
+                applyBilingualSegments(segments, scrollToBottom: scrollToBottom, storage: storage)
+                return
+            }
+
+            let flat = segments.map(\.sourceText).joined(separator: "\n")
+            applyFlatText(flat, isPlaceholder: false, scrollToBottom: scrollToBottom, storage: storage)
+        }
+
+        private func applyFlatText(
+            _ text: String,
+            isPlaceholder: Bool,
+            scrollToBottom: Bool,
+            storage: NSTextStorage
+        ) {
             if text == appliedText && isPlaceholder == appliedPlaceholder {
                 if scrollToBottom { scrollViewToBottom() }
                 return
             }
 
-            let attrs = Self.attributes(isPlaceholder: isPlaceholder)
+            let attrs = Self.flatAttributes(isPlaceholder: isPlaceholder)
 
-            // Placeholder flag flipped only: restyle in place so
-            // NSTextView keeps its existing glyph cache.
             if text == appliedText {
                 storage.setAttributes(attrs, range: NSRange(location: 0, length: storage.length))
                 appliedPlaceholder = isPlaceholder
@@ -584,8 +665,6 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
                 storage.setAttributedString(NSAttributedString(string: text, attributes: attrs))
             }
 
-            // Restyle anything we kept so a placeholder flip applies
-            // to the previously rendered range too.
             if isPlaceholder != appliedPlaceholder {
                 storage.setAttributes(attrs, range: NSRange(location: 0, length: storage.length))
             }
@@ -600,7 +679,50 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             }
         }
 
-        private static func attributes(isPlaceholder: Bool) -> [NSAttributedString.Key: Any] {
+        /// Bilingual full-rebuild: each segment becomes two rows —
+        /// source line in primary text color, translation line in
+        /// secondary text color (slightly smaller). Segments are
+        /// separated by a blank line so the eye groups source ↔
+        /// translation pairs together. We don't use the common-prefix
+        /// optimization here: the alternating attribute runs make
+        /// incremental update brittle, and bilingual streams are short
+        /// enough (one segment ≈ a sentence) that a per-update rebuild
+        /// is cheap.
+        private func applyBilingualSegments(
+            _ segments: [LiveCaptionSegment],
+            scrollToBottom: Bool,
+            storage: NSTextStorage
+        ) {
+            let attributed = NSMutableAttributedString()
+            let sourceAttrs = Self.flatAttributes(isPlaceholder: false)
+            let translationAttrs = Self.translationAttributes()
+
+            for (index, segment) in segments.enumerated() {
+                if index > 0 {
+                    attributed.append(NSAttributedString(string: "\n", attributes: sourceAttrs))
+                }
+                attributed.append(NSAttributedString(string: segment.sourceText, attributes: sourceAttrs))
+                if let translated = segment.translatedText, !translated.isEmpty {
+                    attributed.append(NSAttributedString(string: "\n", attributes: sourceAttrs))
+                    attributed.append(NSAttributedString(string: translated, attributes: translationAttrs))
+                }
+            }
+
+            storage.setAttributedString(attributed)
+            // Snapshot the joined text so a switch back to monolingual
+            // (e.g. user toggles bilingual off mid-session) doesn't see
+            // a stale `appliedText` and skip the next refresh.
+            appliedText = attributed.string
+            appliedPlaceholder = false
+
+            if scrollToBottom {
+                DispatchQueue.main.async { [weak self] in
+                    self?.scrollViewToBottom()
+                }
+            }
+        }
+
+        private static func flatAttributes(isPlaceholder: Bool) -> [NSAttributedString.Key: Any] {
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = 4
             paragraph.lineBreakMode = .byWordWrapping
@@ -611,6 +733,18 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             return [
                 .font: NSFont.systemFont(ofSize: 15, weight: .medium),
                 .foregroundColor: foreground,
+                .paragraphStyle: paragraph,
+            ]
+        }
+
+        private static func translationAttributes() -> [NSAttributedString.Key: Any] {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = 4
+            paragraph.lineBreakMode = .byWordWrapping
+            paragraph.alignment = .left
+            return [
+                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: NSColor.secondaryLabelColor,
                 .paragraphStyle: paragraph,
             ]
         }

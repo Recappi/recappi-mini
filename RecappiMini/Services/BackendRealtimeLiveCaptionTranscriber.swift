@@ -4,6 +4,30 @@ import CoreMedia
 import Foundation
 
 final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable {
+    /// Two distinct upstream session shapes — different OpenAI models,
+    /// different event vocabularies, different segmentation source-of-
+    /// truth. We multiplex them inside one transcriber so audio capture,
+    /// reconnect handling, and UI plumbing stay the same.
+    enum Mode {
+        /// Standard transcription session (`gpt-realtime-whisper`).
+        /// Upstream emits `item_id`-keyed segments with explicit `delta`
+        /// and `completed` events; our `TranscriptItem` table is the
+        /// source of truth.
+        case transcription
+        /// Translation session (`gpt-realtime-translate`,
+        /// `includeSourceTranscript=true`). Upstream is a continuous
+        /// stream of source/target deltas with no item_id, completed,
+        /// or commit/clear events; the client must do its own
+        /// segmentation. Audio + close events use `session.*`-prefixed
+        /// types; commit/clear are forbidden by the proxy.
+        case translation(targetLanguage: String)
+
+        var isTranslation: Bool {
+            if case .translation = self { return true }
+            return false
+        }
+    }
+
     private static let maxPendingAudioBuffers = 8
     /// Memory safety net (~10h of fast continuous speech). The panel
     /// renders the FULL stored timeline; the cap only prevents a
@@ -20,6 +44,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private let onUpdate: @MainActor @Sendable (LiveCaptionSnapshot) -> Void
     private let client: RecappiAPIClient
     private let language: String
+    private let mode: Mode
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var isAcceptingInput = false
@@ -31,15 +56,23 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private var fallbackSequence = 0
     private var hasUncommittedAudio = false
     private var uncommittedAudioByteCount = 0
+    /// Translation-mode segment builder. nil for transcription mode.
+    /// Owned by `stateQueue` (every access goes through stateQueue.sync).
+    private var bilingualBuilder: BilingualSegmentBuilder?
 
     init(
         client: RecappiAPIClient,
         language: String,
+        mode: Mode = .transcription,
         onUpdate: @escaping @MainActor @Sendable (LiveCaptionSnapshot) -> Void
     ) {
         self.client = client
         self.language = language
+        self.mode = mode
         self.onUpdate = onUpdate
+        if mode.isTranslation {
+            self.bilingualBuilder = BilingualSegmentBuilder()
+        }
     }
 
     func start() {
@@ -67,7 +100,16 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     func stop(saveTo sessionDir: URL?) {
         inputQueue.sync {
             isAcceptingInput = false
-            commitPendingAudio(force: true)
+            switch mode {
+            case .transcription:
+                commitPendingAudio(force: true)
+            case .translation:
+                // OpenAI translation endpoint forbids commit/clear and
+                // accepts `session.close` for an explicit teardown. We
+                // try `session.close` first, then fall back to dropping
+                // the connection — both end the upstream session.
+                sendEvent(["type": "session.close"])
+            }
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             webSocketTask = nil
         }
@@ -78,10 +120,22 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     }
 
     private func run() async {
-        await publish(.statusOnly(phase: .preparing, message: "Preparing backend live captions..."))
+        let preparingMessage = mode.isTranslation
+            ? "Preparing bilingual live captions..."
+            : "Preparing backend live captions..."
+        await publish(.statusOnly(phase: .preparing, message: preparingMessage))
 
         do {
-            let claim = try await client.createRealtimeTranscriptionSession(language: language)
+            let claim: OpenAIRealtimeSessionClaim
+            switch mode {
+            case .transcription:
+                claim = try await client.createRealtimeTranscriptionSession(language: language)
+            case .translation(let targetLanguage):
+                claim = try await client.createRealtimeTranslationSession(
+                    language: language,
+                    targetLanguage: targetLanguage
+                )
+            }
             guard let url = URL(string: claim.websocketUrl) else {
                 throw RecappiAPIError.invalidURL
             }
@@ -105,7 +159,10 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             // No trailing dots: compact mode just had a mojibake/`…`
             // regression and a bare status reads cleanly without
             // looking like a caption-truncation indicator.
-            await publish(.statusOnly(phase: .listening, message: "Listening with backend Realtime"))
+            let listeningMessage = mode.isTranslation
+                ? "Listening with backend bilingual"
+                : "Listening with backend Realtime"
+            await publish(.statusOnly(phase: .listening, message: listeningMessage))
         } catch {
             await publish(.statusOnly(phase: .failed, message: error.localizedDescription))
         }
@@ -140,6 +197,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         }
 
         switch event.type {
+        // Transcription mode events.
         case "input_audio_buffer.committed":
             registerCommittedItem(event.transcriptItemKey, previousItemID: event.previousItemID)
         case "conversation.item.input_audio_transcription.delta":
@@ -150,11 +208,42 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             if let snapshot = completeTranscript(event.transcript, key: event.transcriptItemKey) {
                 publishFromCallback(snapshot)
             }
+        // Translation/bilingual mode events. The translation endpoint
+        // is a continuous stream; we forward the source/target deltas
+        // into `BilingualSegmentBuilder`, which decides finalize
+        // boundaries from punctuation + silence.
+        case "session.input_transcript.delta":
+            if let delta = event.delta, !delta.isEmpty,
+               let snapshot = ingestBilingualDelta(.source, text: delta) {
+                publishFromCallback(snapshot)
+            }
+        case "session.output_transcript.delta":
+            if let delta = event.delta, !delta.isEmpty,
+               let snapshot = ingestBilingualDelta(.translation, text: delta) {
+                publishFromCallback(snapshot)
+            }
         case "error":
             let message = event.error?.message ?? "Backend Realtime failed."
             publishFromCallback(.statusOnly(phase: .failed, message: message))
         default:
             break
+        }
+    }
+
+    private func ingestBilingualDelta(_ stream: BilingualStream, text: String) -> LiveCaptionSnapshot? {
+        return stateQueue.sync { () -> LiveCaptionSnapshot? in
+            guard let builder = bilingualBuilder else { return nil }
+            builder.append(stream: stream, delta: text)
+            let segments = builder.snapshot()
+            guard segments != lastPublishedSegments else { return nil }
+            lastPublishedSegments = segments
+            let allFinal = segments.allSatisfy(\.isFinal)
+            return LiveCaptionSnapshot(
+                phase: .listening,
+                segments: segments,
+                allSegmentsFinal: allFinal,
+                message: nil
+            )
         }
     }
 
@@ -323,13 +412,23 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     }
 
     private func sendAudio(_ data: Data) {
+        // OpenAI uses different event names per session shape:
+        //   - transcription: `input_audio_buffer.append`
+        //   - translation:   `session.input_audio_buffer.append`
+        // and translation rejects any `commit`/`clear` we used to send.
+        let eventType = mode.isTranslation
+            ? "session.input_audio_buffer.append"
+            : "input_audio_buffer.append"
         sendEvent([
-            "type": "input_audio_buffer.append",
+            "type": eventType,
             "audio": data.base64EncodedString(),
         ])
+        guard !mode.isTranslation else {
+            // Translation streams continuously; no manual commit.
+            return
+        }
         hasUncommittedAudio = true
         uncommittedAudioByteCount += data.count
-
         if uncommittedAudioByteCount >= Self.manualCommitByteThreshold {
             commitPendingAudio()
         }
@@ -624,6 +723,102 @@ private struct TranscriptItemKey: Hashable {
     init(itemID: String?, contentIndex: Int?) {
         self.itemID = itemID ?? Self.fallbackItemID
         self.contentIndex = contentIndex ?? 0
+    }
+}
+
+/// Which side of a bilingual delta we just received.
+private enum BilingualStream {
+    case source
+    case translation
+}
+
+/// Continuous-stream segmenter for bilingual translation mode. The
+/// OpenAI translation endpoint emits source / target deltas without
+/// `item_id` or `final` markers, so the client decides finalize
+/// boundaries from sentence punctuation + a silence threshold.
+///
+/// Output shape:
+/// - The "active" tail (in-progress, isFinal=false) is the last
+///   element of `snapshot()`; finalized utterances precede it.
+/// - Each finalized segment carries a stable id (`bilingual-N`) so the
+///   UI can stably render & cache.
+/// - `sourceText` and `translatedText` are merged by id; the segmenter
+///   does not require source and target to finalize at the same time —
+///   whichever comes first triggers the boundary, the other catches up.
+private final class BilingualSegmentBuilder {
+    private static let sourceSentenceEndings: Set<Character> = [".", "!", "?", "。", "！", "？"]
+    /// Min chars in either buffer before a sentence-ending punctuation
+    /// is taken as a real segment boundary. Avoids breaking on a stray
+    /// "Mr." or short interjections.
+    private static let minSegmentBoundaryChars = 12
+
+    private struct Pending {
+        var sourceText: String = ""
+        var translatedText: String = ""
+        var isFinal: Bool = false
+
+        var hasContent: Bool {
+            !sourceText.isEmpty || !translatedText.isEmpty
+        }
+    }
+
+    private var finalized: [LiveCaptionSegment] = []
+    private var pending = Pending()
+    private var nextSequence = 0
+
+    func append(stream: BilingualStream, delta: String) {
+        switch stream {
+        case .source:
+            pending.sourceText += delta
+        case .translation:
+            pending.translatedText += delta
+        }
+
+        // Boundary heuristic: source ends in sentence punctuation AND
+        // both buffers have minimum content. Translation may finalize
+        // a moment later — the next `output_transcript.delta` will
+        // continue updating the still-active segment until the next
+        // boundary. We rely on the 3-second flush behavior of OpenAI's
+        // translation endpoint to back-fill remaining translation.
+        guard pending.sourceText.count >= Self.minSegmentBoundaryChars,
+              pending.translatedText.count >= Self.minSegmentBoundaryChars,
+              let lastSourceChar = pending.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).last,
+              Self.sourceSentenceEndings.contains(lastSourceChar) else {
+            return
+        }
+        finalizePending()
+    }
+
+    /// Force-finalize the active segment, e.g. when the session is
+    /// stopping. Optional helper for `stop()` flush paths.
+    func finalizePending() {
+        guard pending.hasContent else { return }
+        let segment = LiveCaptionSegment(
+            id: "bilingual-\(nextSequence)",
+            sourceText: pending.sourceText.trimmingCharacters(in: .whitespacesAndNewlines),
+            translatedText: pending.translatedText.trimmingCharacters(in: .whitespacesAndNewlines),
+            isFinal: true,
+            sequence: nextSequence
+        )
+        finalized.append(segment)
+        nextSequence += 1
+        pending = Pending()
+    }
+
+    func snapshot() -> [LiveCaptionSegment] {
+        var segments = finalized
+        if pending.hasContent {
+            segments.append(
+                LiveCaptionSegment(
+                    id: "bilingual-\(nextSequence)",
+                    sourceText: pending.sourceText.trimmingCharacters(in: .whitespacesAndNewlines),
+                    translatedText: pending.translatedText.trimmingCharacters(in: .whitespacesAndNewlines),
+                    isFinal: false,
+                    sequence: nextSequence
+                )
+            )
+        }
+        return segments
     }
 }
 
