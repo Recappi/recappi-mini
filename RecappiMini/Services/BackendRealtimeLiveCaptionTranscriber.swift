@@ -50,6 +50,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var isAcceptingInput = false
+    private var didRequestStop = false
     private var pendingAudioBufferCount = 0
     private var lastPublishedSegments: [LiveCaptionSegment] = []
     private var transcriptTimeline: [TranscriptItemKey] = []
@@ -101,6 +102,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
     func stop(saveTo sessionDir: URL?) {
         inputQueue.sync {
+            didRequestStop = true
             isAcceptingInput = false
             switch mode {
             case .transcription:
@@ -122,6 +124,9 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     }
 
     private func run() async {
+        inputQueue.sync {
+            didRequestStop = false
+        }
         let preparingMessage = mode.isTranslation
             ? "Preparing bilingual live captions..."
             : "Preparing backend live captions..."
@@ -166,7 +171,8 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
                 : "Listening with backend Realtime"
             await publish(.statusOnly(phase: .listening, message: listeningMessage))
         } catch {
-            await publish(.statusOnly(phase: .failed, message: error.localizedDescription))
+            guard !isStopRequested else { return }
+            await publish(.statusOnly(phase: .failed, message: Self.userFacingFailureMessage(for: error)))
         }
     }
 
@@ -178,9 +184,14 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
                 self.consume(message)
                 self.receiveLoop(task)
             case .failure(let error):
-                self.publishFromCallback(.statusOnly(phase: .failed, message: error.localizedDescription))
+                guard !self.isStopRequested else { return }
+                self.publishFromCallback(.statusOnly(phase: .failed, message: Self.userFacingFailureMessage(for: error)))
             }
         }
+    }
+
+    private var isStopRequested: Bool {
+        inputQueue.sync { didRequestStop }
     }
 
     private func consume(_ message: URLSessionWebSocketTask.Message) {
@@ -242,6 +253,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             builder.append(stream: stream, delta: text)
             let segments = builder.snapshot()
             guard segments != lastPublishedSegments else { return nil }
+            Self.logBilingualSplitStats(segments)
             lastPublishedSegments = segments
             let allFinal = segments.allSatisfy(\.isFinal)
             return LiveCaptionSnapshot(
@@ -251,6 +263,25 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
                 message: nil
             )
         }
+    }
+
+    private static func logBilingualSplitStats(_ segments: [LiveCaptionSegment]) {
+        let sourceText = segments.map(\.sourceText)
+            .joined(separator: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        let translationText = segments.compactMap(\.translatedText)
+            .joined(separator: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+
+        let sourceSplit = LiveCaptionSentenceSplitter.split(sourceText, mode: .source)
+        let translationSplit = LiveCaptionSentenceSplitter.split(translationText, mode: .translation)
+        let sourceLens = sourceSplit.map(\.count).map(String.init).joined(separator: ",")
+        let translationLens = translationSplit.map(\.count).map(String.init).joined(separator: ",")
+        bilingualLog.info(
+            "splitter.stats sourceLen=\(sourceText.count) sourceCount=\(sourceSplit.count) sourceLens=\(sourceLens, privacy: .public) targetLen=\(translationText.count) targetCount=\(translationSplit.count) targetLens=\(translationLens, privacy: .public)"
+        )
     }
 
 #if DEBUG
@@ -510,6 +541,27 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         if previous.isPunctuation || previous.isSymbol { return true }
         if previous.isCJK || next.isCJK { return false }
         return true
+    }
+
+    private static func userFacingFailureMessage(for error: Error) -> String {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorNotConnectedToInternet:
+                return "网络不可用，字幕服务暂时中断"
+            case NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost, NSURLErrorTimedOut:
+                return "无法连接字幕服务"
+            case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted,
+                 NSURLErrorServerCertificateHasBadDate, NSURLErrorServerCertificateNotYetValid,
+                 NSURLErrorServerCertificateHasUnknownRoot:
+                return "无法连接字幕服务（TLS/代理连接失败）"
+            default:
+                return "字幕服务连接已断开"
+            }
+        }
+
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return message.isEmpty ? "字幕服务暂时不可用" : message
     }
 
     private func sendAudio(_ data: Data) {

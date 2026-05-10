@@ -28,7 +28,7 @@ enum LiveCaptionPanelMode: String {
             // First-open default. The user can drag the panel taller
             // for more caption history; we no longer pin the SwiftUI
             // tree to a hard-coded height so the resize sticks.
-            return NSSize(width: 820, height: 420)
+            return NSSize(width: 560, height: 420)
         case .compact:
             return NSSize(width: 542, height: 104)
         }
@@ -230,8 +230,39 @@ struct LiveCaptionFloatingPanel: View {
                 .monospacedDigit()
                 .foregroundStyle(Color.dtLabelSecondary)
 
+            if let liveCaptionErrorMessage {
+                liveCaptionErrorIndicator(message: liveCaptionErrorMessage)
+            }
+
+            if liveCaptionShowsTranslation {
+                paneVisibilityControls
+            }
+
+            liveCaptionModeStatus
+
             captionControlButtons
         }
+    }
+
+    private func liveCaptionErrorIndicator(message: String) -> some View {
+        Button {
+            let alert = NSAlert()
+            alert.messageText = "Live captions"
+            alert.informativeText = message
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        } label: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DT.statusWarning)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(message)
+        .accessibilityLabel("Live caption error")
+        .accessibilityValue(message)
     }
 
     private var liveBadge: some View {
@@ -257,24 +288,10 @@ struct LiveCaptionFloatingPanel: View {
 
     private var liveCaptionWorkspace: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Label("Live captions", systemImage: "captions.bubble.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.dtLabel)
-                Spacer(minLength: 0)
-                if liveCaptionShowsTranslation {
-                    paneVisibilityControls
-                }
-                liveCaptionModeStatus
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
-
             GeometryReader { proxy in
                 liveCaptionPaneGrid
-                    .padding(.horizontal, 14)
-                    .padding(.top, 12)
-                    .padding(.bottom, 14)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
                     .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -301,25 +318,25 @@ struct LiveCaptionFloatingPanel: View {
             Button {
                 togglePane(.captionOnly)
             } label: {
-                Text("Caption")
-                    .font(.system(size: 10, weight: .semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                Image(systemName: "captions.bubble")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 24, height: 20)
             }
             .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: paneVisibility.showsCaption))
             .disabled(paneVisibility == .captionOnly)
+            .help("Caption only")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionToggleButton)
 
             Button {
                 togglePane(.translationOnly)
             } label: {
-                Text("Translation")
-                    .font(.system(size: 10, weight: .semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                Image(systemName: "translate")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 24, height: 20)
             }
             .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: paneVisibility.showsTranslation))
             .disabled(paneVisibility == .translationOnly)
+            .help("Translation only")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingTranslationToggleButton)
         }
         .padding(2)
@@ -350,18 +367,11 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var captionPlaceholderText: String {
-        if let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !message.isEmpty {
-            return message
-        }
-        return "Listening for caption audio"
+        "正在听..."
     }
 
     private var translationPlaceholderText: String {
-        if !sourceStreamText.isEmpty {
-            return "Waiting for translation"
-        }
-        return "Listening for translation"
+        "正在听..."
     }
 
     private var sourceStreamText: String {
@@ -432,8 +442,8 @@ struct LiveCaptionFloatingPanel: View {
                         systemImage: "captions.bubble",
                         segments: sourcePaneSegments,
                         placeholderText: captionPlaceholderText,
-                        isPlaceholder: sourcePaneSegments.isEmpty,
-                        errorMessage: liveCaptionErrorMessage,
+                        isPlaceholder: paneVisibility != .both && sourcePaneSegments.isEmpty,
+                        errorMessage: nil,
                         viewportID: AccessibilityIDs.Cloud.currentMeetingCaptionViewport,
                         textID: AccessibilityIDs.Cloud.currentMeetingCaption
                     )
@@ -444,7 +454,7 @@ struct LiveCaptionFloatingPanel: View {
                         systemImage: "translate",
                         segments: translationPaneSegments,
                         placeholderText: translationPlaceholderText,
-                        isPlaceholder: translationPaneSegments.isEmpty,
+                        isPlaceholder: paneVisibility != .both && translationPaneSegments.isEmpty,
                         errorMessage: nil,
                         viewportID: AccessibilityIDs.Cloud.currentMeetingTranslationViewport,
                         textID: AccessibilityIDs.Cloud.currentMeetingTranslation
@@ -457,7 +467,7 @@ struct LiveCaptionFloatingPanel: View {
                 segments: viewportSegments,
                 placeholderText: captionLine,
                 isPlaceholder: !hasLiveCaptionSegments,
-                errorMessage: liveCaptionErrorMessage,
+                errorMessage: nil,
                 viewportID: AccessibilityIDs.Cloud.currentMeetingCaptionViewport,
                 textID: AccessibilityIDs.Cloud.currentMeetingCaption
             )
@@ -653,12 +663,7 @@ private struct LiveCaptionStreamPane: View {
     let textID: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Color.dtLabelSecondary)
-                .lineLimit(1)
-
+        VStack(alignment: .leading, spacing: 0) {
             LiveCaptionTextViewport(
                 segments: segments,
                 placeholderText: placeholderText,
@@ -1009,14 +1014,15 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
 
         private static func flatAttributes(isPlaceholder: Bool) -> [NSAttributedString.Key: Any] {
             let paragraph = NSMutableParagraphStyle()
-            paragraph.lineSpacing = 4
+            paragraph.lineSpacing = 2
+            paragraph.paragraphSpacing = 6
             paragraph.lineBreakMode = .byWordWrapping
             paragraph.alignment = .left
             let foreground: NSColor = isPlaceholder
                 ? NSColor.secondaryLabelColor
                 : NSColor.labelColor
             return [
-                .font: NSFont.systemFont(ofSize: 15, weight: .medium),
+                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
                 .foregroundColor: foreground,
                 .paragraphStyle: paragraph,
             ]
@@ -1024,7 +1030,8 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
 
         private static func translationAttributes() -> [NSAttributedString.Key: Any] {
             let paragraph = NSMutableParagraphStyle()
-            paragraph.lineSpacing = 4
+            paragraph.lineSpacing = 2
+            paragraph.paragraphSpacing = 6
             paragraph.lineBreakMode = .byWordWrapping
             paragraph.alignment = .left
             return [

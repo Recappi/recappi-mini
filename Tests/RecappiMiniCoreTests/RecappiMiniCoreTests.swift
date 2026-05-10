@@ -50,6 +50,53 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testLiveCaptionSentenceSplitterSoftSplitsLongEnglishWithoutSentencePunctuation() {
+        let segments = LiveCaptionSentenceSplitter.split(
+            "This realtime stream keeps talking about product strategy, implementation details, and the tradeoffs between latency and readability while the model has not produced sentence punctuation yet",
+            mode: .source
+        )
+
+        XCTAssertGreaterThan(segments.count, 1)
+        XCTAssertLessThanOrEqual(segments.map(\.count).max() ?? 0, 90)
+        XCTAssertEqual(
+            segments.joined(separator: " "),
+            "This realtime stream keeps talking about product strategy, implementation details, and the tradeoffs between latency and readability while the model has not produced sentence punctuation yet"
+        )
+    }
+
+    func testLiveCaptionSentenceSplitterMergesTinyEnglishTailIntoPreviousSegment() {
+        let segments = LiveCaptionSentenceSplitter.split(
+            "The first thought is already complete. ok",
+            mode: .source
+        )
+
+        XCTAssertEqual(
+            segments,
+            ["The first thought is already complete. ok"]
+        )
+    }
+
+    func testLiveCaptionSentenceSplitterSoftSplitsLongCJKWithoutSentencePunctuation() {
+        let text = "这段实时翻译一直在继续输出内容，但是模型暂时没有给出句号，所以界面需要按照逗号和长度做自然分段，避免右侧翻译栏变成一整块难读的文字"
+        let segments = LiveCaptionSentenceSplitter.split(text, mode: .translation)
+
+        XCTAssertGreaterThan(segments.count, 1)
+        XCTAssertLessThanOrEqual(segments.map(\.count).max() ?? 0, 42)
+        XCTAssertEqual(segments.joined(), text)
+    }
+
+    func testLiveCaptionSentenceSplitterMergesTinyCJKTailIntoPreviousSegment() {
+        let segments = LiveCaptionSentenceSplitter.split(
+            "这个实时翻译段落已经结束。好",
+            mode: .translation
+        )
+
+        XCTAssertEqual(
+            segments,
+            ["这个实时翻译段落已经结束。好"]
+        )
+    }
+
     func testNormalizeBearerSupportsRawTokenAndHeader() throws {
         XCTAssertEqual(AuthSessionStore.normalizeBearerToken("abc.123"), "abc.123")
         XCTAssertEqual(AuthSessionStore.normalizeBearerToken("Bearer xyz.789"), "xyz.789")

@@ -763,7 +763,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private func applyLiveCaptionContentSizeConstraints(_ window: NSWindow, mode: LiveCaptionPanelMode) {
         switch mode {
         case .expanded:
-            window.contentMinSize = NSSize(width: 380, height: 280)
+            window.contentMinSize = NSSize(width: 560, height: 280)
             window.contentMaxSize = NSSize(width: 900, height: 1200)
         case .compact:
             window.contentMinSize = mode.defaultWindowSize

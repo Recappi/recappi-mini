@@ -13,10 +13,15 @@ enum LiveCaptionSentenceSplitter {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return [] }
 
-        if mode == .translation, text.contains(where: \.isLiveCaptionCJK) {
-            return splitCJK(text)
+        let sentenceSegments = if mode == .translation, text.contains(where: \.isLiveCaptionCJK) {
+            splitCJK(text)
+        } else {
+            splitSpacedLanguage(text)
         }
-        return splitSpacedLanguage(text)
+        return mergeTinyTrailingSegment(
+            sentenceSegments.flatMap { splitLongSegment($0, mode: mode) },
+            mode: mode
+        )
     }
 
     private static func splitCJK(_ text: String) -> [String] {
@@ -120,6 +125,81 @@ enum LiveCaptionSentenceSplitter {
         result.append(segment)
     }
 
+    private static func splitLongSegment(_ segment: String, mode: Mode) -> [String] {
+        var remaining = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !remaining.isEmpty else { return [] }
+
+        let limit = longSegmentLimit(for: remaining, mode: mode)
+        guard remaining.count > limit else { return [remaining] }
+
+        var result: [String] = []
+        while remaining.count > limit {
+            let cutIndex = preferredSoftCutIndex(in: remaining, limit: limit, mode: mode)
+            appendSegment(String(remaining[..<cutIndex]), to: &result)
+            remaining = String(remaining[cutIndex...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        appendSegment(remaining, to: &result)
+        return result
+    }
+
+    private static func longSegmentLimit(for text: String, mode: Mode) -> Int {
+        if mode == .translation, text.contains(where: \.isLiveCaptionCJK) {
+            return 42
+        }
+        return 90
+    }
+
+    private static func mergeTinyTrailingSegment(_ segments: [String], mode: Mode) -> [String] {
+        guard segments.count > 1, let tail = segments.last else { return segments }
+
+        let limit = tinyTrailingSegmentLimit(for: tail, mode: mode)
+        guard tail.count < limit else { return segments }
+
+        var result = Array(segments.dropLast())
+        guard let previous = result.popLast() else { return segments }
+        let separator = shouldJoinWithoutSpace(previous: previous, tail: tail, mode: mode) ? "" : " "
+        result.append(previous + separator + tail)
+        return result
+    }
+
+    private static func tinyTrailingSegmentLimit(for text: String, mode: Mode) -> Int {
+        if mode == .translation, text.contains(where: \.isLiveCaptionCJK) {
+            return 8
+        }
+        return 12
+    }
+
+    private static func shouldJoinWithoutSpace(previous: String, tail: String, mode: Mode) -> Bool {
+        mode == .translation && (previous.contains(where: \.isLiveCaptionCJK) || tail.contains(where: \.isLiveCaptionCJK))
+    }
+
+    private static func preferredSoftCutIndex(
+        in text: String,
+        limit: Int,
+        mode: Mode
+    ) -> String.Index {
+        let end = text.index(text.startIndex, offsetBy: min(limit, text.count))
+        let minimumPrefix = text.index(text.startIndex, offsetBy: min(max(limit / 2, 24), text.count))
+        let searchRange = minimumPrefix..<end
+
+        if let punctuation = text[searchRange]
+            .indices
+            .reversed()
+            .first(where: { text[$0].isLiveCaptionSoftBoundary(for: mode) }) {
+            return text.index(after: punctuation)
+        }
+
+        if let whitespace = text[searchRange]
+            .indices
+            .reversed()
+            .first(where: { text[$0].isWhitespace }) {
+            return whitespace
+        }
+
+        return end
+    }
+
     private static func skipWhitespace(in text: String, from index: String.Index) -> String.Index {
         var current = index
         while current < text.endIndex, text[current].isWhitespace {
@@ -156,5 +236,16 @@ private extension Character {
         self == "\"" || self == "'" || self == "”" || self == "’" ||
             self == "」" || self == "』" || self == ")" || self == "）" ||
             self == "]" || self == "】"
+    }
+
+    func isLiveCaptionSoftBoundary(for mode: LiveCaptionSentenceSplitter.Mode) -> Bool {
+        switch mode {
+        case .source:
+            return self == "," || self == ";" || self == ":" ||
+                self == "—" || self == "–"
+        case .translation:
+            return self == "，" || self == "," || self == "；" ||
+                self == ";" || self == "、" || self == "："
+        }
     }
 }
