@@ -38,6 +38,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private static let manualCommitByteThreshold = 67_200
     private static let minimumManualCommitByteCount = 4_800
     private static let targetSampleRate: Double = 24_000
+    private static let reconnectDelays: [TimeInterval] = [1, 2, 5, 10, 30]
     private static let bilingualLog = Logger(subsystem: "recappi.bilingual", category: "live-captions")
 
     private let inputQueue = DispatchQueue(label: "RecappiMini.BackendRealtimeLiveCaptionTranscriber.input")
@@ -51,6 +52,8 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private var webSocketTask: URLSessionWebSocketTask?
     private var isAcceptingInput = false
     private var didRequestStop = false
+    private var reconnectAttempt = 0
+    private var reconnectGeneration = 0
     private var pendingAudioBufferCount = 0
     private var lastPublishedSegments: [LiveCaptionSegment] = []
     private var transcriptTimeline: [TranscriptItemKey] = []
@@ -80,7 +83,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
     func start() {
         Task { [weak self] in
-            await self?.run()
+            await self?.run(resetState: true)
         }
     }
 
@@ -103,6 +106,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     func stop(saveTo sessionDir: URL?) {
         inputQueue.sync {
             didRequestStop = true
+            reconnectGeneration += 1
             isAcceptingInput = false
             switch mode {
             case .transcription:
@@ -123,14 +127,16 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         }
     }
 
-    private func run() async {
+    private func run(resetState: Bool) async {
         inputQueue.sync {
             didRequestStop = false
         }
-        let preparingMessage = mode.isTranslation
-            ? "Preparing bilingual live captions..."
-            : "Preparing backend live captions..."
-        await publish(.statusOnly(phase: .preparing, message: preparingMessage))
+        if resetState {
+            let preparingMessage = mode.isTranslation
+                ? "Preparing bilingual live captions..."
+                : "Preparing backend live captions..."
+            await publish(.statusOnly(phase: .preparing, message: preparingMessage))
+        }
 
         do {
             let claim: OpenAIRealtimeSessionClaim
@@ -146,6 +152,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             guard let url = URL(string: claim.websocketUrl) else {
                 throw RecappiAPIError.invalidURL
             }
+            guard !isStopRequested else { return }
 
             var request = URLRequest(url: url)
             request.timeoutInterval = 60
@@ -159,7 +166,9 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
                 hasUncommittedAudio = false
                 uncommittedAudioByteCount = 0
             }
-            resetTranscriptState()
+            if resetState {
+                resetTranscriptState()
+            }
             task.resume()
             receiveLoop(task)
 
@@ -172,7 +181,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             await publish(.statusOnly(phase: .listening, message: listeningMessage))
         } catch {
             guard !isStopRequested else { return }
-            await publish(.statusOnly(phase: .failed, message: Self.userFacingFailureMessage(for: error)))
+            handleConnectionFailure(error, task: nil)
         }
     }
 
@@ -181,12 +190,75 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             guard let self, let task else { return }
             switch result {
             case .success(let message):
+                self.markConnectionHealthy()
                 self.consume(message)
                 self.receiveLoop(task)
             case .failure(let error):
-                guard !self.isStopRequested else { return }
-                self.publishFromCallback(.statusOnly(phase: .failed, message: Self.userFacingFailureMessage(for: error)))
+                self.handleConnectionFailure(error, task: task)
             }
+        }
+    }
+
+    private func markConnectionHealthy() {
+        inputQueue.sync {
+            reconnectAttempt = 0
+        }
+    }
+
+    private func handleConnectionFailure(_ error: Error, task failedTask: URLSessionWebSocketTask?) {
+        enum Decision {
+            case ignore
+            case retry(attempt: Int, delay: TimeInterval, generation: Int)
+            case giveUp(message: String)
+        }
+
+        let decision: Decision = inputQueue.sync {
+            guard !didRequestStop else { return .ignore }
+            if let failedTask {
+                guard let current = webSocketTask, current === failedTask else { return .ignore }
+            }
+
+            isAcceptingInput = false
+            webSocketTask?.cancel(with: .goingAway, reason: nil)
+            webSocketTask = nil
+            hasUncommittedAudio = false
+            uncommittedAudioByteCount = 0
+
+            guard reconnectAttempt < Self.reconnectDelays.count else {
+                return .giveUp(message: Self.userFacingFailureMessage(for: error))
+            }
+
+            let attempt = reconnectAttempt + 1
+            reconnectAttempt = attempt
+            reconnectGeneration += 1
+            return .retry(
+                attempt: attempt,
+                delay: Self.reconnectDelays[attempt - 1],
+                generation: reconnectGeneration
+            )
+        }
+
+        switch decision {
+        case .ignore:
+            return
+        case .giveUp(let message):
+            publishFromCallback(.statusOnly(phase: .failed, message: message))
+        case .retry(let attempt, let delay, let generation):
+            publishFromCallback(.statusOnly(
+                phase: .failed,
+                message: "字幕服务连接已断开，正在重连（第 \(attempt) 次）"
+            ))
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard let self, self.shouldRunReconnect(generation: generation) else { return }
+                await self.run(resetState: false)
+            }
+        }
+    }
+
+    private func shouldRunReconnect(generation: Int) -> Bool {
+        inputQueue.sync {
+            !didRequestStop && reconnectGeneration == generation
         }
     }
 
@@ -609,6 +681,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         task.send(.string(text)) { error in
             guard let error else { return }
             NSLog("[Recappi] backend realtime live captions send failed: %@", error.localizedDescription)
+            self.handleConnectionFailure(error, task: task)
         }
     }
 
