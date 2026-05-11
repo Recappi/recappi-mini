@@ -974,11 +974,18 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     var canReconnectLiveCaptions: Bool {
         liveCaptionTranscriber is BackendRealtimeLiveCaptionTranscriber
+            || (uiTestMode.isEnabled && state == .recording)
     }
 
     func reconnectLiveCaptionsNow() {
         guard let transcriber = liveCaptionTranscriber as? BackendRealtimeLiveCaptionTranscriber else {
-            DiagnosticsLog.warning("live-caption", "reconnect.ignored reason=unsupported_provider")
+            guard uiTestMode.isEnabled else {
+                DiagnosticsLog.warning("live-caption", "reconnect.ignored reason=unsupported_provider")
+                return
+            }
+            DiagnosticsLog.event("live-caption", "reconnect.manual.ui_test")
+            liveCaptionMessage = "正在重新连接字幕服务"
+            liveCaptionStatusPhase = .failed
             return
         }
         DiagnosticsLog.event("live-caption", "reconnect.manual")

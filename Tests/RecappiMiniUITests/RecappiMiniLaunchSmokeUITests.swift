@@ -217,6 +217,43 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         add(attachment)
     }
 
+    func testManualLiveCaptionReconnectDoesNotInterruptOrClearCaptions() throws {
+        let liveCaption = "Reconnect smoke caption should stay visible after a manual reconnect click."
+        let app = launchRecappiApp(
+            authToken: "invalid-test-token",
+            simulatedLiveCaptionText: liveCaption
+        )
+
+        startFixtureRecording(in: app)
+
+        let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
+        XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions panel.")
+
+        let caption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
+        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Expected current-meeting captions in Cloud.")
+        let captionText = [caption.label, caption.value as? String]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        XCTAssertTrue(captionText.localizedCaseInsensitiveContains("Reconnect smoke caption"))
+
+        let reconnectButton = app.buttons[UITestIDs.Cloud.currentMeetingCaptionReconnectButton]
+        XCTAssertTrue(reconnectButton.waitForExistence(timeout: 5), "Expected a manual reconnect control in the live caption panel.")
+        reconnectButton.click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+
+        XCTAssertFalse(
+            app.buttons["OK"].waitForExistence(timeout: 0.5),
+            "Manual reconnect should not show a blocking NSAlert confirmation button."
+        )
+        let captionTextAfterReconnect = [caption.label, caption.value as? String]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        XCTAssertTrue(
+            captionTextAfterReconnect.localizedCaseInsensitiveContains("Reconnect smoke caption"),
+            "Manual reconnect should preserve existing live captions, got: \(captionTextAfterReconnect)"
+        )
+    }
+
     func testLiveCaptionsBilingualPanelShowsIndependentStreams() throws {
         let sourceText = "If you have a team, pay attention. It is a very important thing. You should pay them too"
         let translationText = "如果你有一个团队，要多关注他们。这是一件很重要的事情。你也应该付钱给他们"
