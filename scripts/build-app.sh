@@ -97,7 +97,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
     <key>CFBundleExecutable</key>
     <string>RecappiMini</string>
     <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
+    <string>Recappi</string>
+    <key>CFBundleIconName</key>
+    <string>Recappi</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
@@ -129,24 +131,29 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
 </plist>
 EOF
 
-# Generate AppIcon.icns from Resources/Logo.png
-echo "Generating AppIcon.icns..."
-LOGO_SRC="$PROJECT_DIR/RecappiMini/Resources/Logo.png"
-ICONSET="$PROJECT_DIR/build/AppIcon.iconset"
-rm -rf "$ICONSET" && mkdir -p "$ICONSET"
-# macOS .icns requires these exact size/@2x pairs.
-sips -z 16 16     "$LOGO_SRC" --out "$ICONSET/icon_16x16.png"     >/dev/null
-sips -z 32 32     "$LOGO_SRC" --out "$ICONSET/icon_16x16@2x.png"  >/dev/null
-sips -z 32 32     "$LOGO_SRC" --out "$ICONSET/icon_32x32.png"     >/dev/null
-sips -z 64 64     "$LOGO_SRC" --out "$ICONSET/icon_32x32@2x.png"  >/dev/null
-sips -z 128 128   "$LOGO_SRC" --out "$ICONSET/icon_128x128.png"   >/dev/null
-sips -z 256 256   "$LOGO_SRC" --out "$ICONSET/icon_128x128@2x.png" >/dev/null
-sips -z 256 256   "$LOGO_SRC" --out "$ICONSET/icon_256x256.png"   >/dev/null
-sips -z 512 512   "$LOGO_SRC" --out "$ICONSET/icon_256x256@2x.png" >/dev/null
-sips -z 512 512   "$LOGO_SRC" --out "$ICONSET/icon_512x512.png"   >/dev/null
-cp "$LOGO_SRC" "$ICONSET/icon_512x512@2x.png"
-iconutil -c icns "$ICONSET" -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
-rm -rf "$ICONSET"
+# Compile the Icon Composer bundle (RecappiMini/Resources/Recappi.icon) via
+# actool. The .icon file is passed directly as actool's document argument
+# (no .xcassets wrapper) — that's the only mode that emits Assets.car +
+# fallback Recappi.icns for the new Liquid Glass icon format.
+echo "Compiling Recappi.icon via actool..."
+PARTIAL_PLIST="$PROJECT_DIR/build/RecappiIconPartial.plist"
+xcrun actool "$PROJECT_DIR/RecappiMini/Resources/Recappi.icon" \
+    --compile "$APP_BUNDLE/Contents/Resources" \
+    --output-format human-readable-text \
+    --notices --warnings \
+    --output-partial-info-plist "$PARTIAL_PLIST" \
+    --app-icon Recappi \
+    --include-all-app-icons \
+    --enable-on-demand-resources NO \
+    --development-region en \
+    --target-device mac \
+    --minimum-deployment-target 26.0 \
+    --platform macosx \
+    > /dev/null
+
+# Merge CFBundleIconName / CFBundleIconFile written by actool into Info.plist.
+/usr/libexec/PlistBuddy -c "Merge $PARTIAL_PLIST" "$APP_BUNDLE/Contents/Info.plist"
+rm -f "$PARTIAL_PLIST"
 
 if [ "$RELEASE_MODE" = "1" ] && [ "$CODESIGN_IDENTITY" != "-" ]; then
     codesign \
