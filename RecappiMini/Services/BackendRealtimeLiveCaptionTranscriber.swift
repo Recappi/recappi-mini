@@ -39,7 +39,11 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private static let minimumManualCommitByteCount = 4_800
     private static let targetSampleRate: Double = 24_000
     private static let reconnectDelays: [TimeInterval] = [1, 2, 5, 10, 30]
+    private static let stallWatchdogInterval: TimeInterval = 3
+    private static let stallNoOutputThreshold: TimeInterval = 8
+    private static let stallMinimumVoicedBuffers = 8
     private static let bilingualLog = Logger(subsystem: "recappi.bilingual", category: "live-captions")
+    private static let realtimeLog = Logger(subsystem: "recappi.realtime", category: "live-captions")
 
     private let inputQueue = DispatchQueue(label: "RecappiMini.BackendRealtimeLiveCaptionTranscriber.input")
     private let stateQueue = DispatchQueue(label: "RecappiMini.BackendRealtimeLiveCaptionTranscriber.state")
@@ -50,10 +54,19 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private let mode: Mode
 
     private var webSocketTask: URLSessionWebSocketTask?
+    private var stallWatchdogTask: Task<Void, Never>?
     private var isAcceptingInput = false
     private var didRequestStop = false
     private var reconnectAttempt = 0
     private var reconnectGeneration = 0
+    private var connectionStartedAt: Date?
+    private var lastInboundTranscriptAt: Date?
+    private var lastAudioStatsLogAt: Date = .distantPast
+    private var lastIgnoredEventStatsLogAt: Date = .distantPast
+    private var lastVoicedAudioSentAt: Date?
+    private var ignoredOutputAudioDeltaCountSinceLog = 0
+    private var audioBufferCountSinceInbound = 0
+    private var voicedAudioBufferCountSinceInbound = 0
     private var pendingAudioBufferCount = 0
     private var lastPublishedSegments: [LiveCaptionSegment] = []
     private var transcriptTimeline: [TranscriptItemKey] = []
@@ -108,6 +121,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             didRequestStop = true
             reconnectGeneration += 1
             isAcceptingInput = false
+            cancelStallWatchdogLocked()
             switch mode {
             case .transcription:
                 commitPendingAudio(force: true)
@@ -127,6 +141,28 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         }
     }
 
+    func reconnectNow() {
+        let generation = inputQueue.sync { () -> Int? in
+            guard !didRequestStop else { return nil }
+            reconnectGeneration += 1
+            reconnectAttempt = 0
+            isAcceptingInput = false
+            cancelStallWatchdogLocked()
+            webSocketTask?.cancel(with: .goingAway, reason: nil)
+            webSocketTask = nil
+            hasUncommittedAudio = false
+            uncommittedAudioByteCount = 0
+            return reconnectGeneration
+        }
+
+        guard generation != nil else { return }
+        Self.writeHealthLog("ws.reconnect.manual")
+        publishFromCallback(.statusOnly(phase: .failed, message: "正在重新连接字幕服务"))
+        Task { [weak self] in
+            await self?.run(resetState: false)
+        }
+    }
+
     private func run(resetState: Bool) async {
         inputQueue.sync {
             didRequestStop = false
@@ -139,6 +175,9 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         }
 
         do {
+            Self.writeHealthLog(
+                "session.claim.start mode=\(Self.modeLabel(mode)) language=\(language) resetState=\(resetState)"
+            )
             let claim: OpenAIRealtimeSessionClaim
             switch mode {
             case .transcription:
@@ -149,6 +188,9 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
                     targetLanguage: targetLanguage
                 )
             }
+            Self.writeHealthLog(
+                "session.claim.success mode=\(claim.mode) session=\(claim.sessionId) quotaTier=\(claim.quota.tier) claimsPerMinute=\(claim.quota.claimsPerMinute)"
+            )
             guard let url = URL(string: claim.websocketUrl) else {
                 throw RecappiAPIError.invalidURL
             }
@@ -165,6 +207,16 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
                 isAcceptingInput = true
                 hasUncommittedAudio = false
                 uncommittedAudioByteCount = 0
+                connectionStartedAt = Date()
+                lastInboundTranscriptAt = nil
+                lastVoicedAudioSentAt = nil
+                ignoredOutputAudioDeltaCountSinceLog = 0
+                audioBufferCountSinceInbound = 0
+                voicedAudioBufferCountSinceInbound = 0
+                Self.writeHealthLog(
+                    "ws.connected mode=\(Self.modeLabel(mode)) resetState=\(resetState) reconnectAttempt=\(reconnectAttempt)"
+                )
+                startStallWatchdogLocked(generation: reconnectGeneration)
             }
             if resetState {
                 resetTranscriptState()
@@ -181,6 +233,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             await publish(.statusOnly(phase: .listening, message: listeningMessage))
         } catch {
             guard !isStopRequested else { return }
+            Self.writeHealthLog("session.claim_or_connect.failed \(DiagnosticsLog.errorSummary(error))")
             handleConnectionFailure(error, task: nil)
         }
     }
@@ -219,6 +272,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             }
 
             isAcceptingInput = false
+            cancelStallWatchdogLocked()
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             webSocketTask = nil
             hasUncommittedAudio = false
@@ -242,8 +296,10 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         case .ignore:
             return
         case .giveUp(let message):
+            Self.writeHealthLog("ws.reconnect.give_up message=\(message)")
             publishFromCallback(.statusOnly(phase: .failed, message: message))
         case .retry(let attempt, let delay, let generation):
+            Self.writeHealthLog("ws.reconnect.scheduled attempt=\(attempt) delay=\(delay)")
             publishFromCallback(.statusOnly(
                 phase: .failed,
                 message: "字幕服务连接已断开，正在重连（第 \(attempt) 次）"
@@ -262,6 +318,50 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         }
     }
 
+    private func startStallWatchdogLocked(generation: Int) {
+        cancelStallWatchdogLocked()
+        stallWatchdogTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(
+                    nanoseconds: UInt64(Self.stallWatchdogInterval * 1_000_000_000)
+                )
+                guard let self else { return }
+                self.evaluateStallWatchdog(generation: generation)
+            }
+        }
+    }
+
+    private func cancelStallWatchdogLocked() {
+        stallWatchdogTask?.cancel()
+        stallWatchdogTask = nil
+    }
+
+    private func evaluateStallWatchdog(generation: Int) {
+        let shouldReconnect = inputQueue.sync { () -> Bool in
+            guard !didRequestStop,
+                  reconnectGeneration == generation,
+                  webSocketTask != nil,
+                  isAcceptingInput,
+                  voicedAudioBufferCountSinceInbound >= Self.stallMinimumVoicedBuffers,
+                  let lastVoicedAudioSentAt,
+                  Date().timeIntervalSince(lastVoicedAudioSentAt) <= Self.stallWatchdogInterval + 1 else {
+                return false
+            }
+
+            let lastOutputAt = lastInboundTranscriptAt ?? connectionStartedAt ?? Date()
+            let quietFor = Date().timeIntervalSince(lastOutputAt)
+            guard quietFor >= Self.stallNoOutputThreshold else { return false }
+
+            Self.writeHealthLog(
+                "ws.stall_detected quietFor=\(Self.formatSeconds(quietFor)) audioBuffers=\(audioBufferCountSinceInbound) voicedBuffers=\(voicedAudioBufferCountSinceInbound)"
+            )
+            return true
+        }
+
+        guard shouldReconnect else { return }
+        handleConnectionFailure(RealtimeStallError(), task: nil)
+    }
+
     private var isStopRequested: Bool {
         inputQueue.sync { didRequestStop }
     }
@@ -276,8 +376,12 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         @unknown default:
             data = nil
         }
-        guard let data,
-              let event = try? JSONDecoder().decode(RealtimeEvent.self, from: data) else {
+        guard let data else {
+            Self.writeHealthLog("ws.receive.empty_message")
+            return
+        }
+        guard let event = try? JSONDecoder().decode(RealtimeEvent.self, from: data) else {
+            Self.writeHealthLog("ws.receive.decode_failed bytes=\(data.count)")
             return
         }
 
@@ -287,10 +391,12 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             registerCommittedItem(event.transcriptItemKey, previousItemID: event.previousItemID)
         case "conversation.item.input_audio_transcription.delta":
             if let snapshot = appendTranscriptDelta(event.delta, key: event.transcriptItemKey) {
+                markTranscriptOutput(stream: "source", characterCount: event.delta?.count ?? 0)
                 publishFromCallback(snapshot)
             }
         case "conversation.item.input_audio_transcription.completed":
             if let snapshot = completeTranscript(event.transcript, key: event.transcriptItemKey) {
+                markTranscriptOutput(stream: "source.completed", characterCount: event.transcript?.count ?? 0)
                 publishFromCallback(snapshot)
             }
         // Translation/bilingual mode events. The translation endpoint
@@ -300,6 +406,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         case "session.input_transcript.delta":
             if let delta = event.delta, !delta.isEmpty {
                 Self.bilingualLog.info("source.delta: \(delta, privacy: .private)")
+                markTranscriptOutput(stream: "source", characterCount: delta.count)
                 if let snapshot = ingestBilingualDelta(.source, text: delta) {
                     publishFromCallback(snapshot)
                 }
@@ -307,15 +414,46 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         case "session.output_transcript.delta":
             if let delta = event.delta, !delta.isEmpty {
                 Self.bilingualLog.info("target.delta: \(delta, privacy: .private)")
+                markTranscriptOutput(stream: "target", characterCount: delta.count)
                 if let snapshot = ingestBilingualDelta(.translation, text: delta) {
                     publishFromCallback(snapshot)
                 }
             }
         case "error":
-            let message = event.error?.message ?? "Backend Realtime failed."
+            let rawMessage = event.error?.message ?? "Backend Realtime failed."
+            let message = Self.userFacingFailureMessage(rawMessage: rawMessage)
+            Self.writeHealthLog("ws.event.error message=\(rawMessage)")
             publishFromCallback(.statusOnly(phase: .failed, message: message))
         default:
+            if event.type == "session.output_audio.delta" {
+                markIgnoredOutputAudioDelta()
+            } else {
+                Self.writeHealthLog("ws.event.ignored type=\(event.type)")
+            }
             break
+        }
+    }
+
+    private func markIgnoredOutputAudioDelta() {
+        inputQueue.sync {
+            ignoredOutputAudioDeltaCountSinceLog += 1
+            let now = Date()
+            guard now.timeIntervalSince(lastIgnoredEventStatsLogAt) >= 5 else { return }
+            lastIgnoredEventStatsLogAt = now
+            Self.writeHealthLog(
+                "ws.event.ignored_output_audio_delta countSinceLast=\(ignoredOutputAudioDeltaCountSinceLog) buffersSinceOutput=\(audioBufferCountSinceInbound) voicedSinceOutput=\(voicedAudioBufferCountSinceInbound)"
+            )
+            ignoredOutputAudioDeltaCountSinceLog = 0
+        }
+    }
+
+    private func markTranscriptOutput(stream: String, characterCount: Int) {
+        inputQueue.sync {
+            lastInboundTranscriptAt = Date()
+            audioBufferCountSinceInbound = 0
+            voicedAudioBufferCountSinceInbound = 0
+            ignoredOutputAudioDeltaCountSinceLog = 0
+            Self.writeHealthLog("ws.transcript.delta stream=\(stream) chars=\(characterCount)")
         }
     }
 
@@ -383,6 +521,10 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
 
     func handleBilingualTranslationDeltaForTesting(_ delta: String) -> LiveCaptionSnapshot? {
         ingestBilingualDelta(.translation, text: delta)
+    }
+
+    static func userFacingFailureMessageForTesting(rawMessage: String?) -> String {
+        userFacingFailureMessage(rawMessage: rawMessage)
     }
 #endif
 
@@ -632,7 +774,19 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             }
         }
 
-        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return userFacingFailureMessage(rawMessage: error.localizedDescription)
+    }
+
+    private static func userFacingFailureMessage(rawMessage: String?) -> String {
+        let message = rawMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let lowercasedMessage = message.lowercased()
+        if lowercasedMessage.contains("socket is not connected")
+            || lowercasedMessage.contains("socket not connected") {
+            return "字幕服务连接已断开"
+        }
+        if lowercasedMessage.contains("backend realtime failed") {
+            return "字幕服务暂时不可用"
+        }
         return message.isEmpty ? "字幕服务暂时不可用" : message
     }
 
@@ -648,6 +802,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             "type": eventType,
             "audio": data.base64EncodedString(),
         ])
+        recordAudioSentLocked(byteCount: data.count, isVoiced: Self.containsLikelySpeech(data))
         guard !mode.isTranslation else {
             // Translation streams continuously; no manual commit.
             return
@@ -681,8 +836,65 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         task.send(.string(text)) { error in
             guard let error else { return }
             NSLog("[Recappi] backend realtime live captions send failed: %@", error.localizedDescription)
+            Self.writeHealthLog("ws.send.failed \(DiagnosticsLog.errorSummary(error))")
             self.handleConnectionFailure(error, task: task)
         }
+    }
+
+    private func recordAudioSentLocked(byteCount: Int, isVoiced: Bool) {
+        let now = Date()
+        audioBufferCountSinceInbound += 1
+        if isVoiced {
+            voicedAudioBufferCountSinceInbound += 1
+            lastVoicedAudioSentAt = now
+        }
+
+        guard now.timeIntervalSince(lastAudioStatsLogAt) >= 5 else { return }
+        lastAudioStatsLogAt = now
+        Self.writeHealthLog(
+            "audio.sent bytes=\(byteCount) voiced=\(isVoiced) buffersSinceOutput=\(audioBufferCountSinceInbound) voicedSinceOutput=\(voicedAudioBufferCountSinceInbound)"
+        )
+    }
+
+    private static func containsLikelySpeech(_ data: Data) -> Bool {
+        let sampleStride = 64
+        let minimumAverageMagnitude = 240
+        var sampleCount = 0
+        var magnitudeTotal = 0
+
+        data.withUnsafeBytes { rawBuffer in
+            guard let samples = rawBuffer.bindMemory(to: Int16.self).baseAddress else { return }
+            let count = rawBuffer.count / MemoryLayout<Int16>.size
+            guard count > 0 else { return }
+
+            var index = 0
+            while index < count {
+                magnitudeTotal += Int(abs(Int32(samples[index])))
+                sampleCount += 1
+                index += sampleStride
+            }
+        }
+
+        guard sampleCount > 0 else { return false }
+        return magnitudeTotal / sampleCount >= minimumAverageMagnitude
+    }
+
+    private static func modeLabel(_ mode: Mode) -> String {
+        switch mode {
+        case .transcription:
+            return "transcription"
+        case .translation:
+            return "translation"
+        }
+    }
+
+    private static func writeHealthLog(_ message: String) {
+        realtimeLog.info("\(message, privacy: .public)")
+        DiagnosticsLog.event("live-caption", message)
+    }
+
+    private static func formatSeconds(_ value: TimeInterval) -> String {
+        String(format: "%.1f", value)
     }
 
     private func publish(_ snapshot: LiveCaptionSnapshot) async {
@@ -946,6 +1158,12 @@ private struct RealtimeEvent: Decodable {
 
 private struct RealtimeError: Decodable {
     let message: String?
+}
+
+private struct RealtimeStallError: LocalizedError {
+    var errorDescription: String? {
+        "Realtime session stopped returning transcript events."
+    }
 }
 
 private struct TranscriptItem {

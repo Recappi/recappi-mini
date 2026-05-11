@@ -190,6 +190,19 @@ struct LiveCaptionFloatingPanel: View {
 
     private var captionControlButtons: some View {
         HStack(spacing: 5) {
+            if recorder.canReconnectLiveCaptions {
+                Button {
+                    recorder.reconnectLiveCaptionsNow()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .buttonStyle(PanelIconButtonStyle(size: 22))
+                .help("Reconnect live captions")
+                .accessibilityLabel("Reconnect live captions")
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionReconnectButton)
+            }
+
             Button(action: onToggleMode) {
                 Image(systemName: mode.toggleIcon)
                     .font(.system(size: 9, weight: .bold))
@@ -245,21 +258,11 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private func liveCaptionErrorIndicator(message: String) -> some View {
-        Button {
-            let alert = NSAlert()
-            alert.messageText = "Live captions"
-            alert.informativeText = message
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-        } label: {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(DT.statusWarning)
-                .frame(width: 22, height: 22)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(DT.statusWarning)
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
         .help(message)
         .accessibilityLabel("Live caption error")
         .accessibilityValue(message)

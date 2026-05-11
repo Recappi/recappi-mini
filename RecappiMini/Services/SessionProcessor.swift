@@ -15,21 +15,32 @@ final class SessionProcessor {
     ) async throws -> RecordingResult {
         let origin = AppConfig.shared.effectiveBackendBaseURL
         var attemptedReauthentication = false
+        DiagnosticsLog.event(
+            "processing",
+            "process.start dir=\(sessionDir.lastPathComponent) duration=\(duration) originHash=\(origin.hashValue)"
+        )
 
         while true {
             do {
-                return try await processOnce(
+                let result = try await processOnce(
                     sessionDir: sessionDir,
                     duration: duration,
                     updatePhase: updatePhase,
                     onCloudRecordingUpdated: onCloudRecordingUpdated,
                     onCloudRecordingDeleted: onCloudRecordingDeleted
                 )
+                DiagnosticsLog.event("processing", "process.succeeded dir=\(sessionDir.lastPathComponent)")
+                return result
             } catch let error as RecappiAPIError where error == .unauthorized && !attemptedReauthentication {
                 attemptedReauthentication = true
+                DiagnosticsLog.warning("processing", "process.unauthorized_reauth dir=\(sessionDir.lastPathComponent)")
                 updatePhase(.verifyingSession)
                 _ = try await AuthSessionStore.shared.handleUnauthorized(origin: origin)
             } catch {
+                DiagnosticsLog.error(
+                    "processing",
+                    "process.failed dir=\(sessionDir.lastPathComponent) \(DiagnosticsLog.errorSummary(error))"
+                )
                 throw error
             }
         }
@@ -48,13 +59,20 @@ final class SessionProcessor {
         }
 
         updatePhase(.verifyingSession)
+        DiagnosticsLog.event("processing", "auth.verify.start dir=\(sessionDir.lastPathComponent)")
         let session = try await AuthSessionStore.shared.ensureAuthorized(origin: config.effectiveBackendBaseURL)
+        DiagnosticsLog.event("processing", "auth.verify.succeeded dir=\(sessionDir.lastPathComponent) originHash=\(session.backendOrigin.hashValue)")
         let client = RecappiAPIClient(origin: session.backendOrigin, bearerToken: try bearerToken())
 
         var manifest = RecordingStore.loadRemoteManifest(in: sessionDir) ?? .stage("verifyingSession")
         manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+        DiagnosticsLog.event(
+            "processing",
+            "manifest.loaded dir=\(sessionDir.lastPathComponent) stage=\(manifest.stage) recording=\(manifest.recordingId ?? "none") job=\(manifest.jobId ?? "none") transcript=\(manifest.transcriptId ?? "none")"
+        )
         if manifest.stage == "done",
            let transcript = RecordingStore.loadTranscript(in: sessionDir) {
+            DiagnosticsLog.event("processing", "manifest.done_reuse dir=\(sessionDir.lastPathComponent)")
             return RecordingResult(
                 folderURL: sessionDir,
                 transcript: transcript,
@@ -65,6 +83,10 @@ final class SessionProcessor {
 
         let uploadedRecording: UploadedRecordingAsset
         if let recordingId = Self.reusableRecordingID(in: manifest) {
+            DiagnosticsLog.event(
+                "processing",
+                "recording.reuse dir=\(sessionDir.lastPathComponent) recording=\(recordingId) stage=\(manifest.stage)"
+            )
             let metadata = RecordingStore.loadSessionMetadata(in: sessionDir)
             uploadedRecording = UploadedRecordingAsset(
                 recordingId: recordingId,
@@ -95,6 +117,10 @@ final class SessionProcessor {
 
         if Self.reusableTranscriptID(in: manifest) != nil {
             updatePhase(.fetchingTranscript)
+            DiagnosticsLog.event(
+                "processing",
+                "transcript.fetch.reuse recording=\(uploadedRecording.recordingId) transcript=\(manifest.transcriptId ?? "none")"
+            )
             let transcript = try await client.getRecordingTranscript(id: uploadedRecording.recordingId)
             try RecordingStore.saveTranscriptArtifacts(transcript, in: sessionDir)
             manifest.stage = "done"
@@ -111,6 +137,7 @@ final class SessionProcessor {
         let language = config.normalizedCloudLanguage
         let start: StartTranscriptionResponse
         if let jobId = Self.reusableJobID(in: manifest) {
+            DiagnosticsLog.event("processing", "transcription.job.reuse recording=\(uploadedRecording.recordingId) job=\(jobId)")
             start = StartTranscriptionResponse(
                 jobId: jobId,
                 status: .queued,
@@ -118,7 +145,15 @@ final class SessionProcessor {
             )
         } else {
             updatePhase(.startingTranscription)
+            DiagnosticsLog.event(
+                "processing",
+                "transcription.start recording=\(uploadedRecording.recordingId) language=\(language)"
+            )
             start = try await client.startTranscription(recordingId: uploadedRecording.recordingId, language: language)
+            DiagnosticsLog.event(
+                "processing",
+                "transcription.started recording=\(uploadedRecording.recordingId) job=\(start.jobId) status=\(start.status.rawValue)"
+            )
             manifest.jobId = start.jobId
             manifest.stage = "startingTranscription"
             manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
@@ -135,6 +170,10 @@ final class SessionProcessor {
                 onJobUpdate: { job in onCloudRecordingUpdated(uploadedRecording.recording, job) }
             )
         } catch {
+            DiagnosticsLog.error(
+                "processing",
+                "transcription.poll.failed recording=\(uploadedRecording.recordingId) job=\(start.jobId) \(DiagnosticsLog.errorSummary(error))"
+            )
             manifest.errorMessage = error.localizedDescription
             manifest.stage = "transcriptionFailed"
             _ = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
@@ -148,7 +187,15 @@ final class SessionProcessor {
         manifest = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
 
         updatePhase(.fetchingTranscript)
+        DiagnosticsLog.event(
+            "processing",
+            "transcript.fetch.start recording=\(uploadedRecording.recordingId) job=\(job.id)"
+        )
         let transcript = try await client.getTranscript(recordingId: uploadedRecording.recordingId, jobId: job.id)
+        DiagnosticsLog.event(
+            "processing",
+            "transcript.fetch.succeeded recording=\(uploadedRecording.recordingId) job=\(job.id) transcript=\(transcript.id) chars=\(transcript.text.count)"
+        )
         try RecordingStore.saveTranscriptArtifacts(transcript, in: sessionDir)
 
         manifest.stage = "done"
@@ -211,13 +258,25 @@ final class SessionProcessor {
                 contentType: contentType,
                 durationMs: Self.uploadDurationMs(fromSeconds: duration)
             )
+            DiagnosticsLog.event(
+                "processing",
+                "upload.asset.primary file=\(primaryURL.lastPathComponent) size=\(Self.fileSize(primaryURL)) contentType=\(contentType) durationMs=\(uploadAsset.durationMs)"
+            )
         } else {
             updatePhase(.preparingUploadWav)
+            DiagnosticsLog.event(
+                "processing",
+                "upload.asset.export_wav.start file=\(primaryURL.lastPathComponent) size=\(Self.fileSize(primaryURL))"
+            )
             let uploadURL = try await UploadAudioExporter.ensureUploadAudio(for: sessionDir)
             uploadAsset = UploadAudioAsset(
                 url: uploadURL,
                 contentType: "audio/wav",
                 durationMs: Self.uploadDurationMs(fromSeconds: duration)
+            )
+            DiagnosticsLog.event(
+                "processing",
+                "upload.asset.export_wav.succeeded file=\(uploadURL.lastPathComponent) size=\(Self.fileSize(uploadURL)) durationMs=\(uploadAsset.durationMs)"
             )
         }
 
@@ -236,6 +295,10 @@ final class SessionProcessor {
                await deleteAbandonedRecordingIfPossible(abandonedRecordingID, client: client) {
                 onCloudRecordingDeleted(abandonedRecordingID)
             }
+            DiagnosticsLog.error(
+                "processing",
+                "upload.failed file=\(uploadAsset.url.lastPathComponent) recording=\(failure.abandonedRecordingID ?? "none") \(DiagnosticsLog.errorSummary(failure.error))"
+            )
             var failedManifest = manifest
             failedManifest.uploadFilename = uploadAsset.url.lastPathComponent
             failedManifest.errorMessage = failure.error.localizedDescription
@@ -263,10 +326,18 @@ final class SessionProcessor {
         let sessionDir = fileURL.deletingLastPathComponent()
         let recordingTitle = RecordingStore.loadSessionMetadata(in: sessionDir)?.cloudRecordingTitle
             ?? sessionDir.lastPathComponent
+        DiagnosticsLog.event(
+            "processing",
+            "recording.create.start file=\(fileURL.lastPathComponent) contentType=\(uploadAsset.contentType) durationMs=\(uploadAsset.durationMs) size=\(Self.fileSize(fileURL))"
+        )
         let created = try await client.createRecording(
             title: recordingTitle,
             contentType: uploadAsset.contentType,
             durationMs: uploadAsset.durationMs
+        )
+        DiagnosticsLog.event(
+            "processing",
+            "recording.create.succeeded recording=\(created.id) partSize=\(created.partSize) r2KeyPresent=\(!created.r2Key.isEmpty)"
         )
         nextManifest.recordingId = created.id
         nextManifest.jobId = nil
@@ -286,6 +357,10 @@ final class SessionProcessor {
 
         do {
             updatePhase(.uploading(progress: 0))
+            DiagnosticsLog.event(
+                "processing",
+                "upload.start recording=\(created.id) file=\(fileURL.lastPathComponent) size=\(Self.fileSize(fileURL)) partSize=\(created.partSize)"
+            )
             let parts = try await client.uploadRecording(
                 recordingId: created.id,
                 fileURL: fileURL,
@@ -293,9 +368,18 @@ final class SessionProcessor {
             ) { progress in
                 updatePhase(.uploading(progress: progress))
             }
+            DiagnosticsLog.event(
+                "processing",
+                "upload.parts.succeeded recording=\(created.id) partCount=\(parts.count)"
+            )
 
             updatePhase(.completingUpload)
+            DiagnosticsLog.event("processing", "upload.complete.start recording=\(created.id) partCount=\(parts.count)")
             let completed = try await client.completeRecording(recordingId: created.id, parts: parts)
+            DiagnosticsLog.event(
+                "processing",
+                "upload.complete.succeeded recording=\(created.id) status=\(completed.status) contentType=\(completed.contentType)"
+            )
             nextManifest.stage = "completingUpload"
             nextManifest.errorMessage = nil
             nextManifest = RecordingStore.saveRemoteManifest(nextManifest, in: fileURL.deletingLastPathComponent())
@@ -312,6 +396,10 @@ final class SessionProcessor {
 
             return UploadedRecordingAsset(recordingId: created.id, recording: localRecording, manifest: nextManifest)
         } catch {
+            DiagnosticsLog.error(
+                "processing",
+                "upload.attempt.failed recording=\(created.id) \(DiagnosticsLog.errorSummary(error))"
+            )
             await client.abortRecordingIfNeeded(recordingId: created.id)
             throw UploadAttemptFailure(error: error, abandonedRecordingID: created.id)
         }
@@ -344,6 +432,11 @@ final class SessionProcessor {
         max(1, duration) * 1000
     }
 
+    private nonisolated static func fileSize(_ url: URL) -> Int64 {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?
+            .int64Value ?? -1
+    }
+
     private func deleteAbandonedRecordingIfPossible(_ recordingID: String, client: RecappiAPIClient) async -> Bool {
         do {
             try await client.deleteRecording(id: recordingID)
@@ -370,6 +463,7 @@ final class SessionProcessor {
         onJobUpdate: @escaping @MainActor @Sendable (TranscriptionJob) -> Void
     ) async throws -> TranscriptionJob {
         if initial.status == .succeeded {
+            DiagnosticsLog.event("processing", "transcription.poll.initial_succeeded job=\(initial.jobId)")
             let job = try await client.getJob(jobId: initial.jobId)
             onJobUpdate(job)
             return job
@@ -379,6 +473,10 @@ final class SessionProcessor {
             let job = try await client.getJob(jobId: initial.jobId)
             onJobUpdate(job)
             updatePhase(.polling(jobStatus: job.status.rawValue))
+            DiagnosticsLog.event(
+                "processing",
+                "transcription.poll job=\(job.id) status=\(job.status.rawValue) transcript=\(job.transcriptId ?? "none") attempts=\(job.attempts ?? -1)"
+            )
             switch job.status {
             case .queued, .running:
                 try await Task.sleep(for: .seconds(2))

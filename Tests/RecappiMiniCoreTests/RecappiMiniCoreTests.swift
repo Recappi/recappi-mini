@@ -752,6 +752,15 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(snapshot?.segments.first?.translatedText?.contains("很长但是没有标点的翻译内容") == true)
     }
 
+    func testBackendRealtimeTranscriberNormalizesSocketErrorsForUsers() {
+        XCTAssertEqual(
+            BackendRealtimeLiveCaptionTranscriber.userFacingFailureMessageForTesting(
+                rawMessage: "The operation couldn’t be completed. Socket is not connected"
+            ),
+            "字幕服务连接已断开"
+        )
+    }
+
     @MainActor
     func testLiveCaptionCarryoverPreservesHistoryAcrossRestartSnapshots() {
         let carryover = [

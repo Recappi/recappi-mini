@@ -438,12 +438,17 @@ final class AudioRecorder: NSObject, ObservableObject {
         let metadata = recordingSessionMetadata()
         let autoStopContext = detectedMeetingContextForNextRecording()
         activeLiveCaptionConfiguration = liveCaptionRecordingConfiguration()
+        DiagnosticsLog.event(
+            "recording",
+            "start.request selectedBundle=\(selectedApp?.id ?? "all-system-audio") cloudCaptions=\(AppConfig.shared.backendRealtimeLiveCaptionsEnabled) bilingual=\(activeLiveCaptionConfiguration?.showsTranslation ?? false) language=\(AppConfig.shared.normalizedCloudLanguage)"
+        )
         pendingDetectedMeetingRecordingContext = nil
         recordingSuggestion = nil
         meetingPrompt = nil
         state = .starting
 
         if uiTestMode.isEnabled {
+            DiagnosticsLog.event("recording", "start.ui_test fixture=\(uiTestMode.audioFixturePath ?? "none")")
             try startUITestRecording(metadata: metadata, autoStopContext: autoStopContext)
             return
         }
@@ -462,6 +467,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             let sessionDir = try RecordingStore.createSessionDirectory()
             RecordingStore.saveSessionMetadata(metadata, in: sessionDir)
             self.sessionDir = sessionDir
+            DiagnosticsLog.event("recording", "session.created dir=\(sessionDir.lastPathComponent)")
 
             // Intermediate files; merged into recording.m4a at stop.
             let systemURL = sessionDir.appendingPathComponent("system.m4a")
@@ -539,6 +545,10 @@ final class AudioRecorder: NSObject, ObservableObject {
             try startMonitoringOutputDeviceChanges()
             try await scStream.startCapture()
             captureSession.startRunning()
+            DiagnosticsLog.event(
+                "recording",
+                "capture.started dir=\(sessionDir.lastPathComponent) selectedBundle=\(selectedApp?.id ?? "all-system-audio") outputDevice=\(outputAudioDeviceID)"
+            )
 
             self.audioLevel = 0
             self.audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
@@ -554,6 +564,7 @@ final class AudioRecorder: NSObject, ObservableObject {
                 }
             }
         } catch {
+            DiagnosticsLog.error("recording", "start.failed \(DiagnosticsLog.errorSummary(error))")
             activeRecordingID = nil
             activeLiveCaptionConfiguration = nil
             detectedMeetingRecordingContext = nil
@@ -573,6 +584,10 @@ final class AudioRecorder: NSObject, ObservableObject {
             throw RecorderError.notRecording
         }
 
+        DiagnosticsLog.event(
+            "recording",
+            "stop.request dir=\(sessionDir?.lastPathComponent ?? "none") elapsedSeconds=\(elapsedSeconds)"
+        )
         detectedMeetingRecordingContext = nil
         activeLiveCaptionConfiguration = nil
         self.state = .processing(.savingAudio)
@@ -605,6 +620,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             try await scStream?.stopCapture()
         } catch {
             stopCaptureError = error
+            DiagnosticsLog.error("recording", "screen_capture.stop.failed \(DiagnosticsLog.errorSummary(error))")
         }
 
         let sessionDir = self.sessionDir
@@ -615,6 +631,10 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         let finishedSystemURL = try await systemOutput?.finishWriting()
         let finishedMicURL = try await micOutput?.finishWriting()
+        DiagnosticsLog.event(
+            "recording",
+            "writers.finished system=\(Self.fileSummary(finishedSystemURL)) mic=\(Self.fileSummary(finishedMicURL))"
+        )
 
         if let stopCaptureError {
             throw stopCaptureError
@@ -633,6 +653,10 @@ final class AudioRecorder: NSObject, ObservableObject {
                 sources: sourceURLs,
                 to: mergedURL
             )
+            DiagnosticsLog.event(
+                "recording",
+                "mix.succeeded sources=\(sourceURLs.count) output=\(Self.fileSummary(mergedURL))"
+            )
             AudioCaptureDiagnostics.write(
                 sources: sourceURLs,
                 output: mergedURL,
@@ -644,6 +668,10 @@ final class AudioRecorder: NSObject, ObservableObject {
                 try? FileManager.default.removeItem(at: sourceURL)
             }
         } catch {
+            DiagnosticsLog.error(
+                "recording",
+                "mix.failed sources=\(sourceURLs.count) \(DiagnosticsLog.errorSummary(error))"
+            )
             AudioCaptureDiagnostics.write(
                 sources: sourceURLs,
                 output: nil,
@@ -828,6 +856,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private func startLiveCaptions(for systemOutput: SystemAudioOutput) async {
         guard #available(macOS 26.0, *) else {
+            DiagnosticsLog.warning("live-caption", "provider.unavailable reason=macos_version")
             liveCaptionMessage = "Live captions require macOS 26."
             return
         }
@@ -842,6 +871,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         let speechStatus = await LiveCaptionTranscriber.requestSpeechAuthorizationIfNeeded()
         guard speechStatus == .authorized else {
+            DiagnosticsLog.warning("live-caption", "provider.unavailable reason=speech_authorization status=\(speechStatus.rawValue)")
             liveCaptionMessage = "Enable Speech Recognition to use live captions."
             return
         }
@@ -858,6 +888,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     ) {
         if AppConfig.shared.backendRealtimeLiveCaptionsEnabled {
             guard let bearerToken = AuthSessionStore.shared.bearerToken() else {
+                DiagnosticsLog.warning("live-caption", "provider.unavailable reason=missing_bearer_token")
                 liveCaptionMessage = "Sign in to Recappi Cloud to use backend live captions."
                 liveCaptionStatusPhase = .unavailable
                 liveCaptionIsFinal = false
@@ -881,6 +912,10 @@ final class AudioRecorder: NSObject, ObservableObject {
                     )
                 )
                 : .transcription
+            DiagnosticsLog.event(
+                "live-caption",
+                "provider.start backend=true mode=\(Self.liveCaptionModeLabel(mode)) language=\(Self.normalizedRealtimeLanguage(localeIdentifier)) target=\(lockedConfig.targetLanguage)"
+            )
             let backendTranscriber = BackendRealtimeLiveCaptionTranscriber(
                 client: client,
                 language: Self.normalizedRealtimeLanguage(localeIdentifier),
@@ -898,12 +933,14 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         guard #available(macOS 26.0, *) else { return }
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
+            DiagnosticsLog.warning("live-caption", "provider.unavailable reason=speech_authorization status=\(SFSpeechRecognizer.authorizationStatus().rawValue)")
             liveCaptionMessage = "Enable Speech Recognition to use live captions."
             liveCaptionStatusPhase = .unavailable
             liveCaptionIsFinal = false
             return
         }
 
+        DiagnosticsLog.event("live-caption", "provider.start backend=false language=\(localeIdentifier)")
         let liveTranscriber = LiveCaptionTranscriber { [weak self] snapshot in
             self?.applyLiveCaptionSnapshot(snapshot)
         }
@@ -926,6 +963,36 @@ final class AudioRecorder: NSObject, ObservableObject {
         LiveCaptionTranslationTargetLanguageOption.normalizedCode(language)
     }
 
+    private static func liveCaptionModeLabel(_ mode: BackendRealtimeLiveCaptionTranscriber.Mode) -> String {
+        switch mode {
+        case .transcription:
+            return "transcription"
+        case .translation:
+            return "translation"
+        }
+    }
+
+    var canReconnectLiveCaptions: Bool {
+        liveCaptionTranscriber is BackendRealtimeLiveCaptionTranscriber
+    }
+
+    func reconnectLiveCaptionsNow() {
+        guard let transcriber = liveCaptionTranscriber as? BackendRealtimeLiveCaptionTranscriber else {
+            DiagnosticsLog.warning("live-caption", "reconnect.ignored reason=unsupported_provider")
+            return
+        }
+        DiagnosticsLog.event("live-caption", "reconnect.manual")
+        transcriber.reconnectNow()
+    }
+
+    private nonisolated static func fileSummary(_ url: URL?) -> String {
+        guard let url else { return "none" }
+        let size = (try? FileManager.default
+            .attributesOfItem(atPath: url.path)[.size] as? NSNumber)?
+            .int64Value ?? -1
+        return "\(url.lastPathComponent):\(size)"
+    }
+
     private func liveCaptionRecordingConfiguration() -> LiveCaptionRecordingConfiguration {
         LiveCaptionRecordingConfiguration(
             showsTranslation: AppConfig.shared.backendRealtimeLiveCaptionsEnabled
@@ -941,6 +1008,11 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func stopLiveCaptions(_ transcriber: Any?, saveTo sessionDir: URL?) {
+        guard transcriber != nil else { return }
+        DiagnosticsLog.event(
+            "live-caption",
+            "provider.stop saveDir=\(sessionDir?.lastPathComponent ?? "none")"
+        )
         if #available(macOS 26.0, *), let transcriber = transcriber as? LiveCaptionTranscriber {
             transcriber.stop(saveTo: sessionDir)
         }
