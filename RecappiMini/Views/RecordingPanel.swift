@@ -22,6 +22,9 @@ struct RecordingPanel: View {
 
     var body: some View {
         mainView
+            .id(panelContentIdentity)
+            .transition(panelContentTransition)
+            .animation(DT.easeSpring(DT.Motion.contentSwap), value: panelContentIdentity)
             .frame(
                 width: DT.panelWidth - DT.panelPadding * 2,
                 alignment: .topLeading
@@ -41,6 +44,33 @@ struct RecordingPanel: View {
     private var panelPadding: EdgeInsets {
         let p = DT.panelPadding
         return EdgeInsets(top: p, leading: p, bottom: p, trailing: p)
+    }
+
+    private var panelContentIdentity: String {
+        if preflightStartKind != nil {
+            return "preflight"
+        }
+        switch recorder.state {
+        case .idle:
+            return "idle"
+        case .starting:
+            return "starting"
+        case .recording:
+            return "recording"
+        case .processing:
+            return "processing"
+        case .done:
+            return "done"
+        case .error:
+            return "error"
+        }
+    }
+
+    private var panelContentTransition: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.combined(with: .move(edge: .bottom)),
+            removal: .opacity
+        )
     }
 
     @ViewBuilder
@@ -339,6 +369,7 @@ struct RecordingPreflightSheet: View {
                     }
                     .pickerStyle(.menu)
                     .disabled(!backendRealtimeEnabled)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                     .accessibilityIdentifier(AccessibilityIDs.Panel.preflightTargetLanguagePicker)
                 }
 
@@ -346,8 +377,11 @@ struct RecordingPreflightSheet: View {
                     Text("Translation requires backend Realtime live captions in Settings.")
                         .font(.system(size: 11))
                         .foregroundStyle(Palette.labelTertiary)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
+            .animation(DT.ease(DT.Motion.elementPresence), value: showsTranslation)
+            .animation(DT.ease(DT.Motion.elementPresence), value: backendRealtimeEnabled)
 
             HStack {
                 Spacer()

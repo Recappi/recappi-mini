@@ -201,7 +201,7 @@ struct CloudCenterPanel: View {
                 }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 380)
+            .navigationSplitViewColumnWidth(min: 275, ideal: 300, max: 380)
             .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingsList)
             .onChange(of: pendingListScrollTargetID) { _, id in
                 guard let id else { return }

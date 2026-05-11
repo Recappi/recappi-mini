@@ -23,6 +23,7 @@ struct CloudRecordingRow: View {
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+        .animation(DT.ease(0.15), value: isSelected)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingRowPrefix + recording.id)
     }
 }

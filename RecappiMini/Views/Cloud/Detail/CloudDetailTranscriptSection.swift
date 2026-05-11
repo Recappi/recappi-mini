@@ -20,6 +20,17 @@ struct CloudDetailTranscriptSection<OffsetReader: View, Header: View, Card: View
             header
             card
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Palette.surfaceCard)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Palette.borderHairline, lineWidth: 1)
+        )
         .id(CloudDetailSection.transcript)
         .background(offsetReader)
     }

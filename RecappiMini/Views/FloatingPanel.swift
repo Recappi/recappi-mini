@@ -450,12 +450,36 @@ struct FloatingPanelController {
             panel.deferredContentSize = size
             return
         }
-        var frame = panel.frame
+        let frame = contentResizeFrame(from: panel.frame, to: size)
+        guard !framesNearlyMatch(panel.frame, frame) else {
+            panel.updateMousePassthrough()
+            return
+        }
+
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || !panel.isVisible {
+            panel.setFrame(frame, display: false)
+            panel.updateMousePassthrough()
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = DT.Motion.panelResize
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+            context.allowsImplicitAnimation = true
+            panel.animator().setFrame(frame, display: false)
+        } completionHandler: {
+            Task { @MainActor in
+                panel.updateMousePassthrough()
+            }
+        }
+    }
+
+    nonisolated static func contentResizeFrame(from frame: NSRect, to size: NSSize) -> NSRect {
+        var resized = frame
         let dy = frame.height - size.height
-        frame.origin.y += dy
-        frame.size = size
-        panel.setFrame(frame, display: false)
-        panel.updateMousePassthrough()
+        resized.origin.y += dy
+        resized.size = size
+        return resized
     }
 
     private static func finishTransition(_ panel: FloatingPanel) {

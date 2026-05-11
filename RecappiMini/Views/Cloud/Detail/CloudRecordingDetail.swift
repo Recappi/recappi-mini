@@ -100,6 +100,8 @@ struct CloudRecordingDetail: View {
             } navigation: {
                 detailNavigationRow
             }
+            .animation(DT.ease(0.20), value: latestJob?.status)
+            .animation(DT.ease(0.20), value: hasNewerVersion)
 
             Divider().overlay(Palette.borderHairline)
 
@@ -763,53 +765,39 @@ struct CloudRecordingDetail: View {
     @ViewBuilder
     private var newerVersionStrip: some View {
         if hasNewerVersion {
-            HStack(spacing: 8) {
-                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(DT.systemBlue)
-                    .frame(width: 13)
+            HStack(alignment: .center, spacing: 8) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .frame(width: 12)
 
-                Text("Newer version available")
+                Text("Cloud transcript updated")
                     .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(Color.dtLabel)
-
-                Text("Cloud has a newer transcript than the one you're viewing.")
-                    .font(.system(size: 10.5))
                     .foregroundStyle(Color.dtLabelSecondary)
                     .lineLimit(1)
-                    .truncationMode(.tail)
 
                 Spacer(minLength: 0)
 
                 Button(action: acknowledgeNewerVersionWithoutSectionFlicker) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 10.5, weight: .semibold))
-                        Text("Refresh")
-                            .font(.system(size: 10.5, weight: .semibold))
-                    }
+                    Text("Refresh")
+                        .font(.system(size: 10.5, weight: .semibold))
                     .foregroundStyle(DT.systemBlue)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(DT.systemBlue.opacity(0.16))
-                    )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Refresh to load newer cloud version")
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionRefreshButton)
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(DT.systemBlue.opacity(0.08))
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .fill(Palette.surfaceCardSubtle)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(DT.systemBlue.opacity(0.18), lineWidth: 1)
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.6)
             )
+            .transition(.opacity.combined(with: .move(edge: .top)))
             .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionBanner)
         }
     }
@@ -860,6 +848,7 @@ struct CloudRecordingDetail: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(latestJob.status.detailColor.opacity(latestJob.status == .failed ? 0.20 : 0.12), lineWidth: 1)
                 )
+                .transition(.opacity.combined(with: .move(edge: .top)))
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.latestJobStatus)
             }
         }
@@ -988,10 +977,7 @@ struct CloudRecordingDetail: View {
     private var transcriptCard: some View {
         let segmentRows = computeSegmentRowsWithPerfLogging()
         let activeSegmentID = activeSegmentID(in: segmentRows)
-        ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Palette.surfaceCard)
-
+        Group {
             if !segmentRows.isEmpty {
                 // `LazyVStack` (vs `VStack`): only the segments inside the
                 // viewport are laid out. For long recordings (~150-500 rows)
@@ -1009,42 +995,47 @@ struct CloudRecordingDetail: View {
                         .id(row.id)
                     }
                 }
-                .padding(12)
                 .textSelection(.enabled)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptText)
             } else {
-                VStack(spacing: 9) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                        .font(.system(size: 23))
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color.dtLabelTertiary)
-                        .frame(width: 30, height: 30)
+                        .frame(width: 18, height: 18)
 
                     Text(transcriptPlaceholderText)
-                        .font(.system(size: 12))
+                        .font(.system(size: 12.5))
                         .foregroundStyle(Color.dtLabelSecondary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .frame(height: 34)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    Spacer(minLength: 0)
 
                     Button("Load transcript") {
                         onLoadTranscript()
                     }
                     .buttonStyle(PanelPushButtonStyle())
-                    .frame(width: 150)
+                    .frame(width: 126)
                     .disabled(isTranscriptLoading)
                     .accessibilityIdentifier(AccessibilityIDs.Cloud.loadTranscriptButton)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Palette.surfaceCardSubtle)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Palette.borderHairline, lineWidth: 1)
+                )
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(minHeight: 240)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Palette.borderHairline, lineWidth: 1)
-        )
+        .frame(minHeight: segmentRows.isEmpty ? nil : 200, alignment: .topLeading)
         .transaction { transaction in
             transaction.animation = nil
         }

@@ -201,6 +201,7 @@ struct LiveCaptionFloatingPanel: View {
                 .help("Reconnect live captions")
                 .accessibilityLabel("Reconnect live captions")
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionReconnectButton)
+                .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
 
             Button(action: onToggleMode) {
@@ -220,6 +221,7 @@ struct LiveCaptionFloatingPanel: View {
             .accessibilityLabel("Hide live captions")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionCloseButton)
         }
+        .animation(DT.ease(DT.Motion.elementPresence), value: recorder.canReconnectLiveCaptions)
     }
 
     private var header: some View {
@@ -245,16 +247,20 @@ struct LiveCaptionFloatingPanel: View {
 
             if let liveCaptionErrorMessage {
                 liveCaptionErrorIndicator(message: liveCaptionErrorMessage)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
 
             if liveCaptionShowsTranslation {
                 paneVisibilityControls
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
 
             liveCaptionModeStatus
 
             captionControlButtons
         }
+        .animation(DT.ease(DT.Motion.elementPresence), value: liveCaptionErrorMessage != nil)
+        .animation(DT.ease(DT.Motion.elementPresence), value: liveCaptionShowsTranslation)
     }
 
     private func liveCaptionErrorIndicator(message: String) -> some View {

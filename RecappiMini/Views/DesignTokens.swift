@@ -93,6 +93,12 @@ enum DT {
         static let toError: Double = 0.18
         /// done ▸ idle: fade + shrink
         static let doneToIdle: Double = 0.24
+        /// Intrinsic floating-panel height changes.
+        static let panelResize: Double = 0.18
+        /// Small controls/chips appearing or disappearing.
+        static let elementPresence: Double = 0.18
+        /// Cross-state content swaps inside the recorder pill.
+        static let contentSwap: Double = 0.22
     }
 }
 

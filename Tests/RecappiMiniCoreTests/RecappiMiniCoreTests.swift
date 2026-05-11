@@ -1866,6 +1866,20 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(PillShellView.visiblePillContains(NSPoint(x: visibleRect.midX, y: visibleRect.midY), in: bounds))
     }
 
+    @MainActor
+    func testFloatingPanelResizeKeepsTopEdgeAnchored() {
+        let frame = NSRect(x: 100, y: 200, width: 320, height: 120)
+        let resized = FloatingPanelController.contentResizeFrame(
+            from: frame,
+            to: NSSize(width: 320, height: 172)
+        )
+
+        XCTAssertEqual(resized.maxY, frame.maxY)
+        XCTAssertEqual(resized.origin.y, 148)
+        XCTAssertEqual(resized.size.width, 320)
+        XCTAssertEqual(resized.size.height, 172)
+    }
+
     func testUploadAudioExporterProducesWaveSidecar() async throws {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
