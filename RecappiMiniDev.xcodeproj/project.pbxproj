@@ -1,0 +1,381 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2AD9DBD5E9D42C999D452335 /* Speech.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 30168D60E76391F699B3D5B9 /* Speech.framework */; };
+		550B8B1315F5674E5A68F40D /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 27085AB4F718220DA871D987 /* CoreMedia.framework */; };
+		633809965D7644559610A1FD /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 2A66E558C868B3A4F1D343BC /* Sparkle */; };
+		74FE1C56CC3DB166AB0FE9C8 /* ScreenCaptureKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1BC3AD3C7FAF9FD3E689C8E9 /* ScreenCaptureKit.framework */; };
+		75D5EE6F2582DF3D6D0126E9 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 99D365B2BA7CBE6FFB43154F /* Security.framework */; };
+		897766E9C90204048B756419 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C2BE01E1C3E0EEA348D6DFE9 /* AVFoundation.framework */; };
+		C6E5664ACC32CEF559AD1B7B /* AuthenticationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 15ED102FB718BAE6FC45CD96 /* AuthenticationServices.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		15ED102FB718BAE6FC45CD96 /* AuthenticationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AuthenticationServices.framework; path = System/Library/Frameworks/AuthenticationServices.framework; sourceTree = SDKROOT; };
+		1BC3AD3C7FAF9FD3E689C8E9 /* ScreenCaptureKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenCaptureKit.framework; path = System/Library/Frameworks/ScreenCaptureKit.framework; sourceTree = SDKROOT; };
+		27085AB4F718220DA871D987 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
+		29DB2F81C9A65F762BC25966 /* Recappi Mini Dev.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Recappi Mini Dev.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		30168D60E76391F699B3D5B9 /* Speech.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Speech.framework; path = System/Library/Frameworks/Speech.framework; sourceTree = SDKROOT; };
+		99D365B2BA7CBE6FFB43154F /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		C2BE01E1C3E0EEA348D6DFE9 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		54B99F9B76FDFEAB10CFBCAC /* RecappiMini */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RecappiMini;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		62312F0D7BE6FB97A9C4E39F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				74FE1C56CC3DB166AB0FE9C8 /* ScreenCaptureKit.framework in Frameworks */,
+				897766E9C90204048B756419 /* AVFoundation.framework in Frameworks */,
+				2AD9DBD5E9D42C999D452335 /* Speech.framework in Frameworks */,
+				C6E5664ACC32CEF559AD1B7B /* AuthenticationServices.framework in Frameworks */,
+				550B8B1315F5674E5A68F40D /* CoreMedia.framework in Frameworks */,
+				75D5EE6F2582DF3D6D0126E9 /* Security.framework in Frameworks */,
+				633809965D7644559610A1FD /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		54294933FA0F5EB2A121C336 = {
+			isa = PBXGroup;
+			children = (
+				54B99F9B76FDFEAB10CFBCAC /* RecappiMini */,
+				C91CFF3564911F9D2B3A4932 /* Frameworks */,
+				82637D54C645994840CB134C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		82637D54C645994840CB134C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				29DB2F81C9A65F762BC25966 /* Recappi Mini Dev.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C91CFF3564911F9D2B3A4932 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				15ED102FB718BAE6FC45CD96 /* AuthenticationServices.framework */,
+				C2BE01E1C3E0EEA348D6DFE9 /* AVFoundation.framework */,
+				27085AB4F718220DA871D987 /* CoreMedia.framework */,
+				1BC3AD3C7FAF9FD3E689C8E9 /* ScreenCaptureKit.framework */,
+				99D365B2BA7CBE6FFB43154F /* Security.framework */,
+				30168D60E76391F699B3D5B9 /* Speech.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B0FEA89732EC8A6611F770D4 /* RecappiMiniDev */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8F938F8CDD816D9E2E593870 /* Build configuration list for PBXNativeTarget "RecappiMiniDev" */;
+			buildPhases = (
+				3724B44B41E204B6E6BBC568 /* Sources */,
+				96B2226770A8D19593FC9450 /* Resources */,
+				62312F0D7BE6FB97A9C4E39F /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				54B99F9B76FDFEAB10CFBCAC /* RecappiMini */,
+			);
+			name = RecappiMiniDev;
+			packageProductDependencies = (
+				2A66E558C868B3A4F1D343BC /* Sparkle */,
+			);
+			productName = RecappiMiniDev;
+			productReference = 29DB2F81C9A65F762BC25966 /* Recappi Mini Dev.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		9BFC51CA800CF449BA2D7B48 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = B3CA432219E96DD93DB95DA3 /* Build configuration list for PBXProject "RecappiMiniDev" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 54294933FA0F5EB2A121C336;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				94B2E6AAEED71837950D3D64 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 82637D54C645994840CB134C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B0FEA89732EC8A6611F770D4 /* RecappiMiniDev */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		96B2226770A8D19593FC9450 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3724B44B41E204B6E6BBC568 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3F25E32A04FFDEAAE3DE922E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RecappiMini/RecappiMini.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = QDJ93ZUQ9B;
+				ENABLE_DEBUG_DYLIB = YES;
+				INFOPLIST_FILE = "build/RecappiMiniDev-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = "-lsqlite3";
+				PRODUCT_BUNDLE_IDENTIFIER = com.recappi.mini.dev;
+				PRODUCT_NAME = "Recappi Mini Dev";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		79E7E8EB2D73BDCF6C9ACC2F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		94B0829ACBF70CA3176162C5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		CAC491B9AE2AC7D8563A1BC4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RecappiMini/RecappiMini.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = QDJ93ZUQ9B;
+				ENABLE_DEBUG_DYLIB = YES;
+				INFOPLIST_FILE = "build/RecappiMiniDev-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = "-lsqlite3";
+				PRODUCT_BUNDLE_IDENTIFIER = com.recappi.mini.dev;
+				PRODUCT_NAME = "Recappi Mini Dev";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8F938F8CDD816D9E2E593870 /* Build configuration list for PBXNativeTarget "RecappiMiniDev" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3F25E32A04FFDEAAE3DE922E /* Debug */,
+				CAC491B9AE2AC7D8563A1BC4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B3CA432219E96DD93DB95DA3 /* Build configuration list for PBXProject "RecappiMiniDev" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				79E7E8EB2D73BDCF6C9ACC2F /* Debug */,
+				94B0829ACBF70CA3176162C5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		94B2E6AAEED71837950D3D64 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.8.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2A66E558C868B3A4F1D343BC /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 94B2E6AAEED71837950D3D64 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 9BFC51CA800CF449BA2D7B48 /* Project object */;
+}

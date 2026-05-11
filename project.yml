@@ -1,0 +1,88 @@
+name: RecappiMiniDev
+
+# Companion Xcode project used ONLY for SwiftUI Previews / local development.
+# Production builds still go through `scripts/build-app.sh` against the SPM
+# Package.swift. This project compiles the same sources under RecappiMini/
+# with ENABLE_DEBUG_DYLIB=YES so Xcode 26 will accept #Preview in the
+# executable target.
+#
+# Regenerate after editing this file:
+#     xcodegen generate
+
+options:
+  deploymentTarget:
+    macOS: "26.0"
+  bundleIdPrefix: com.recappi
+  createIntermediateGroups: true
+  # Use Xcode 16+ synchronized folders so the project mirrors the file
+  # system instead of materialising every file as a PBXFileReference.
+  # New / renamed Swift files are picked up automatically, no regenerate.
+  defaultSourceDirectoryType: syncedFolder
+
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle.git
+    exactVersion: 2.8.1
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_REQUIRED: "YES"
+    CODE_SIGNING_ALLOWED: "YES"
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  RecappiMiniDev:
+    type: application
+    platform: macOS
+    sources:
+      - path: RecappiMini
+    info:
+      # xcodegen synthesises this plist so it gets a real
+      # CFBundleIdentifier — pointing INFOPLIST_FILE at SPM's static
+      # Info.plist left the executable bundle without an identifier and
+      # `UNUserNotificationCenter.current()` threw
+      # NSInternalInconsistencyException at launch. Production builds
+      # still use RecappiMini/Info.plist directly via build-app.sh.
+      path: build/RecappiMiniDev-Info.plist
+      properties:
+        CFBundleName: "Recappi Mini Dev"
+        CFBundleDisplayName: "Recappi Mini Dev"
+        CFBundleIconFile: AppIcon
+        SUEnableAutomaticChecks: true
+        SUFeedURL: "https://raw.githubusercontent.com/Recappi/recappi-mini/sparkle-appcast/appcast.xml"
+        SUPublicEDKey: "/1OzWfoXSQ2w+rIi6pKRn8X8egyv+T/dQGOyG7QJj0M="
+        SUScheduledCheckInterval: 86400
+        CFBundleURLTypes:
+          - CFBundleURLName: com.recappi.mini.auth
+            CFBundleURLSchemes: [recappi]
+        NSMicrophoneUsageDescription: "Recappi Mini needs microphone access to record meetings"
+        NSSpeechRecognitionUsageDescription: "Recappi Mini uses speech recognition to show live captions while recording meetings"
+        NSAppleEventsUsageDescription: "Recappi Mini reads browser tab URLs and titles to detect meeting pages in Safari, Chrome, Arc, and compatible browsers."
+        NSAudioCaptureUsageDescription: "Recappi Mini needs system audio recording access to capture meeting audio from your Mac"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.recappi.mini.dev
+        PRODUCT_NAME: "Recappi Mini Dev"
+        CODE_SIGN_ENTITLEMENTS: RecappiMini/RecappiMini.entitlements
+        # The whole point of this project: Xcode 26 requires this flag to
+        # be YES before it will run SwiftUI Previews against an executable
+        # target. SPM-managed targets can't set build settings, so we host
+        # the same sources here and flip the bit.
+        ENABLE_DEBUG_DYLIB: YES
+        OTHER_LDFLAGS:
+          - -lsqlite3
+    dependencies:
+      - sdk: ScreenCaptureKit.framework
+      - sdk: AVFoundation.framework
+      - sdk: Speech.framework
+      - sdk: AuthenticationServices.framework
+      - sdk: CoreMedia.framework
+      - sdk: Security.framework
+      - package: Sparkle
+        product: Sparkle

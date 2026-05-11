@@ -5,7 +5,17 @@ import SwiftUI
 
 @main
 struct RecappiMiniApp: App {
+    private static let isRunningForPreviews =
+        ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+
     init() {
+        // SwiftUI Previews on Xcode 26 launch the full @main app under a
+        // preview shell. Booting AppDelegate would spin up the recorder,
+        // Sparkle, status item, etc. and abort in the sandboxed preview
+        // process. Skip the boot path entirely when previewing — every
+        // singleton (`AppConfig.shared`, `AuthSessionStore.shared`,
+        // `AppUpdater.shared`) is lazy and can still answer reads.
+        guard !Self.isRunningForPreviews else { return }
         let appDelegate = AppDelegate.shared
         DispatchQueue.main.async {
             appDelegate.finishLaunchingIfNeeded()
@@ -18,12 +28,7 @@ struct RecappiMiniApp: App {
         // resizability with `.contentMinSize` and let the NavigationSplitView
         // hold its 720×520 minimum from inside the SwiftUI tree.
         Settings {
-            ThemedHost {
-                SettingsView()
-                    .environmentObject(AppConfig.shared)
-                    .environmentObject(AuthSessionStore.shared)
-                    .environmentObject(AppUpdater.shared)
-            }
+            settingsRoot
         }
         .windowResizability(.contentMinSize)
         .commands {
@@ -34,6 +39,25 @@ struct RecappiMiniApp: App {
                 Button("About Recappi Mini") {
                     AppDelegate.shared.showAboutPanel()
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var settingsRoot: some View {
+        if Self.isRunningForPreviews {
+            // SwiftUI builds the Settings scene's content tree at app start,
+            // which would eagerly evaluate `AppUpdater.shared` (Sparkle) and
+            // friends. Sparkle's SPUStandardUpdaterController init aborts
+            // under the preview shell, so we short-circuit to an empty
+            // placeholder when running for previews.
+            EmptyView()
+        } else {
+            ThemedHost {
+                SettingsView()
+                    .environmentObject(AppConfig.shared)
+                    .environmentObject(AuthSessionStore.shared)
+                    .environmentObject(AppUpdater.shared)
             }
         }
     }
