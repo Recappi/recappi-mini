@@ -1,8 +1,37 @@
 import AVFoundation
+import SwiftUI
 import XCTest
 @testable import RecappiMini
 
 final class RecappiMiniCoreTests: XCTestCase {
+    @MainActor
+    func testRecordingPreflightSheetUsesCompactIntrinsicHeightWhenTranslationIsOff() {
+        let view = RecordingPreflightSheet(
+            showsTranslation: .constant(false),
+            targetLanguage: .constant("zh"),
+            backendRealtimeEnabled: true,
+            onCancel: {},
+            onStart: {}
+        )
+        .frame(width: DT.panelWidth - DT.panelPadding * 2)
+        let hostingView = NSHostingView(rootView: view)
+        hostingView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: DT.panelWidth - DT.panelPadding * 2,
+            height: 1
+        )
+        hostingView.layoutSubtreeIfNeeded()
+
+        let fittingHeight = hostingView.fittingSize.height
+        XCTAssertGreaterThan(fittingHeight, 100)
+        XCTAssertLessThan(
+            fittingHeight,
+            160,
+            "Preflight should size to its visible content instead of preserving the old 182pt fixed panel height."
+        )
+    }
+
     func testLiveCaptionSentenceSplitterSplitsEnglishAndKeepsPendingTail() {
         let segments = LiveCaptionSentenceSplitter.split(
             "If you have a team, pay attention. It is a very important thing. You should pay them too",

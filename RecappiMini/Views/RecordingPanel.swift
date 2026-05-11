@@ -24,16 +24,15 @@ struct RecordingPanel: View {
         mainView
             .frame(
                 width: DT.panelWidth - DT.panelPadding * 2,
-                height: contentHeight,
                 alignment: .topLeading
             )
             .padding(panelPadding)
-            .frame(width: DT.panelWidth, height: contentHeight + DT.panelPadding * 2)
-            // Keep explicit per-state heights so the transparent NSPanel can
-            // snap to the latest SwiftUI size without animating AppKit layout.
-            // Do not clip here: the logo glow intentionally paints outside
-            // its 28pt tile bounds, while the outer panel still clips to the
-            // rounded pill shape.
+            .frame(width: DT.panelWidth)
+            // Height is intentionally intrinsic. `PillShellView` measures the
+            // hosted SwiftUI content with AppKit fitting size and resizes the
+            // transparent NSPanel around it; individual controls can keep
+            // stable internal heights, but the panel shell should not guess a
+            // fixed state height.
             .onReceive(recorder.$autoStopRequest.compactMap { $0 }) { _ in
                 stopRecording()
             }
@@ -42,52 +41,6 @@ struct RecordingPanel: View {
     private var panelPadding: EdgeInsets {
         let p = DT.panelPadding
         return EdgeInsets(top: p, leading: p, bottom: p, trailing: p)
-    }
-
-    private var contentHeight: CGFloat {
-        if preflightStartKind != nil {
-            return 182
-        }
-
-        switch recorder.state {
-        case .idle, .starting:
-            return recorder.recordingSuggestion == nil && recorder.meetingPrompt == nil ? 28 : 48
-        case .recording:
-            return 48
-        case .processing:
-            return 50
-        case .done(let result):
-            return doneContentHeight(for: result)
-        case .error(let message):
-            return errorContentHeight(for: message)
-        }
-    }
-
-    private func doneContentHeight(for _: RecordingResult) -> CGFloat {
-        48
-    }
-
-    private func errorContentHeight(for message: String) -> CGFloat {
-        let flattened = message
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\n", with: " ")
-        let estimatedLines = max(1, min(2, Int(ceil(Double(flattened.count) / 44.0))))
-        let headerHeight: CGFloat = estimatedLines == 1 ? 31 : 45
-        let hasActions = recorder.lastSessionDir != nil || Self.isConfigRelatedError(message)
-        return headerHeight + (hasActions ? 30 : 0)
-    }
-
-    private static func isConfigRelatedError(_ message: String) -> Bool {
-        let lower = message.lowercased()
-        return lower.contains("api")
-            || lower.contains("key")
-            || lower.contains("auth")
-            || lower.contains("oauth")
-            || lower.contains("token")
-            || lower.contains("bearer")
-            || lower.contains("session")
-            || lower.contains("sign in")
-            || lower.contains("language not supported")
     }
 
     @ViewBuilder
@@ -353,7 +306,7 @@ private enum RecordingPreflightStartKind: String, Identifiable {
     var id: String { rawValue }
 }
 
-private struct RecordingPreflightSheet: View {
+struct RecordingPreflightSheet: View {
     @Binding var showsTranslation: Bool
     @Binding var targetLanguage: String
     let backendRealtimeEnabled: Bool
@@ -408,7 +361,7 @@ private struct RecordingPreflightSheet: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Panel.preflightSheet)
     }
