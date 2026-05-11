@@ -4,10 +4,19 @@ import SwiftUI
 struct AccountSettingsPage: View {
     @EnvironmentObject private var config: AppConfig
     @EnvironmentObject private var sessionStore: AuthSessionStore
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var billingStatus: BillingStatus?
     @State private var billingErrorMessage: String?
     @State private var isLoadingBilling = false
+
+    /// `DT.waveformLit` (green) was applied to the usage label and
+    /// progress bars in both appearances. peng-xiao wants light mode
+    /// to read as primary ink instead, so the green stays only in
+    /// dark mode where the surrounding card is dark.
+    private var usageAccent: Color {
+        colorScheme == .dark ? DT.waveformLit : .black
+    }
 
     var body: some View {
         Form {
@@ -264,7 +273,7 @@ struct AccountSettingsPage: View {
                     Capsule(style: .continuous)
                         .fill(Color.white.opacity(0.08))
                     Capsule(style: .continuous)
-                        .fill((isOverLimit ? DT.systemOrange : DT.waveformLit).opacity(0.72))
+                        .fill((isOverLimit ? DT.systemOrange : usageAccent).opacity(0.72))
                         .frame(width: proxy.size.width * max(0, min(1, progress)))
                 }
             }
@@ -376,7 +385,7 @@ struct AccountSettingsPage: View {
         if billingStatus.map({ $0.effectiveIsOverAnyLimit }) == true || billingErrorMessage != nil {
             return DT.systemOrange
         }
-        return DT.waveformLit
+        return usageAccent
     }
 
     private var isAuthActionDisabled: Bool {

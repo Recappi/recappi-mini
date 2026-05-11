@@ -51,7 +51,7 @@ extension CloudRecording {
 
     var sourceIconName: String {
         if sourceLine == "All system audio" {
-            return "speaker.wave.2.fill"
+            return "doc.text.below.ecg.fill"
         }
         if inferredSource != nil || clean(sourceAppName) != nil || clean(sourceAppBundleID) != nil {
             return "app.fill"

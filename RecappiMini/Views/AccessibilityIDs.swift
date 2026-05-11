@@ -102,6 +102,7 @@ enum AccessibilityIDs {
         static let newerVersionRefreshButton = "recappi.cloud.newerVersionRefreshButton"
         static let loadTranscriptButton = "recappi.cloud.loadTranscriptButton"
         static let recordingInfoButton = "recappi.cloud.recordingInfoButton"
+        static let headerPlayButton = "recappi.cloud.headerPlayButton"
         static let moreActionsButton = "recappi.cloud.moreActionsButton"
         static let copyTranscriptButton = "recappi.cloud.copyTranscriptButton"
         static let openRecordingInBrowserButton = "recappi.cloud.openRecordingInBrowserButton"
