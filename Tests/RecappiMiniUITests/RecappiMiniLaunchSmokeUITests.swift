@@ -254,6 +254,50 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         )
     }
 
+    func testRealtimeWebSocketDisconnectReconnectsAndPreservesCaptions() throws {
+        let backendURLOverridePath = "/tmp/recappi-mini-fake-realtime-backend-url"
+        let fileBackendURL = try? String(contentsOfFile: backendURLOverridePath, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let backendURL = ProcessInfo.processInfo.environment["RECAPPI_TEST_FAKE_REALTIME_BACKEND_URL"]
+            ?? fileBackendURL
+        guard let backendURL,
+              !backendURL.isEmpty else {
+            throw XCTSkip("Run scripts/run-realtime-ws-ui-test.sh to provide a real fake backend URL.")
+        }
+
+        let app = launchRecappiApp(
+            authToken: "test_backend_token",
+            backendURL: backendURL,
+            useBackendRealtimeLiveCaptions: true,
+            openCloudWindowOnLaunch: false
+        )
+
+        startFixtureRecording(in: app)
+
+        let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
+        XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions panel.")
+
+        let caption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
+        XCTAssertTrue(
+            waitForText(in: caption, containing: "Caption before websocket disconnect", timeout: 10),
+            "Expected the fake backend's first transcript before it closes the first WebSocket."
+        )
+        XCTAssertTrue(
+            waitForText(in: caption, containing: "Caption after websocket reconnect", timeout: 20),
+            "Expected automatic reconnect to attach to a second real WebSocket and receive more transcript."
+        )
+
+        let captionTextAfterReconnect = elementText(caption)
+        XCTAssertTrue(
+            captionTextAfterReconnect.localizedCaseInsensitiveContains("Caption before websocket disconnect"),
+            "Automatic reconnect should preserve caption history, got: \(captionTextAfterReconnect)"
+        )
+        XCTAssertFalse(
+            app.buttons["OK"].waitForExistence(timeout: 0.5),
+            "A real WebSocket disconnect should not show a blocking NSAlert."
+        )
+    }
+
     func testLiveCaptionsBilingualPanelShowsIndependentStreams() throws {
         let sourceText = "If you have a team, pay attention. It is a very important thing. You should pay them too"
         let translationText = "如果你有一个团队，要多关注他们。这是一件很重要的事情。你也应该付钱给他们"

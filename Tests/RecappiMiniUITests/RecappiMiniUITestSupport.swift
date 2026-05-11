@@ -124,6 +124,8 @@ extension XCTestCase {
         detectedMeetingAutoStopGraceSeconds: TimeInterval? = nil,
         simulatedLiveCaptionText: String? = nil,
         simulatedLiveCaptionTranslationText: String? = nil,
+        backendURL: String? = nil,
+        useBackendRealtimeLiveCaptions: Bool = false,
         openCloudWindowOnLaunch: Bool = false
     ) -> XCUIApplication {
         terminateExistingRecappiInstances()
@@ -138,7 +140,8 @@ extension XCTestCase {
         if let effectiveAuthToken, !effectiveAuthToken.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_AUTH_TOKEN"] = effectiveAuthToken
         }
-        if let backend = UITestPaths.backendOverrideValue, !backend.isEmpty {
+        let effectiveBackendURL = backendURL ?? UITestPaths.backendOverrideValue
+        if let backend = effectiveBackendURL, !backend.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_BACKEND_URL"] = backend
         }
         if let simulatedAutoPromptApp {
@@ -159,6 +162,9 @@ extension XCTestCase {
         }
         if let simulatedLiveCaptionTranslationText, !simulatedLiveCaptionTranslationText.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_LIVE_CAPTION_TRANSLATION_TEXT"] = simulatedLiveCaptionTranslationText
+        }
+        if useBackendRealtimeLiveCaptions {
+            app.launchEnvironment["RECAPPI_TEST_USE_BACKEND_REALTIME"] = "1"
         }
         if openCloudWindowOnLaunch {
             app.launchEnvironment["RECAPPI_TEST_OPEN_CLOUD_WINDOW"] = "1"
@@ -190,6 +196,27 @@ extension XCTestCase {
 
     func uiElement(_ app: XCUIApplication, id: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
+    }
+
+    func elementText(_ element: XCUIElement) -> String {
+        [element.label, element.value as? String]
+            .compactMap { $0 }
+            .joined(separator: " ")
+    }
+
+    func waitForText(
+        in element: XCUIElement,
+        containing expected: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if elementText(element).localizedCaseInsensitiveContains(expected) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return false
     }
 
     func openSettings(from app: XCUIApplication) {

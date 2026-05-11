@@ -1142,6 +1142,9 @@ final class AudioRecorder: NSObject, ObservableObject {
             ]
             self.liveCaptionIsFinal = false
         }
+        if uiTestMode.useBackendRealtimeLiveCaptions {
+            startBackendRealtimeLiveCaptionsForUITest()
+        }
         self.detectedMeetingRecordingContext = autoStopContext
         self.state = .recording
         self.elapsedSeconds = 0
@@ -1150,6 +1153,31 @@ final class AudioRecorder: NSObject, ObservableObject {
                 self?.elapsedSeconds += 1
             }
         }
+    }
+
+    private func startBackendRealtimeLiveCaptionsForUITest() {
+        guard let bearerToken = AuthSessionStore.shared.bearerToken() ?? uiTestMode.authToken,
+              !bearerToken.isEmpty else {
+            DiagnosticsLog.warning("live-caption", "provider.unavailable.ui_test reason=missing_bearer_token")
+            liveCaptionMessage = "Sign in to Recappi Cloud to use backend live captions."
+            liveCaptionStatusPhase = .unavailable
+            liveCaptionIsFinal = false
+            return
+        }
+
+        DiagnosticsLog.event("live-caption", "provider.start.ui_test backend=true mode=transcription")
+        let backendTranscriber = BackendRealtimeLiveCaptionTranscriber(
+            client: RecappiAPIClient(
+                origin: AppConfig.shared.effectiveBackendBaseURL,
+                bearerToken: bearerToken
+            ),
+            language: Self.normalizedRealtimeLanguage(AppConfig.shared.normalizedCloudLanguage),
+            mode: .transcription
+        ) { [weak self] snapshot in
+            self?.applyLiveCaptionSnapshot(snapshot)
+        }
+        liveCaptionTranscriber = backendTranscriber
+        backendTranscriber.start()
     }
 
     private func recordingSessionMetadata() -> RecordingSessionMetadata {
