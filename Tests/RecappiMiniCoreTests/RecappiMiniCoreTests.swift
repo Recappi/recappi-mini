@@ -1280,7 +1280,78 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(store.selectedRecordingID, "rec_processing")
         XCTAssertEqual(store.recordings.first?.id, "rec_processing")
         XCTAssertEqual(store.recordings.first?.status, .uploading)
+        XCTAssertNotNil(store.locallyManagedRecordingUpdatedAt["rec_processing"])
         XCTAssertEqual(store.transcriptionJobsByRecordingID["rec_processing"]?.first?.status, .running)
+    }
+
+    @MainActor
+    func testCloudLibraryReplacesLocalProcessingRecordingWithServerDetail() {
+        let store = CloudLibraryStore()
+        let localPlaceholder = CloudRecording(
+            id: "rec_processing",
+            userId: nil,
+            title: "Live meeting",
+            summaryTitle: nil,
+            sourceTitle: "Design sync",
+            sourceAppName: "Google Meet",
+            sourceAppBundleID: "com.google.Chrome",
+            r2Key: "recordings/user/rec_processing.wav",
+            r2UploadId: nil,
+            status: .uploading,
+            sizeBytes: nil,
+            durationMs: 120_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: nil,
+            activeTranscriptId: nil,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let serverDetail = CloudRecording(
+            id: "rec_processing",
+            userId: "user_123",
+            title: "Live meeting",
+            summaryTitle: "Design sync recap",
+            sourceTitle: "Design sync",
+            sourceAppName: "Google Meet",
+            sourceAppBundleID: "com.google.Chrome",
+            r2Key: "recordings/user/rec_processing.wav",
+            r2UploadId: nil,
+            status: .ready,
+            sizeBytes: 4_200_000,
+            durationMs: 120_000,
+            sampleRate: 48_000,
+            channels: 2,
+            contentType: "audio/aac",
+            activeTranscriptId: "tr_final",
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        let finishedJob = TranscriptionJob(
+            id: "job_processing",
+            status: .succeeded,
+            transcriptId: "tr_final",
+            provider: "Recappi Cloud",
+            model: "Transcription",
+            language: nil,
+            prompt: nil,
+            error: nil,
+            attempts: 1,
+            enqueuedAt: 1_000,
+            startedAt: 1_001,
+            finishedAt: 2_000
+        )
+
+        store.upsertLocalProcessingRecording(localPlaceholder)
+        store.upsertLocalProcessingRecording(serverDetail, latestJob: finishedJob)
+
+        let recording = store.recordings.first
+        XCTAssertEqual(recording?.id, "rec_processing")
+        XCTAssertEqual(recording?.status, .ready)
+        XCTAssertEqual(recording?.activeTranscriptId, "tr_final")
+        XCTAssertEqual(recording?.updatedAt, Date(timeIntervalSince1970: 2_000))
+        XCTAssertNotNil(store.locallyManagedRecordingUpdatedAt["rec_processing"])
+        XCTAssertEqual(store.transcriptionJobsByRecordingID["rec_processing"]?.first?.status, .succeeded)
     }
 
     func testCloudLibrarySnapshotRoundTripsLightweightData() throws {
@@ -2479,6 +2550,35 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertFalse(CloudLibraryStore.shouldFlagOnUpdatedAtAdvance(
             cachedUpdatedAt: nil,
             freshUpdatedAt: fresh
+        ))
+    }
+
+    // MARK: - CloudLibraryStore.shouldSuppressNewerVersionBannerForLocalPipeline
+
+    func test_shouldSuppressNewerVersionBannerForLocalPipeline_returnsTrue_withinWindow() {
+        let lastLocalUpdate = Date(timeIntervalSinceReferenceDate: 100)
+        let now = Date(timeIntervalSinceReferenceDate: 100 + 29 * 60)
+
+        XCTAssertTrue(CloudLibraryStore.shouldSuppressNewerVersionBannerForLocalPipeline(
+            lastLocalUpdateAt: lastLocalUpdate,
+            now: now
+        ))
+    }
+
+    func test_shouldSuppressNewerVersionBannerForLocalPipeline_returnsFalse_afterWindow() {
+        let lastLocalUpdate = Date(timeIntervalSinceReferenceDate: 100)
+        let now = Date(timeIntervalSinceReferenceDate: 100 + 31 * 60)
+
+        XCTAssertFalse(CloudLibraryStore.shouldSuppressNewerVersionBannerForLocalPipeline(
+            lastLocalUpdateAt: lastLocalUpdate,
+            now: now
+        ))
+    }
+
+    func test_shouldSuppressNewerVersionBannerForLocalPipeline_returnsFalse_withoutMarker() {
+        XCTAssertFalse(CloudLibraryStore.shouldSuppressNewerVersionBannerForLocalPipeline(
+            lastLocalUpdateAt: nil,
+            now: Date(timeIntervalSinceReferenceDate: 100)
         ))
     }
 

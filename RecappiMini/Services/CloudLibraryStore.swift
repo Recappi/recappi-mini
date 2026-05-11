@@ -73,6 +73,12 @@ final class CloudLibraryStore: ObservableObject {
     /// on every selection switch when the recording genuinely has no
     /// summary yet. Persisted equivalents can live in the SQLite migration.
     var summaryRefreshAttemptedRecordingIDs: Set<String> = []
+    /// Recording ids created/updated by this app's recording pipeline during
+    /// the current process, with the time they were last touched locally.
+    /// The primary freshness fix is to fetch server detail immediately after
+    /// processing completes; this is only a short-lived fallback for late
+    /// server-side summarization updates that land shortly after that fetch.
+    var locallyManagedRecordingUpdatedAt: [String: Date] = [:]
 
     init(
         config: AppConfig = .shared,

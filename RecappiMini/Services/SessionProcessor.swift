@@ -128,6 +128,12 @@ final class SessionProcessor {
             manifest.errorMessage = nil
             manifest.transcriptId = transcript.id
             _ = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+            await refreshServerRecordingState(
+                client: client,
+                recordingID: uploadedRecording.recordingId,
+                latestJob: nil,
+                onCloudRecordingUpdated: onCloudRecordingUpdated
+            )
             return RecordingResult(
                 folderURL: sessionDir,
                 transcript: transcript.text,
@@ -203,6 +209,12 @@ final class SessionProcessor {
         manifest.errorMessage = nil
         manifest.transcriptId = transcript.id
         _ = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+        await refreshServerRecordingState(
+            client: client,
+            recordingID: uploadedRecording.recordingId,
+            latestJob: job,
+            onCloudRecordingUpdated: onCloudRecordingUpdated
+        )
 
         return RecordingResult(
             folderURL: sessionDir,
@@ -503,6 +515,31 @@ final class SessionProcessor {
             case .failed:
                 throw SessionProcessorError.jobFailed(job.error ?? "Transcription failed")
             }
+        }
+    }
+
+    private func refreshServerRecordingState(
+        client: RecappiAPIClient,
+        recordingID: String,
+        latestJob: TranscriptionJob?,
+        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
+    ) async {
+        DiagnosticsLog.event("processing", "recording.detail.refresh.start recording=\(recordingID)")
+        do {
+            let recording = try await client.getRecording(id: recordingID)
+            onCloudRecordingUpdated(recording, latestJob)
+            DiagnosticsLog.event(
+                "processing",
+                "recording.detail.refresh.succeeded recording=\(recordingID) activeTranscript=\(recording.activeTranscriptId ?? "none")"
+            )
+        } catch {
+            // The transcript is already saved locally at this point. A detail
+            // refresh failure should not turn a successful recording into a
+            // failed one; the Cloud panel can still refresh the detail later.
+            DiagnosticsLog.warning(
+                "processing",
+                "recording.detail.refresh.failed recording=\(recordingID) \(DiagnosticsLog.errorSummary(error))"
+            )
         }
     }
 

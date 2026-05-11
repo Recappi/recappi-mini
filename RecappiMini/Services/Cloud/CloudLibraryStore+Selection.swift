@@ -3,6 +3,8 @@ import Foundation
 
 @MainActor
 extension CloudLibraryStore {
+    private nonisolated static let localPipelineNewerVersionSuppressionInterval: TimeInterval = 30 * 60
+
     func select(_ recording: CloudRecording) {
         PerfLog.event("select", extra: "id=\(recording.id.prefix(8))")
         PerfLog.start("select.until.firstRender")
@@ -23,6 +25,7 @@ extension CloudLibraryStore {
     }
 
     func upsertLocalProcessingRecording(_ recording: CloudRecording, latestJob: TranscriptionJob? = nil) {
+        locallyManagedRecordingUpdatedAt[recording.id] = Date()
         replaceRecording(recording)
         recordings.sort { lhs, rhs in
             (lhs.createdAt ?? .distantPast) > (rhs.createdAt ?? .distantPast)
@@ -45,6 +48,7 @@ extension CloudLibraryStore {
         transcriptCache.removeValue(forKey: recordingID)
         transcriptCacheRecordingUpdatedAt.removeValue(forKey: recordingID)
         transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
+        locallyManagedRecordingUpdatedAt.removeValue(forKey: recordingID)
         playbackAudioURLsByRecordingID.removeValue(forKey: recordingID)
         localSessionURLsByRecordingID.removeValue(forKey: recordingID)
         summaryRefreshAttemptedRecordingIDs.remove(recordingID)
@@ -122,7 +126,11 @@ extension CloudLibraryStore {
                     cachedUpdatedAt: cachedUpdatedAt,
                     freshUpdatedAt: detail.updatedAt
                 )
-            if metadataStale || contentUpdatedSinceCache {
+            let suppressLocalPipelineBanner = Self.shouldSuppressNewerVersionBannerForLocalPipeline(
+                lastLocalUpdateAt: locallyManagedRecordingUpdatedAt[recordingID],
+                now: Date()
+            )
+            if metadataStale || (contentUpdatedSinceCache && !suppressLocalPipelineBanner) {
                 hasNewerVersionForSelection = true
             }
             // When the staleness is specifically the "content updated for the
@@ -146,6 +154,13 @@ extension CloudLibraryStore {
                 // recording can re-attempt if a future cache lands without
                 // summary content.
                 summaryRefreshAttemptedRecordingIDs.remove(recordingID)
+            }
+            if contentUpdatedSinceCache && suppressLocalPipelineBanner {
+                DiagnosticsLog.event(
+                    "cloud",
+                    "newer_version.suppressed_local_pipeline recording=\(recordingID.prefix(8))"
+                )
+                hasNewerVersionForSelection = false
             }
             // Test-only escape hatch: lets reviewers see the
             // `newerVersionStrip` banner without orchestrating a real
@@ -193,6 +208,21 @@ extension CloudLibraryStore {
         guard let fresh = freshUpdatedAt else { return false }
         guard let cached = cachedUpdatedAt else { return false }
         return fresh > cached
+    }
+
+    /// Suppress the "newer cloud version" strip only for the short window
+    /// immediately after this app's own upload/transcription pipeline touched
+    /// the recording. The normal path now refreshes server detail as soon as
+    /// processing completes; this guard only catches late async summarization
+    /// updates from the same pipeline, and expires so real remote edits are
+    /// not hidden later in the session.
+    nonisolated static func shouldSuppressNewerVersionBannerForLocalPipeline(
+        lastLocalUpdateAt: Date?,
+        now: Date,
+        interval: TimeInterval = localPipelineNewerVersionSuppressionInterval
+    ) -> Bool {
+        guard let lastLocalUpdateAt else { return false }
+        return now.timeIntervalSince(lastLocalUpdateAt) <= interval
     }
 
     /// Pure decision for "should the newer-version banner show?".
