@@ -73,11 +73,15 @@ struct CloudMeetingPlaybackStrip: View {
             playbackRateMenu
         }
         .frame(height: 44)
-        .padding(.horizontal, 12)
-        .padding(.top, 5)
-        .padding(.bottom, 9)
+        .padding(.horizontal, 14)
+        // Liquid Glass mini-player capsule, modelled on Apple Music's
+        // bottom now-playing bar: the strip floats over the content
+        // behind it instead of slabbing across the whole pane edge.
+        .glassEffect(in: Capsule(style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
         .frame(maxWidth: .infinity)
-        .background(Palette.controlFillHover.opacity(0.4))
     }
 
     private var sliderProgress: Double {
@@ -389,14 +393,11 @@ struct CloudPlaybackWaveformScrubber: View {
     private var trackHeight: CGFloat { compact ? 13 : 32 }
     private let horizontalInset: CGFloat = 7
     private var scrubberHeight: CGFloat { compact ? 18 : 44 }
-    private var playheadHeight: CGFloat { compact ? 17 : 40 }
-    private let playheadWidth: CGFloat = 7
 
     var body: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 1)
             let height = max(proxy.size.height, scrubberHeight)
-            let clampedProgress = min(max(progress, 0), 1)
             let inset = min(horizontalInset, max(width / 2 - 1, 0))
             let contentWidth = max(width - inset * 2, 1)
             let spacing: CGFloat = 2.4
@@ -407,25 +408,21 @@ struct CloudPlaybackWaveformScrubber: View {
                 contentWidth: contentWidth,
                 barWidth: barWidth
             )
-            let playheadX = timeline.xPosition(for: clampedProgress)
 
-            ZStack(alignment: .leading) {
-                HStack(alignment: .center, spacing: spacing) {
-                    ForEach(0..<barCount, id: \.self) { index in
-                        Capsule(style: .continuous)
-                            .fill(barColor(index: index, count: barCount))
-                            .frame(width: barWidth, height: barHeight(index: index, count: barCount))
-                    }
+            // Apple Music-style scrubber: progress is communicated
+            // entirely by the played/unplayed bar colour split. No
+            // overlay playhead — peng-xiao asked for the two black
+            // handle dots gone.
+            HStack(alignment: .center, spacing: spacing) {
+                ForEach(0..<barCount, id: \.self) { index in
+                    Capsule(style: .continuous)
+                        .fill(barColor(index: index, count: barCount))
+                        .frame(width: barWidth, height: barHeight(index: index, count: barCount))
                 }
-                .frame(width: contentWidth, height: trackHeight, alignment: .center)
-                .offset(x: inset)
-                .opacity(isEnabled ? (isLoadingPeaks ? 0.58 : 1) : 0.46)
-
-                CloudPlaybackPlayhead(color: playheadColor, isEnabled: isEnabled)
-                    .frame(width: playheadWidth, height: playheadHeight)
-                    .offset(x: playheadX - playheadWidth / 2)
-                .allowsHitTesting(false)
             }
+            .frame(width: contentWidth, height: trackHeight, alignment: .center)
+            .offset(x: inset)
+            .opacity(isEnabled ? (isLoadingPeaks ? 0.58 : 1) : 0.46)
             .frame(width: width, height: height, alignment: .leading)
             .contentShape(Rectangle())
             .gesture(
@@ -479,10 +476,6 @@ struct CloudPlaybackWaveformScrubber: View {
         }
     }
 
-    private var playheadColor: Color {
-        Palette.labelPrimary
-    }
-
     private func barColor(index: Int, count: Int) -> Color {
         if WaveformTimeline.isBarPlayed(index: index, count: count, progress: progress) {
             return DT.waveformLit.opacity(isEnabled ? 0.92 : 0.42)
@@ -512,46 +505,5 @@ struct CloudPlaybackWaveformScrubber: View {
         let lower = min(max(peaks[lowerIndex], 0), 1)
         let upper = min(max(peaks[upperIndex], 0), 1)
         return lower + ((upper - lower) * fraction)
-    }
-}
-
-struct CloudPlaybackPlayhead: View {
-    let color: Color
-    let isEnabled: Bool
-
-    var body: some View {
-        VStack(spacing: 0) {
-            handleDot
-            Capsule(style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            color.opacity(lineOpacity * 0.50),
-                            color.opacity(lineOpacity),
-                            color.opacity(lineOpacity * 0.50),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(width: 1)
-                .frame(maxHeight: .infinity)
-            handleDot
-        }
-        .shadow(color: color.opacity(isEnabled ? 0.22 : 0.06), radius: 2.5, y: 0.5)
-    }
-
-    private var lineOpacity: Double {
-        isEnabled ? 0.72 : 0.30
-    }
-
-    private var handleDot: some View {
-        ZStack {
-            Circle()
-                .fill(color.opacity(isEnabled ? 0.92 : 0.40))
-            Circle()
-                .strokeBorder(Color.black.opacity(isEnabled ? 0.45 : 0.22), lineWidth: 0.8)
-        }
-        .frame(width: 5, height: 5)
     }
 }

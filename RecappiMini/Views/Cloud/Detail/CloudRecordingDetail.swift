@@ -90,6 +90,12 @@ struct CloudRecordingDetail: View {
     }
 
     private var readerPane: some View {
+        // Apple Music-style stacking: the transcript pane fills the
+        // entire reader area and the Liquid Glass playback capsule
+        // floats on top of it at the bottom (overlay, not VStack).
+        // `safeAreaInset` reserves room at the bottom of the scrollable
+        // content so the last transcript row never gets hidden behind
+        // the capsule.
         VStack(alignment: .leading, spacing: 0) {
             CloudDetailHeaderSection {
                 detailHeader
@@ -120,14 +126,24 @@ struct CloudRecordingDetail: View {
                 transcriptCard
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            Divider().overlay(Palette.borderHairline)
-
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                // Empty inset just reserves layout space equal to the
+                // capsule's footprint so the scrollable area can scroll
+                // past the floating player.
+                Color.clear.frame(height: floatingPlayerInset)
+            }
+        }
+        .overlay(alignment: .bottom) {
             CloudDetailPlaybackSection {
                 bottomPlaybackBar
             }
         }
     }
+
+    /// Approximate height of the Liquid Glass playback capsule
+    /// (44pt content + 6/10 vertical breathing room). Used as the
+    /// bottom safe-area inset for the scrollable content.
+    private var floatingPlayerInset: CGFloat { 60 }
 
     private var hasSummarySection: Bool {
         structuredSummaryInsights != nil
@@ -594,7 +610,37 @@ struct CloudRecordingDetail: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
                 .frame(minWidth: 0)
+
+            headerPlayButton
         }
+    }
+
+    /// Apple Music-style track-row play affordance. The bottom strip is
+    /// now the steady-state now-playing surface; this button is the
+    /// primary "start playing this recording" entry. Shows a prepare
+    /// spinner while the audio is downloading.
+    private var headerPlayButton: some View {
+        let isViewingLoadedAudio = audioPlayer.currentRecordingID == recording.id
+        let isPlaying = isViewingLoadedAudio && audioPlayer.isPlaying
+
+        return Button(action: handlePlayPause) {
+            ZStack {
+                Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 38, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.tint)
+                    .opacity(isPreparingPlaybackAudio ? 0 : 1)
+                ProgressView()
+                    .controlSize(.small)
+                    .opacity(isPreparingPlaybackAudio ? 1 : 0)
+            }
+            .frame(width: 38, height: 38)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isPreparingPlaybackAudio)
+        .help(isPlaying ? "Pause" : "Play recording")
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.headerPlayButton)
     }
 
     @ToolbarContentBuilder
