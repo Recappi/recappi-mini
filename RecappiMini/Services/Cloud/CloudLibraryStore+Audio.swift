@@ -43,7 +43,7 @@ extension CloudLibraryStore {
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)
         } catch {
-            playbackErrorMessage = error.localizedDescription
+            playbackErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
         }
 
         isPreparingPlaybackAudio = false
@@ -80,7 +80,7 @@ extension CloudLibraryStore {
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)
         } catch {
-            playbackErrorMessage = error.localizedDescription
+            playbackErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
         }
 
         isSyncingToLocal = false

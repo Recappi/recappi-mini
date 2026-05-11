@@ -151,7 +151,7 @@ extension CloudLibraryStore {
         do {
             try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript)
         } catch {
-            playbackErrorMessage = error.localizedDescription
+            playbackErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
         }
     }
 

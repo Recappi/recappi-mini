@@ -116,7 +116,7 @@ final class AuthSessionStore: ObservableObject {
                 NSLog("[Recappi] auth.startOAuth: catch_all -> .failed type=\(String(describing: type(of: error)))")
                 authStatus = .failed
             }
-            authStatusDetail = error.localizedDescription
+            authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
             throw error
         }
@@ -155,12 +155,12 @@ final class AuthSessionStore: ObservableObject {
             return session
         } catch let error as RecappiAPIError where error == .unauthorized {
             authStatus = .expired
-            authStatusDetail = error.localizedDescription
+            authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
             throw error
         } catch {
             authStatus = .failed
-            authStatusDetail = error.localizedDescription
+            authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
             throw error
         }
@@ -193,7 +193,7 @@ final class AuthSessionStore: ObservableObject {
                 NSLog("[Recappi] auth.ensureAuthorized: nil_userSession -> .expired")
                 discardPersistedCredentialStorage()
                 authStatus = .expired
-                authStatusDetail = RecappiAPIError.unauthorized.localizedDescription
+                authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.unauthorized)
                 throw RecappiSessionError.invalidSession
             }
 
@@ -209,7 +209,7 @@ final class AuthSessionStore: ObservableObject {
             return session
         } catch let error as RecappiAPIError where error == .unauthorized {
             authStatus = .expired
-            authStatusDetail = error.localizedDescription
+            authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
             throw error
         } catch {
@@ -224,7 +224,7 @@ final class AuthSessionStore: ObservableObject {
             // a cache-warning banner at its own layer, which is the right
             // semantic for "transient request failure".
             NSLog("[Recappi] auth.ensureAuthorized: transient_error type=\(String(describing: type(of: error))) -> auth_status_unchanged")
-            authStatusDetail = error.localizedDescription
+            authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
             throw error
         }
@@ -232,7 +232,7 @@ final class AuthSessionStore: ObservableObject {
 
     func handleUnauthorized(origin: String) async throws -> UserSession {
         authStatus = .expired
-        authStatusDetail = RecappiAPIError.unauthorized.localizedDescription
+        authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.unauthorized)
         authFlowPhase = nil
         _ = deletePersistedBearerToken()
         defaults.removeObject(forKey: cachedUserKey)

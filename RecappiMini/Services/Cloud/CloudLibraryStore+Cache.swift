@@ -104,10 +104,10 @@ extension CloudLibraryStore {
             case .http(let statusCode, _) where statusCode == 404:
                 return "Transcript is not available for this recording yet."
             default:
-                return apiError.localizedDescription
+                return NetworkErrorPresenter.userFacingMessage(for: apiError)
             }
         }
-        return error.localizedDescription
+        return NetworkErrorPresenter.userFacingMessage(for: error)
     }
 
 

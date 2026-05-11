@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class SessionProcessor {
     static let shared = SessionProcessor()
+    private static let transcriptionPollingTimeout: TimeInterval = 15 * 60
 
     private init() {}
 
@@ -469,6 +470,8 @@ final class SessionProcessor {
             return job
         }
 
+        let startedPollingAt = Date()
+        var lastLongPollWarningAt: Date?
         while true {
             let job = try await client.getJob(jobId: initial.jobId)
             onJobUpdate(job)
@@ -479,6 +482,21 @@ final class SessionProcessor {
             )
             switch job.status {
             case .queued, .running:
+                let elapsed = Date().timeIntervalSince(startedPollingAt)
+                if elapsed >= Self.transcriptionPollingTimeout {
+                    DiagnosticsLog.warning(
+                        "processing",
+                        "transcription.poll.timeout job=\(job.id) status=\(job.status.rawValue) elapsed=\(Int(elapsed))"
+                    )
+                    throw SessionProcessorError.jobTimedOut
+                }
+                if lastLongPollWarningAt.map({ Date().timeIntervalSince($0) >= 60 }) ?? (elapsed >= 60) {
+                    lastLongPollWarningAt = Date()
+                    DiagnosticsLog.warning(
+                        "processing",
+                        "transcription.poll.still_waiting job=\(job.id) status=\(job.status.rawValue) elapsed=\(Int(elapsed))"
+                    )
+                }
                 try await Task.sleep(for: .seconds(2))
             case .succeeded:
                 return job
@@ -591,6 +609,7 @@ private struct UploadAttemptFailure: Error {
 enum SessionProcessorError: LocalizedError {
     case cloudDisabled
     case jobFailed(String)
+    case jobTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -598,6 +617,8 @@ enum SessionProcessorError: LocalizedError {
             return "Recappi Cloud is disabled in Settings."
         case .jobFailed(let error):
             return "Recappi transcription failed: \(error)"
+        case .jobTimedOut:
+            return "转写仍在后台处理中，请稍后刷新云端记录"
         }
     }
 }

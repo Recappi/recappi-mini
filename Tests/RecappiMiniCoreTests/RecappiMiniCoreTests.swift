@@ -168,6 +168,57 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertNil(session.configuration.httpCookieStorage)
     }
 
+    func testNetworkErrorPresenterLocalizesCommonNetworkFailures() {
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)),
+            "网络不可用，请检查连接后重试"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)),
+            "连接超时，请稍后重试"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost)),
+            "无法连接 Recappi Cloud，请稍后重试"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: NSError(domain: NSURLErrorDomain, code: NSURLErrorSecureConnectionFailed)),
+            "安全连接失败，请检查代理或网络设置"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(rawMessage: "Socket is not connected"),
+            "网络连接中断，请稍后重试"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.unauthorized),
+            "登录已过期，请重新登录"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.invalidURL),
+            "Recappi Cloud 地址无效"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.invalidResponse),
+            "Recappi Cloud 返回了无效响应"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.http(statusCode: 408, message: "request timeout")),
+            "请求超时，请稍后重试"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.http(statusCode: 409, message: "Already active")),
+            "Already active"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.http(statusCode: 429, message: "rate limit")),
+            "请求太频繁，请稍后重试"
+        )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.http(statusCode: 503, message: "upstream down")),
+            "Recappi Cloud 暂时不可用，请稍后重试"
+        )
+    }
+
     func testCloudLibraryListRequestUsesBearerAndOrigin() throws {
         let client = RecappiAPIClient(origin: "https://recordmeet.ing/", bearerToken: "token_123")
         let request = try client.makeRequest(

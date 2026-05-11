@@ -24,11 +24,11 @@ extension CloudLibraryStore {
                 // Free-tier accounts do not have a Stripe customer yet.
                 openPlansPage()
             default:
-                billingErrorMessage = error.localizedDescription
+                billingErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
                 openPlansPage()
             }
         } catch {
-            billingErrorMessage = error.localizedDescription
+            billingErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
             openPlansPage()
         }
 
@@ -144,7 +144,7 @@ extension CloudLibraryStore {
                 break
             }
         }
-        state = .failed(error.localizedDescription)
+        state = .failed(NetworkErrorPresenter.userFacingMessage(for: error))
         cacheWarningMessage = nil
     }
 

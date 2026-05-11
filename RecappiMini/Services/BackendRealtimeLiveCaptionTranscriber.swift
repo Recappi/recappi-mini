@@ -421,9 +421,8 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             }
         case "error":
             let rawMessage = event.error?.message ?? "Backend Realtime failed."
-            let message = Self.userFacingFailureMessage(rawMessage: rawMessage)
             Self.writeHealthLog("ws.event.error message=\(rawMessage)")
-            publishFromCallback(.statusOnly(phase: .failed, message: message))
+            handleConnectionFailure(RealtimeServerEventError(message: rawMessage), task: nil)
         default:
             if event.type == "session.output_audio.delta" {
                 markIgnoredOutputAudioDelta()
@@ -787,7 +786,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         if lowercasedMessage.contains("backend realtime failed") {
             return "字幕服务暂时不可用"
         }
-        return message.isEmpty ? "字幕服务暂时不可用" : message
+        return NetworkErrorPresenter.userFacingMessage(rawMessage: message, fallback: "字幕服务暂时不可用")
     }
 
     private func sendAudio(_ data: Data) {
@@ -1163,6 +1162,14 @@ private struct RealtimeError: Decodable {
 private struct RealtimeStallError: LocalizedError {
     var errorDescription: String? {
         "Realtime session stopped returning transcript events."
+    }
+}
+
+private struct RealtimeServerEventError: LocalizedError {
+    let message: String
+
+    var errorDescription: String? {
+        message
     }
 }
 

@@ -76,13 +76,13 @@ extension CloudLibraryStore {
             }
         } catch let error as RecappiAPIError where error == .unauthorized {
             if allowStaleOnFailure, hasVisibleLibraryData {
-                billingErrorMessage = "Sign in again to refresh usage."
+                billingErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
                 cacheWarningMessage = refreshFailureMessage(for: error, wasShowingCachedData: isShowingCachedData)
             } else {
                 apply(error: error)
             }
         } catch {
-            billingErrorMessage = error.localizedDescription
+            billingErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
         }
 
         isLoadingBilling = false

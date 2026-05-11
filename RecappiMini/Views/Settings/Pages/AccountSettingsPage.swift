@@ -491,7 +491,7 @@ struct AccountSettingsPage: View {
             billingErrorMessage = nil
         } catch {
             billingStatus = nil
-            billingErrorMessage = error.localizedDescription
+            billingErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
         }
         isLoadingBilling = false
     }

@@ -182,7 +182,7 @@ struct RecordingPanel: View {
                 NSLog("[Recappi] startRecording() returned, state now = \(recorder.state)")
             } catch {
                 NSLog("[Recappi] startRecording() error: \(error)")
-                recorder.state = .error(message: error.localizedDescription)
+                recorder.state = .error(message: NetworkErrorPresenter.userFacingMessage(for: error))
             }
         }
     }
@@ -205,7 +205,7 @@ struct RecordingPanel: View {
                 let sessionDir = try await recorder.stopRecording()
                 await processSession(sessionDir, duration: duration)
             } catch {
-                recorder.state = .error(message: error.localizedDescription)
+                recorder.state = .error(message: NetworkErrorPresenter.userFacingMessage(for: error))
             }
         }
     }
@@ -247,10 +247,10 @@ struct RecordingPanel: View {
             }
         } catch {
             if visibleProcessingSessionID == sessionID {
-                recorder.state = .error(message: error.localizedDescription)
+                recorder.state = .error(message: NetworkErrorPresenter.userFacingMessage(for: error))
                 visibleProcessingSessionID = nil
             } else {
-                postBackgroundProcessingFailureNotification(message: error.localizedDescription)
+                postBackgroundProcessingFailureNotification(message: NetworkErrorPresenter.userFacingMessage(for: error))
             }
         }
     }

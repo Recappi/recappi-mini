@@ -26,15 +26,13 @@ struct RecappiAPIClient: Sendable {
 
     func getSession() async throws -> SessionLookup {
         let request = try makeRequest(path: "/api/auth/get-session")
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, response) = try await performValidated(request)
         return try Self.decodeSessionLookup(from: data, response: response, origin: origin)
     }
 
     func signOut() async throws {
         let request = try makeRequest(path: "/api/auth/sign-out", method: "POST")
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        _ = try await performValidated(request)
     }
 
     func createRecording(
@@ -51,8 +49,7 @@ struct RecappiAPIClient: Sendable {
                 durationMs: durationMs
             )
         )
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(CreateRecordingResponse.self, from: data)
     }
 
@@ -81,8 +78,7 @@ struct RecappiAPIClient: Sendable {
             request.setValue(String(data.count), forHTTPHeaderField: "Content-Length")
             request.httpBody = data
 
-            let (responseData, response) = try await session.data(for: request)
-            try Self.validate(response: response, data: responseData)
+            let (responseData, _) = try await performValidated(request, allowsRetry: true)
             let uploaded = try JSONDecoder().decode(UploadedPart.self, from: responseData)
             parts.append(UploadPartDescriptor(partNumber: uploaded.partNumber, etag: uploaded.etag))
 
@@ -98,8 +94,7 @@ struct RecappiAPIClient: Sendable {
         var request = try makeRequest(path: "/api/recordings/\(recordingId)/complete", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(CompleteRecordingRequest(parts: parts))
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(CompletedRecording.self, from: data)
     }
 
@@ -120,15 +115,13 @@ struct RecappiAPIClient: Sendable {
                 prompt: prompt
             )
         )
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(StartTranscriptionResponse.self, from: data)
     }
 
     func getJob(jobId: String) async throws -> TranscriptionJob {
         let request = try makeRequest(path: "/api/jobs/\(jobId)")
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(TranscriptionJob.self, from: data)
     }
 
@@ -137,8 +130,7 @@ struct RecappiAPIClient: Sendable {
             path: "/api/recordings/\(recordingId)/jobs",
             queryItems: [URLQueryItem(name: "limit", value: String(limit))]
         )
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(RecordingJobsResponse.self, from: data)
     }
 
@@ -152,50 +144,47 @@ struct RecappiAPIClient: Sendable {
             queryItems.append(URLQueryItem(name: "cursor", value: cursor))
         }
         let request = try makeRequest(path: "/api/recordings", queryItems: queryItems)
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(CloudRecordingsPage.self, from: data)
     }
 
     func getRecording(id: String) async throws -> CloudRecording {
         let request = try makeRequest(path: "/api/recordings/\(id)")
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(CloudRecording.self, from: data)
     }
 
     func deleteRecording(id: String) async throws {
         let request = try makeRequest(path: "/api/recordings/\(id)", method: "DELETE")
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        _ = try await performValidated(request)
     }
 
     func getRecordingTranscript(id: String, jobId: String? = nil) async throws -> TranscriptResponse {
         let queryItems = jobId.map { [URLQueryItem(name: "jobId", value: $0)] } ?? []
         let request = try makeRequest(path: "/api/recordings/\(id)/transcript", queryItems: queryItems)
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(TranscriptResponse.self, from: data)
     }
 
     func downloadRecordingAudio(id: String, destination: URL) async throws -> URL {
         var request = try makeRequest(path: "/api/recordings/\(id)/audio")
         request.setValue("audio/*", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let tempURL = try await downloadValidated(request)
 
         try FileManager.default.createDirectory(
             at: destination.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try data.write(to: destination, options: .atomic)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.moveItem(at: tempURL, to: destination)
         return destination
     }
 
     func getBillingStatus() async throws -> BillingStatus {
         let request = try makeRequest(path: "/api/billing/status")
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(BillingStatus.self, from: data)
     }
 
@@ -203,8 +192,7 @@ struct RecappiAPIClient: Sendable {
         var request = try makeRequest(path: "/api/billing/portal", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(BillingURLResponse.self, from: data)
     }
 
@@ -220,8 +208,7 @@ struct RecappiAPIClient: Sendable {
             successPath: successPath,
             cancelPath: cancelPath
         ))
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(BillingURLResponse.self, from: data)
     }
 
@@ -236,8 +223,7 @@ struct RecappiAPIClient: Sendable {
                 turnDetection: .none
             )
         )
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(OpenAIRealtimeSessionClaim.self, from: data)
     }
 
@@ -260,8 +246,7 @@ struct RecappiAPIClient: Sendable {
                 includeSourceTranscript: true
             )
         )
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response: response, data: data)
+        let (data, _) = try await performValidated(request)
         return try JSONDecoder().decode(OpenAIRealtimeSessionClaim.self, from: data)
     }
 
@@ -271,6 +256,64 @@ struct RecappiAPIClient: Sendable {
         }
         request.setValue(nil, forHTTPHeaderField: "Content-Type")
         _ = try? await session.data(for: request)
+    }
+
+    func performValidated(
+        _ request: URLRequest,
+        allowsRetry explicitAllowsRetry: Bool? = nil
+    ) async throws -> (Data, URLResponse) {
+        let allowsRetry = explicitAllowsRetry ?? Self.isIdempotent(request)
+        let maxAttempts = allowsRetry ? 3 : 1
+        var attempt = 1
+
+        while true {
+            do {
+                let (data, response) = try await session.data(for: request)
+                try Self.validate(response: response, data: data)
+                return (data, response)
+            } catch {
+                guard attempt < maxAttempts, Self.isRetryable(error) else {
+                    throw error
+                }
+
+                DiagnosticsLog.warning(
+                    "network",
+                    "request.retry attempt=\(attempt) method=\(request.httpMethod ?? "GET") path=\(request.url?.path ?? "unknown") \(DiagnosticsLog.errorSummary(error))"
+                )
+                try await Task.sleep(for: .milliseconds(300 * attempt))
+                attempt += 1
+            }
+        }
+    }
+
+    func downloadValidated(_ request: URLRequest) async throws -> URL {
+        let maxAttempts = 3
+        var attempt = 1
+
+        while true {
+            do {
+                let (fileURL, response) = try await session.download(for: request)
+                if let http = response as? HTTPURLResponse,
+                   !(200...299).contains(http.statusCode) {
+                    defer { try? FileManager.default.removeItem(at: fileURL) }
+                    let errorData = (try? Data(contentsOf: fileURL)) ?? Data()
+                    try Self.validate(response: response, data: errorData)
+                } else {
+                    try Self.validate(response: response, data: Data())
+                }
+                return fileURL
+            } catch {
+                guard attempt < maxAttempts, Self.isRetryable(error) else {
+                    throw error
+                }
+                DiagnosticsLog.warning(
+                    "network",
+                    "download.retry attempt=\(attempt) method=\(request.httpMethod ?? "GET") path=\(request.url?.path ?? "unknown") \(DiagnosticsLog.errorSummary(error))"
+                )
+                try await Task.sleep(for: .milliseconds(300 * attempt))
+                attempt += 1
+            }
+        }
     }
 
     func makeRequest(
@@ -340,6 +383,35 @@ struct RecappiAPIClient: Sendable {
             let message = Self.extractErrorMessage(from: data)
             throw RecappiAPIError.http(statusCode: http.statusCode, message: message)
         }
+    }
+
+    private static func isIdempotent(_ request: URLRequest) -> Bool {
+        switch request.httpMethod?.uppercased() ?? "GET" {
+        case "GET", "HEAD":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isRetryable(_ error: Error) -> Bool {
+        if let apiError = error as? RecappiAPIError {
+            if case .http(let statusCode, _) = apiError {
+                return [408, 429, 500, 502, 503, 504].contains(statusCode)
+            }
+            return false
+        }
+
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        return [
+            NSURLErrorTimedOut,
+            NSURLErrorCannotFindHost,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorNotConnectedToInternet,
+            NSURLErrorDNSLookupFailed,
+        ].contains(nsError.code)
     }
 
     static func extractErrorMessage(from data: Data) -> String {
