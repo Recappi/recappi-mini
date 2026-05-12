@@ -55,6 +55,21 @@ struct FlowLayout: Layout {
 enum CloudDetailSection: Hashable {
     case summary
     case transcript
+
+    static func resolveVisibleSection(
+        current: CloudDetailSection,
+        hasSummarySection: Bool,
+        transcriptOffset: CGFloat?,
+        transcriptActivationThreshold: CGFloat = 88
+    ) -> CloudDetailSection {
+        guard hasSummarySection else {
+            return current == .transcript ? .transcript : .summary
+        }
+        if let transcriptOffset, transcriptOffset < transcriptActivationThreshold {
+            return .transcript
+        }
+        return .summary
+    }
 }
 
 struct CloudDetailSectionOffsetPreferenceKey: PreferenceKey {

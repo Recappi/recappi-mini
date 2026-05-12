@@ -263,6 +263,47 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testCloudDetailSectionDefaultsToSummaryBeforeSummaryContentLoads() {
+        XCTAssertEqual(
+            CloudDetailSection.resolveVisibleSection(
+                current: .summary,
+                hasSummarySection: false,
+                transcriptOffset: 0
+            ),
+            .summary
+        )
+    }
+
+    func testCloudDetailSectionKeepsManualTranscriptSelectionWithoutSummaryContent() {
+        XCTAssertEqual(
+            CloudDetailSection.resolveVisibleSection(
+                current: .transcript,
+                hasSummarySection: false,
+                transcriptOffset: 0
+            ),
+            .transcript
+        )
+    }
+
+    func testCloudDetailSectionTracksTranscriptOffsetAfterSummaryContentLoads() {
+        XCTAssertEqual(
+            CloudDetailSection.resolveVisibleSection(
+                current: .summary,
+                hasSummarySection: true,
+                transcriptOffset: 40
+            ),
+            .transcript
+        )
+        XCTAssertEqual(
+            CloudDetailSection.resolveVisibleSection(
+                current: .transcript,
+                hasSummarySection: true,
+                transcriptOffset: 120
+            ),
+            .summary
+        )
+    }
+
     func testCreateRecordingRequestIncludesNonWavUploadMetadata() throws {
         let body = try JSONEncoder().encode(
             CreateRecordingRequest(

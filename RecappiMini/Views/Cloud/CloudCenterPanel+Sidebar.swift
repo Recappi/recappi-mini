@@ -106,7 +106,7 @@ extension CloudCenterPanel {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity)
-            
+            .glassEffect(in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .help("Open Recappi Cloud in your browser")

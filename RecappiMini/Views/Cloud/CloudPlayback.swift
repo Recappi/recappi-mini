@@ -216,14 +216,7 @@ struct CloudNowPlayingMiniPane: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Palette.controlFillHover)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(DT.waveformLit.opacity(0.18), lineWidth: 1)
-        )
+        .glassEffect(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var playbackRateMenu: some View {

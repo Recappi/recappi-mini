@@ -89,6 +89,7 @@ struct CloudRecordingDetail: View {
             pendingSeekAfterPrepare = nil
             pendingPinnedSegmentIDAfterPrepare = nil
             pinnedSegmentID = nil
+            activeDetailSection = .summary
             refreshPlayerMetadataIfNeeded()
         }
     }
@@ -123,7 +124,7 @@ struct CloudRecordingDetail: View {
             Divider().overlay(Palette.borderHairline)
 
             CloudDetailScrollableSections(
-                hasSummarySection: hasSummarySection,
+                hasSummarySection: isSummaryNavigationAvailable,
                 activeSegmentID: activeSegmentID(in: transcript?.displaySegmentRows ?? []),
                 isPlaybackActive: audioPlayer.isPlaying,
                 pendingScrollTarget: $pendingScrollTarget,
@@ -162,6 +163,10 @@ struct CloudRecordingDetail: View {
             || summaryInsightText != nil
             || summaryStatusMessage != nil
             || shouldShowStandaloneActionItems
+    }
+
+    private var isSummaryNavigationAvailable: Bool {
+        hasSummarySection || transcript == nil || isTranscriptLoading
     }
 
     private var shouldShowProcessingContextStrip: Bool {
@@ -205,7 +210,7 @@ struct CloudRecordingDetail: View {
                 systemImage: "text.alignleft",
                 section: .summary,
                 accessibilityID: AccessibilityIDs.Cloud.jumpToSummaryButton,
-                isDisabled: !hasSummarySection
+                isDisabled: !isSummaryNavigationAvailable
             )
 
             detailJumpSegment(
@@ -263,13 +268,11 @@ struct CloudRecordingDetail: View {
     private func updateActiveDetailSection(with offsets: [CloudDetailSection: CGFloat]) {
         guard pendingScrollTarget == nil else { return }
         guard !suppressOffsetDrivenSectionUpdates else { return }
-        if let transcriptOffset = offsets[.transcript], transcriptOffset < 88 {
-            activeDetailSection = .transcript
-        } else if hasSummarySection {
-            activeDetailSection = .summary
-        } else {
-            activeDetailSection = .transcript
-        }
+        activeDetailSection = CloudDetailSection.resolveVisibleSection(
+            current: activeDetailSection,
+            hasSummarySection: hasSummarySection,
+            transcriptOffset: offsets[.transcript]
+        )
     }
 
     private func acknowledgeNewerVersionWithoutSectionFlicker() {
