@@ -1,12 +1,14 @@
+import AppKit
 import SwiftUI
 
 struct RecordingTemplateDrawer: View {
     let onHide: () -> Void
 
     @ObservedObject private var config = AppConfig.shared
+    @State private var promptEditorMeasuredHeight: CGFloat = 28
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: config.recordingTemplatePromptExpanded ? 10 : 0) {
             configRow
             promptEditor
         }
@@ -23,11 +25,10 @@ struct RecordingTemplateDrawer: View {
             Button(action: onHide) {
                 Image(systemName: "minus")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Palette.labelTertiary)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PanelIconButtonStyle(size: 28))
             .help("Hide panel")
             .accessibilityLabel("Hide panel")
             .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
@@ -83,7 +84,11 @@ struct RecordingTemplateDrawer: View {
 
     private var promptDisclosureButton: some View {
         Button {
-            config.recordingTemplatePromptExpanded.toggle()
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                config.recordingTemplatePromptExpanded.toggle()
+            }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: config.recordingTemplatePromptExpanded ? "chevron.down" : "chevron.right")
@@ -117,34 +122,31 @@ struct RecordingTemplateDrawer: View {
 
     @ViewBuilder
     private var promptEditor: some View {
-        if config.recordingTemplatePromptExpanded {
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $config.recordingExtraPrompt)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.labelPrimary)
-                    .scrollContentBackground(.hidden)
-                    .padding(6)
+        let isExpanded = config.recordingTemplatePromptExpanded
 
-                if config.recordingExtraPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Add names, terms, or goals to improve summary")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Palette.labelTertiary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 8)
-                        .allowsHitTesting(false)
-                }
-            }
-            .frame(minHeight: 52, maxHeight: 70)
-            .background(
-                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .fill(Palette.surfaceCardSubtle)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .stroke(Palette.borderHairline, lineWidth: 0.5)
-            )
-            .accessibilityIdentifier(AccessibilityIDs.Panel.promptField)
-            .transition(.opacity)
-        }
+        AlignedPromptTextView(
+            text: $config.recordingExtraPrompt,
+            measuredHeight: $promptEditorMeasuredHeight,
+            placeholder: "Add names, terms, or goals to improve summary",
+            fontSize: 11,
+            textInset: NSSize(width: 6, height: 6),
+            accessibilityIdentifier: AccessibilityIDs.Panel.promptField,
+            isEditable: isExpanded
+        )
+        .frame(height: isExpanded ? max(28, promptEditorMeasuredHeight) : 0)
+        .opacity(isExpanded ? 1 : 0)
+        .clipped()
+        .background(
+            RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                .fill(Palette.surfaceCardSubtle)
+                .opacity(isExpanded ? 1 : 0)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                .stroke(Palette.borderHairline, lineWidth: 0.5)
+                .opacity(isExpanded ? 1 : 0)
+        )
+        .allowsHitTesting(isExpanded)
+        .accessibilityHidden(!isExpanded)
     }
 }
