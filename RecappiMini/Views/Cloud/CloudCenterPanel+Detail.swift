@@ -69,6 +69,7 @@ extension CloudCenterPanel {
                     backendBaseURL: AppConfig.shared.effectiveBackendBaseURL
                 ),
                 latestJob: store.selectedLatestTranscriptionJob,
+                transcriptionJobs: store.selectedTranscriptionJobs,
                 transcript: store.selectedTranscript,
                 transcriptErrorMessage: store.transcriptErrorMessage,
                 retranscriptionLimitMessage: store.retranscriptionLimitMessage,
@@ -98,7 +99,10 @@ extension CloudCenterPanel {
                 onDownloadAudio: { Task { await store.downloadSelectedAudio() } },
                 onRevealAudio: store.revealLastDownloadedAudio,
                 onDelete: { showingDeleteConfirmation = true },
-                onAcknowledgeNewerVersion: { Task { await store.acknowledgeNewerVersion() } }
+                onAcknowledgeNewerVersion: { Task { await store.acknowledgeNewerVersion() } },
+                onLoadTranscriptVersion: { jobID in
+                    try await store.loadTranscriptVersion(recordingID: recording.id, jobID: jobID)
+                }
             )
             // Recording details own transient reading UI state: scroll
             // position, active jump chip, and pinned segment. Give each

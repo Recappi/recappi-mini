@@ -13,12 +13,18 @@ struct CloudRecordingDetail: View {
     @State private var activeDetailSection: CloudDetailSection = .summary
     @State private var suppressOffsetDrivenSectionUpdates = false
     @State private var isShowingRetranscribeContext = false
+    @State private var isShowingTranscriptVersions = false
+    @State private var selectedTranscriptVersionJobID: String?
+    @State private var transcriptVersionCache: [String: TranscriptResponse] = [:]
+    @State private var transcriptVersionLoadingJobID: String?
+    @State private var transcriptVersionErrorMessage: String?
     @State private var retranscribeSceneDraft = RecordingSceneTemplate.meeting.rawValue
     @State private var retranscribePromptDraft = ""
 
     let recording: CloudRecording
     let recordingWebURL: URL?
     let latestJob: TranscriptionJob?
+    let transcriptionJobs: [TranscriptionJob]
     let transcript: TranscriptResponse?
     let transcriptErrorMessage: String?
     let retranscriptionLimitMessage: String?
@@ -46,12 +52,16 @@ struct CloudRecordingDetail: View {
     let onRevealAudio: () -> Void
     let onDelete: () -> Void
     let onAcknowledgeNewerVersion: () -> Void
+    let onLoadTranscriptVersion: @MainActor (String) async throws -> TranscriptResponse
 
     var body: some View {
         readerPane
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .toolbar { detailToolbarContent }
+        .sheet(isPresented: $isShowingTranscriptVersions) {
+            transcriptVersionsSheet
+        }
         .onAppear {
             detailWaveform.load(url: playbackAudioURL)
             refreshPlayerMetadataIfNeeded()
@@ -89,6 +99,10 @@ struct CloudRecordingDetail: View {
             pendingSeekAfterPrepare = nil
             pendingPinnedSegmentIDAfterPrepare = nil
             pinnedSegmentID = nil
+            selectedTranscriptVersionJobID = nil
+            transcriptVersionCache.removeAll()
+            transcriptVersionLoadingJobID = nil
+            transcriptVersionErrorMessage = nil
             activeDetailSection = .summary
             refreshPlayerMetadataIfNeeded()
         }
@@ -114,6 +128,13 @@ struct CloudRecordingDetail: View {
             .animation(DT.motionAware(DT.ease(0.20)), value: latestJob?.status)
             .animation(DT.motionAware(DT.ease(0.20)), value: hasNewerVersion)
 
+            if isViewingHistoricalVersion {
+                historicalVersionBanner
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 10)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
             if shouldShowProcessingContextStrip {
                 processingContextStrip
                     .padding(.horizontal, 22)
@@ -125,7 +146,7 @@ struct CloudRecordingDetail: View {
 
             CloudDetailScrollableSections(
                 hasSummarySection: isSummaryNavigationAvailable,
-                activeSegmentID: activeSegmentID(in: transcript?.displaySegmentRows ?? []),
+                activeSegmentID: activeSegmentID(in: visibleTranscript?.displaySegmentRows ?? []),
                 isPlaybackActive: audioPlayer.isPlaying,
                 pendingScrollTarget: $pendingScrollTarget,
                 activeDetailSection: $activeDetailSection,
@@ -158,6 +179,51 @@ struct CloudRecordingDetail: View {
     /// bottom safe-area inset for the scrollable content.
     private var floatingPlayerInset: CGFloat { 60 }
 
+    private var selectedTranscriptVersionJob: TranscriptionJob? {
+        guard let selectedTranscriptVersionJobID else { return nil }
+        return transcriptVersionJobs.first(where: { $0.id == selectedTranscriptVersionJobID })
+    }
+
+    private var visibleTranscript: TranscriptResponse? {
+        guard let selectedTranscriptVersionJobID else { return transcript }
+        return transcriptVersionCache[selectedTranscriptVersionJobID]
+    }
+
+    private var visibleTranscriptErrorMessage: String? {
+        selectedTranscriptVersionJobID == nil ? transcriptErrorMessage : transcriptVersionErrorMessage
+    }
+
+    private var isVisibleTranscriptLoading: Bool {
+        if let selectedTranscriptVersionJobID {
+            return transcriptVersionLoadingJobID == selectedTranscriptVersionJobID
+        }
+        return isTranscriptLoading
+    }
+
+    private var isViewingHistoricalVersion: Bool {
+        selectedTranscriptVersionJobID != nil
+    }
+
+    private var transcriptVersionJobs: [TranscriptionJob] {
+        let jobs = transcriptionJobs
+            .filter { $0.status == .succeeded && $0.transcriptId?.isEmpty == false }
+        var seen = Set<String>()
+        return jobs.filter { job in
+            guard let transcriptId = job.transcriptId, !seen.contains(transcriptId) else {
+                return false
+            }
+            seen.insert(transcriptId)
+            return true
+        }
+    }
+
+    private var hasPreviousTranscriptVersions: Bool {
+        transcriptVersionJobs.contains { job in
+            guard let activeTranscriptId = recording.activeTranscriptId else { return true }
+            return job.transcriptId != activeTranscriptId
+        }
+    }
+
     private var hasSummarySection: Bool {
         structuredSummaryInsights != nil
             || summaryInsightText != nil
@@ -166,10 +232,11 @@ struct CloudRecordingDetail: View {
     }
 
     private var isSummaryNavigationAvailable: Bool {
-        hasSummarySection || transcript == nil || isTranscriptLoading
+        hasSummarySection || visibleTranscript == nil || isVisibleTranscriptLoading
     }
 
     private var shouldShowProcessingContextStrip: Bool {
+        guard !isViewingHistoricalVersion else { return false }
         guard latestJob?.status.isActive != true else { return false }
         // First-run cloud recordings need an obvious Transcribe entry.
         // Existing transcripts use the Re-Transcribe popover from the
@@ -283,6 +350,54 @@ struct CloudRecordingDetail: View {
             activeDetailSection = sectionBeforeRefresh
             suppressOffsetDrivenSectionUpdates = false
         }
+    }
+
+    private func selectTranscriptVersion(_ job: TranscriptionJob) {
+        if job.transcriptId == recording.activeTranscriptId {
+            clearHistoricalVersionSelection()
+            isShowingTranscriptVersions = false
+            return
+        }
+
+        selectedTranscriptVersionJobID = job.id
+        transcriptVersionErrorMessage = nil
+        pinnedSegmentID = nil
+        activeDetailSection = .summary
+        pendingScrollTarget = nil
+        isShowingTranscriptVersions = false
+
+        guard transcriptVersionCache[job.id] == nil else { return }
+        transcriptVersionLoadingJobID = job.id
+
+        Task {
+            do {
+                let transcript = try await onLoadTranscriptVersion(job.id)
+                guard !Task.isCancelled else { return }
+                transcriptVersionCache[job.id] = transcript
+                if selectedTranscriptVersionJobID == job.id {
+                    transcriptVersionErrorMessage = nil
+                }
+            } catch is CancellationError {
+                // Selection changes cancel silently.
+            } catch {
+                if selectedTranscriptVersionJobID == job.id {
+                    transcriptVersionErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
+                }
+            }
+
+            if transcriptVersionLoadingJobID == job.id {
+                transcriptVersionLoadingJobID = nil
+            }
+        }
+    }
+
+    private func clearHistoricalVersionSelection() {
+        selectedTranscriptVersionJobID = nil
+        transcriptVersionLoadingJobID = nil
+        transcriptVersionErrorMessage = nil
+        pinnedSegmentID = nil
+        activeDetailSection = .summary
+        pendingScrollTarget = nil
     }
 
     @ViewBuilder
@@ -538,7 +653,7 @@ struct CloudRecordingDetail: View {
     }
 
     private var summaryInsightText: String? {
-        guard let summary = transcript?.summary else { return nil }
+        guard let summary = visibleTranscript?.summary else { return nil }
         let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
@@ -547,7 +662,7 @@ struct CloudRecordingDetail: View {
         guard structuredSummaryInsights == nil, summaryInsightText == nil else {
             return nil
         }
-        switch transcript?.summaryStatus {
+        switch visibleTranscript?.summaryStatus {
         case .pending:
             return "Summary generation has not started yet. It should begin automatically after transcription finishes."
         case .queued:
@@ -564,7 +679,7 @@ struct CloudRecordingDetail: View {
     }
 
     private var summaryStatusIconName: String {
-        switch transcript?.summaryStatus {
+        switch visibleTranscript?.summaryStatus {
         case .failed:
             return "exclamationmark.triangle"
         case .skipped:
@@ -577,14 +692,14 @@ struct CloudRecordingDetail: View {
     }
 
     private var structuredSummaryInsights: TranscriptSummaryInsights? {
-        guard let insights = transcript?.summaryInsights, !insights.isEmpty else {
+        guard let insights = visibleTranscript?.summaryInsights, !insights.isEmpty else {
             return nil
         }
         return insights
     }
 
     private var visibleActionItems: [String] {
-        transcript?.actionItems?
+        visibleTranscript?.actionItems?
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         ?? []
@@ -597,6 +712,9 @@ struct CloudRecordingDetail: View {
     }
 
     private func isProcessingActionDisabled(_ action: CloudRecordingProcessingAction) -> Bool {
+        if isViewingHistoricalVersion {
+            return true
+        }
         if processingAction != nil || isTranscriptLoading {
             return true
         }
@@ -606,6 +724,9 @@ struct CloudRecordingDetail: View {
     }
 
     private func processingHelpText(for action: CloudRecordingProcessingAction) -> String {
+        if isViewingHistoricalVersion {
+            return "Cannot re-transcribe historical versions. Switch back to current first."
+        }
         if let retranscriptionLimitMessage {
             return retranscriptionLimitMessage
         }
@@ -825,8 +946,8 @@ struct CloudRecordingDetail: View {
 
     private var recordingActionsMenu: some View {
         Menu {
-            Button("Copy transcript", systemImage: "doc.on.doc", action: onCopyTranscript)
-                .disabled(transcript?.text.isEmpty != false)
+            Button("Copy transcript", systemImage: "doc.on.doc", action: copyVisibleTranscript)
+                .disabled(visibleTranscript?.text.isEmpty != false)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.copyTranscriptButton)
 
             Button(
@@ -855,6 +976,13 @@ struct CloudRecordingDetail: View {
                 .help(processingHelpText(for: action))
                 .accessibilityIdentifier(action.accessibilityIdentifier)
             }
+
+            Button("Previous versions…", systemImage: "clock.arrow.circlepath") {
+                isShowingTranscriptVersions = true
+            }
+            .disabled(!hasPreviousTranscriptVersions)
+            .help(hasPreviousTranscriptVersions ? "View earlier transcript versions" : "No previous transcript versions")
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.previousVersionsButton)
 
             Divider()
 
@@ -1049,6 +1177,16 @@ struct CloudRecordingDetail: View {
         onProcessRecording(.transcriptAndSummary)
     }
 
+    private func copyVisibleTranscript() {
+        guard let text = visibleTranscript?.text, !text.isEmpty else { return }
+        if isViewingHistoricalVersion {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        } else {
+            onCopyTranscript()
+        }
+    }
+
     private func recordingInfoRow(_ title: String, _ value: String, systemImage: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: systemImage)
@@ -1071,7 +1209,7 @@ struct CloudRecordingDetail: View {
 
     @ViewBuilder
     private var newerVersionStrip: some View {
-        if hasNewerVersion {
+        if hasNewerVersion && !isViewingHistoricalVersion {
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: "arrow.triangle.2.circlepath")
                     .font(.system(size: 10, weight: .semibold))
@@ -1107,6 +1245,58 @@ struct CloudRecordingDetail: View {
             .transition(.opacity.combined(with: .move(edge: .top)))
             .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionBanner)
         }
+    }
+
+    @ViewBuilder
+    private var historicalVersionBanner: some View {
+        if let selectedTranscriptVersionJob {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                    .fill(DT.systemBlue.opacity(0.92))
+                    .frame(width: 2, height: 34)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Viewing previous version · \(selectedTranscriptVersionJob.versionTimestampText) · read-only")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    Text(selectedTranscriptVersionJob.versionDetailText)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Color.dtLabelSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 8)
+
+                Button("Back to current") {
+                    clearHistoricalVersionSelection()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(DT.systemBlue)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.backToCurrentVersionButton)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassEffect(in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.historicalVersionBanner)
+        }
+    }
+
+    private var transcriptVersionsSheet: some View {
+        CloudTranscriptVersionsSheet(
+            jobs: transcriptVersionJobs,
+            activeTranscriptID: recording.activeTranscriptId,
+            selectedJobID: selectedTranscriptVersionJobID,
+            loadingJobID: transcriptVersionLoadingJobID,
+            errorMessage: transcriptVersionErrorMessage,
+            onSelect: selectTranscriptVersion(_:),
+            onClose: { isShowingTranscriptVersions = false }
+        )
     }
 
     @ViewBuilder
@@ -1167,8 +1357,8 @@ struct CloudRecordingDetail: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color.dtLabelTertiary)
                 .tracking(0.45)
-            if let transcript {
-                Text("\(transcript.displaySegmentRows.count)")
+            if let visibleTranscript {
+                Text("\(visibleTranscript.displaySegmentRows.count)")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.dtLabelTertiary)
                     .padding(.horizontal, 6)
@@ -1180,7 +1370,7 @@ struct CloudRecordingDetail: View {
                 ProgressView()
                     .controlSize(.small)
                     .scaleEffect(0.72)
-                    .opacity(isTranscriptLoading ? 1 : 0)
+                    .opacity(isVisibleTranscriptLoading ? 1 : 0)
             }
             .frame(width: 16, height: 16)
         }
@@ -1271,9 +1461,9 @@ struct CloudRecordingDetail: View {
     }
 
     private func computeSegmentRowsWithPerfLogging() -> [CloudTranscriptSegmentDisplayRow] {
-        let segmentCount = transcript?.segments.count ?? 0
+        let segmentCount = visibleTranscript?.segments.count ?? 0
         let rows = PerfLog.measure("displaySegmentRows", extra: "segments=\(segmentCount)") {
-            transcript?.displaySegmentRows ?? []
+            visibleTranscript?.displaySegmentRows ?? []
         }
         PerfLog.event("transcriptCard.render", extra: "rows=\(rows.count)")
         PerfLog.end("select.until.firstRender", extra: "rows=\(rows.count)")
@@ -1326,7 +1516,7 @@ struct CloudRecordingDetail: View {
                         }
                         .buttonStyle(PanelPushButtonStyle())
                         .frame(width: 126)
-                        .disabled(isTranscriptLoading)
+                        .disabled(isVisibleTranscriptLoading)
                         .accessibilityIdentifier(AccessibilityIDs.Cloud.loadTranscriptButton)
                     }
                 }
@@ -1388,7 +1578,10 @@ struct CloudRecordingDetail: View {
     }
 
     private var transcriptPlaceholderText: String {
-        return transcriptErrorMessage ?? "Segments are not available for this recording yet."
+        if isVisibleTranscriptLoading {
+            return "Loading transcript…"
+        }
+        return visibleTranscriptErrorMessage ?? "Segments are not available for this recording yet."
     }
 
 }
@@ -1453,6 +1646,181 @@ private struct CloudTranscriptSegmentRow: View {
         .help(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
         .disabled(row.startMs == nil && row.endMs == nil)
     }
+}
+
+private struct CloudTranscriptVersionsSheet: View {
+    let jobs: [TranscriptionJob]
+    let activeTranscriptID: String?
+    let selectedJobID: String?
+    let loadingJobID: String?
+    let errorMessage: String?
+    let onSelect: (TranscriptionJob) -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Transcript versions")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                    Text("Open an earlier transcript in read-only mode.")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Color.dtLabelSecondary)
+                }
+
+                Spacer(minLength: 0)
+
+                Button("Close", action: onClose)
+                    .buttonStyle(PanelPushButtonStyle())
+            }
+
+            if let errorMessage {
+                HStack(spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(DT.systemOrange)
+                    Text(errorMessage)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Color.dtLabelSecondary)
+                        .lineLimit(2)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(DT.systemOrange.opacity(0.08))
+                )
+            }
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 7) {
+                    ForEach(jobs, id: \.id) { job in
+                        Button {
+                            onSelect(job)
+                        } label: {
+                            CloudTranscriptVersionRow(
+                                job: job,
+                                isCurrent: job.transcriptId == activeTranscriptID,
+                                isSelected: job.id == selectedJobID,
+                                isLoading: job.id == loadingJobID
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptVersionRowPrefix + job.id)
+                    }
+                }
+                .padding(.trailing, 2)
+            }
+            .frame(maxHeight: 248)
+        }
+        .padding(16)
+        .frame(width: 410, height: 340, alignment: .topLeading)
+        .glassEffect(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptVersionsSheet)
+    }
+}
+
+private struct CloudTranscriptVersionRow: View {
+    let job: TranscriptionJob
+    let isCurrent: Bool
+    let isSelected: Bool
+    let isLoading: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    if isCurrent {
+                        Text("Current")
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .foregroundStyle(Color.black.opacity(0.82))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule(style: .continuous).fill(DT.waveformLit.opacity(0.92)))
+                    }
+
+                    Text(job.versionTimestampText)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                        .lineLimit(1)
+                }
+
+                Text(job.versionDetailText)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                if let promptPreview = job.promptPreviewText {
+                    Text("Prompt: \(promptPreview)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.68)
+            } else {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "chevron.right")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(isSelected ? DT.systemBlue : Color.dtLabelTertiary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isSelected ? DT.systemBlue.opacity(0.10) : Palette.surfaceCardSubtle)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(isSelected ? DT.systemBlue.opacity(0.22) : Palette.borderHairline, lineWidth: 0.7)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+private extension TranscriptionJob {
+    var versionTimestampText: String {
+        guard let timestamp = finishedAt ?? startedAt ?? enqueuedAt else {
+            return "Unknown date"
+        }
+        let seconds = timestamp > 10_000_000_000 ? Double(timestamp) / 1000.0 : Double(timestamp)
+        return Self.versionDateFormatter.string(from: Date(timeIntervalSince1970: seconds))
+    }
+
+    var versionDetailText: String {
+        let trimmedModel = providerModelText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedModel.isEmpty ? "Cloud transcription" : trimmedModel
+    }
+
+    var promptPreviewText: String? {
+        guard let prompt else { return nil }
+        let compact = prompt
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !compact.isEmpty else { return nil }
+        if compact.count <= 74 {
+            return compact
+        }
+        return String(compact.prefix(71)) + "…"
+    }
+
+    private static let versionDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 }
 
 private extension TranscriptResponse {

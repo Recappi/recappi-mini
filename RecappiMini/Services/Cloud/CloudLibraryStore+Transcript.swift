@@ -9,7 +9,7 @@ extension CloudLibraryStore {
 
         do {
             let page = try await runAuthorized { client in
-                try await client.listRecordingJobs(recordingId: recording.id)
+                try await client.listRecordingJobs(recordingId: recording.id, limit: 50)
             }
             transcriptionJobsByRecordingID[recording.id] = page.items
             cacheWarningMessage = nil
@@ -233,6 +233,12 @@ extension CloudLibraryStore {
         try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript, job: job)
         await refreshSelectedDetailIfNeeded()
         await persistCacheSnapshot()
+    }
+
+    func loadTranscriptVersion(recordingID: String, jobID: String) async throws -> TranscriptResponse {
+        try await runAuthorized { client in
+            try await client.getRecordingTranscript(id: recordingID, jobId: jobID)
+        }
     }
 
 
