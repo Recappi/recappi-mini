@@ -61,7 +61,7 @@ enum DT {
 
     // MARK: - Panel geometry
 
-    static let panelWidth: CGFloat = 320
+    static let panelWidth: CGFloat = 344
     /// Outer panel padding. Design spec is 8pt but at that value the
     /// speaker icon sits 17pt from the glass edge which reads as too much
     /// inset on the left; 6pt brings it to 15pt — still inside the panel's

@@ -10,7 +10,6 @@ struct RecordingPanel: View {
     @ObservedObject private var config = AppConfig.shared
     @State private var visibleProcessingSessionID: UUID?
     @State private var detachProcessingWhenReady = false
-    @State private var isTemplateExpanded = false
 
     let onOpenFolder: (URL) -> Void
     let onOpenCloud: () -> Void
@@ -75,9 +74,7 @@ struct RecordingPanel: View {
             IdleState(
                 recorder: recorder,
                 isStarting: false,
-                isTemplateExpanded: isTemplateExpanded,
                 onCloud: onOpenCloud,
-                onToggleTemplate: toggleTemplateDrawer,
                 onRecord: startRecording,
                 onRecordSuggestion: startSuggestedRecording,
                 onClose: onClosePanel
@@ -86,9 +83,7 @@ struct RecordingPanel: View {
             IdleState(
                 recorder: recorder,
                 isStarting: true,
-                isTemplateExpanded: isTemplateExpanded,
                 onCloud: onOpenCloud,
-                onToggleTemplate: toggleTemplateDrawer,
                 onRecord: startRecording,
                 onRecordSuggestion: startSuggestedRecording,
                 onClose: onClosePanel
@@ -133,17 +128,12 @@ struct RecordingPanel: View {
         openSettings()
     }
 
-    private func toggleTemplateDrawer() {
-        isTemplateExpanded.toggle()
-    }
-
     private func startRecording() {
         startRecording(kind: .manual)
     }
 
     private func startRecording(kind: RecordingStartKind) {
         recorder.setIncludesMicrophoneAudio(config.recordingIncludeMicrophoneAudio)
-        isTemplateExpanded = false
 
         Task {
             do {

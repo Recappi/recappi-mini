@@ -712,18 +712,20 @@ struct CloudRecordingDetail: View {
                 Button {
                     config.recordingTemplatePromptExpanded.toggle()
                 } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Image(systemName: config.recordingTemplatePromptExpanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 7.5, weight: .bold))
                             .foregroundStyle(Color.dtLabelTertiary)
                         Text("Prompt")
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(Color.dtLabel)
-                        Text("Optional")
-                            .font(.system(size: 10))
+                            .lineLimit(1)
+                        Text("transcription")
+                            .font(.system(size: 9.5, weight: .regular))
                             .foregroundStyle(Color.dtLabelTertiary)
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 10)
                     .frame(height: 28)
                     .background(
                         RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
@@ -1014,8 +1016,8 @@ struct CloudRecordingDetail: View {
                 Text("Add names, terms, or goals to improve summary")
                     .font(.system(size: 11.5))
                     .foregroundStyle(Color.dtLabelTertiary)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 8)
                     .allowsHitTesting(false)
             }
         }

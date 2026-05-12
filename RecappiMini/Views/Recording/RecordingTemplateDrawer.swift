@@ -1,19 +1,17 @@
 import SwiftUI
 
 struct RecordingTemplateDrawer: View {
+    let onHide: () -> Void
+
     @ObservedObject private var config = AppConfig.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Divider()
-                .overlay(Palette.borderHairline.opacity(0.3))
             configRow
             promptEditor
         }
-        .padding(.top, 6)
-        .padding(.horizontal, 2)
+        .padding(.top, 5)
         .transition(.opacity)
-        .accessibilityIdentifier(AccessibilityIDs.Panel.templateDrawer)
     }
 
     private var scene: RecordingSceneTemplate {
@@ -21,19 +19,24 @@ struct RecordingTemplateDrawer: View {
     }
 
     private var configRow: some View {
-        HStack(spacing: 7) {
-            sceneMenu
-
-            Button {
-                config.recordingIncludeMicrophoneAudio.toggle()
-            } label: {
-                Image(systemName: config.recordingIncludeMicrophoneAudio ? "mic.fill" : "mic.slash.fill")
-                    .font(.system(size: 11.5, weight: .semibold))
+        HStack(spacing: 6) {
+            Button(action: onHide) {
+                Image(systemName: "minus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Palette.labelTertiary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(RecordingTemplateIconToggleStyle(isSelected: config.recordingIncludeMicrophoneAudio))
-            .help(config.recordingIncludeMicrophoneAudio ? "Microphone included" : "Microphone muted")
+            .buttonStyle(.plain)
+            .help("Hide panel")
+            .accessibilityLabel("Hide panel")
+            .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
+
+            sceneMenu
+                .frame(maxWidth: .infinity)
 
             promptDisclosureButton
+                .frame(maxWidth: .infinity)
         }
         .transaction { transaction in
             transaction.animation = nil
@@ -58,12 +61,13 @@ struct RecordingTemplateDrawer: View {
                     .font(.system(size: 10.5, weight: .semibold))
                     .foregroundStyle(Palette.labelPrimary)
                     .lineLimit(1)
+                Spacer(minLength: 4)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 7.5, weight: .bold))
                     .foregroundStyle(Palette.labelTertiary)
             }
             .padding(.horizontal, 8)
-            .frame(height: 28)
+            .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
                     .fill(Palette.surfaceCardSubtle)
@@ -75,14 +79,13 @@ struct RecordingTemplateDrawer: View {
         }
         .buttonStyle(.plain)
         .help("Choose recording scene")
-        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var promptDisclosureButton: some View {
         Button {
             config.recordingTemplatePromptExpanded.toggle()
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: 4) {
                 Image(systemName: config.recordingTemplatePromptExpanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 7.5, weight: .bold))
                     .foregroundStyle(Palette.labelTertiary)
@@ -90,11 +93,14 @@ struct RecordingTemplateDrawer: View {
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(Palette.labelPrimary)
                     .lineLimit(1)
-                Spacer(minLength: 0)
+                Text("transcription")
+                    .font(.system(size: 9.5, weight: .regular))
+                    .foregroundStyle(Palette.labelTertiary)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
             }
-            .padding(.horizontal, 8)
-            .frame(height: 28)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
                     .fill(DT.recordingChip.opacity(0.55))
@@ -123,8 +129,8 @@ struct RecordingTemplateDrawer: View {
                     Text("Add names, terms, or goals to improve summary")
                         .font(.system(size: 11))
                         .foregroundStyle(Palette.labelTertiary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 11)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 8)
                         .allowsHitTesting(false)
                 }
             }
@@ -140,32 +146,5 @@ struct RecordingTemplateDrawer: View {
             .accessibilityIdentifier(AccessibilityIDs.Panel.promptField)
             .transition(.opacity)
         }
-    }
-}
-
-private struct RecordingTemplateIconToggleStyle: ButtonStyle {
-    let isSelected: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(isSelected ? Palette.labelPrimary : Palette.labelTertiary)
-            .frame(width: 28, height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .fill(chipFill(isPressed: configuration.isPressed))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .stroke(isSelected ? Palette.borderSubtle : Palette.borderHairline, lineWidth: 0.5)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
-            .animation(DT.motionAware(DT.ease(0.12)), value: configuration.isPressed)
-            .animation(DT.motionAware(DT.ease(0.15)), value: isSelected)
-    }
-
-    private func chipFill(isPressed: Bool) -> Color {
-        if isPressed { return Palette.controlFillPress }
-        if isSelected { return Palette.controlFillHover }
-        return Palette.surfaceCardSubtle
     }
 }

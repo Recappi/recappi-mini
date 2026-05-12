@@ -3,10 +3,10 @@ import SwiftUI
 
 struct IdleState: View {
     @ObservedObject var recorder: AudioRecorder
+    @ObservedObject private var config = AppConfig.shared
+
     let isStarting: Bool
-    let isTemplateExpanded: Bool
     var onCloud: () -> Void
-    var onToggleTemplate: () -> Void
     var onRecord: () -> Void
     var onRecordSuggestion: () -> Void
     var onClose: () -> Void
@@ -15,8 +15,8 @@ struct IdleState: View {
         VStack(alignment: .leading, spacing: 5) {
             controlsRow
 
-            if isTemplateExpanded {
-                RecordingTemplateDrawer()
+            if !isStarting {
+                RecordingTemplateDrawer(onHide: onClose)
             }
 
             if !isStarting {
@@ -177,29 +177,16 @@ struct IdleState: View {
                 .disabled(isStarting)
                 .opacity(isStarting ? 0.72 : 1)
 
-            if recorder.recordingSuggestion == nil {
-                Rectangle()
-                    .fill(Palette.borderSubtle)
-                    .frame(width: 1, height: 20)
-                    .padding(.horizontal, 1)
-
-                Button(action: onToggleTemplate) {
-                    Image(systemName: isTemplateExpanded ? "sparkles.rectangle.stack.fill" : "sparkles.rectangle.stack")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .buttonStyle(PanelUtilityButtonStyle())
-                .disabled(isStarting)
-                .help(isTemplateExpanded ? "Hide recording template" : "Choose recording template")
-                .accessibilityIdentifier(AccessibilityIDs.Panel.templateButton)
+            Button {
+                config.recordingIncludeMicrophoneAudio.toggle()
+            } label: {
+                Image(systemName: config.recordingIncludeMicrophoneAudio ? "mic.fill" : "mic.slash.fill")
+                    .font(.system(size: 12, weight: .semibold))
             }
-
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .buttonStyle(PanelIconButtonStyle())
-            .help("Hide panel")
-            .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
+            .buttonStyle(RecordingMicToggleStyle(isSelected: config.recordingIncludeMicrophoneAudio))
+            .disabled(isStarting)
+            .help(config.recordingIncludeMicrophoneAudio ? "Microphone included" : "Microphone muted")
+            .accessibilityIdentifier(AccessibilityIDs.Panel.microphoneIncludeButton)
 
             PrimaryRecordButton(kind: isStarting ? .loading : .record, action: onRecord)
                 .keyboardShortcut(.return, modifiers: [])
@@ -208,5 +195,32 @@ struct IdleState: View {
                 .accessibilityIdentifier(AccessibilityIDs.Panel.recordButton)
         }
         .frame(height: 28)
+    }
+}
+
+private struct RecordingMicToggleStyle: ButtonStyle {
+    let isSelected: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: 28, height: 28)
+            .foregroundStyle(isSelected ? Palette.labelPrimary : Palette.labelTertiary)
+            .background(
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .fill(chipFill(isPressed: configuration.isPressed))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .stroke(isSelected ? Palette.borderSubtle : Palette.borderHairline, lineWidth: 0.5)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
+            .animation(DT.motionAware(DT.ease(0.12)), value: configuration.isPressed)
+            .animation(DT.motionAware(DT.ease(0.15)), value: isSelected)
+    }
+
+    private func chipFill(isPressed: Bool) -> Color {
+        if isPressed { return Palette.controlFillPress }
+        if isSelected { return Palette.controlFillHover }
+        return Palette.surfaceCardSubtle
     }
 }
