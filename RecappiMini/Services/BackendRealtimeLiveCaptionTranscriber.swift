@@ -52,6 +52,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private let client: RecappiAPIClient
     private let language: String
     private let mode: Mode
+    private let contextHint: String?
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var stallWatchdogTask: Task<Void, Never>?
@@ -68,6 +69,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
     private var audioBufferCountSinceInbound = 0
     private var voicedAudioBufferCountSinceInbound = 0
     private var pendingAudioBufferCount = 0
+    private var didSendContextHint = false
     private var lastPublishedSegments: [LiveCaptionSegment] = []
     private var transcriptTimeline: [TranscriptItemKey] = []
     private var transcriptItems: [TranscriptItemKey: TranscriptItem] = [:]
@@ -83,11 +85,13 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         client: RecappiAPIClient,
         language: String,
         mode: Mode = .transcription,
+        contextHint: String? = nil,
         onUpdate: @escaping @MainActor @Sendable (LiveCaptionSnapshot) -> Void
     ) {
         self.client = client
         self.language = language
         self.mode = mode
+        self.contextHint = Self.trimmedContextHint(contextHint)
         self.onUpdate = onUpdate
         if mode.isTranslation {
             self.bilingualBuilder = BilingualSegmentBuilder()
@@ -213,6 +217,7 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
                 ignoredOutputAudioDeltaCountSinceLog = 0
                 audioBufferCountSinceInbound = 0
                 voicedAudioBufferCountSinceInbound = 0
+                didSendContextHint = false
                 Self.writeHealthLog(
                     "ws.connected mode=\(Self.modeLabel(mode)) resetState=\(resetState) reconnectAttempt=\(reconnectAttempt)"
                 )
@@ -256,6 +261,30 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         inputQueue.sync {
             reconnectAttempt = 0
         }
+    }
+
+    private func sendContextHintIfNeeded() {
+        guard case .transcription = mode, let contextHint else { return }
+        let shouldSend = inputQueue.sync { () -> Bool in
+            guard !didSendContextHint else { return false }
+            didSendContextHint = true
+            return true
+        }
+        guard shouldSend else { return }
+        sendEvent([
+            "type": "conversation.item.create",
+            "item": [
+                "type": "message",
+                "role": "system",
+                "content": [
+                    [
+                        "type": "input_text",
+                        "text": contextHint,
+                    ],
+                ],
+            ],
+        ])
+        Self.writeHealthLog("ws.context_hint.sent chars=\(contextHint.count)")
     }
 
     private func handleConnectionFailure(_ error: Error, task failedTask: URLSessionWebSocketTask?) {
@@ -386,6 +415,8 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
         }
 
         switch event.type {
+        case "session.created", "transcription_session.created":
+            sendContextHintIfNeeded()
         // Transcription mode events.
         case "input_audio_buffer.committed":
             registerCommittedItem(event.transcriptItemKey, previousItemID: event.previousItemID)
@@ -1128,6 +1159,11 @@ final class BackendRealtimeLiveCaptionTranscriber: NSObject, @unchecked Sendable
             return (channel * frameCount) + frame
         }
         return (frame * channelCount) + channel
+    }
+
+    private static func trimmedContextHint(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
 

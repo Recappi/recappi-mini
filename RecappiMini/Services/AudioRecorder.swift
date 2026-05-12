@@ -929,14 +929,19 @@ final class AudioRecorder: NSObject, ObservableObject {
                     )
                 )
                 : .transcription
+            let contextHint = mode.isTranslation ? nil : RecordingContextPrompt.liveCaptionHint(
+                sceneRaw: AppConfig.shared.recordingSceneTemplate,
+                extraPrompt: AppConfig.shared.recordingExtraPrompt
+            )
             DiagnosticsLog.event(
                 "live-caption",
-                "provider.start backend=true mode=\(Self.liveCaptionModeLabel(mode)) language=\(Self.normalizedRealtimeLanguage(localeIdentifier)) target=\(lockedConfig.targetLanguage)"
+                "provider.start backend=true mode=\(Self.liveCaptionModeLabel(mode)) language=\(Self.normalizedRealtimeLanguage(localeIdentifier)) target=\(lockedConfig.targetLanguage) contextHintChars=\(contextHint?.count ?? 0)"
             )
             let backendTranscriber = BackendRealtimeLiveCaptionTranscriber(
                 client: client,
                 language: Self.normalizedRealtimeLanguage(localeIdentifier),
-                mode: mode
+                mode: mode,
+                contextHint: contextHint
             ) { [weak self] snapshot in
                 self?.applyLiveCaptionSnapshot(snapshot)
             }
@@ -1183,13 +1188,18 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         DiagnosticsLog.event("live-caption", "provider.start.ui_test backend=true mode=transcription")
+        let contextHint = RecordingContextPrompt.liveCaptionHint(
+            sceneRaw: AppConfig.shared.recordingSceneTemplate,
+            extraPrompt: AppConfig.shared.recordingExtraPrompt
+        )
         let backendTranscriber = BackendRealtimeLiveCaptionTranscriber(
             client: RecappiAPIClient(
                 origin: AppConfig.shared.effectiveBackendBaseURL,
                 bearerToken: bearerToken
             ),
             language: Self.normalizedRealtimeLanguage(AppConfig.shared.normalizedCloudLanguage),
-            mode: .transcription
+            mode: .transcription,
+            contextHint: contextHint
         ) { [weak self] snapshot in
             self?.applyLiveCaptionSnapshot(snapshot)
         }

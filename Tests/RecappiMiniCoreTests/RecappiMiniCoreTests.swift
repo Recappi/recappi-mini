@@ -477,6 +477,28 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertFalse(prompt.contains("exactly. \t"))
     }
 
+    func testRecordingContextPromptBuildsLiveCaptionHint() throws {
+        let hint = try XCTUnwrap(RecordingContextPrompt.liveCaptionHint(
+            sceneRaw: RecordingSceneTemplate.podcast.rawValue,
+            extraPrompt: "  Names: Peng Xiao. Product: Recappi Mini. \n"
+        ))
+
+        XCTAssertTrue(hint.contains("Context: This is a podcast recording."))
+        XCTAssertTrue(hint.contains("best-effort hint"))
+        XCTAssertTrue(hint.contains("Terms and notes: Names: Peng Xiao. Product: Recappi Mini."))
+        XCTAssertFalse(hint.contains("summary structure"))
+    }
+
+    func testRecordingContextPromptLiveCaptionHintOmitsBlankExtraPrompt() throws {
+        let hint = try XCTUnwrap(RecordingContextPrompt.liveCaptionHint(
+            sceneRaw: RecordingSceneTemplate.meeting.rawValue,
+            extraPrompt: "\n  \t"
+        ))
+
+        XCTAssertTrue(hint.contains("Context: This is a meeting recording."))
+        XCTAssertFalse(hint.contains("Terms and notes:"))
+    }
+
     func testRecordingContextPromptFallsBackToMeetingWithoutMetadata() throws {
         let prompt = try XCTUnwrap(RecordingContextPrompt.text(from: nil))
 

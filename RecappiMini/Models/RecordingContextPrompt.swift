@@ -1,6 +1,21 @@
 import Foundation
 
 enum RecordingContextPrompt {
+    static func liveCaptionHint(sceneRaw: String, extraPrompt: String) -> String? {
+        let scene = RecordingSceneTemplate.option(for: sceneRaw)
+        let trimmed = extraPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var lines = [
+            "Context: This is a \(scene.title.lowercased()) recording.",
+            "Use this context as a best-effort hint for names, product terms, and acronyms in live transcription."
+        ]
+        if !trimmed.isEmpty {
+            lines.append("Terms and notes: \(trimmed)")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
     static func text(sceneRaw: String, extraPrompt: String) -> String? {
         let scene = RecordingSceneTemplate.option(for: sceneRaw)
         var lines = [
