@@ -18,5 +18,6 @@ struct ThemedHost<Content: View>: View {
     var body: some View {
         content
             .preferredColorScheme(config.theme.colorScheme)
+            .recappiSuppressFocusRing()
     }
 }
