@@ -221,7 +221,7 @@ struct LiveCaptionFloatingPanel: View {
             .accessibilityLabel("Hide live captions")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionCloseButton)
         }
-        .animation(DT.ease(DT.Motion.elementPresence), value: recorder.canReconnectLiveCaptions)
+        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: recorder.canReconnectLiveCaptions)
     }
 
     private var header: some View {
@@ -259,8 +259,8 @@ struct LiveCaptionFloatingPanel: View {
 
             captionControlButtons
         }
-        .animation(DT.ease(DT.Motion.elementPresence), value: liveCaptionErrorMessage != nil)
-        .animation(DT.ease(DT.Motion.elementPresence), value: liveCaptionShowsTranslation)
+        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: liveCaptionErrorMessage != nil)
+        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: liveCaptionShowsTranslation)
     }
 
     private func liveCaptionErrorIndicator(message: String) -> some View {

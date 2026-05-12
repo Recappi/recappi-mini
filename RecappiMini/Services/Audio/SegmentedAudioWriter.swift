@@ -55,9 +55,16 @@ final class SegmentedAudioWriter: @unchecked Sendable {
     }
 
     func append(_ sampleBuffer: CMSampleBuffer) {
+        append(sampleBuffer, muted: false)
+    }
+
+    func append(_ sampleBuffer: CMSampleBuffer, muted: Bool) {
         guard finishContinuation == nil else { return }
 
         do {
+            if muted {
+                Self.zeroAudioData(in: sampleBuffer)
+            }
             let streamFormat = try CaptureStreamFormat(sampleBuffer: sampleBuffer)
 
             if activeFormat != streamFormat || activeWriter == nil || activeInput == nil {
@@ -87,6 +94,22 @@ final class SegmentedAudioWriter: @unchecked Sendable {
         } catch {
             pendingError = pendingError ?? error
         }
+    }
+
+    private static func zeroAudioData(in sampleBuffer: CMSampleBuffer) {
+        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        var lengthAtOffset = 0
+        var totalLength = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        let status = CMBlockBufferGetDataPointer(
+            blockBuffer,
+            atOffset: 0,
+            lengthAtOffsetOut: &lengthAtOffset,
+            totalLengthOut: &totalLength,
+            dataPointerOut: &dataPointer
+        )
+        guard status == kCMBlockBufferNoErr, let dataPointer, totalLength > 0 else { return }
+        memset(dataPointer, 0, totalLength)
     }
 
     func finishWriting() async throws -> URL? {

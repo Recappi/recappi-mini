@@ -34,7 +34,11 @@ extension CloudLibraryStore {
                     recordingId: recording.id,
                     language: language,
                     force: true,
-                    provider: "gemini"
+                    provider: "gemini",
+                    prompt: RecordingContextPrompt.text(
+                        sceneRaw: config.recordingSceneTemplate,
+                        extraPrompt: config.recordingExtraPrompt
+                    )
                 )
             }
             let job = try await runAuthorized { client in

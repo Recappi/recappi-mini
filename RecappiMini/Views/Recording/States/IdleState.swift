@@ -4,7 +4,9 @@ import SwiftUI
 struct IdleState: View {
     @ObservedObject var recorder: AudioRecorder
     let isStarting: Bool
+    let isTemplateExpanded: Bool
     var onCloud: () -> Void
+    var onToggleTemplate: () -> Void
     var onRecord: () -> Void
     var onRecordSuggestion: () -> Void
     var onClose: () -> Void
@@ -12,6 +14,10 @@ struct IdleState: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             controlsRow
+
+            if isTemplateExpanded {
+                RecordingTemplateDrawer()
+            }
 
             if !isStarting {
                 if let suggestion = recorder.recordingSuggestion {
@@ -158,7 +164,13 @@ struct IdleState: View {
 
     private var controlsRow: some View {
         HStack(spacing: 6) {
-            LogoTile(size: 28)
+            Button(action: onCloud) {
+                LogoTile(size: 28)
+            }
+            .buttonStyle(.plain)
+            .disabled(isStarting)
+            .help("Open Recappi Cloud")
+            .accessibilityIdentifier(AccessibilityIDs.Panel.cloudButton)
 
             AudioSourcePill(recorder: recorder)
                 .frame(maxWidth: .infinity)
@@ -171,14 +183,14 @@ struct IdleState: View {
                     .frame(width: 1, height: 20)
                     .padding(.horizontal, 1)
 
-                Button(action: onCloud) {
-                    Image(systemName: "cloud")
+                Button(action: onToggleTemplate) {
+                    Image(systemName: isTemplateExpanded ? "sparkles.rectangle.stack.fill" : "sparkles.rectangle.stack")
                         .font(.system(size: 13, weight: .medium))
                 }
                 .buttonStyle(PanelUtilityButtonStyle())
                 .disabled(isStarting)
-                .help("Open Recappi Cloud")
-                .accessibilityIdentifier(AccessibilityIDs.Panel.cloudButton)
+                .help(isTemplateExpanded ? "Hide recording template" : "Choose recording template")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.templateButton)
             }
 
             Button(action: onClose) {

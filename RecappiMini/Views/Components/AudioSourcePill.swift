@@ -43,7 +43,7 @@ struct AudioSourcePill: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
-        .animation(DT.ease(0.12), value: hovered)
+        .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
         .accessibilityIdentifier(AccessibilityIDs.Panel.audioSourcePicker)
         .background {
             // No explicit frame — the anchor NSView fills the pill so

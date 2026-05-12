@@ -63,6 +63,31 @@ struct LiveCaptionTranslationTargetLanguageOption: Identifiable, Hashable, Senda
     }
 }
 
+enum RecordingSceneTemplate: String, CaseIterable, Identifiable, Sendable {
+    case meeting
+    case podcast
+    case interview
+    case casual
+    case lecture
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .meeting: return "Meeting"
+        case .podcast: return "Podcast"
+        case .interview: return "Interview"
+        case .casual: return "Casual"
+        case .lecture: return "Lecture"
+        }
+    }
+
+    static func option(for raw: String) -> RecordingSceneTemplate {
+        RecordingSceneTemplate(rawValue: raw.trimmingCharacters(in: .whitespacesAndNewlines))
+            ?? .meeting
+    }
+}
+
 @MainActor
 final class AppConfig: ObservableObject {
     static let shared = AppConfig()
@@ -84,6 +109,10 @@ final class AppConfig: ObservableObject {
     /// `zh`, `en`, `ja`, `ko`, `fr`, `de`, `es`. Default mirrors
     /// the source language picker so a fresh user gets a sensible pair.
     @AppStorage("liveCaptionsTranslationTargetLanguage") var liveCaptionsTranslationTargetLanguage: String = "zh"
+    @AppStorage("recordingSceneTemplate") var recordingSceneTemplate: String = RecordingSceneTemplate.meeting.rawValue
+    @AppStorage("recordingExtraPrompt") var recordingExtraPrompt: String = ""
+    @AppStorage("recordingIncludeMicrophoneAudio") var recordingIncludeMicrophoneAudio: Bool = true
+    @Published var recordingTemplatePromptExpanded: Bool = false
     @AppStorage("appTheme") var theme: AppTheme = .light
 
     @AppStorage("speechLanguage") var cloudLanguage: String = "en-US"

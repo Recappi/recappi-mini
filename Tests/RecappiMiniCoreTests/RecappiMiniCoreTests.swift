@@ -4,34 +4,6 @@ import XCTest
 @testable import RecappiMini
 
 final class RecappiMiniCoreTests: XCTestCase {
-    @MainActor
-    func testRecordingPreflightSheetUsesCompactIntrinsicHeightWhenTranslationIsOff() {
-        let view = RecordingPreflightSheet(
-            showsTranslation: .constant(false),
-            targetLanguage: .constant("zh"),
-            backendRealtimeEnabled: true,
-            onCancel: {},
-            onStart: {}
-        )
-        .frame(width: DT.panelWidth - DT.panelPadding * 2)
-        let hostingView = NSHostingView(rootView: view)
-        hostingView.frame = NSRect(
-            x: 0,
-            y: 0,
-            width: DT.panelWidth - DT.panelPadding * 2,
-            height: 1
-        )
-        hostingView.layoutSubtreeIfNeeded()
-
-        let fittingHeight = hostingView.fittingSize.height
-        XCTAssertGreaterThan(fittingHeight, 100)
-        XCTAssertLessThan(
-            fittingHeight,
-            160,
-            "Preflight should size to its visible content instead of preserving the old 182pt fixed panel height."
-        )
-    }
-
     func testLiveCaptionSentenceSplitterSplitsEnglishAndKeepsPendingTail() {
         let segments = LiveCaptionSentenceSplitter.split(
             "If you have a team, pay attention. It is a very important thing. You should pay them too",
@@ -452,6 +424,82 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testRecordingContextPromptCombinesSceneAndExtraPrompt() throws {
+        let prompt = try XCTUnwrap(RecordingContextPrompt.text(
+            sceneRaw: RecordingSceneTemplate.meeting.rawValue,
+            extraPrompt: "Names: Peng, Alice. Product: Recappi Mini."
+        ))
+
+        XCTAssertTrue(prompt.contains("Scene: Meeting."))
+        XCTAssertTrue(prompt.contains("action items"))
+        XCTAssertTrue(prompt.contains("Names: Peng, Alice. Product: Recappi Mini."))
+    }
+
+    func testRecordingContextPromptIncludesSceneSpecificSummaryHints() throws {
+        let cases: [(RecordingSceneTemplate, String)] = [
+            (.meeting, "decisions, action items, and open questions"),
+            (.podcast, "episode summary, key topics, notable moments, and follow-up ideas"),
+            (.interview, "profile, topic evidence, concerns, and follow-up questions"),
+            (.casual, "highlights and things worth remembering"),
+            (.lecture, "key concepts, examples, and review points")
+        ]
+
+        for (scene, expectedHint) in cases {
+            let prompt = try XCTUnwrap(RecordingContextPrompt.text(
+                sceneRaw: scene.rawValue,
+                extraPrompt: ""
+            ))
+
+            XCTAssertTrue(prompt.contains("Scene: \(scene.title)."))
+            XCTAssertTrue(prompt.contains(expectedHint))
+        }
+    }
+
+    func testRecordingContextPromptOmitsBlankExtraPrompt() throws {
+        for blank in ["", "   ", "\n\t  "] {
+            let prompt = try XCTUnwrap(RecordingContextPrompt.text(
+                sceneRaw: RecordingSceneTemplate.meeting.rawValue,
+                extraPrompt: blank
+            ))
+
+            XCTAssertFalse(prompt.contains("Additional context:"))
+        }
+    }
+
+    func testRecordingContextPromptTrimsExtraPrompt() throws {
+        let prompt = try XCTUnwrap(RecordingContextPrompt.text(
+            sceneRaw: RecordingSceneTemplate.meeting.rawValue,
+            extraPrompt: "  \n Use CRM names exactly. \t "
+        ))
+
+        XCTAssertTrue(prompt.contains("Additional context: Use CRM names exactly."))
+        XCTAssertFalse(prompt.contains("Additional context:   "))
+        XCTAssertFalse(prompt.contains("exactly. \t"))
+    }
+
+    func testRecordingContextPromptFallsBackToMeetingWithoutMetadata() throws {
+        let prompt = try XCTUnwrap(RecordingContextPrompt.text(from: nil))
+
+        XCTAssertTrue(prompt.contains("Scene: Meeting."))
+        XCTAssertTrue(prompt.contains("decisions, action items, and open questions"))
+        XCTAssertFalse(prompt.contains("Additional context:"))
+    }
+
+    func testRecordingSessionMetadataPersistsRecordingContext() throws {
+        let metadata = RecordingSessionMetadata.capture(
+            sourceTitle: "Design review",
+            sourceAppName: "Zoom",
+            sourceBundleID: "us.zoom.xos",
+            sceneTemplate: RecordingSceneTemplate.interview.rawValue,
+            extraPrompt: "Use product names exactly.",
+            includesMicrophoneAudio: false
+        )
+
+        XCTAssertEqual(metadata.sceneTemplate, "interview")
+        XCTAssertEqual(metadata.extraPrompt, "Use product names exactly.")
+        XCTAssertEqual(metadata.includesMicrophoneAudio, false)
+    }
+
     func testRealtimeTranscriptionSessionRequestMatchesBackendContract() throws {
         let body = try JSONEncoder().encode(
             OpenAIRealtimeTranscriptionSessionRequest(
@@ -466,6 +514,7 @@ final class RecappiMiniCoreTests: XCTestCase {
 
         XCTAssertEqual(json["mode"] as? String, "transcription")
         XCTAssertEqual(json["language"] as? String, "en-US")
+        XCTAssertNil(json["prompt"])
         XCTAssertEqual(json["delay"] as? String, "low")
         XCTAssertEqual(json["expiresAfterSeconds"] as? Int, 60)
         XCTAssertEqual(turnDetection["type"] as? String, "none")

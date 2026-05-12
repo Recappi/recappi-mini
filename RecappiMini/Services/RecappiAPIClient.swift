@@ -102,11 +102,11 @@ struct RecappiAPIClient: Sendable {
         recordingId: String,
         language: String,
         force: Bool = false,
-        provider: String? = nil
+        provider: String? = nil,
+        prompt: String? = nil
     ) async throws -> StartTranscriptionResponse {
         var request = try makeRequest(path: "/api/recordings/\(recordingId)/transcribe", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let prompt = force ? "Run a fresh transcription pass with the default Recappi instructions." : nil
         request.httpBody = try JSONEncoder().encode(
             StartTranscriptionRequest(
                 provider: provider,

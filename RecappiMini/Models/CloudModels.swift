@@ -206,18 +206,27 @@ struct RecordingSessionMetadata: Codable, Equatable, Sendable {
     var sourceAppName: String?
     var sourceBundleID: String?
     var startedAt: String
+    var sceneTemplate: String?
+    var extraPrompt: String?
+    var includesMicrophoneAudio: Bool?
 
     static func capture(
         sourceTitle: String,
         sourceAppName: String?,
-        sourceBundleID: String?
+        sourceBundleID: String?,
+        sceneTemplate: String? = nil,
+        extraPrompt: String? = nil,
+        includesMicrophoneAudio: Bool? = nil
     ) -> RecordingSessionMetadata {
         RecordingSessionMetadata(
             summaryTitle: nil,
             sourceTitle: sourceTitle,
             sourceAppName: sourceAppName,
             sourceBundleID: sourceBundleID,
-            startedAt: ISO8601DateFormatter().string(from: Date())
+            startedAt: ISO8601DateFormatter().string(from: Date()),
+            sceneTemplate: sceneTemplate,
+            extraPrompt: extraPrompt,
+            includesMicrophoneAudio: includesMicrophoneAudio
         )
     }
 

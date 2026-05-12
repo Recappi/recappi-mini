@@ -76,6 +76,16 @@ struct RecordingState: View {
                 .help(AppDelegate.shared.isLiveCaptionPanelPresented ? "Live captions are open" : "Show live captions")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.liveCaptionsButton)
 
+                Button {
+                    recorder.setIncludesMicrophoneAudio(!recorder.includesMicrophoneAudio)
+                } label: {
+                    Image(systemName: recorder.includesMicrophoneAudio ? "mic.fill" : "mic.slash.fill")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(PanelIconButtonStyle())
+                .help(recorder.includesMicrophoneAudio ? "Microphone on (click to mute)" : "Microphone muted (click to unmute)")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.microphoneIncludeButton)
+
                 Button(action: onDiscard) {
                     Image(systemName: "trash")
                         .font(.system(size: 12))
@@ -90,7 +100,6 @@ struct RecordingState: View {
                     .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
             }
             .frame(height: 28)
-
         }
     }
 

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CloudRecordingDetail: View {
     @StateObject private var detailWaveform = CloudRecordingWaveformPreview()
+    @ObservedObject private var config = AppConfig.shared
     @State private var pendingAutoplayAfterPrepare = false
     @State private var pendingSeekAfterPrepare: Double?
     @State private var pinnedSegmentID: String?
@@ -11,6 +12,9 @@ struct CloudRecordingDetail: View {
     @State private var pendingScrollTarget: CloudDetailSection?
     @State private var activeDetailSection: CloudDetailSection = .summary
     @State private var suppressOffsetDrivenSectionUpdates = false
+    @State private var isShowingRetranscribeContext = false
+    @State private var retranscribeSceneDraft = RecordingSceneTemplate.meeting.rawValue
+    @State private var retranscribePromptDraft = ""
 
     let recording: CloudRecording
     let recordingWebURL: URL?
@@ -106,8 +110,15 @@ struct CloudRecordingDetail: View {
             } navigation: {
                 detailNavigationRow
             }
-            .animation(DT.ease(0.20), value: latestJob?.status)
-            .animation(DT.ease(0.20), value: hasNewerVersion)
+            .animation(DT.motionAware(DT.ease(0.20)), value: latestJob?.status)
+            .animation(DT.motionAware(DT.ease(0.20)), value: hasNewerVersion)
+
+            if shouldShowProcessingContextStrip {
+                processingContextStrip
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 10)
+                    .transition(.opacity)
+            }
 
             Divider().overlay(Palette.borderHairline)
 
@@ -138,6 +149,7 @@ struct CloudRecordingDetail: View {
                 bottomPlaybackBar
             }
         }
+        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: shouldShowProcessingContextStrip)
     }
 
     /// Approximate height of the Liquid Glass playback capsule
@@ -150,6 +162,14 @@ struct CloudRecordingDetail: View {
             || summaryInsightText != nil
             || summaryStatusMessage != nil
             || shouldShowStandaloneActionItems
+    }
+
+    private var shouldShowProcessingContextStrip: Bool {
+        guard latestJob?.status.isActive != true else { return false }
+        // First-run cloud recordings need an obvious Transcribe entry.
+        // Existing transcripts use the Re-Transcribe popover from the
+        // actions menu, so the detail surface does not permanently grow.
+        return recording.activeTranscriptId == nil
     }
 
     private var detailNavigationRow: some View {
@@ -643,6 +663,108 @@ struct CloudRecordingDetail: View {
         .accessibilityIdentifier(AccessibilityIDs.Cloud.headerPlayButton)
     }
 
+    private var processingScene: RecordingSceneTemplate {
+        RecordingSceneTemplate.option(for: config.recordingSceneTemplate)
+    }
+
+    private var retranscribeScene: RecordingSceneTemplate {
+        RecordingSceneTemplate.option(for: retranscribeSceneDraft)
+    }
+
+    private var processingContextStrip: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(RecordingSceneTemplate.allCases) { option in
+                        Button {
+                            config.recordingSceneTemplate = option.rawValue
+                        } label: {
+                            Label(option.title, systemImage: option == processingScene ? "checkmark" : "")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text("Scene")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(Color.dtLabelTertiary)
+                        Text(processingScene.title)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(Color.dtLabel)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7.5, weight: .bold))
+                            .foregroundStyle(Color.dtLabelTertiary)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                            .fill(Palette.surfaceCardSubtle)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                            .strokeBorder(Palette.borderHairline, lineWidth: 0.6)
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Choose processing scene")
+
+                Button {
+                    config.recordingTemplatePromptExpanded.toggle()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: config.recordingTemplatePromptExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 7.5, weight: .bold))
+                            .foregroundStyle(Color.dtLabelTertiary)
+                        Text("Prompt")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(Color.dtLabel)
+                        Text("Optional")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.dtLabelTertiary)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                            .fill(Palette.surfaceCardSubtle)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                            .strokeBorder(Palette.borderHairline, lineWidth: 0.6)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(AccessibilityIDs.Panel.promptDisclosureButton)
+
+                Spacer(minLength: 8)
+
+                Button(processingAction == .transcriptAndSummary ? "Processing…" : CloudRecordingProcessingAction.transcriptAndSummary.title(hasExistingTranscript: recording.activeTranscriptId != nil)) {
+                    onProcessRecording(.transcriptAndSummary)
+                }
+                .buttonStyle(PanelPushButtonStyle())
+                .frame(minWidth: 98)
+                .disabled(isProcessingActionDisabled(.transcriptAndSummary))
+                .help(processingHelpText(for: .transcriptAndSummary))
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
+            }
+            .transaction { transaction in
+                transaction.animation = nil
+            }
+
+            if config.recordingTemplatePromptExpanded {
+                promptTextEditor(
+                    text: $config.recordingExtraPrompt,
+                    height: 72
+                )
+                .transition(.opacity)
+            }
+        }
+        .padding(.vertical, 7)
+        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: processingScene)
+        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: config.recordingTemplatePromptExpanded)
+    }
+
     @ToolbarContentBuilder
     private var detailToolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
@@ -717,8 +839,12 @@ struct CloudRecordingDetail: View {
             Divider()
 
             ForEach(CloudRecordingProcessingAction.allCases) { action in
-                Button(processingAction == action ? action.busyTitle : action.title, systemImage: action.systemImage) {
-                    onProcessRecording(action)
+                Button(processingAction == action ? action.busyTitle : action.title(hasExistingTranscript: recording.activeTranscriptId != nil), systemImage: action.systemImage) {
+                    if recording.activeTranscriptId != nil {
+                        presentRetranscribeContextPopover()
+                    } else {
+                        onProcessRecording(action)
+                    }
                 }
                 .disabled(isProcessingActionDisabled(action))
                 .help(processingHelpText(for: action))
@@ -735,6 +861,9 @@ struct CloudRecordingDetail: View {
         }
         .menuIndicator(.hidden)
         .help("More actions")
+        .popover(isPresented: $isShowingRetranscribeContext, arrowEdge: .top) {
+            retranscribeContextPopover
+        }
         .accessibilityIdentifier(AccessibilityIDs.Cloud.moreActionsButton)
     }
 
@@ -786,6 +915,133 @@ struct CloudRecordingDetail: View {
         .padding(14)
         .frame(width: 270, alignment: .leading)
         .background(DT.recordingShell)
+    }
+
+    private var retranscribeContextPopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Re-Transcribe")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
+                Text("Choose the scene and optional prompt before starting a fresh cloud pass.")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Menu {
+                    ForEach(RecordingSceneTemplate.allCases) { option in
+                        Button {
+                            retranscribeSceneDraft = option.rawValue
+                        } label: {
+                            Label(option.title, systemImage: option == retranscribeScene ? "checkmark" : "")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Scene")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(Color.dtLabelTertiary)
+                        Text(retranscribeScene.title)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(Color.dtLabel)
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7.5, weight: .bold))
+                            .foregroundStyle(Color.dtLabelTertiary)
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(height: 30)
+                    .background(
+                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                            .fill(Palette.surfaceCardSubtle)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                            .strokeBorder(Palette.borderHairline, lineWidth: 0.6)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 4) {
+                        Text("Prompt")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(Color.dtLabel)
+                        Text("Optional")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.dtLabelTertiary)
+                    }
+
+                    promptTextEditor(
+                        text: $retranscribePromptDraft,
+                        height: 80
+                    )
+                }
+                .frame(height: 104, alignment: .topLeading)
+            }
+
+            HStack(spacing: 8) {
+                Button("Cancel") {
+                    isShowingRetranscribeContext = false
+                }
+                .buttonStyle(PanelPushButtonStyle())
+
+                Button(processingAction == .transcriptAndSummary ? "Processing…" : "Re-Transcribe") {
+                    confirmRetranscribeContext()
+                }
+                .buttonStyle(PanelPushButtonStyle(primary: true))
+                .disabled(isProcessingActionDisabled(.transcriptAndSummary))
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.confirmRetranscribeButton)
+            }
+        }
+        .padding(14)
+        .frame(width: 300, height: 252, alignment: .topLeading)
+        .background(DT.recordingShell)
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeContextPopover)
+    }
+
+    private func promptTextEditor(text: Binding<String>, height: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: text)
+                .font(.system(size: 11.5))
+                .foregroundStyle(Color.dtLabel)
+                .scrollContentBackground(.hidden)
+                .padding(7)
+
+            if text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Add names, terms, or goals to improve summary")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 12)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(height: height)
+        .background(
+            RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                .fill(Palette.surfaceCardSubtle)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                .strokeBorder(Palette.borderHairline, lineWidth: 0.6)
+        )
+        .accessibilityIdentifier(AccessibilityIDs.Panel.promptField)
+    }
+
+    private func presentRetranscribeContextPopover() {
+        retranscribeSceneDraft = config.recordingSceneTemplate
+        retranscribePromptDraft = config.recordingExtraPrompt
+        isShowingRetranscribeContext = true
+    }
+
+    private func confirmRetranscribeContext() {
+        config.recordingSceneTemplate = retranscribeSceneDraft
+        config.recordingExtraPrompt = retranscribePromptDraft
+        isShowingRetranscribeContext = false
+        onProcessRecording(.transcriptAndSummary)
     }
 
     private func recordingInfoRow(_ title: String, _ value: String, systemImage: String) -> some View {
@@ -1059,13 +1315,15 @@ struct CloudRecordingDetail: View {
 
                     Spacer(minLength: 0)
 
-                    Button("Load transcript") {
-                        onLoadTranscript()
+                    if recording.activeTranscriptId != nil {
+                        Button("Load transcript") {
+                            onLoadTranscript()
+                        }
+                        .buttonStyle(PanelPushButtonStyle())
+                        .frame(width: 126)
+                        .disabled(isTranscriptLoading)
+                        .accessibilityIdentifier(AccessibilityIDs.Cloud.loadTranscriptButton)
                     }
-                    .buttonStyle(PanelPushButtonStyle())
-                    .frame(width: 126)
-                    .disabled(isTranscriptLoading)
-                    .accessibilityIdentifier(AccessibilityIDs.Cloud.loadTranscriptButton)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 10)

@@ -50,6 +50,11 @@ enum AccessibilityIDs {
         static let retryButton = "recappi.panel.retryButton"
         static let settingsButton = "recappi.panel.settingsButton"
         static let cloudButton = "recappi.panel.cloudButton"
+        static let templateButton = "recappi.panel.templateButton"
+        static let templateDrawer = "recappi.panel.templateDrawer"
+        static let microphoneIncludeButton = "recappi.panel.microphoneIncludeButton"
+        static let promptDisclosureButton = "recappi.panel.promptDisclosureButton"
+        static let promptField = "recappi.panel.promptField"
         static let showButton = "recappi.panel.showButton"
     }
 
@@ -108,6 +113,7 @@ enum AccessibilityIDs {
         static let openRecordingInBrowserButton = "recappi.cloud.openRecordingInBrowserButton"
         static let syncToLocalButton = "recappi.cloud.syncToLocalButton"
         static let retranscribeButton = "recappi.cloud.retranscribeButton"
+        static let retranscribeContextPopover = "recappi.cloud.retranscribeContextPopover"
         static let confirmRetranscribeButton = "recappi.cloud.confirmRetranscribeButton"
         static let revealLocalSessionButton = "recappi.cloud.revealLocalSessionButton"
         static let downloadAudioButton = "recappi.cloud.downloadAudioButton"

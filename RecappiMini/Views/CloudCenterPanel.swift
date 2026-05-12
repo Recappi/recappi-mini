@@ -19,6 +19,7 @@ struct CloudCenterPanel: View {
     @State var showingDeleteConfirmation = false
     @State var pendingListScrollTargetID: String?
     @State var pendingProcessingAction: CloudRecordingProcessingAction?
+    @State var pendingProcessingHasExistingTranscript = false
     @State var contextMenuTargetRecording: CloudRecording?
     @State var pendingRenameRecording: CloudRecording?
     @State var renameDraft: String = ""
@@ -63,13 +64,15 @@ struct CloudCenterPanel: View {
             Text("This removes the remote recording and cannot be undone.")
         }
         .confirmationDialog(
-            pendingProcessingAction?.confirmationTitle ?? "Process this recording?",
+            pendingProcessingAction?.confirmationTitle(hasExistingTranscript: pendingProcessingHasExistingTranscript)
+                ?? "Process this recording?",
             isPresented: processingConfirmationBinding,
             titleVisibility: .visible
         ) {
             if let action = pendingProcessingAction {
                 Button(action.confirmationButtonTitle) {
                     pendingProcessingAction = nil
+                    pendingProcessingHasExistingTranscript = false
                     Task { await store.processSelectedRecording(action) }
                 }
                 .accessibilityIdentifier(action.confirmAccessibilityIdentifier)
@@ -77,7 +80,7 @@ struct CloudCenterPanel: View {
 
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(pendingProcessingAction?.confirmationMessage ?? "")
+            Text(pendingProcessingAction?.confirmationMessage(hasExistingTranscript: pendingProcessingHasExistingTranscript) ?? "")
         }
         .alert(
             "Rename recording",
@@ -158,6 +161,7 @@ struct CloudCenterPanel: View {
             set: { isPresented in
                 if !isPresented {
                     pendingProcessingAction = nil
+                    pendingProcessingHasExistingTranscript = false
                 }
             }
         )

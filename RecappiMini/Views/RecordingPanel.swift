@@ -10,9 +10,7 @@ struct RecordingPanel: View {
     @ObservedObject private var config = AppConfig.shared
     @State private var visibleProcessingSessionID: UUID?
     @State private var detachProcessingWhenReady = false
-    @State private var preflightStartKind: RecordingPreflightStartKind?
-    @State private var preflightShowsTranslation = AppConfig.shared.liveCaptionsBilingualEnabled
-    @State private var preflightTargetLanguage = AppConfig.shared.liveCaptionsTranslationTargetLanguage
+    @State private var isTemplateExpanded = false
 
     let onOpenFolder: (URL) -> Void
     let onOpenCloud: () -> Void
@@ -24,7 +22,7 @@ struct RecordingPanel: View {
         mainView
             .id(panelContentIdentity)
             .transition(panelContentTransition)
-            .animation(DT.easeSpring(DT.Motion.contentSwap), value: panelContentIdentity)
+            .animation(DT.motionAware(DT.easeSpring(DT.Motion.contentSwap)), value: panelContentIdentity)
             .frame(
                 width: DT.panelWidth - DT.panelPadding * 2,
                 alignment: .topLeading
@@ -47,9 +45,6 @@ struct RecordingPanel: View {
     }
 
     private var panelContentIdentity: String {
-        if preflightStartKind != nil {
-            return "preflight"
-        }
         switch recorder.state {
         case .idle:
             return "idle"
@@ -75,63 +70,57 @@ struct RecordingPanel: View {
 
     @ViewBuilder
     private var mainView: some View {
-        if let preflightStartKind {
-            RecordingPreflightSheet(
-                showsTranslation: $preflightShowsTranslation,
-                targetLanguage: $preflightTargetLanguage,
-                backendRealtimeEnabled: config.backendRealtimeLiveCaptionsEnabled,
-                onCancel: { self.preflightStartKind = nil },
-                onStart: { startRecordingAfterPreflight(preflightStartKind) }
+        switch recorder.state {
+        case .idle:
+            IdleState(
+                recorder: recorder,
+                isStarting: false,
+                isTemplateExpanded: isTemplateExpanded,
+                onCloud: onOpenCloud,
+                onToggleTemplate: toggleTemplateDrawer,
+                onRecord: startRecording,
+                onRecordSuggestion: startSuggestedRecording,
+                onClose: onClosePanel
             )
-        } else {
-            switch recorder.state {
-            case .idle:
-                IdleState(
-                    recorder: recorder,
-                    isStarting: false,
-                    onCloud: onOpenCloud,
-                    onRecord: startRecording,
-                    onRecordSuggestion: startSuggestedRecording,
-                    onClose: onClosePanel
-                )
-            case .starting:
-                IdleState(
-                    recorder: recorder,
-                    isStarting: true,
-                    onCloud: onOpenCloud,
-                    onRecord: startRecording,
-                    onRecordSuggestion: startSuggestedRecording,
-                    onClose: onClosePanel
-                )
-            case .recording:
-                RecordingState(
-                    recorder: recorder,
-                    onDiscard: discardRecording,
-                    onStop: stopRecording,
-                    onClose: onClosePanel
-                )
-            case .processing(let phase):
-                ProcessingState(
-                    phase: phase,
-                    onClose: detachCurrentProcessingToBackground
-                )
-            case .done(let r):
-                DoneState(
-                    result: r,
-                    onShow: onOpenCloud,
-                    onCopy: { copyTranscript(r) },
-                    onNew: { recorder.reset() }
-                )
-            case .error(let message):
-                ErrorState(
-                    recorder: recorder,
-                    message: message,
-                    onShow: { if let dir = recorder.lastSessionDir { onOpenFolder(dir) } },
-                    onSettings: presentSettings,
-                    onRetry: { retryProcessing(message) },
-                    onDismiss: { recorder.reset() }
-                )
-            }
+        case .starting:
+            IdleState(
+                recorder: recorder,
+                isStarting: true,
+                isTemplateExpanded: isTemplateExpanded,
+                onCloud: onOpenCloud,
+                onToggleTemplate: toggleTemplateDrawer,
+                onRecord: startRecording,
+                onRecordSuggestion: startSuggestedRecording,
+                onClose: onClosePanel
+            )
+        case .recording:
+            RecordingState(
+                recorder: recorder,
+                onDiscard: discardRecording,
+                onStop: stopRecording,
+                onClose: onClosePanel
+            )
+        case .processing(let phase):
+            ProcessingState(
+                phase: phase,
+                onClose: detachCurrentProcessingToBackground
+            )
+        case .done(let r):
+            DoneState(
+                result: r,
+                onShow: onOpenCloud,
+                onCopy: { copyTranscript(r) },
+                onNew: { recorder.reset() }
+            )
+        case .error(let message):
+            ErrorState(
+                recorder: recorder,
+                message: message,
+                onShow: { if let dir = recorder.lastSessionDir { onOpenFolder(dir) } },
+                onSettings: presentSettings,
+                onRetry: { retryProcessing(message) },
+                onDismiss: { recorder.reset() }
+            )
         }
     }
 
@@ -144,16 +133,17 @@ struct RecordingPanel: View {
         openSettings()
     }
 
-    private func startRecording() {
-        preparePreflightDefaults()
-        preflightStartKind = .manual
+    private func toggleTemplateDrawer() {
+        isTemplateExpanded.toggle()
     }
 
-    private func startRecordingAfterPreflight(_ kind: RecordingPreflightStartKind) {
-        AppConfig.shared.liveCaptionsBilingualEnabled = preflightShowsTranslation
-        AppConfig.shared.liveCaptionsTranslationTargetLanguage =
-            LiveCaptionTranslationTargetLanguageOption.normalizedCode(preflightTargetLanguage)
-        preflightStartKind = nil
+    private func startRecording() {
+        startRecording(kind: .manual)
+    }
+
+    private func startRecording(kind: RecordingStartKind) {
+        recorder.setIncludesMicrophoneAudio(config.recordingIncludeMicrophoneAudio)
+        isTemplateExpanded = false
 
         Task {
             do {
@@ -171,14 +161,7 @@ struct RecordingPanel: View {
     }
 
     private func startSuggestedRecording() {
-        preparePreflightDefaults()
-        preflightStartKind = .suggested
-    }
-
-    private func preparePreflightDefaults() {
-        preflightShowsTranslation = config.backendRealtimeLiveCaptionsEnabled
-            && config.liveCaptionsBilingualEnabled
-        preflightTargetLanguage = config.liveCaptionsTranslationTargetLanguage
+        startRecording(kind: .suggested)
     }
 
     private func stopRecording() {
@@ -215,6 +198,7 @@ struct RecordingPanel: View {
             let result = try await SessionProcessor.shared.process(
                 sessionDir: sessionDir,
                 duration: duration,
+                startsTranscription: false,
                 updatePhase: { phase in
                     guard visibleProcessingSessionID == sessionID else { return }
                     recorder.state = .processing(phase)
@@ -329,81 +313,9 @@ struct RecordingPanel: View {
 
 }
 
-private enum RecordingPreflightStartKind: String, Identifiable {
+private enum RecordingStartKind: String, Identifiable {
     case manual
     case suggested
 
     var id: String { rawValue }
-}
-
-struct RecordingPreflightSheet: View {
-    @Binding var showsTranslation: Bool
-    @Binding var targetLanguage: String
-    let backendRealtimeEnabled: Bool
-    let onCancel: () -> Void
-    let onStart: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Before recording")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Palette.labelPrimary)
-                Text("Choose the live caption display for this recording.")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Palette.labelSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle("Show translation", isOn: $showsTranslation)
-                    .toggleStyle(.switch)
-                    .disabled(!backendRealtimeEnabled)
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.preflightShowTranslationToggle)
-
-                if showsTranslation {
-                    Picker("Translate to", selection: normalizedTargetLanguageBinding) {
-                        ForEach(LiveCaptionTranslationTargetLanguageOption.common) { option in
-                            Text(option.title).tag(option.id)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .disabled(!backendRealtimeEnabled)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.preflightTargetLanguagePicker)
-                }
-
-                if !backendRealtimeEnabled {
-                    Text("Translation requires backend Realtime live captions in Settings.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Palette.labelTertiary)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-            }
-            .animation(DT.ease(DT.Motion.elementPresence), value: showsTranslation)
-            .animation(DT.ease(DT.Motion.elementPresence), value: backendRealtimeEnabled)
-
-            HStack {
-                Spacer()
-                Button("Cancel", action: onCancel)
-                    .keyboardShortcut(.cancelAction)
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.preflightCancelButton)
-                Button("Start recording", action: onStart)
-                    .keyboardShortcut(.defaultAction)
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.preflightStartButton)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(AccessibilityIDs.Panel.preflightSheet)
-    }
-
-    private var normalizedTargetLanguageBinding: Binding<String> {
-        Binding(
-            get: { LiveCaptionTranslationTargetLanguageOption.normalizedCode(targetLanguage) },
-            set: { targetLanguage = LiveCaptionTranslationTargetLanguageOption.normalizedCode($0) }
-        )
-    }
 }

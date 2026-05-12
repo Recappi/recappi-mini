@@ -10,6 +10,7 @@ final class SessionProcessor {
     func process(
         sessionDir: URL,
         duration: Int,
+        startsTranscription: Bool = true,
         updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
         onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void = { _, _ in },
         onCloudRecordingDeleted: @escaping @MainActor @Sendable (String) -> Void = { _ in }
@@ -26,6 +27,7 @@ final class SessionProcessor {
                 let result = try await processOnce(
                     sessionDir: sessionDir,
                     duration: duration,
+                    startsTranscription: startsTranscription,
                     updatePhase: updatePhase,
                     onCloudRecordingUpdated: onCloudRecordingUpdated,
                     onCloudRecordingDeleted: onCloudRecordingDeleted
@@ -50,6 +52,7 @@ final class SessionProcessor {
     private func processOnce(
         sessionDir: URL,
         duration: Int,
+        startsTranscription: Bool,
         updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
         onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void,
         onCloudRecordingDeleted: @escaping @MainActor @Sendable (String) -> Void
@@ -116,6 +119,29 @@ final class SessionProcessor {
         }
         manifest = uploadedRecording.manifest
 
+        guard startsTranscription else {
+            manifest.stage = "synced"
+            manifest.errorMessage = nil
+            manifest.jobId = nil
+            manifest.transcriptId = nil
+            _ = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+            await refreshServerRecordingState(
+                client: client,
+                recordingID: uploadedRecording.recordingId,
+                latestJob: nil,
+                onCloudRecordingUpdated: onCloudRecordingUpdated
+            )
+            DiagnosticsLog.event(
+                "processing",
+                "transcription.deferred recording=\(uploadedRecording.recordingId) scene=\(RecordingStore.loadSessionMetadata(in: sessionDir)?.sceneTemplate ?? "none")"
+            )
+            return RecordingResult(
+                folderURL: sessionDir,
+                transcript: nil,
+                duration: duration
+            )
+        }
+
         if Self.reusableTranscriptID(in: manifest) != nil {
             updatePhase(.fetchingTranscript)
             DiagnosticsLog.event(
@@ -156,7 +182,12 @@ final class SessionProcessor {
                 "processing",
                 "transcription.start recording=\(uploadedRecording.recordingId) language=\(language)"
             )
-            start = try await client.startTranscription(recordingId: uploadedRecording.recordingId, language: language)
+            let metadata = RecordingStore.loadSessionMetadata(in: sessionDir)
+            start = try await client.startTranscription(
+                recordingId: uploadedRecording.recordingId,
+                language: language,
+                prompt: RecordingContextPrompt.text(from: metadata)
+            )
             DiagnosticsLog.event(
                 "processing",
                 "transcription.started recording=\(uploadedRecording.recordingId) job=\(start.jobId) status=\(start.status.rawValue)"

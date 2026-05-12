@@ -31,6 +31,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// can use this to gate animations or styling for "stable" captions.
     @Published private(set) var liveCaptionIsFinal: Bool = false
     @Published private(set) var activeRecordingID: UUID?
+    @Published private(set) var includesMicrophoneAudio: Bool = AppConfig.shared.recordingIncludeMicrophoneAudio
+    private var hasIncludedMicrophoneAudioInCurrentRecording = AppConfig.shared.recordingIncludeMicrophoneAudio
     /// Session directory of the most-recent (or in-progress) recording.
     /// Populated on stop and kept through processing + error states so the
     /// UI can offer Retry / Show without stashing state at the view layer.
@@ -467,6 +469,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             let sessionDir = try RecordingStore.createSessionDirectory()
             RecordingStore.saveSessionMetadata(metadata, in: sessionDir)
             self.sessionDir = sessionDir
+            hasIncludedMicrophoneAudioInCurrentRecording = includesMicrophoneAudio
             DiagnosticsLog.event("recording", "session.created dir=\(sessionDir.lastPathComponent)")
 
             // Intermediate files; merged into recording.m4a at stop.
@@ -521,6 +524,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
             let mcWriter = SegmentedAudioWriter(finalURL: micURL, processingQueue: micCaptureQueue)
             let mcOut = MicAudioOutput(writer: mcWriter)
+            mcOut.setIncludesAudio(includesMicrophoneAudio)
             mcOut.onMeterFrame = { [weak self] frame in
                 self?.ingestMeterFrame(frame)
             }
@@ -646,7 +650,10 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         // Merge system + mic into a single high-quality recording.m4a.
         let mergedURL = RecordingStore.audioFileURL(in: sessionDir)
-        let sourceURLs = [finishedSystemURL, finishedMicURL].compactMap { $0 }
+        let sourceURLs = [
+            finishedSystemURL,
+            hasIncludedMicrophoneAudioInCurrentRecording ? finishedMicURL : nil,
+        ].compactMap { $0 }
 
         do {
             try await AudioMixer.mix(
@@ -753,6 +760,16 @@ final class AudioRecorder: NSObject, ObservableObject {
         detectedMeetingRecordingContext = nil
         pendingDetectedMeetingRecordingContext = nil
         autoStopRequest = nil
+    }
+
+    func setIncludesMicrophoneAudio(_ included: Bool) {
+        includesMicrophoneAudio = included
+        AppConfig.shared.recordingIncludeMicrophoneAudio = included
+        if included, state == .recording {
+            hasIncludedMicrophoneAudioInCurrentRecording = true
+        }
+        micOutput?.setIncludesAudio(included)
+        DiagnosticsLog.event("recording", "mic.include_changed included=\(included)")
     }
 
     private func normalizeSpectrum(_ levels: [Float]) -> [Float] {
@@ -1189,8 +1206,16 @@ final class AudioRecorder: NSObject, ObservableObject {
         return RecordingSessionMetadata.capture(
             sourceTitle: sourceTitle,
             sourceAppName: appName,
-            sourceBundleID: bundleID
+            sourceBundleID: bundleID,
+            sceneTemplate: AppConfig.shared.recordingSceneTemplate,
+            extraPrompt: Self.trimmedPrompt(AppConfig.shared.recordingExtraPrompt),
+            includesMicrophoneAudio: includesMicrophoneAudio
         )
+    }
+
+    private static func trimmedPrompt(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func detectedMeetingContextForNextRecording() -> DetectedMeetingRecordingContext? {

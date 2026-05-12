@@ -38,11 +38,19 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
 
 final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
     private let writer: SegmentedAudioWriter
+    private let stateQueue = DispatchQueue(label: "RecappiMini.MicAudioOutput.state")
+    private var includesAudio = true
 
     var onMeterFrame: ((AudioMeterFrame) -> Void)?
 
     init(writer: SegmentedAudioWriter) {
         self.writer = writer
+    }
+
+    func setIncludesAudio(_ included: Bool) {
+        stateQueue.sync {
+            includesAudio = included
+        }
     }
 
     func captureOutput(
@@ -51,8 +59,11 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         from connection: AVCaptureConnection
     ) {
         guard sampleBuffer.isValid else { return }
-        writer.append(sampleBuffer)
-        onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount))
+        let included = stateQueue.sync { includesAudio }
+        writer.append(sampleBuffer, muted: !included)
+        if included {
+            onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount))
+        }
     }
 
     func finishWriting() async throws -> URL? {

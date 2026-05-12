@@ -7,6 +7,18 @@ struct OpenAIRealtimeTranscriptionSessionRequest: Encodable {
     let expiresAfterSeconds: Int
     let turnDetection: OpenAIRealtimeTurnDetection
 
+    init(
+        language: String,
+        delay: String,
+        expiresAfterSeconds: Int,
+        turnDetection: OpenAIRealtimeTurnDetection
+    ) {
+        self.language = language
+        self.delay = delay
+        self.expiresAfterSeconds = expiresAfterSeconds
+        self.turnDetection = turnDetection
+    }
+
     enum CodingKeys: String, CodingKey {
         case mode
         case language

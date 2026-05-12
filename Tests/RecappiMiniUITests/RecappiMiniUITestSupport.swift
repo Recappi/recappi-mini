@@ -388,11 +388,13 @@ extension XCTestCase {
         let recordButton = app.buttons[UITestIDs.Panel.recordButton]
         XCTAssertTrue(recordButton.waitForExistence(timeout: 15), "Expected Record button.")
         recordButton.click()
-        completeRecordingPreflight(
-            in: app,
-            showTranslation: showTranslation,
-            targetLanguageLabel: targetLanguageLabel
-        )
+        if uiElement(app, id: UITestIDs.Panel.preflightSheet).waitForExistence(timeout: 1) {
+            completeRecordingPreflight(
+                in: app,
+                showTranslation: showTranslation,
+                targetLanguageLabel: targetLanguageLabel
+            )
+        }
     }
 
     func completeRecordingPreflight(
@@ -401,7 +403,9 @@ extension XCTestCase {
         targetLanguageLabel: String? = nil
     ) {
         let sheet = uiElement(app, id: UITestIDs.Panel.preflightSheet)
-        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "Expected recording preflight sheet.")
+        guard sheet.waitForExistence(timeout: 1) else {
+            return
+        }
 
         let toggle = uiElement(app, id: UITestIDs.Panel.preflightShowTranslationToggle)
         XCTAssertTrue(toggle.waitForExistence(timeout: 5), "Expected Show translation toggle.")

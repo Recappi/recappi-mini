@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Design tokens mirroring `Recappi Mini - Design Refresh.html`.
@@ -80,6 +81,10 @@ enum DT {
         .timingCurve(0.2, 0.9, 0.2, 1, duration: duration)
     }
 
+    static func motionAware(_ animation: Animation) -> Animation? {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : animation
+    }
+
     // MARK: - Per-transition timings (from the design's motion table)
 
     enum Motion {
@@ -144,8 +149,8 @@ struct PanelIconButtonStyle: ButtonStyle {
                 )
                 .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
                 .onHover { hovered = $0 }
-                .animation(DT.ease(0.12), value: hovered)
-                .animation(DT.ease(0.08), value: isPressed)
+                .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
+                .animation(DT.motionAware(DT.ease(0.08)), value: isPressed)
         }
     }
 }
@@ -174,8 +179,8 @@ struct PanelUtilityButtonStyle: ButtonStyle {
                 )
                 .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
                 .onHover { hovered = $0 }
-                .animation(DT.ease(0.12), value: hovered)
-                .animation(DT.ease(0.08), value: isPressed)
+                .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
+                .animation(DT.motionAware(DT.ease(0.08)), value: isPressed)
         }
     }
 }
@@ -227,8 +232,8 @@ struct PrimaryRecordButton: View {
                 .onChanged { _ in pressed = true }
                 .onEnded { _ in pressed = false }
         )
-        .animation(DT.ease(0.12), value: hovered)
-        .animation(DT.ease(0.08), value: pressed)
+        .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
+        .animation(DT.motionAware(DT.ease(0.08)), value: pressed)
     }
 }
 
@@ -343,8 +348,8 @@ struct DarkCircleButton: View {
                 .onChanged { _ in pressed = true }
                 .onEnded { _ in pressed = false }
         )
-        .animation(DT.ease(0.12), value: hovered)
-        .animation(DT.ease(0.08), value: pressed)
+        .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
+        .animation(DT.motionAware(DT.ease(0.08)), value: pressed)
     }
 }
 
@@ -380,8 +385,8 @@ struct DarkChipButtonStyle: ButtonStyle {
                 )
                 .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
                 .onHover { hovered = $0 }
-                .animation(DT.ease(0.12), value: hovered)
-                .animation(DT.ease(0.08), value: isPressed)
+                .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
+                .animation(DT.motionAware(DT.ease(0.08)), value: isPressed)
         }
     }
 }

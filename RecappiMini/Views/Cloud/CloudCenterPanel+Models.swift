@@ -1,9 +1,11 @@
 import Foundation
 
 extension CloudRecordingProcessingAction {
-    var title: String {
-        "Re-Transcribe"
+    func title(hasExistingTranscript: Bool) -> String {
+        hasExistingTranscript ? "Re-Transcribe" : "Transcribe"
     }
+
+    var title: String { title(hasExistingTranscript: false) }
 
     var busyTitle: String {
         "Processing…"
@@ -14,20 +16,27 @@ extension CloudRecordingProcessingAction {
     }
 
     var helpText: String {
-        "Run a fresh cloud transcription pass."
+        "Run cloud transcription and summary with the current template."
     }
 
-    var confirmationTitle: String {
-        "Re-transcribe this recording?"
+    func confirmationTitle(hasExistingTranscript: Bool) -> String {
+        hasExistingTranscript ? "Re-transcribe this recording?" : "Transcribe this recording?"
     }
+
+    var confirmationTitle: String { confirmationTitle(hasExistingTranscript: false) }
 
     var confirmationButtonTitle: String {
-        "Re-Transcribe"
+        "Transcribe"
     }
 
-    var confirmationMessage: String {
-        "This starts a fresh cloud transcription job. Summary will be generated automatically when the transcript is ready."
+    func confirmationMessage(hasExistingTranscript: Bool) -> String {
+        if hasExistingTranscript {
+            return "This starts a fresh cloud transcription and summary job using the selected template and optional prompt."
+        }
+        return "This starts a cloud transcription and summary job using the selected template and optional prompt."
     }
+
+    var confirmationMessage: String { confirmationMessage(hasExistingTranscript: false) }
 
     var accessibilityIdentifier: String {
         AccessibilityIDs.Cloud.retranscribeButton

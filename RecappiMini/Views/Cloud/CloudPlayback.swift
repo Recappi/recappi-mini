@@ -285,8 +285,8 @@ struct MenuIconLabel: View {
             .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
             .onHover { hovered = $0 }
             .scaleEffect(pressed ? 0.96 : 1)
-            .animation(DT.ease(0.12), value: hovered)
-            .animation(DT.ease(0.08), value: pressed)
+            .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
+            .animation(DT.motionAware(DT.ease(0.08)), value: pressed)
             .onLongPressGesture(
                 minimumDuration: .infinity,
                 maximumDistance: 18,
@@ -323,10 +323,10 @@ struct PlaybackRatePillLabel: View {
             .onHover { hovered = isEnabled && $0 }
             .scaleEffect(pressed ? 0.96 : 1)
             .opacity(isEnabled ? 1 : 0.45)
-            .animation(DT.ease(0.12), value: hovered)
-            .animation(DT.ease(0.08), value: pressed)
-            .animation(DT.ease(0.18), value: isActive)
-            .animation(DT.ease(0.16), value: didChange)
+            .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
+            .animation(DT.motionAware(DT.ease(0.08)), value: pressed)
+            .animation(DT.motionAware(DT.ease(0.18)), value: isActive)
+            .animation(DT.motionAware(DT.ease(0.16)), value: didChange)
             .onLongPressGesture(
                 minimumDuration: .infinity,
                 maximumDistance: 18,
