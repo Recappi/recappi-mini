@@ -23,7 +23,6 @@ struct RecordingTemplateDrawer: View {
     private var configRow: some View {
         HStack(spacing: 7) {
             sceneMenu
-                .frame(width: 132, alignment: .leading)
 
             Button {
                 config.recordingIncludeMicrophoneAudio.toggle()
@@ -76,6 +75,7 @@ struct RecordingTemplateDrawer: View {
         }
         .buttonStyle(.plain)
         .help("Choose recording scene")
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var promptDisclosureButton: some View {
@@ -86,19 +86,15 @@ struct RecordingTemplateDrawer: View {
                 Image(systemName: config.recordingTemplatePromptExpanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 7.5, weight: .bold))
                     .foregroundStyle(Palette.labelTertiary)
-                Text("Cloud prompt")
+                Text("Prompt")
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(Palette.labelPrimary)
-                Spacer(minLength: 0)
-                Text("Transcribe / summary")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Palette.labelTertiary)
                     .lineLimit(1)
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 8)
             .frame(height: 28)
             .frame(maxWidth: .infinity)
-            .fixedSize(horizontal: false, vertical: true)
             .background(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
                     .fill(DT.recordingChip.opacity(0.55))
