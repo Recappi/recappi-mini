@@ -70,7 +70,7 @@ struct RecordingTemplateDrawer: View {
             .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .fill(Palette.surfaceCardSubtle)
+                    .fill(DT.recordingChip.opacity(0.55))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)

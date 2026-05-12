@@ -33,7 +33,7 @@ struct AudioSourcePill: View {
             .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
             .background(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .fill(DT.recordingChip.opacity(hovered ? 1.0 : 0.8))
+                    .fill(DT.recordingChip.opacity(hovered ? 0.75 : 0.55))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
