@@ -30,7 +30,7 @@ enum LiveCaptionPanelMode: String {
             // tree to a hard-coded height so the resize sticks.
             return NSSize(width: 560, height: 420)
         case .compact:
-            return NSSize(width: 542, height: 104)
+            return NSSize(width: 542, height: 94)
         }
     }
 
@@ -142,9 +142,9 @@ struct LiveCaptionFloatingPanel: View {
                 )
                 .overlay(alignment: .leading) {
                     Text(compactDisplayLine)
-                        .font(.system(size: 15, weight: hasLiveCaptionSegments ? .semibold : .medium))
+                        .font(.system(size: Self.compactCaptionFontSize, weight: hasLiveCaptionSegments ? .semibold : .medium))
                         .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
-                        .lineSpacing(2)
+                        .lineSpacing(Self.compactCaptionLineSpacing)
                         .multilineTextAlignment(.leading)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -639,14 +639,16 @@ struct LiveCaptionFloatingPanel: View {
         return String(tail[afterSpace...])
     }
 
-    private static let compactCaptionMaxASCIICharacters: Int = 90
-    private static let compactCaptionMaxCJKCharacters: Int = 44
+    private static let compactCaptionMaxASCIICharacters: Int = 94
+    private static let compactCaptionMaxCJKCharacters: Int = 46
+    private static let compactCaptionFontSize: CGFloat = 12.5
+    private static let compactCaptionLineSpacing: CGFloat = 1
 
     /// Height reserved for the compact caption's 2-line slot. System
-    /// 15pt + lineSpacing 2 measures ~37.7pt for two lines; rounding to
-    /// 44 gives ascender clearance and ~13pt of breathing room that
+    /// 12.5pt + lineSpacing 1 measures ~31pt for two lines; rounding
+    /// to 34 gives ascender clearance and a little breathing room that
     /// vertically centers 1-line content inside the slot.
-    private static let compactCaptionTwoLineHeight: CGFloat = 44
+    private static let compactCaptionTwoLineHeight: CGFloat = 34
 
     private var sourceLine: String {
         recorder.recordingAppName ?? recorder.selectedApp?.name ?? "All system audio"

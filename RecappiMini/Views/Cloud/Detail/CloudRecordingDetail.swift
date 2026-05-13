@@ -1210,37 +1210,44 @@ struct CloudRecordingDetail: View {
     @ViewBuilder
     private var newerVersionStrip: some View {
         if hasNewerVersion && !isViewingHistoricalVersion {
-            HStack(alignment: .center, spacing: 8) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color.dtLabelSecondary)
-                    .frame(width: 12)
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(DT.systemBlue)
+                    .frame(width: 2)
+                    .padding(.vertical, 7)
 
-                Text("Cloud transcript updated")
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(Color.dtLabelSecondary)
-                    .lineLimit(1)
-
-                Spacer(minLength: 0)
-
-                Button(action: acknowledgeNewerVersionWithoutSectionFlicker) {
-                    Text("Refresh")
+                HStack(alignment: .center, spacing: 8) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(DT.systemBlue)
+                        .foregroundStyle(DT.systemBlue)
+                        .frame(width: 13)
+
+                    Text("✨ New transcript version is ready")
+                        .font(.system(size: 10.8, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+
+                    Button(action: acknowledgeNewerVersionWithoutSectionFlicker) {
+                        Text("View")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(DT.systemBlue)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("View newer cloud transcript version")
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionRefreshButton)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh to load newer cloud version")
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionRefreshButton)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .fill(Palette.surfaceCardSubtle)
+                    .fill(DT.systemBlue.opacity(0.08))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .strokeBorder(Palette.borderHairline, lineWidth: 0.6)
+                    .strokeBorder(DT.systemBlue.opacity(0.22), lineWidth: 0.6)
             )
             .transition(.opacity.combined(with: .move(edge: .top)))
             .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionBanner)

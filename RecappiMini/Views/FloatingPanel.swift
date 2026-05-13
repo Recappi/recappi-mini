@@ -343,6 +343,15 @@ final class PillShellView: NSView {
 
 @MainActor
 struct FloatingPanelController {
+    private static var immediateResizeAnimationDeadline: CFTimeInterval = 0
+
+    static func performNextContentResizesImmediately(duration: CFTimeInterval = 0.35) {
+        immediateResizeAnimationDeadline = max(
+            immediateResizeAnimationDeadline,
+            CACurrentMediaTime() + duration
+        )
+    }
+
     /// Positions the visible pill 16pt from the top-right. The surrounding
     /// shadow margin is included in the window frame, but mouse events are
     /// only enabled while the pointer is inside the visible rounded pill.
@@ -456,7 +465,7 @@ struct FloatingPanelController {
             return
         }
 
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || !panel.isVisible {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || !panel.isVisible || shouldResizeImmediately {
             panel.setFrame(frame, display: false)
             panel.updateMousePassthrough()
             return
@@ -480,6 +489,10 @@ struct FloatingPanelController {
         resized.origin.y += dy
         resized.size = size
         return resized
+    }
+
+    private static var shouldResizeImmediately: Bool {
+        CACurrentMediaTime() <= immediateResizeAnimationDeadline
     }
 
     private static func finishTransition(_ panel: FloatingPanel) {

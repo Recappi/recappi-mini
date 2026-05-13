@@ -18,6 +18,7 @@ struct RecordingState: View {
     }
 
     @ObservedObject var recorder: AudioRecorder
+    @ObservedObject private var appDelegate = AppDelegate.shared
     @AppStorage("recappi.panel.recordingWaveformMode") private var waveformModeRaw = WaveformMode.spectrum.rawValue
     var onDiscard: () -> Void
     var onStop: () -> Void
@@ -44,6 +45,17 @@ struct RecordingState: View {
                     .foregroundStyle(Palette.labelTertiary)
                 recordingSourceView
                 Spacer(minLength: 0)
+                if appDelegate.canShowLiveCaptionPanel {
+                    Button {
+                        appDelegate.setLiveCaptionPanelPresented(!appDelegate.isLiveCaptionPanelPresented)
+                    } label: {
+                        Image(systemName: appDelegate.isLiveCaptionPanelPresented ? "captions.bubble.fill" : "captions.bubble")
+                            .font(.system(size: 10.5, weight: .semibold))
+                    }
+                    .buttonStyle(PanelIconButtonStyle(size: 18))
+                    .help(appDelegate.isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.liveCaptionsButton)
+                }
                 Button(action: onClose) {
                     Image(systemName: "minus")
                         .font(.system(size: 9, weight: .bold))
@@ -64,17 +76,6 @@ struct RecordingState: View {
                 .buttonStyle(.plain)
                 .help(waveformHelpText)
                 .accessibilityIdentifier(AccessibilityIDs.Panel.waveformToggle)
-
-                Button {
-                    AppDelegate.shared.setLiveCaptionPanelPresented(true)
-                } label: {
-                    Image(systemName: AppDelegate.shared.isLiveCaptionPanelPresented ? "captions.bubble.fill" : "captions.bubble")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(PanelIconButtonStyle())
-                .disabled(!AppDelegate.shared.canShowLiveCaptionPanel)
-                .help(AppDelegate.shared.isLiveCaptionPanelPresented ? "Live captions are open" : "Show live captions")
-                .accessibilityIdentifier(AccessibilityIDs.Panel.liveCaptionsButton)
 
                 Button {
                     recorder.setIncludesMicrophoneAudio(!recorder.includesMicrophoneAudio)

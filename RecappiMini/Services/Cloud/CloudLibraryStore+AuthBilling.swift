@@ -49,7 +49,9 @@ extension CloudLibraryStore {
             }
             recordings.removeAll { $0.id == recording.id }
             transcriptCache.removeValue(forKey: recording.id)
+            transcriptCacheRecordingUpdatedAt.removeValue(forKey: recording.id)
             transcriptionJobsByRecordingID.removeValue(forKey: recording.id)
+            recordingIDsWithNewerVersions.remove(recording.id)
             playbackAudioURLsByRecordingID.removeValue(forKey: recording.id)
             if selectedRecordingID == recording.id {
                 selectedRecordingID = recordings.first?.id

@@ -7,6 +7,7 @@ import SwiftUI
 struct CloudRecordingRow: View {
     let recording: CloudRecording
     let isSelected: Bool
+    var hasNewerVersion: Bool = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 4) {
@@ -22,11 +23,25 @@ struct CloudRecordingRow: View {
                 .truncationMode(.tail)
 
             Spacer(minLength: 0)
+
+            if hasNewerVersion {
+                Text("New")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.92) : DT.systemBlue)
+                    .padding(.horizontal, 5)
+                    .frame(height: 16)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill((isSelected ? Color.white : DT.systemBlue).opacity(isSelected ? 0.18 : 0.13))
+                    )
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+            }
         }
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .animation(DT.motionAware(DT.ease(0.15)), value: isSelected)
+        .animation(DT.motionAware(DT.ease(0.18)), value: hasNewerVersion)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingRowPrefix + recording.id)
     }
 }

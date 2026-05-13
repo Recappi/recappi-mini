@@ -49,6 +49,7 @@ final class CloudLibraryStore: ObservableObject {
     @Published var isShowingCachedData = false
     @Published var cacheWarningMessage: String?
     @Published var hasNewerVersionForSelection: Bool = false
+    @Published var recordingIDsWithNewerVersions: Set<String> = []
     /// Snapshot of `recording.updatedAt` taken at the moment a transcript
     /// was written into `transcriptCache`. The freshness check used to read
     /// `recordings[id].updatedAt` directly, but that array is refreshed by

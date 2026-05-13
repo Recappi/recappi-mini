@@ -211,6 +211,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             onOpenFolder: { folderURL in NSWorkspace.shared.open(folderURL) },
             onOpenCloud: { [weak self] in self?.showCloudCenter() },
             onClosePanel: { [weak self] in self?.hidePanel() },
+            onTranscribeCloudRecording: { [weak self] recordingID in
+                guard let self else { return }
+                self.showCloudCenter()
+                Task { @MainActor [weak self] in
+                    await self?.cloudStore.processRecording(id: recordingID, .transcriptAndSummary)
+                }
+            },
             onCloudRecordingUpdated: { [weak self] recording, latestJob in
                 self?.cloudStore.upsertLocalProcessingRecording(recording, latestJob: latestJob)
             },
@@ -322,6 +329,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
         if let button = item.button {
+            button.wantsLayer = true
+            button.layer?.cornerRadius = 6
+            button.layer?.masksToBounds = false
             button.image = MenuBarIconFactory.idleIcon()
             button.imagePosition = .imageOnly
             button.toolTip = "Recappi Mini"
@@ -428,6 +438,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private func updateStatusItemRecordingState(_ isRecording: Bool) {
         positionRecordingDot()
+        if let button = statusItem?.button {
+            button.layer?.backgroundColor = isRecording
+                ? NSColor.systemRed.withAlphaComponent(0.18).cgColor
+                : NSColor.clear.cgColor
+            button.layer?.borderColor = isRecording
+                ? NSColor.systemRed.withAlphaComponent(0.28).cgColor
+                : NSColor.clear.cgColor
+            button.layer?.borderWidth = isRecording ? 0.5 : 0
+        }
         recordingDotView?.isHidden = !isRecording
         if isRecording {
             startRecordingDotPulse()

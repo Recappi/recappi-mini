@@ -6,6 +6,27 @@ struct SpeechLanguageOption: Identifiable, Hashable, Sendable {
     let title: String
     let shortTitle: String
 
+    var shortCode: String {
+        switch id {
+        case "en-US", "en-GB":
+            return "EN"
+        case "zh-CN", "zh-TW":
+            return "ZH"
+        case "ja-JP":
+            return "JA"
+        case "ko-KR":
+            return "KO"
+        case "es-ES":
+            return "ES"
+        case "fr-FR":
+            return "FR"
+        case "de-DE":
+            return "DE"
+        default:
+            return String(id.prefix(2)).uppercased()
+        }
+    }
+
     static let common: [SpeechLanguageOption] = [
         .init(id: "en-US", title: "English (US)", shortTitle: "English"),
         .init(id: "en-GB", title: "English (UK)", shortTitle: "English UK"),
@@ -109,7 +130,9 @@ final class AppConfig: ObservableObject {
     /// `zh`, `en`, `ja`, `ko`, `fr`, `de`, `es`. Default mirrors
     /// the source language picker so a fresh user gets a sensible pair.
     @AppStorage("liveCaptionsTranslationTargetLanguage") var liveCaptionsTranslationTargetLanguage: String = "zh"
+    @AppStorage("recordingAutoTranscribeAfterUpload") var recordingAutoTranscribeAfterUpload: Bool = true
     @AppStorage("recordingSceneTemplate") var recordingSceneTemplate: String = RecordingSceneTemplate.meeting.rawValue
+    @AppStorage("recordingUseExtraPrompt") var recordingUseExtraPrompt: Bool = true
     @AppStorage("recordingExtraPrompt") var recordingExtraPrompt: String = ""
     @AppStorage("recordingIncludeMicrophoneAudio") var recordingIncludeMicrophoneAudio: Bool = true
     @Published var recordingTemplatePromptExpanded: Bool = false

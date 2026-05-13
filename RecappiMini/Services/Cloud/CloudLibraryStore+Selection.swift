@@ -10,7 +10,7 @@ extension CloudLibraryStore {
         PerfLog.start("select.until.firstRender")
         selectedRecordingID = recording.id
         transcriptErrorMessage = nil
-        hasNewerVersionForSelection = false
+        hasNewerVersionForSelection = recordingIDsWithNewerVersions.contains(recording.id)
         // Pre-mark the recording as loading if its transcript content has
         // not been cached yet. The detail view will trigger
         // `loadTranscriptForSelection` shortly via `.task(id:)`, but
@@ -48,6 +48,7 @@ extension CloudLibraryStore {
         transcriptCache.removeValue(forKey: recordingID)
         transcriptCacheRecordingUpdatedAt.removeValue(forKey: recordingID)
         transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
+        recordingIDsWithNewerVersions.remove(recordingID)
         locallyManagedRecordingUpdatedAt.removeValue(forKey: recordingID)
         playbackAudioURLsByRecordingID.removeValue(forKey: recordingID)
         localSessionURLsByRecordingID.removeValue(forKey: recordingID)
@@ -132,6 +133,7 @@ extension CloudLibraryStore {
             )
             if metadataStale || (contentUpdatedSinceCache && !suppressLocalPipelineBanner) {
                 hasNewerVersionForSelection = true
+                recordingIDsWithNewerVersions.insert(recordingID)
             }
             // When the staleness is specifically the "content updated for the
             // same activeTranscriptId" case, the local transcript cache holds
@@ -161,6 +163,7 @@ extension CloudLibraryStore {
                     "newer_version.suppressed_local_pipeline recording=\(recordingID.prefix(8))"
                 )
                 hasNewerVersionForSelection = false
+                recordingIDsWithNewerVersions.remove(recordingID)
             }
             // Test-only escape hatch: lets reviewers see the
             // `newerVersionStrip` banner without orchestrating a real
@@ -169,6 +172,7 @@ extension CloudLibraryStore {
             // cannot fire in normal operation.
             if UITestModeConfiguration.shared.forceNewerVersionBannerForTesting {
                 hasNewerVersionForSelection = true
+                recordingIDsWithNewerVersions.insert(recordingID)
             }
             replaceRecording(detail)
             cacheWarningMessage = nil
@@ -301,6 +305,7 @@ extension CloudLibraryStore {
            let active = recording.activeTranscriptId,
            transcriptCache[recordingID]?.id == active {
             hasNewerVersionForSelection = false
+            recordingIDsWithNewerVersions.remove(recordingID)
         } else if selectedRecordingID == recordingID,
                   recordings.first(where: { $0.id == recordingID })?.activeTranscriptId == nil,
                   transcriptCache[recordingID] != nil {
@@ -309,6 +314,7 @@ extension CloudLibraryStore {
             // transcript content back, treat it as resolved. This branch is
             // a safety valve, not the common path.
             hasNewerVersionForSelection = false
+            recordingIDsWithNewerVersions.remove(recordingID)
         }
         await persistCacheSnapshot()
     }

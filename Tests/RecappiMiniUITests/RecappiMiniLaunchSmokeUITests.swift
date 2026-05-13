@@ -458,7 +458,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Compact mode pre-truncates the caption to a CJK budget of 44
+        // Compact mode pre-truncates the caption to a CJK budget of 46
         // characters via `String.suffix`, so the LATEST tail is the only
         // content guaranteed to be visible. The fixture above is 49 CJK
         // chars, intentionally pushed past the budget so we exercise the

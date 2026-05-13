@@ -17,7 +17,8 @@ extension CloudCenterPanel {
                         ForEach(section.recordings) { recording in
                             CloudRecordingRow(
                                 recording: recording,
-                                isSelected: store.selectedRecordingID == recording.id
+                                isSelected: store.selectedRecordingID == recording.id,
+                                hasNewerVersion: store.recordingIDsWithNewerVersions.contains(recording.id)
                             )
                             .tag(recording.id)
                             .id(recording.id)

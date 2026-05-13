@@ -7,6 +7,34 @@ extension CloudLibraryStore {
         await startTranscriptionForSelectedRecording(action)
     }
 
+    func processRecording(id recordingID: String, _ action: CloudRecordingProcessingAction) async {
+        let trimmedID = recordingID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedID.isEmpty else { return }
+
+        if let recording = recordings.first(where: { $0.id == trimmedID }) {
+            select(recording)
+        } else {
+            do {
+                let recording = try await runAuthorized { client in
+                    try await client.getRecording(id: trimmedID)
+                }
+                replaceRecording(recording)
+                recordings.sort { lhs, rhs in
+                    (lhs.createdAt ?? .distantPast) > (rhs.createdAt ?? .distantPast)
+                }
+                select(recording)
+            } catch let error as RecappiAPIError where error == .unauthorized {
+                apply(error: error)
+                return
+            } catch {
+                transcriptErrorMessage = transcriptMessage(for: error)
+                return
+            }
+        }
+
+        await startTranscriptionForSelectedRecording(action)
+    }
+
     func retranscribeSelectedRecording() async {
         await processSelectedRecording(.transcriptAndSummary)
     }

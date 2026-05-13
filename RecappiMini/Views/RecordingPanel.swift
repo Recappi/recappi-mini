@@ -14,6 +14,7 @@ struct RecordingPanel: View {
     let onOpenFolder: (URL) -> Void
     let onOpenCloud: () -> Void
     let onClosePanel: () -> Void
+    let onTranscribeCloudRecording: @MainActor @Sendable (String) -> Void
     let onCloudRecordingUpdated: @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
     let onCloudRecordingDeleted: @MainActor @Sendable (String) -> Void
 
@@ -103,6 +104,8 @@ struct RecordingPanel: View {
         case .done(let r):
             DoneState(
                 result: r,
+                canTranscribe: canTranscribe(result: r),
+                onTranscribe: { transcribeAndShow(result: r) },
                 onShow: onOpenCloud,
                 onCopy: { copyTranscript(r) },
                 onNew: { recorder.reset() }
@@ -199,6 +202,9 @@ struct RecordingPanel: View {
             if visibleProcessingSessionID == sessionID {
                 recorder.state = .done(result: result)
                 visibleProcessingSessionID = nil
+                if config.recordingAutoTranscribeAfterUpload {
+                    transcribeAndShow(result: result)
+                }
             } else {
                 postBackgroundProcessingNotification(for: result)
             }
@@ -236,6 +242,27 @@ struct RecordingPanel: View {
         guard !body.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(body, forType: .string)
+    }
+
+    private func transcribeAndShow(result: RecordingResult) {
+        guard let recordingID = cloudRecordingID(for: result) else {
+            onOpenCloud()
+            return
+        }
+        onTranscribeCloudRecording(recordingID)
+    }
+
+    private func canTranscribe(result: RecordingResult) -> Bool {
+        let transcript = result.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return transcript.isEmpty &&
+            cloudRecordingID(for: result) != nil &&
+            !config.recordingAutoTranscribeAfterUpload
+    }
+
+    private func cloudRecordingID(for result: RecordingResult) -> String? {
+        let id = RecordingStore.loadRemoteManifest(in: result.folderURL)?.recordingId?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return id.isEmpty ? nil : id
     }
 
     private func postBackgroundProcessingNotification(for result: RecordingResult) {
