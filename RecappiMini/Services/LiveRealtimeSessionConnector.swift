@@ -196,6 +196,13 @@ final class URLSessionWebSocketSocket: NSObject, RealtimeSocket, URLSessionWebSo
     func cancel(code: Int, reason: Data?) {
         let closeCode = URLSessionWebSocketTask.CloseCode(rawValue: code) ?? .invalid
         task.cancel(with: closeCode, reason: reason)
+        // Note: do NOT call `invalidateAndCancel()` on the session here.
+        // The close handshake hasn't completed yet — invalidating
+        // synchronously can race the close frame delivery to the
+        // server. The retain-cycle break happens in `signalClosed()`
+        // once `didCloseWith` (or, on timeout, `didCompleteWithError`)
+        // fires, so awaiters of `waitForClose()` resolve before the
+        // session is torn down.
     }
 
     func waitForClose() async {
@@ -248,12 +255,59 @@ final class URLSessionWebSocketSocket: NSObject, RealtimeSocket, URLSessionWebSo
         for waiter in waiters {
             waiter.resume()
         }
+        // After waiters resolve, break the URLSession ↔ delegate retain
+        // cycle. `URLSession` strongly retains its delegate (Apple's
+        // documented behaviour), and the adapter stores a back-reference
+        // to the session in `_session`. Without invalidating, every
+        // reconnect cycle leaks one `URLSession` + adapter pair —
+        // exactly the production scenario the live-captions reconnect
+        // path triggers. Invalidate AFTER signalling waiters so awaiters
+        // (e.g. `stop()` blocked on `waitForClose()`) resolve first.
+        invalidateOwnedSession()
+    }
+
+    /// Drop the per-socket `URLSession` so the strong reference it
+    /// holds on this delegate goes away and the adapter can be
+    /// collected. Called from `signalClosed()` after the close
+    /// handshake (or transport completion) has fired and any awaiters
+    /// of `waitForClose()` have been resolved. Idempotent under the
+    /// lock — concurrent `didCloseWith` + `didCompleteWithError`
+    /// callbacks race here; whichever one wins nils `_session` and
+    /// invalidates; the loser sees `nil` and no-ops.
+    private func invalidateOwnedSession() {
+        let session: URLSession? = lock.withLock {
+            let owned = _session
+            _session = nil
+            return owned
+        }
+        // `invalidateAndCancel()` — not `finishTasksAndInvalidate()` —
+        // because we want any in-flight receive callback to bail out
+        // immediately rather than keep the session alive until the
+        // next message lands.
+        session?.invalidateAndCancel()
     }
 
 #if DEBUG
     /// Test seam: lets unit tests confirm the adapter is holding the
     /// task identity the production receive-identity guard relies on.
     var underlyingTaskForTesting: URLSessionWebSocketTask { task }
+
+    /// Test seam: expose the per-socket URLSession reference for
+    /// retain-cycle assertions. Returns `nil` after
+    /// `invalidateOwnedSession()` has fired, which is exactly the
+    /// signal the leak-regression test wants to assert on.
+    var ownedSessionForTesting: URLSession? {
+        lock.withLock { _session }
+    }
+
+    /// Test seam: drive `signalClosed()` from the test without
+    /// standing up a real WebSocket connection. Mirrors what the
+    /// production delegate callbacks (`didCloseWith` /
+    /// `didCompleteWithError`) do — used by the leak-regression test
+    /// to confirm that the close path tears down the owned session.
+    func signalClosedForTesting() {
+        signalClosed()
+    }
 #endif
 }
 

@@ -651,6 +651,72 @@ final class RealtimeLiveCaptionActorClientFindingsTests: XCTestCase {
         )
     }
 
+    // MARK: - Bugbot Round 2 Finding A — committed events carry the ordering signal
+
+    /// Production OpenAI Realtime API: `previous_item_id` is carried on
+    /// the `input_audio_buffer.committed` event (NOT on the subsequent
+    /// transcription delta/completed events — those only carry
+    /// `item_id`, `content_index`, and `delta`/`transcript`).
+    ///
+    /// This test models the production wire shape: three `committed`
+    /// events arrive in order A→B→C establishing the timeline, then the
+    /// transcription `delta`/`completed` events for those items arrive
+    /// OUT OF ORDER (C first, then A, then B). The displayed timeline
+    /// MUST end up as A→B→C because the commit-time ordering signal
+    /// is authoritative — not the delta arrival order.
+    func testCommittedEventsEstablishOrderingForOutOfOrderDeltas() async {
+        let connector = MockRealtimeSessionConnector()
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .transcription
+        )
+
+        // Phase 1 — three commits arrive in order, establishing A→B→C.
+        _ = await actor.ingestReceiveEventJSONForTesting(
+            "{\"type\":\"input_audio_buffer.committed\",\"item_id\":\"item-A\"}"
+        )
+        _ = await actor.ingestReceiveEventJSONForTesting(
+            "{\"type\":\"input_audio_buffer.committed\",\"item_id\":\"item-B\",\"previous_item_id\":\"item-A\"}"
+        )
+        _ = await actor.ingestReceiveEventJSONForTesting(
+            "{\"type\":\"input_audio_buffer.committed\",\"item_id\":\"item-C\",\"previous_item_id\":\"item-B\"}"
+        )
+
+        // Phase 2 — transcription completed events arrive OUT OF ORDER
+        // (C, A, B) and carry NO previous_item_id (matching production).
+        _ = await actor.ingestReceiveEventJSONForTesting(
+            "{\"type\":\"conversation.item.input_audio_transcription.completed\",\"item_id\":\"item-C\",\"transcript\":\"Charlie.\"}"
+        )
+        _ = await actor.ingestReceiveEventJSONForTesting(
+            "{\"type\":\"conversation.item.input_audio_transcription.completed\",\"item_id\":\"item-A\",\"transcript\":\"Alpha.\"}"
+        )
+        let final = await actor.ingestReceiveEventJSONForTesting(
+            "{\"type\":\"conversation.item.input_audio_transcription.completed\",\"item_id\":\"item-B\",\"transcript\":\"Bravo.\"}"
+        )
+
+        guard let snapshot = final else {
+            XCTFail("Expected a snapshot after item-B completed arrived.")
+            return
+        }
+        XCTAssertEqual(
+            snapshot.segments.count, 3,
+            "Three sentence-terminated items must yield three segments. got: \(snapshot.segments.map(\.sourceText))"
+        )
+        XCTAssertEqual(
+            snapshot.segments[0].sourceText, "Alpha.",
+            "Order must follow commit-time previous_item_id, not delta arrival. got: \(snapshot.segments.map(\.sourceText))"
+        )
+        XCTAssertEqual(
+            snapshot.segments[1].sourceText, "Bravo.",
+            "Order must follow commit-time previous_item_id, not delta arrival. got: \(snapshot.segments.map(\.sourceText))"
+        )
+        XCTAssertEqual(
+            snapshot.segments[2].sourceText, "Charlie.",
+            "Order must follow commit-time previous_item_id, not delta arrival. got: \(snapshot.segments.map(\.sourceText))"
+        )
+    }
+
     // MARK: - Test fixtures
 
     /// Make a PCM16 little-endian buffer of `byteCount` bytes whose

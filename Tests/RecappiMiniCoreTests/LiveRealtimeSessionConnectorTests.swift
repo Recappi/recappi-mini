@@ -198,6 +198,86 @@ final class LiveRealtimeSessionConnectorTests: XCTestCase {
         XCTAssertEqual(URLSessionWebSocketTask.CloseCode(rawValue: 1000), .normalClosure)
     }
 
+    // MARK: - Bugbot Round 2 Finding B — URLSession retain cycle
+
+    /// `URLSession` strongly retains its delegate (Apple's documented
+    /// behaviour). The adapter both serves as the delegate AND stores
+    /// the session in `_session`, forming a retain cycle. Without
+    /// breaking it on teardown, every reconnect leaks one
+    /// `URLSession` + adapter pair — the exact production scenario the
+    /// live-captions reconnect path triggers.
+    ///
+    /// Regression: stand up a per-socket adapter + URLSession inside a
+    /// scoped block, drive the close path, then drop the strong-ref to
+    /// the adapter at end-of-block. After that, the weak refs to both
+    /// the adapter and the session must drop to `nil`. If the cycle
+    /// were intact, the URLSession would keep the delegate alive
+    /// indefinitely (and vice versa) and neither weak ref would clear.
+    func testURLSessionWebSocketSocketBreaksRetainCycleOnClose() async {
+        weak var weakSession: URLSession?
+        weak var weakSocket: URLSessionWebSocketSocket?
+
+        // Scoped block so that releasing the local `socket` strong ref
+        // is sufficient — combined with the close-path invalidation —
+        // to let the cycle dissolve.
+        do {
+            let socket = URLSessionWebSocketSocket()
+            weakSocket = socket
+            let config = URLSessionConfiguration.ephemeral
+            let session = URLSession(
+                configuration: config,
+                delegate: socket,
+                delegateQueue: nil
+            )
+            weakSession = session
+            let task = session.webSocketTask(
+                with: URL(string: "wss://example.invalid/leak-test")!
+            )
+            socket.bind(task: task, session: session)
+            // Note: we do NOT call `task.resume()` here. The test is
+            // purely about the delegate retain cycle, not the network.
+
+            // Sanity: both halves of the cycle are live before close.
+            XCTAssertNotNil(socket.ownedSessionForTesting)
+            XCTAssertNotNil(weakSession)
+            XCTAssertNotNil(weakSocket)
+
+            // Drive the close path the way the production delegate
+            // callbacks do — `signalClosed()` is what fires from
+            // `didCloseWith` and `didCompleteWithError`. The fix must
+            // invalidate the owned session here so URLSession releases
+            // its strong ref on the adapter.
+            socket.signalClosedForTesting()
+
+            // The adapter must have dropped its owned session reference
+            // synchronously — this is the observable signal that
+            // `invalidateAndCancel()` ran inside `signalClosed()`.
+            XCTAssertNil(
+                socket.ownedSessionForTesting,
+                "After close, the adapter must have invalidated and released its owned URLSession."
+            )
+        }
+
+        // After leaving the scope, the local `socket` strong ref is
+        // gone. `invalidateAndCancel()` releases asynchronously on the
+        // session's delegate queue, so spin a short polling window so
+        // the session's deallocation can drain.
+        let deadline = Date().addingTimeInterval(2.0)
+        while (weakSession != nil || weakSocket != nil), Date() < deadline {
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50 ms
+        }
+
+        XCTAssertNil(
+            weakSocket,
+            "URLSessionWebSocketSocket adapter must be collected once the delegate retain cycle is broken."
+        )
+        XCTAssertNil(
+            weakSession,
+            "URLSession must be collected once invalidateAndCancel() runs and the delegate retain cycle is broken."
+        )
+    }
+
     // MARK: - Helpers
 
     private static func makeConnector() -> LiveRealtimeSessionConnector {

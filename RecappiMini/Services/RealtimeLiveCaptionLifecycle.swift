@@ -1070,6 +1070,23 @@ actor RealtimeLiveCaptionActor {
             // socket.send(...)` runs in the receive loop after this
             // handler returns so `handleReceiveSuccess` stays sync.
             pendingContextHintSend = true
+        case "input_audio_buffer.committed":
+            // OpenAI's Realtime API carries `previous_item_id` on the
+            // `input_audio_buffer.committed` event (NOT on the
+            // subsequent transcription delta/completed events). The
+            // legacy `BackendRealtimeLiveCaptionTranscriber` used this
+            // event as the primary ordering signal via
+            // `registerCommittedItem`. Pre-register the transcript slot
+            // with its predecessor link BEFORE any delta arrives so the
+            // timeline ordering is established at commit time. Without
+            // this, out-of-order items fall back to network-arrival
+            // ordering instead of the conversational ordering OpenAI
+            // intends. See Pipecat's authoritative event schema:
+            // https://reference-server.pipecat.ai/...
+            _ = ensureTranscriptItem(
+                event.transcriptItemKey,
+                previousItemID: event.previousItemID
+            )
         case "conversation.item.input_audio_transcription.delta":
             if let snapshot = appendTranscriptDelta(
                 event.delta,
@@ -1152,6 +1169,15 @@ actor RealtimeLiveCaptionActor {
     /// items via `previous_item_id` rather than network arrival order;
     /// the legacy class tracked this through `pendingPreviousItemIDByKey`
     /// + `moveTranscriptItemLocked`.
+    ///
+    /// In production the ordering signal arrives on
+    /// `input_audio_buffer.committed` (the OpenAI Realtime event that
+    /// actually carries `previous_item_id`). The delta/completed paths
+    /// also pass `previousItemID` defensively — they are a no-op when
+    /// the slot was already pre-registered by the committed handler,
+    /// and they preserve test seams (e.g.
+    /// `ingestReceiveEventJSONForTesting`) that drive completed events
+    /// directly without a prior commit.
     private func ensureTranscriptItem(
         _ key: RealtimeTranscriptKey,
         previousItemID: String?
