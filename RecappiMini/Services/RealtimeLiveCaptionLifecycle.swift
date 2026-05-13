@@ -187,6 +187,17 @@ actor RealtimeLiveCaptionActor {
     /// fans publishes to every active continuation.
     private var snapshotContinuations: [UUID: AsyncStream<LiveCaptionSnapshot>.Continuation] = [:]
 
+    /// Lock-guarded mirror of the value `drainEntries()` would return,
+    /// maintained alongside every transcript-state mutation. Exposed via
+    /// the nonisolated `drainEntriesNonblocking()` accessor so MainActor
+    /// callers can snapshot the entries without entering actor isolation
+    /// (and without blocking on a `DispatchSemaphore`, which can starve
+    /// the cooperative thread pool). The on-actor `drainEntries()`
+    /// remains the authoritative source for `stop()` so the saved
+    /// transcript shape stays byte-identical to the legacy class.
+    private let drainMirrorLock = NSLock()
+    nonisolated(unsafe) private var drainMirrorEntries: [LiveCaptionEntry] = []
+
     // MARK: Manual-commit accounting (Codex Finding #5)
     //
     // Transcription mode requires periodic `input_audio_buffer.commit`
@@ -214,6 +225,30 @@ actor RealtimeLiveCaptionActor {
     private let language: String
     private let mode: RealtimeLiveCaptionMode
     private let configuration: Configuration
+    /// Optional transcription context hint sent as a
+    /// `conversation.item.create` system message right after the
+    /// upstream emits `session.created` / `transcription_session.created`.
+    /// Mirrors the legacy `BackendRealtimeLiveCaptionTranscriber`'s
+    /// `sendContextHintIfNeeded()` so recording scene templates +
+    /// "extra prompt" text continue to bias transcription quality after
+    /// the actor refactor. Translation mode rejects
+    /// `conversation.item.create`, so the constructor strips the hint
+    /// for translation sessions.
+    private let contextHint: String?
+    /// Per-socket guard: ensure the context hint is sent at most once
+    /// per `.live` transition. Reset in `performClaim` on every fresh
+    /// claim so a reconnect re-sends the hint to the new socket
+    /// (matches the legacy class's `didSendContextHint = false` reset
+    /// on reconnect-ready).
+    private var didSendContextHint: Bool = false
+    /// Set by `handleReceiveSuccess` on
+    /// `session.created` / `transcription_session.created`. The receive
+    /// loop reads this between receives and, if armed, awaits a
+    /// `sendContextHintIfNeeded(on:)` call before looping back into
+    /// `socket.receive()`. Keeping the flag isolated to the actor lets
+    /// `handleReceiveSuccess` remain synchronous (the test seam
+    /// `ingestReceiveEventJSONForTesting` already depends on that).
+    private var pendingContextHintSend: Bool = false
 
     /// Tunables for retry timing + audio buffering. Carved out so tests
     /// can run with near-zero reconnect delays and a small audio cap
@@ -238,15 +273,27 @@ actor RealtimeLiveCaptionActor {
         connector: RealtimeSessionConnector,
         language: String,
         mode: RealtimeLiveCaptionMode = .transcription,
+        contextHint: String? = nil,
         configuration: Configuration = .default
     ) {
         self.connector = connector
         self.language = language
         self.mode = mode
+        // Translation sessions reject `conversation.item.create`; keep
+        // the hint only for transcription mode. Empty / whitespace-only
+        // hints collapse to nil so we don't send a no-op event.
+        self.contextHint = mode.isTranslation
+            ? nil
+            : Self.trimmedContextHint(contextHint)
         self.configuration = configuration
         if mode.isTranslation {
             self.bilingualBuilder = RealtimeBilingualSegmentBuilder()
         }
+    }
+
+    private static func trimmedContextHint(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     // MARK: Public API
@@ -412,10 +459,25 @@ actor RealtimeLiveCaptionActor {
     /// Capped at `maxSavedEntryCount` so a runaway session can't grow
     /// the on-disk transcript unbounded.
     func drainEntries() -> [LiveCaptionEntry] {
+        // Bilingual: finalize any pending partial so the saved transcript
+        // carries the last in-flight utterance as `isFinal: true`.
+        // Transcription has no analogous side-effect — pending finality
+        // is encoded directly in `RealtimeTranscriptItem.isFinal`.
+        bilingualBuilder?.finalizePending()
+        let entries = computeDrainEntriesSnapshot(finalizingBilingualPending: false)
+        updateDrainMirrorWithEntries(entries)
+        return entries
+    }
+
+    /// Pure-read snapshot used both by `drainEntries()` (after
+    /// `finalizePending()` runs on-actor) and by `updateDrainMirror()`
+    /// (which is called after every transcript-state mutation so the
+    /// nonisolated `drainEntriesNonblocking()` accessor stays in sync).
+    /// `finalizingBilingualPending` is always `false` here — the only
+    /// place that finalizes is `drainEntries()`, which calls
+    /// `finalizePending()` directly before invoking this helper.
+    private func computeDrainEntriesSnapshot(finalizingBilingualPending: Bool) -> [LiveCaptionEntry] {
         if let builder = bilingualBuilder {
-            // Finalize the active pending block at drain time so the
-            // saved transcript carries the last in-flight utterance.
-            builder.finalizePending()
             let orderedEntries = builder.snapshot()
                 .suffix(Self.maxSavedEntryCount)
                 .compactMap { segment -> LiveCaptionEntry? in
@@ -428,7 +490,7 @@ actor RealtimeLiveCaptionActor {
                     guard !text.isEmpty else { return nil }
                     return LiveCaptionEntry(
                         text: text,
-                        isFinal: true,
+                        isFinal: segment.isFinal,
                         startedAtMs: nil,
                         endedAtMs: nil
                     )
@@ -451,6 +513,43 @@ actor RealtimeLiveCaptionActor {
         let finalEntries = orderedEntries.filter(\.isFinal)
         if !finalEntries.isEmpty { return finalEntries }
         return Array(orderedEntries.suffix(1))
+    }
+
+    /// Nonisolated snapshot accessor. Reads the lock-guarded mirror that
+    /// `updateDrainMirror()` maintains on every transcript-state
+    /// mutation. Used by `AudioRecorder.drainEntriesUsingHooks` so the
+    /// MainActor carryover path (`restartLiveCaptions`,
+    /// `finalizeLiveCaptionsForStop`) never blocks on a
+    /// `DispatchSemaphore` to bridge into actor isolation.
+    ///
+    /// The mirror may lag the on-actor state by one transcript event
+    /// (the receive loop publishes a snapshot before
+    /// `updateDrainMirror()` runs), but that lag is on the order of
+    /// microseconds and is bounded by the actor's executor; in practice
+    /// it is indistinguishable from the legacy semaphore path which
+    /// could observe the same race against an in-flight `appendDelta`.
+    nonisolated func drainEntriesNonblocking() -> [LiveCaptionEntry] {
+        drainMirrorLock.lock()
+        defer { drainMirrorLock.unlock() }
+        return drainMirrorEntries
+    }
+
+    /// Recompute the entries snapshot from current actor state and
+    /// publish it into the nonisolated mirror under the lock. Called
+    /// after every transcript-state mutation in the receive path. The
+    /// snapshot uses the non-finalizing variant so we don't side-effect
+    /// the bilingual builder's `pending` block between drain calls —
+    /// the trailing partial appears in the mirror with its current
+    /// `isFinal` value and is only promoted to `isFinal: true` by
+    /// `drainEntries()` on `stop()`.
+    private func updateDrainMirror() {
+        updateDrainMirrorWithEntries(computeDrainEntriesSnapshot(finalizingBilingualPending: false))
+    }
+
+    private func updateDrainMirrorWithEntries(_ entries: [LiveCaptionEntry]) {
+        drainMirrorLock.lock()
+        drainMirrorEntries = entries
+        drainMirrorLock.unlock()
     }
 
     /// Memory safety net (~10h of fast continuous speech). The panel
@@ -666,6 +765,63 @@ actor RealtimeLiveCaptionActor {
         try? await socket.send(text: text)
     }
 
+    /// Check whether a context-hint send is currently armed AND the
+    /// configuration actually has a hint to deliver. Translation mode
+    /// strips the hint at init time, so the `contextHint != nil` guard
+    /// covers the mode check too.
+    private func shouldSendContextHint() -> Bool {
+        guard pendingContextHintSend, !didSendContextHint else { return false }
+        return contextHint != nil
+    }
+
+    /// Emit the legacy `BackendRealtimeLiveCaptionTranscriber`'s
+    /// `conversation.item.create` system-message event so the OpenAI
+    /// transcription session is biased by the recording scene template +
+    /// extra prompt the user configured. Sent at most once per `.live`
+    /// transition; the per-socket guard (`didSendContextHint`) is reset
+    /// on every fresh claim so reconnects re-send the hint.
+    ///
+    /// Translation mode never reaches here — the constructor strips
+    /// the hint and the translation upstream rejects
+    /// `conversation.item.create` events.
+    private func sendContextHintIfNeeded(on socket: RealtimeSocket) async {
+        // Re-check under actor isolation in case a stop/reconnect
+        // raced the receive-loop's read.
+        guard shouldSendContextHint(), let hint = contextHint else {
+            pendingContextHintSend = false
+            return
+        }
+        didSendContextHint = true
+        pendingContextHintSend = false
+        let event: [String: Any] = [
+            "type": "conversation.item.create",
+            "item": [
+                "type": "message",
+                "role": "system",
+                "content": [
+                    [
+                        "type": "input_text",
+                        "text": hint,
+                    ] as [String: Any],
+                ],
+            ],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: event),
+              let text = String(data: data, encoding: .utf8) else {
+            return
+        }
+        do {
+            try await socket.send(text: text)
+        } catch {
+            // A failed context-hint send mirrors a failed audio send:
+            // the socket is likely dead, so route through the same
+            // reconnect-or-terminate path. The reconnect rearms
+            // `didSendContextHint = false` (via `performClaim`'s state
+            // reset) so the next live socket re-attempts the hint.
+            await escalateSendFailure(error: error, socket: socket)
+        }
+    }
+
     // MARK: Caption snapshot stream (Phase 3c)
 
     /// Public subscriber for caption snapshots. Each call hands back a
@@ -762,6 +918,14 @@ actor RealtimeLiveCaptionActor {
             // the previous session (Codex Finding #5).
             hasUncommittedAudio = false
             uncommittedAudioByteCount = 0
+            // Context-hint guard resets per socket. The new live
+            // session must observe `session.created` before we send
+            // the hint, and the per-socket guard ensures we don't
+            // double-send when a `session.created` arrives twice on
+            // the same socket. Mirrors the legacy class's
+            // `didSendContextHint = false` reset on reconnect-ready.
+            didSendContextHint = false
+            pendingContextHintSend = false
 
             let receiveTask = Task<Void, Never> { [weak self] in
                 guard let self else { return }
@@ -840,6 +1004,17 @@ actor RealtimeLiveCaptionActor {
                     await scheduleReconnect(after: serverError, attempt: 1)
                     return
                 }
+                // Push the context hint as soon as the upstream is
+                // ready (`session.created` / `transcription_session.created`
+                // observed in `handleReceiveSuccess`). The send happens
+                // here — not inside the receive handler — so we keep
+                // `handleReceiveSuccess` synchronous and don't have to
+                // ripple `async` through the test seam
+                // `ingestReceiveEventJSONForTesting`.
+                if shouldSendContextHint() {
+                    guard isCurrent(socket: socket, generation: generation) else { return }
+                    await sendContextHintIfNeeded(on: socket)
+                }
             } catch {
                 // Identity guard: a late buffered failure on a rotated-
                 // out socket must not tear down the fresh one. This is
@@ -891,6 +1066,10 @@ actor RealtimeLiveCaptionActor {
             // stalled.
             voicedAudioBufferCountSinceInbound = 0
             lastInboundTranscriptAt = Date()
+            // Arm the context-hint sender. The actual `await
+            // socket.send(...)` runs in the receive loop after this
+            // handler returns so `handleReceiveSuccess` stays sync.
+            pendingContextHintSend = true
         case "conversation.item.input_audio_transcription.delta":
             if let snapshot = appendTranscriptDelta(
                 event.delta,
@@ -1056,6 +1235,11 @@ actor RealtimeLiveCaptionActor {
         // into its correct position. Mirrors the legacy class's
         // `resolveAllPendingPlacementsLocked` call site.
         resolveAllPendingPlacements()
+        // Keep the nonisolated mirror in sync with every transcript
+        // mutation. The receive loop is the only path that mutates
+        // `transcriptTimeline` / `transcriptItems` during a live
+        // session, and it always finishes through here.
+        updateDrainMirror()
         let segments = displaySegments()
         guard !segments.isEmpty else { return nil }
         if segments == lastPublishedSegments { return nil }
@@ -1197,6 +1381,10 @@ actor RealtimeLiveCaptionActor {
     private func ingestBilingualDelta(_ stream: RealtimeBilingualStream, text: String) -> LiveCaptionSnapshot? {
         guard let builder = bilingualBuilder else { return nil }
         builder.append(stream: stream, delta: text)
+        // Keep the nonisolated mirror in sync with the bilingual
+        // builder's latest state. Same rationale as
+        // `publishTimelineSnapshot()`'s mirror call.
+        updateDrainMirror()
         let segments = builder.snapshot()
         guard segments != lastPublishedSegments else { return nil }
         lastPublishedSegments = segments
@@ -1507,6 +1695,11 @@ actor RealtimeLiveCaptionActor {
                 sequence: fallbackSequence
             )
         }
+        // Keep the nonisolated drain mirror in sync with the seeded
+        // timeline so a subsequent `drainEntriesNonblocking()` (or the
+        // MainActor carryover bridge that calls it) observes these
+        // entries without first having to enter actor isolation.
+        updateDrainMirror()
     }
 
     /// Test seam: simulate a receive callback (success or failure)

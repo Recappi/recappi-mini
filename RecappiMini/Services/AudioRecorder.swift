@@ -179,6 +179,21 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     var restartGenerationForTesting: UInt64 { restartGeneration }
 
+    /// Read-only handle on `pendingRestartTask` for the
+    /// `reset()`-cancels-restart-chain regression test. Returns nil
+    /// when there is no in-flight restart Task.
+    var pendingRestartTaskForTesting: Task<Void, Never>? { pendingRestartTask }
+
+    /// Install a custom long-running Task as `pendingRestartTask` so a
+    /// test can verify `reset()` cancels (and clears) the in-flight
+    /// restart chain. Production paths never assign to this field
+    /// directly — `restartLiveCaptions(...)` is the only writer — but
+    /// the seam lets us pin Bugbot Finding C without standing up a
+    /// real restart Task.
+    func setPendingRestartTaskForTesting(_ task: Task<Void, Never>?) {
+        pendingRestartTask = task
+    }
+
     /// Seed the live-caption state with a test sentinel object so the
     /// next call to `restartLiveCaptionsForTesting` captures a
     /// non-nil `oldProvider`. Used to reproduce the rapid-restart
@@ -926,6 +941,14 @@ final class AudioRecorder: NSObject, ObservableObject {
         stopLiveCaptions(saveTo: nil)
         liveCaptionSnapshotTask?.cancel()
         liveCaptionSnapshotTask = nil
+        // Cancel any in-flight restart chain so an orphaned task from
+        // the previous recording can't chain into the next recording's
+        // first `restartLiveCaptions` via `await previousRestartTask?.value`.
+        // Without this, a fresh recording's first language/mode change
+        // would block behind the dying session's close handshake
+        // (Bugbot Finding C / `reset()` doesn't cancel pending restart task).
+        pendingRestartTask?.cancel()
+        pendingRestartTask = nil
         // Phase 2 — drop accumulated entries and the lifecycle on
         // recycle so the next recording starts from a clean slate.
         liveCaptionStore.clear()
@@ -1232,15 +1255,20 @@ final class AudioRecorder: NSObject, ObservableObject {
                 "live-caption",
                 "provider.start backend=true mode=\(Self.liveCaptionModeLabel(mode)) language=\(Self.normalizedRealtimeLanguage(localeIdentifier)) target=\(lockedConfig.targetLanguage) contextHintChars=\(contextHint?.count ?? 0)"
             )
-            _ = contextHint // Context hint is currently only logged; the
-            // actor reuses the language/mode pair handed to the
-            // connector. Preserving the parameter keeps the diagnostics
-            // signature identical to pre-refactor production logs.
+            // Hand the hint to the actor so it can emit the legacy
+            // `conversation.item.create` system-message event on
+            // `session.created`. Translation mode strips the hint at
+            // the actor's init time (translation rejects
+            // `conversation.item.create`); the `_ = contextHint`
+            // discard the actor refactor introduced silently dropped
+            // this signal and degraded transcription quality for users
+            // with a recording scene template or extra prompt.
             let connector = LiveRealtimeSessionConnector(client: client)
             let backendActor = RealtimeLiveCaptionActor(
                 connector: connector,
                 language: Self.normalizedRealtimeLanguage(localeIdentifier),
-                mode: mode
+                mode: mode,
+                contextHint: contextHint
             )
             installBackendLiveCaptionActor(
                 backendActor,
@@ -1456,14 +1484,17 @@ final class AudioRecorder: NSObject, ObservableObject {
         guard let provider else { return [] }
         switch provider {
         case .backend(let backendActor):
-            // Bridge across actor isolation through a checked task. The
-            // call site is MainActor-bound and synchronous, so we
-            // dispatch to a temporary Task and block on its value via
-            // `_blockingDrain`. Production code only invokes this
-            // synchronously from `restartLiveCaptions` /
-            // `finalizeLiveCaptionsForStop` — both already hold the
-            // MainActor and can tolerate the short hop.
-            return Self.blockingActorDrain(backendActor)
+            // Pull the latest entries snapshot from the actor's
+            // nonisolated lock-guarded mirror. The mirror is updated on
+            // every transcript-state mutation (see
+            // `RealtimeLiveCaptionActor.updateDrainMirror`), so a
+            // synchronous read here costs an `NSLock` acquisition rather
+            // than a hop across actor isolation. The previous
+            // implementation used a `DispatchSemaphore` to bridge from
+            // MainActor into the actor; that approach risked starving
+            // the cooperative thread pool when the actor's executor
+            // queue had pending audio-frame Tasks ahead of the drain.
+            return backendActor.drainEntriesNonblocking()
         case .local(let transcriber):
             if #available(macOS 26.0, *) {
                 return transcriber.drainEntriesForTransition()
@@ -1478,25 +1509,6 @@ final class AudioRecorder: NSObject, ObservableObject {
             return []
 #endif
         }
-    }
-
-    /// Synchronously fetch `drainEntries()` from the actor. The actor's
-    /// internal mutex never blocks for I/O — `drainEntries` is a pure
-    /// in-memory snapshot — so a small synchronous bridge using a
-    /// semaphore is safe here. Avoids forcing every caller of
-    /// `drainEntriesUsingHooks` to become `async` (which would ripple
-    /// through `restartLiveCaptions` and break the synchronous restart
-    /// chain `LiveCaptionState` was designed around).
-    private static func blockingActorDrain(_ actor: RealtimeLiveCaptionActor) -> [LiveCaptionEntry] {
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var result: [LiveCaptionEntry] = []
-        Task.detached {
-            let entries = await actor.drainEntries()
-            result = entries
-            semaphore.signal()
-        }
-        semaphore.wait()
-        return result
     }
 
     /// Phase 2 — central "stop the live captions and flush carryover"
