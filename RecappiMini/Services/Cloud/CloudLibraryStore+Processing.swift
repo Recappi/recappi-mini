@@ -50,6 +50,9 @@ extension CloudLibraryStore {
         isRetranscribing = true
         activeRecordingProcessingAction = action
         transcriptErrorMessage = nil
+        locallyManagedRecordingUpdatedAt[recording.id] = Date()
+        hasNewerVersionForSelection = false
+        recordingIDsWithNewerVersions.remove(recording.id)
         defer {
             isRetranscribing = false
             activeRecordingProcessingAction = nil

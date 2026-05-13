@@ -104,6 +104,7 @@ extension CloudLibraryStore {
             transcriptCache[loadingRecordingID] = transcript
             applySummaryTitleFromTranscript(transcript, to: loadingRecordingID)
             try? syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript)
+            clearNewerVersionFlagIfCurrent(recordingID: loadingRecordingID, transcript: transcript)
             if let recordingUpdatedAtSnapshot {
                 transcriptCacheRecordingUpdatedAt[loadingRecordingID] = recordingUpdatedAtSnapshot
             } else {
@@ -225,13 +226,16 @@ extension CloudLibraryStore {
     }
 
     func refreshTranscriptAfterJobSucceeded(recording: CloudRecording, job: TranscriptionJob) async throws {
-        let transcript = try await runAuthorized { client in
-            try await client.getRecordingTranscript(id: recording.id, jobId: job.id)
-        }
+        locallyManagedRecordingUpdatedAt[recording.id] = Date()
+        hasNewerVersionForSelection = selectedRecordingID == recording.id ? false : hasNewerVersionForSelection
+        recordingIDsWithNewerVersions.remove(recording.id)
+
+        let transcript = try await loadCompletedTranscript(recordingID: recording.id, jobID: job.id)
         transcriptCache[recording.id] = transcript
         applySummaryTitleFromTranscript(transcript, to: recording.id)
         try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript, job: job)
-        await refreshSelectedDetailIfNeeded()
+        await refreshRecordingDetailAfterLocalProcessing(recordingID: recording.id)
+        clearNewerVersionFlagIfCurrent(recordingID: recording.id, transcript: transcript)
         await persistCacheSnapshot()
     }
 
@@ -239,6 +243,78 @@ extension CloudLibraryStore {
         try await runAuthorized { client in
             try await client.getRecordingTranscript(id: recordingID, jobId: jobID)
         }
+    }
+
+    private func loadCompletedTranscript(recordingID: String, jobID: String) async throws -> TranscriptResponse {
+        var transcript = try await runAuthorized { client in
+            try await client.getRecordingTranscript(id: recordingID, jobId: jobID)
+        }
+
+        // The transcription job can reach `succeeded` before the summary JSON
+        // has been amended onto the same transcript row. Keep the current
+        // detail page moving forward in-place instead of waiting for the user
+        // to switch away and back, which would incidentally refetch detail.
+        for _ in 0..<12 where !Self.hasSummaryContent(transcript) {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .seconds(2))
+            transcript = try await runAuthorized { client in
+                try await client.getRecordingTranscript(id: recordingID, jobId: jobID)
+            }
+            if transcript.summaryStatus == .failed || transcript.summaryStatus == .skipped {
+                break
+            }
+        }
+
+        return transcript
+    }
+
+    private func refreshRecordingDetailAfterLocalProcessing(recordingID: String) async {
+        do {
+            let detail = try await runAuthorized { client in
+                try await client.getRecording(id: recordingID)
+            }
+            replaceRecording(detail)
+            transcriptCacheRecordingUpdatedAt[recordingID] = detail.updatedAt ?? Date()
+            if selectedRecordingID == recordingID {
+                hasNewerVersionForSelection = false
+            }
+            recordingIDsWithNewerVersions.remove(recordingID)
+        } catch {
+            // The transcript is already refreshed; a detail refresh failure
+            // should not resurrect the newer-version banner. Surface it as
+            // cache-warning noise instead of blocking the current content.
+            cacheWarningMessage = "Showing refreshed transcript · Detail metadata refresh failed"
+            isShowingCachedData = true
+        }
+    }
+
+    private func clearNewerVersionFlagIfCurrent(recordingID: String, transcript: TranscriptResponse) {
+        guard selectedRecordingID == recordingID,
+              Self.shouldClearNewerVersionFlag(
+                  activeTranscriptId: recordings.first(where: { $0.id == recordingID })?.activeTranscriptId,
+                  loadedTranscriptId: transcript.id
+              ) else {
+            return
+        }
+        hasNewerVersionForSelection = false
+        recordingIDsWithNewerVersions.remove(recordingID)
+    }
+
+    nonisolated static func shouldClearNewerVersionFlag(
+        activeTranscriptId: String?,
+        loadedTranscriptId: String
+    ) -> Bool {
+        guard let activeTranscriptId, !activeTranscriptId.isEmpty else {
+            return true
+        }
+        return activeTranscriptId == loadedTranscriptId
+    }
+
+    nonisolated static func hasSummaryContent(_ transcript: TranscriptResponse) -> Bool {
+        if transcript.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return true
+        }
+        return transcript.summaryInsights?.isEmpty == false
     }
 
 

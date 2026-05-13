@@ -117,6 +117,7 @@ enum AccessibilityIDs {
         static let actionItemsText = "recappi.cloud.actionItemsText"
         static let transcriptText = "recappi.cloud.transcriptText"
         static let jumpToSummaryButton = "recappi.cloud.jumpToSummaryButton"
+        static let jumpToTimelineButton = "recappi.cloud.jumpToTimelineButton"
         static let jumpToTranscriptButton = "recappi.cloud.jumpToTranscriptButton"
         static let latestJobStatus = "recappi.cloud.latestJobStatus"
         static let newerVersionBanner = "recappi.cloud.newerVersionBanner"

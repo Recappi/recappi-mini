@@ -131,6 +131,7 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
     let decisions: [String]
     let actionItems: [TranscriptSummaryActionItem]
     let quotes: [TranscriptSummaryQuote]
+    let timeline: [TranscriptSummaryTimelineChapter]
 
     var isEmpty: Bool {
         title == nil &&
@@ -139,7 +140,8 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
             topics.isEmpty &&
             decisions.isEmpty &&
             actionItems.allSatisfy { $0.displayText == nil } &&
-            quotes.allSatisfy { $0.displayText == nil }
+            quotes.allSatisfy { $0.displayText == nil } &&
+            timeline.isEmpty
     }
 
     var summaryText: String? {
@@ -163,6 +165,7 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
         case decisions
         case actionItems
         case quotes
+        case timeline
     }
 
     init(
@@ -173,7 +176,8 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
         topics: [String] = [],
         decisions: [String] = [],
         actionItems: [TranscriptSummaryActionItem] = [],
-        quotes: [TranscriptSummaryQuote] = []
+        quotes: [TranscriptSummaryQuote] = [],
+        timeline: [TranscriptSummaryTimelineChapter] = []
     ) {
         self.title = Self.cleanText(title)
         self.tldr = Self.cleanText(tldr)
@@ -183,6 +187,7 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
         self.decisions = Self.normalizeStrings(decisions)
         self.actionItems = actionItems
         self.quotes = quotes
+        self.timeline = timeline.filter(\.isDisplayable)
     }
 
     init(from decoder: Decoder) throws {
@@ -195,6 +200,8 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
         decisions = Self.decodeStringList(from: container, forKey: .decisions)
         actionItems = Self.decodeActionItems(from: container)
         quotes = (try? container.decodeIfPresent([TranscriptSummaryQuote].self, forKey: .quotes)) ?? []
+        timeline = ((try? container.decodeIfPresent([TranscriptSummaryTimelineChapter].self, forKey: .timeline)) ?? [])
+            .filter(\.isDisplayable)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -207,6 +214,7 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
         if !decisions.isEmpty { try container.encode(decisions, forKey: .decisions) }
         if !actionItems.isEmpty { try container.encode(actionItems, forKey: .actionItems) }
         if !quotes.isEmpty { try container.encode(quotes, forKey: .quotes) }
+        if !timeline.isEmpty { try container.encode(timeline, forKey: .timeline) }
     }
 
     private static func decodeActionItems(
@@ -237,6 +245,73 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
 
     private static func firstNonEmpty(_ values: [String?]) -> String? {
         values.lazy.compactMap { cleanText($0) }.first
+    }
+
+    private static func cleanText(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
+struct TranscriptSummaryTimelineChapter: Codable, Equatable, Sendable {
+    let startMs: Int
+    let endMs: Int
+    let title: String
+    let summary: String
+
+    var isDisplayable: Bool {
+        endMs > startMs && !title.isEmpty && !summary.isEmpty
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case startMs
+        case endMs
+        case start
+        case end
+        case title
+        case summary
+    }
+
+    init(startMs: Int, endMs: Int, title: String, summary: String) {
+        self.startMs = max(0, startMs)
+        self.endMs = max(0, endMs)
+        self.title = Self.cleanText(title) ?? ""
+        self.summary = Self.cleanText(summary) ?? ""
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        startMs = max(0, Self.decodeMilliseconds(from: container, keys: [.startMs, .start]) ?? 0)
+        endMs = max(0, Self.decodeMilliseconds(from: container, keys: [.endMs, .end]) ?? 0)
+        title = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        summary = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .summary)) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(startMs, forKey: .startMs)
+        try container.encode(endMs, forKey: .endMs)
+        try container.encode(title, forKey: .title)
+        try container.encode(summary, forKey: .summary)
+    }
+
+    private static func decodeMilliseconds(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) -> Int? {
+        for key in keys {
+            if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
+                return Int(value.rounded())
+            }
+            if let raw = try? container.decodeIfPresent(String.self, forKey: key),
+               let value = Double(raw) {
+                return Int(value.rounded())
+            }
+        }
+        return nil
     }
 
     private static func cleanText(_ value: String?) -> String? {
@@ -392,4 +467,3 @@ private extension KeyedDecodingContainer where Key == TranscriptSegment.CodingKe
         return nil
     }
 }
-

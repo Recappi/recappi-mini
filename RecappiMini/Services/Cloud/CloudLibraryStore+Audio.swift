@@ -18,6 +18,7 @@ extension CloudLibraryStore {
             lastDownloadedAudioURL = try await runAuthorized { client in
                 try await client.downloadRecordingAudio(id: recording.id, destination: destination)
             }
+            playbackAudioURLsByRecordingID[recording.id] = lastDownloadedAudioURL
         } catch {
             apply(error: error)
         }
@@ -120,11 +121,13 @@ extension CloudLibraryStore {
 
     func audioFileExtension(for recording: CloudRecording) -> String {
         switch recording.contentType?.lowercased() {
+        case "audio/aac", "audio/aacp":
+            return "m4a"
         case "audio/wav", "audio/x-wav":
             return "wav"
         case "audio/mpeg", "audio/mp3":
             return "mp3"
-        case "audio/mp4", "audio/m4a", "video/mp4":
+        case "audio/mp4", "audio/m4a", "audio/x-m4a", "video/mp4":
             return "m4a"
         default:
             return "audio"

@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct CloudDetailScrollableSections<Summary: View, TranscriptHeader: View, TranscriptCard: View>: View {
+struct CloudDetailScrollableSections<Summary: View, Timeline: View, TranscriptHeader: View, TranscriptCard: View>: View {
     let hasSummarySection: Bool
     let activeSegmentID: String?
     let isPlaybackActive: Bool
@@ -9,6 +9,7 @@ struct CloudDetailScrollableSections<Summary: View, TranscriptHeader: View, Tran
     let onUpdateOffsets: ([CloudDetailSection: CGFloat]) -> Void
 
     private let summary: Summary
+    private let timeline: Timeline
     private let transcriptHeader: TranscriptHeader
     private let transcriptCard: TranscriptCard
 
@@ -20,6 +21,7 @@ struct CloudDetailScrollableSections<Summary: View, TranscriptHeader: View, Tran
         activeDetailSection: Binding<CloudDetailSection>,
         onUpdateOffsets: @escaping ([CloudDetailSection: CGFloat]) -> Void,
         @ViewBuilder summary: () -> Summary,
+        @ViewBuilder timeline: () -> Timeline,
         @ViewBuilder transcriptHeader: () -> TranscriptHeader,
         @ViewBuilder transcriptCard: () -> TranscriptCard
     ) {
@@ -30,6 +32,7 @@ struct CloudDetailScrollableSections<Summary: View, TranscriptHeader: View, Tran
         self._activeDetailSection = activeDetailSection
         self.onUpdateOffsets = onUpdateOffsets
         self.summary = summary()
+        self.timeline = timeline()
         self.transcriptHeader = transcriptHeader()
         self.transcriptCard = transcriptCard()
     }
@@ -38,18 +41,24 @@ struct CloudDetailScrollableSections<Summary: View, TranscriptHeader: View, Tran
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    CloudDetailSummarySection(
-                        isVisible: hasSummarySection,
-                        offsetReader: { sectionOffsetReader(.summary) }
-                    ) {
-                        summary
+                    switch activeDetailSection {
+                    case .summary:
+                        CloudDetailSummarySection(
+                            isVisible: hasSummarySection,
+                            offsetReader: { EmptyView() }
+                        ) {
+                            summary
+                        }
+                    case .timeline:
+                        timeline
+                            .id(CloudDetailSection.timeline)
+                    case .transcript:
+                        CloudDetailTranscriptSection(
+                            offsetReader: { EmptyView() },
+                            header: { transcriptHeader },
+                            card: { transcriptCard }
+                        )
                     }
-
-                    CloudDetailTranscriptSection(
-                        offsetReader: { sectionOffsetReader(.transcript) },
-                        header: { transcriptHeader },
-                        card: { transcriptCard }
-                    )
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 16)
@@ -63,16 +72,40 @@ struct CloudDetailScrollableSections<Summary: View, TranscriptHeader: View, Tran
                 // has interacted with playback. Do not let that derived
                 // state yank the detail scroll away from the top; only
                 // auto-follow transcript rows while playback is advancing.
-                guard isPlaybackActive, let id else { return }
+                guard activeDetailSection == .transcript,
+                      isPlaybackActive,
+                      let id else { return }
                 withAnimation(.easeOut(duration: 0.18)) {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }
+            .onChange(of: activeDetailSection) { _, section in
+                guard section == .transcript,
+                      isPlaybackActive,
+                      let activeSegmentID else { return }
+                DispatchQueue.main.async {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        proxy.scrollTo(activeSegmentID, anchor: .center)
+                    }
+                }
+            }
             .onChange(of: pendingScrollTarget) { _, target in
                 guard let target else { return }
-                activeDetailSection = target
-                withAnimation(.easeOut(duration: 0.18)) {
-                    proxy.scrollTo(target, anchor: .top)
+                withAnimation(DT.motionAware(DT.ease(0.18))) {
+                    activeDetailSection = target
+                }
+                if target == .transcript,
+                   isPlaybackActive,
+                   let activeSegmentID {
+                    DispatchQueue.main.async {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            proxy.scrollTo(activeSegmentID, anchor: .center)
+                        }
+                    }
+                } else {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        proxy.scrollTo(target, anchor: .top)
+                    }
                 }
                 // Hold `pendingScrollTarget` past the scroll animation
                 // duration so offset-driven updates cannot retoggle the
@@ -82,6 +115,7 @@ struct CloudDetailScrollableSections<Summary: View, TranscriptHeader: View, Tran
                 }
             }
             .onPreferenceChange(CloudDetailSectionOffsetPreferenceKey.self) { offsets in
+                guard !offsets.isEmpty else { return }
                 onUpdateOffsets(offsets)
             }
         }

@@ -153,6 +153,8 @@ struct CloudRecordingDetail: View {
                 onUpdateOffsets: updateActiveDetailSection(with:)
             ) {
                 transcriptInsightStack
+            } timeline: {
+                timelineSectionView
             } transcriptHeader: {
                 segmentsHeader
             } transcriptCard: {
@@ -281,8 +283,16 @@ struct CloudRecordingDetail: View {
             )
 
             detailJumpSegment(
-                title: "Transcript",
-                systemImage: "text.quote",
+                title: "Timeline",
+                systemImage: "clock",
+                section: .timeline,
+                accessibilityID: AccessibilityIDs.Cloud.jumpToTimelineButton,
+                isDisabled: false
+            )
+
+            detailJumpSegment(
+                title: "Transcription",
+                systemImage: "text.alignleft",
                 section: .transcript,
                 accessibilityID: AccessibilityIDs.Cloud.jumpToTranscriptButton,
                 isDisabled: false
@@ -338,7 +348,8 @@ struct CloudRecordingDetail: View {
         activeDetailSection = CloudDetailSection.resolveVisibleSection(
             current: activeDetailSection,
             hasSummarySection: hasSummarySection,
-            transcriptOffset: offsets[.transcript]
+            transcriptOffset: offsets[.transcript],
+            timelineOffset: offsets[.timeline]
         )
     }
 
@@ -472,6 +483,245 @@ struct CloudRecordingDetail: View {
             summaryBulletSection(title: "Action items", systemImage: "checklist", items: insights.actionItemTexts, accent: DT.systemOrange)
             summaryQuoteSection(items: insights.quoteTexts)
         }
+    }
+
+    private struct TimelineChapterDisplayEntry: Identifiable {
+        let id: String
+        let startMs: Int
+        let endMs: Int
+        let title: String
+        let summary: String
+
+        var timeRange: String {
+            "\(Self.formatTime(startMs)) – \(Self.formatTime(endMs))"
+        }
+
+        static func formatTime(_ milliseconds: Int) -> String {
+            let total = max(0, milliseconds / 1000)
+            let hours = total / 3600
+            let mins = (total % 3600) / 60
+            let secs = total % 60
+            if hours > 0 {
+                return String(format: "%d:%02d:%02d", hours, mins, secs)
+            }
+            return String(format: "%02d:%02d", mins, secs)
+        }
+    }
+
+    private var timelineEntries: [TimelineChapterDisplayEntry] {
+        (structuredSummaryInsights?.timeline ?? [])
+            .enumerated()
+            .map { offset, chapter in
+                TimelineChapterDisplayEntry(
+                    id: "\(chapter.startMs)-\(chapter.endMs)-\(offset)",
+                    startMs: chapter.startMs,
+                    endMs: chapter.endMs,
+                    title: chapter.title,
+                    summary: chapter.summary
+                )
+            }
+    }
+
+    private var currentTimelinePlaybackMs: Int? {
+        guard audioPlayer.currentRecordingID == recording.id else { return nil }
+        return Int((audioPlayer.currentTime * 1000).rounded())
+    }
+
+    private func activeTimelineIndex(_ entries: [TimelineChapterDisplayEntry]) -> Int? {
+        guard let currentTimelinePlaybackMs else { return nil }
+        if let active = entries.firstIndex(where: {
+            currentTimelinePlaybackMs >= $0.startMs && currentTimelinePlaybackMs < $0.endMs
+        }) {
+            return active
+        }
+        return entries.lastIndex(where: { currentTimelinePlaybackMs >= $0.startMs })
+    }
+
+    @ViewBuilder
+    private func timelineChaptersBody() -> some View {
+        let entries = timelineEntries
+        let activeIndex = activeTimelineIndex(entries)
+
+        if entries.isEmpty {
+            timelineEmptyState
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(entries.enumerated()), id: \.element.id) { (offset, entry) in
+                    timelineChapterRow(
+                        entry,
+                        index: offset,
+                        total: entries.count,
+                        activeIndex: activeIndex
+                    )
+                }
+            }
+        }
+    }
+
+    /// Timeline tab content rendered between Summary and Transcript in the
+    /// scroll view. Wraps the rail-style chapter list with a section header
+    /// matching the visual rhythm of the transcript section so it reads as a
+    /// distinct top-level destination, not an embedded Summary block.
+    private var timelineSectionView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                Text("Timeline")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
+                Spacer(minLength: 0)
+                Text("Chapters")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Palette.controlFillHover)
+                    )
+            }
+
+            timelineChaptersBody()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Palette.surfaceCardSubtle.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Palette.borderHairline.opacity(0.5), lineWidth: 0.5)
+        )
+    }
+
+
+    @ViewBuilder
+    private func timelineChapterRow(
+        _ entry: TimelineChapterDisplayEntry,
+        index: Int,
+        total: Int,
+        activeIndex: Int?
+    ) -> some View {
+        let isActive = activeIndex == index
+        let isPlayed = (activeIndex ?? -1) > index
+        let isPast = isPlayed
+        let isFuture = currentTimelinePlaybackMs != nil && (activeIndex ?? Int.max) < index && !isActive
+        let isLast = index == total - 1
+
+        let markerSize: CGFloat = isActive ? 14 : 10
+        let railWidth: CGFloat = 2
+        let activeAccent = DT.statusReady
+        let pastAccent = DT.statusReady.opacity(0.6)
+        let futureAccent = Palette.labelTertiary.opacity(0.35)
+
+        Button {
+            handlePlaybackSeek(Double(entry.startMs) / 1000.0)
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+            // Rail column: marker + connector
+                VStack(spacing: 0) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                isActive
+                                    ? activeAccent
+                                    : (isPast ? pastAccent : futureAccent)
+                            )
+                            .frame(width: markerSize, height: markerSize)
+
+                        if isActive {
+                            Circle()
+                                .strokeBorder(activeAccent.opacity(0.35), lineWidth: 3)
+                                .frame(width: markerSize + 8, height: markerSize + 8)
+                        }
+                    }
+                    .frame(width: 22, height: 22)
+
+                    if !isLast {
+                        Rectangle()
+                            .fill(
+                                isPlayed || isActive
+                                    ? pastAccent
+                                    : futureAccent
+                            )
+                            .frame(width: railWidth)
+                            .frame(maxHeight: .infinity)
+                    }
+                }
+                .frame(width: 22)
+
+            // Content column
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(entry.timeRange)
+                            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(isActive ? activeAccent : (isFuture ? Color.dtLabelTertiary : activeAccent.opacity(0.85)))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2.5)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(activeAccent.opacity(isActive ? 0.18 : (isFuture ? 0.05 : 0.10)))
+                            )
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .strokeBorder(activeAccent.opacity(isActive ? 0.30 : (isFuture ? 0.10 : 0.18)), lineWidth: 0.5)
+                            )
+
+                        Text(entry.title)
+                            .font(.system(size: 13, weight: isActive ? .bold : .semibold))
+                            .foregroundStyle(isFuture ? Color.dtLabelSecondary : Color.dtLabel)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.top, isActive ? 3 : 4)
+
+                    Text(entry.summary)
+                        .font(.system(size: 12))
+                        .foregroundStyle(isFuture ? Color.dtLabelTertiary : Color.dtLabelSecondary)
+                        .lineSpacing(2.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.bottom, isLast ? 0 : 14)
+            }
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+    }
+
+    private var timelineEmptyState: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "clock.badge.questionmark")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color.dtLabelTertiary)
+                .frame(width: 20, height: 20)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("No timeline available")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
+                Text("Generate a new summary for this recording to create chapter markers.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Palette.surfaceCardSubtle.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Palette.borderHairline.opacity(0.5), lineWidth: 0.5)
+        )
     }
 
     @ViewBuilder
@@ -1210,37 +1460,35 @@ struct CloudRecordingDetail: View {
     @ViewBuilder
     private var newerVersionStrip: some View {
         if hasNewerVersion && !isViewingHistoricalVersion {
-            HStack(spacing: 0) {
-                Rectangle()
+            HStack(alignment: .center, spacing: 9) {
+                RoundedRectangle(cornerRadius: 1, style: .continuous)
                     .fill(DT.systemBlue)
-                    .frame(width: 2)
-                    .padding(.vertical, 7)
+                    .frame(width: 2, height: 22)
 
-                HStack(alignment: .center, spacing: 8) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(DT.systemBlue)
+                    .frame(width: 13)
+
+                Text("✨ New transcript version is ready")
+                    .font(.system(size: 10.8, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                Button(action: acknowledgeNewerVersionWithoutSectionFlicker) {
+                    Text("View")
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundStyle(DT.systemBlue)
-                        .frame(width: 13)
-
-                    Text("✨ New transcript version is ready")
-                        .font(.system(size: 10.8, weight: .semibold))
-                        .foregroundStyle(Color.dtLabel)
-                        .lineLimit(1)
-
-                    Spacer(minLength: 0)
-
-                    Button(action: acknowledgeNewerVersionWithoutSectionFlicker) {
-                        Text("View")
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(DT.systemBlue)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("View newer cloud transcript version")
-                    .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionRefreshButton)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
+                .buttonStyle(.plain)
+                .accessibilityLabel("View newer cloud transcript version")
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionRefreshButton)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, minHeight: 36, idealHeight: 36, maxHeight: 40, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
                     .fill(DT.systemBlue.opacity(0.08))
@@ -1383,9 +1631,16 @@ struct CloudRecordingDetail: View {
         }
     }
 
+    private var transcriptDurationSeconds: Double? {
+        let maxEndMs = visibleTranscript?.segments.compactMap(\.endMs).max()
+        guard let maxEndMs, maxEndMs > 0 else { return nil }
+        return Double(maxEndMs) / 1000.0
+    }
+
     private var bottomPlaybackBar: some View {
         let isViewingLoadedAudio = audioPlayer.currentRecordingID == recording.id
-        let displayDuration = isViewingLoadedAudio ? audioPlayer.duration : (recording.durationSeconds ?? 0)
+        let fallbackDuration = max(recording.durationSeconds ?? 0, transcriptDurationSeconds ?? 0)
+        let displayDuration = isViewingLoadedAudio ? max(audioPlayer.duration, fallbackDuration) : fallbackDuration
         return CloudMeetingPlaybackStrip(
             isPlaying: isViewingLoadedAudio && audioPlayer.isPlaying,
             currentTime: isViewingLoadedAudio ? audioPlayer.currentTime : 0,
@@ -1446,7 +1701,7 @@ struct CloudRecordingDetail: View {
         guard let milliseconds = row.startMs ?? row.endMs else { return }
         pinnedSegmentID = row.id
         pendingPinnedSegmentIDAfterPrepare = nil
-        let seconds = max(0, Double(milliseconds) / 1000.0 + 0.03)
+        let seconds = max(0, Double(milliseconds) / 1000.0)
         guard playbackAudioURL != nil else {
             pendingSeekAfterPrepare = seconds
             pendingPinnedSegmentIDAfterPrepare = row.id
@@ -1548,6 +1803,7 @@ struct CloudRecordingDetail: View {
     }
 
     private func activeSegmentID(in rows: [CloudTranscriptSegmentDisplayRow]) -> String? {
+        guard audioPlayer.currentRecordingID == recording.id else { return pinnedSegmentID }
         let timeMs = Int((audioPlayer.currentTime * 1000).rounded())
         let timedRows = rows.filter { $0.startMs != nil || $0.endMs != nil }
         guard !timedRows.isEmpty else { return pinnedSegmentID }

@@ -54,19 +54,24 @@ struct FlowLayout: Layout {
 
 enum CloudDetailSection: Hashable {
     case summary
+    case timeline
     case transcript
 
     static func resolveVisibleSection(
         current: CloudDetailSection,
         hasSummarySection: Bool,
         transcriptOffset: CGFloat?,
-        transcriptActivationThreshold: CGFloat = 88
+        transcriptActivationThreshold: CGFloat = 88,
+        timelineOffset: CGFloat? = nil
     ) -> CloudDetailSection {
         guard hasSummarySection else {
-            return current == .transcript ? .transcript : .summary
+            return current
         }
         if let transcriptOffset, transcriptOffset < transcriptActivationThreshold {
             return .transcript
+        }
+        if let timelineOffset, timelineOffset < transcriptActivationThreshold {
+            return .timeline
         }
         return .summary
     }

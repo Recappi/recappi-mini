@@ -68,6 +68,7 @@ enum UITestIDs {
         static let latestJobStatus = "recappi.cloud.latestJobStatus"
         static let transcriptText = "recappi.cloud.transcriptText"
         static let jumpToSummaryButton = "recappi.cloud.jumpToSummaryButton"
+        static let jumpToTimelineButton = "recappi.cloud.jumpToTimelineButton"
         static let jumpToTranscriptButton = "recappi.cloud.jumpToTranscriptButton"
         static let loadTranscriptButton = "recappi.cloud.loadTranscriptButton"
         static let recordingInfoButton = "recappi.cloud.recordingInfoButton"

@@ -1009,7 +1009,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         {
           "id": "tr_123",
           "text": "Transcript body.",
-          "summaryJson": "{\"tldr\":\"Gallery work is ready for review.\",\"keyPoints\":[\"Use a large preview waterfall.\"],\"topics\":[\"Gallery\"],\"decisions\":[\"Keep clone out of scope.\"],\"actionItems\":[{\"what\":\"Review the Gallery waterfall layout.\",\"who\":\"Peng\"},{\"what\":\"  \"}],\"quotes\":[{\"speaker\":\"Peng\",\"text\":\"Make the waterfall feel worth clicking.\"}]}"
+          "summaryJson": "{\"tldr\":\"Gallery work is ready for review.\",\"keyPoints\":[\"Use a large preview waterfall.\"],\"topics\":[\"Gallery\"],\"decisions\":[\"Keep clone out of scope.\"],\"actionItems\":[{\"what\":\"Review the Gallery waterfall layout.\",\"who\":\"Peng\"},{\"what\":\"  \"}],\"quotes\":[{\"speaker\":\"Peng\",\"text\":\"Make the waterfall feel worth clicking.\"}],\"timeline\":[{\"startMs\":0,\"endMs\":84000,\"title\":\"Kickoff\",\"summary\":\"The team aligned on the Gallery review goals.\"},{\"startMs\":90000,\"endMs\":86000,\"title\":\"Bad\",\"summary\":\"Drop this invalid range.\"}]}"
         }
         """#.data(using: .utf8)!
 
@@ -1023,6 +1023,14 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(
             transcript.summaryInsights?.quoteTexts,
             ["Peng: \"Make the waterfall feel worth clicking.\""]
+        )
+        XCTAssertEqual(transcript.summaryInsights?.timeline.count, 1)
+        XCTAssertEqual(transcript.summaryInsights?.timeline.first?.startMs, 0)
+        XCTAssertEqual(transcript.summaryInsights?.timeline.first?.endMs, 84_000)
+        XCTAssertEqual(transcript.summaryInsights?.timeline.first?.title, "Kickoff")
+        XCTAssertEqual(
+            transcript.summaryInsights?.timeline.first?.summary,
+            "The team aligned on the Gallery review goals."
         )
     }
 
@@ -1375,6 +1383,33 @@ final class RecappiMiniCoreTests: XCTestCase {
             CloudRecordingDisplayStatus.resolve(recordingStatus: .ready, latestJobStatus: .succeeded),
             .recording(.ready)
         )
+    }
+
+    @MainActor
+    func testCloudLibraryAudioFileExtensionMapsAACToPlayableContainer() {
+        let store = CloudLibraryStore()
+        let recording = CloudRecording(
+            id: "rec_aac",
+            userId: "user_123",
+            title: "Remote AAC",
+            summaryTitle: nil,
+            sourceTitle: nil,
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: "recordings/user_123/rec_aac.aac",
+            r2UploadId: nil,
+            status: .ready,
+            sizeBytes: 1024,
+            durationMs: 12_000,
+            sampleRate: 48_000,
+            channels: 2,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        XCTAssertEqual(store.audioFileExtension(for: recording), "m4a")
     }
 
     @MainActor
@@ -2827,6 +2862,44 @@ final class RecappiMiniCoreTests: XCTestCase {
             recordingStatus: .ready,
             alreadyAttempted: false
         ))
+    }
+
+    func test_shouldClearNewerVersionFlag_returnsTrue_whenLoadedTranscriptMatchesActive() {
+        XCTAssertTrue(CloudLibraryStore.shouldClearNewerVersionFlag(
+            activeTranscriptId: "trans_v2",
+            loadedTranscriptId: "trans_v2"
+        ))
+    }
+
+    func test_shouldClearNewerVersionFlag_returnsFalse_whenLoadedTranscriptIsNotActive() {
+        XCTAssertFalse(CloudLibraryStore.shouldClearNewerVersionFlag(
+            activeTranscriptId: "trans_v2",
+            loadedTranscriptId: "trans_v1"
+        ))
+    }
+
+    func test_hasSummaryContentRecognizesTimelineOnlyInsights() throws {
+        let data = """
+        {
+          "id": "trans-test",
+          "text": "hello",
+          "segments": [],
+          "summaryInsights": {
+            "timeline": [
+              {
+                "startMs": 0,
+                "endMs": 12000,
+                "title": "Opening",
+                "summary": "The meeting starts with context."
+              }
+            ]
+          }
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertTrue(CloudLibraryStore.hasSummaryContent(transcript))
     }
 
     // MARK: - OnboardingState.shouldPresentOnLaunch
