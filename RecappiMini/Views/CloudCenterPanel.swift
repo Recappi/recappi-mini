@@ -40,7 +40,7 @@ struct CloudCenterPanel: View {
         .navigationTitle("Recappi Cloud")
         .navigationSubtitle(headerSubtitle)
         .toolbar { toolbarContent }
-        .containerBackground(Palette.surfaceWindow, for: .window)
+        .containerBackground(.regularMaterial, for: .window)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.window)
         .onDisappear {
