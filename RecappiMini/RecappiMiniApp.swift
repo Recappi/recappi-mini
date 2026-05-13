@@ -437,15 +437,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func updateStatusItemRecordingState(_ isRecording: Bool) {
+        updateStatusItemRecordingChrome(isRecording)
         positionRecordingDot()
-        if let button = statusItem?.button {
-            button.layer?.backgroundColor = isRecording
-                ? NSColor.systemRed.withAlphaComponent(0.18).cgColor
-                : NSColor.clear.cgColor
-            button.layer?.borderColor = isRecording
-                ? NSColor.systemRed.withAlphaComponent(0.28).cgColor
-                : NSColor.clear.cgColor
-            button.layer?.borderWidth = isRecording ? 0.5 : 0
+        DispatchQueue.main.async { [weak self] in
+            self?.positionRecordingDot()
         }
         recordingDotView?.isHidden = !isRecording
         if isRecording {
@@ -453,6 +448,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         } else {
             stopRecordingDotPulse()
         }
+    }
+
+    private func updateStatusItemRecordingChrome(_ isRecording: Bool) {
+        guard let statusItem, let button = statusItem.button else { return }
+
+        statusItem.length = isRecording ? 30 : NSStatusItem.squareLength
+        button.wantsLayer = true
+        button.needsLayout = true
+        button.layoutSubtreeIfNeeded()
+        button.layer?.cornerRadius = isRecording ? 9 : 6
+        button.layer?.cornerCurve = .continuous
+        button.layer?.masksToBounds = false
+
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.18)
+        button.layer?.backgroundColor = isRecording
+            ? NSColor.systemRed.withAlphaComponent(0.38).cgColor
+            : NSColor.clear.cgColor
+        button.layer?.borderColor = isRecording
+            ? NSColor.systemRed.withAlphaComponent(0.62).cgColor
+            : NSColor.clear.cgColor
+        button.layer?.borderWidth = isRecording ? 0.8 : 0
+        CATransaction.commit()
     }
 
     private func startRecordingDotPulse() {

@@ -14,6 +14,18 @@ struct RecordingOptionsButton: View {
 
     var body: some View {
         Button {
+            // Force Recording panel + app to take focus so the popover renders
+            // controls in their active appearance instead of inactive (dim) state.
+            // FloatingPanel uses `becomesKeyOnlyIfNeeded = true` to avoid stealing
+            // focus on normal interaction, so we explicitly request key state
+            // only when the user is opening the configuration popover.
+            if !isShowingOptions {
+                NSApp.activate(ignoringOtherApps: true)
+                if let window = NSApp.keyWindow
+                    ?? NSApp.windows.first(where: { $0 is FloatingPanel && $0.isVisible }) {
+                    window.makeKeyAndOrderFront(nil)
+                }
+            }
             isShowingOptions.toggle()
         } label: {
             HStack(spacing: 5) {
@@ -126,6 +138,7 @@ struct RecordingOptionsButton: View {
         .scrollContentBackground(.hidden)
         .frame(width: 360)
         .frame(minHeight: 320, idealHeight: 400, maxHeight: 500)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .preferredColorScheme(.dark)
         .accessibilityIdentifier(AccessibilityIDs.Panel.recordingOptionsPopover)
     }

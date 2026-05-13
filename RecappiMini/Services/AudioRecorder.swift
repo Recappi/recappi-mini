@@ -1139,14 +1139,27 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.liveCaptionStatusPhase = nil
         let simulatedTranslation = uiTestMode.simulatedLiveCaptionTranslationText?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        self.activeLiveCaptionConfiguration = simulatedTranslation?.isEmpty == false
-            ? LiveCaptionRecordingConfiguration(
+        if simulatedTranslation?.isEmpty == false {
+            self.activeLiveCaptionConfiguration = LiveCaptionRecordingConfiguration(
                 showsTranslation: true,
                 targetLanguage: Self.normalizedRealtimeTranslationTargetLanguage(
                     AppConfig.shared.liveCaptionsTranslationTargetLanguage
                 )
             )
-            : liveCaptionRecordingConfiguration()
+        } else if uiTestMode.simulatedLiveCaptionText?.isEmpty == false {
+            // A monolingual UI fixture should stay monolingual regardless of
+            // the developer machine's persisted Options popover defaults.
+            // Tests that need the bilingual layout pass an explicit simulated
+            // translation fixture above.
+            self.activeLiveCaptionConfiguration = LiveCaptionRecordingConfiguration(
+                showsTranslation: false,
+                targetLanguage: Self.normalizedRealtimeTranslationTargetLanguage(
+                    AppConfig.shared.liveCaptionsTranslationTargetLanguage
+                )
+            )
+        } else {
+            self.activeLiveCaptionConfiguration = liveCaptionRecordingConfiguration()
+        }
         self.liveCaptionIsFinal = false
         if let simulatedLiveCaptionText = uiTestMode.simulatedLiveCaptionText,
            !simulatedLiveCaptionText.isEmpty {
