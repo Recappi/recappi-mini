@@ -45,7 +45,25 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private var stream: SCStream?
     private var systemOutput: SystemAudioOutput?
-    private var liveCaptionTranscriber: Any?
+    /// Phase 2 — explicit lifecycle for the active live-caption
+    /// provider. `.transitioning` is observable to `stopRecording`, so
+    /// a stop arriving mid-restart no longer drops caption history.
+    /// See `LiveCaptionState` for the case semantics.
+    private var liveCaptionState: LiveCaptionState = .none
+    /// Per-`liveCaptionState` snapshot subscription. Created when a
+    /// `RealtimeLiveCaptionActor` is installed as the active provider,
+    /// cancelled when the state advances past `.running(.backend(...))`.
+    /// The MainActor `for-await` loop bridges the actor's
+    /// `AsyncStream<LiveCaptionSnapshot>` into
+    /// `applyLiveCaptionSnapshot(_:)` so the UI sees the same shape it
+    /// did under the legacy callback.
+    private var liveCaptionSnapshotTask: Task<Void, Never>?
+    /// Accumulator for caption entries produced across the lifetime of
+    /// a single recording. Each transcriber drains its `[LiveCaption-
+    /// Entry]` snapshot here on rotation; `stopRecording` flushes once
+    /// at the end. Replaces the per-transcriber disk-writer that used
+    /// to lose carryover when a stop interrupted a restart.
+    private let liveCaptionStore = RecordingCaptionStore()
     private var liveCaptionCarryoverSegments: [LiveCaptionSegment] = []
     private let systemCaptureQueue = DispatchQueue(label: "RecappiMini.SystemCapture")
     private var audioDeviceMonitor: DefaultAudioDeviceMonitor?
@@ -67,11 +85,138 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var uiTestInjectedActiveBundleIDs: Set<String> = []
     private var refreshAppsRetryTask: Task<Void, Never>?
     private var pendingDetectedMeetingRecordingContext: DetectedMeetingRecordingContext?
+    /// Token returned by `ProcessInfo.beginActivity(_:reason:)` while a
+    /// recording is in progress. Held for the lifetime of the
+    /// recording so macOS doesn't suspend the network stack mid-stream
+    /// (App Nap / idle system sleep). Released on `stop`/`reset`.
+    private var recordingActivityToken: NSObjectProtocol?
 
     static let spectrumBucketCount = AudioSpectrumConfiguration.bucketCount
     private static let historySampleInterval: CFTimeInterval = 0.18
 
     var currentSessionDir: URL? { sessionDir }
+
+#if DEBUG
+    /// Test seam: tests install a slow / scripted "stop" callback to
+    /// hold the detached restart Task suspended past the moment a
+    /// follow-up `restartLiveCaptions` invocation bumps the
+    /// generation token. Production code never sets these.
+    fileprivate var liveCaptionRestartStopOverrideForTesting: (@MainActor (LiveCaptionProvider?) async -> Void)?
+    fileprivate var liveCaptionRestartStartOverrideForTesting: (@MainActor (String) -> Void)?
+
+    /// Phase 2 — drain hook for snapshotting a provider's
+    /// `[LiveCaptionEntry]` accumulator without touching its WebSocket
+    /// state. Routed through the test seam so unit tests can drive the
+    /// `RecordingCaptionStore` carryover path without standing up real
+    /// network / speech I/O.
+    fileprivate var liveCaptionDrainOverrideForTesting: (@MainActor (LiveCaptionProvider?) -> [LiveCaptionEntry])?
+
+    /// Install stub `stop` and `start` callbacks for the restart-
+    /// live-captions flow. The stop closure is awaited; the start
+    /// closure is invoked synchronously on the MainActor.
+    func installLiveCaptionRestartHooksForTesting(
+        stop: @MainActor @escaping (LiveCaptionProvider?) async -> Void,
+        start: @MainActor @escaping (String) -> Void
+    ) {
+        liveCaptionRestartStopOverrideForTesting = stop
+        liveCaptionRestartStartOverrideForTesting = start
+    }
+
+    /// Phase 2 — install the wider hook set used by the
+    /// caption-loss-on-stop tests. Same `stop` / `start` semantics as
+    /// `installLiveCaptionRestartHooksForTesting`, plus a `drain`
+    /// callback that returns the entries the provider would have
+    /// flushed to disk.
+    func installPhase2LiveCaptionHooksForTesting(
+        _ stub: StubLiveCaptionLifecycleHooks
+    ) {
+        liveCaptionRestartStopOverrideForTesting = stub.stop
+        liveCaptionRestartStartOverrideForTesting = stub.start
+        liveCaptionDrainOverrideForTesting = stub.drainEntries
+    }
+
+    /// Drive `restartLiveCaptions` from a test without needing the
+    /// real `SystemAudioOutput`, ScreenCaptureKit, or macOS-26 guards.
+    /// Mirrors production's serial-restart chain so the bug-#3 race
+    /// reproduces (and stays fixed) in tests too.
+    func restartLiveCaptionsForTesting(localeIdentifier: String) {
+        let oldProvider = liveCaptionState.activeProvider
+        // Phase 2 — snapshot the outgoing provider's captions into
+        // the store BEFORE the close handshake begins. This is the
+        // critical step that closes Codex Finding #2: even if a
+        // `stopRecording` arrives while the transition Task is
+        // suspended in its close-await, the old captions are already
+        // in the store.
+        let drainedEntries = drainEntriesUsingHooks(from: oldProvider)
+        if !drainedEntries.isEmpty {
+            liveCaptionStore.add(drainedEntries)
+        }
+        restartGeneration &+= 1
+        let myGeneration = restartGeneration
+        let previousRestartTask = pendingRestartTask
+        let newTask = Task { @MainActor [weak self] in
+            await previousRestartTask?.value
+            await self?.performRestartLiveCaptionsBody(
+                oldProvider: oldProvider,
+                localeIdentifier: localeIdentifier,
+                generation: myGeneration
+            )
+        }
+        pendingRestartTask = newTask
+        liveCaptionState = .transitioning(
+            from: oldProvider,
+            to: nil,
+            transitionTask: newTask,
+            generation: myGeneration
+        )
+    }
+
+    /// Move the generation token forward without spawning a new
+    /// restart. Used by the focused generation-guard unit test.
+    func bumpRestartGenerationForTesting() {
+        restartGeneration &+= 1
+    }
+
+    var restartGenerationForTesting: UInt64 { restartGeneration }
+
+    /// Seed the live-caption state with a test sentinel object so the
+    /// next call to `restartLiveCaptionsForTesting` captures a
+    /// non-nil `oldProvider`. Used to reproduce the rapid-restart
+    /// race where a follow-up restart captures `nil` and races
+    /// ahead of the first restart's stop-await.
+    func setLiveCaptionTranscriberForTesting(_ sentinel: AnyObject?) {
+        if let sentinel {
+            liveCaptionState = .running(
+                provider: .testSentinel(sentinel),
+                locale: "test-locale",
+                generation: restartGeneration
+            )
+        } else {
+            liveCaptionState = .none
+        }
+    }
+
+    /// Phase 2 — seed the live-caption lifecycle into `.running` with
+    /// a test sentinel. Mirrors what `startLiveCaptionProvider` does
+    /// in production: installs a `.running(.testSentinel(...))`
+    /// snapshot so downstream readers (including the stop-finalize
+    /// path under test) observe a coherent `.running` snapshot.
+    func installRunningLiveCaptionTranscriberForTesting(_ sentinel: AnyObject) {
+        restartGeneration &+= 1
+        liveCaptionState = .running(
+            provider: .testSentinel(sentinel),
+            locale: "test-locale",
+            generation: restartGeneration
+        )
+    }
+
+    /// Phase 2 — drive the stop-finalize path that `stopRecording`
+    /// uses in production. Captures the same state-machine drain +
+    /// flush logic without bringing up ScreenCaptureKit / mic / etc.
+    func finalizeLiveCaptionsForStopTesting(saveTo sessionDir: URL?) async {
+        await finalizeLiveCaptionsForStop(saveTo: sessionDir)
+    }
+#endif
 
     // MARK: - App discovery
 
@@ -561,6 +706,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             self.lastHistoryPublish = 0
             self.detectedMeetingRecordingContext = autoStopContext
             self.state = .recording
+            beginRecordingProcessActivity()
             self.elapsedSeconds = 0
             self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 Task { @MainActor in
@@ -579,8 +725,28 @@ final class AudioRecorder: NSObject, ObservableObject {
             self.micSession = nil
             self.micOutput = nil
             self.stopLiveCaptions(saveTo: nil)
+            endRecordingProcessActivity()
             throw error
         }
+    }
+
+    /// Tell `ProcessInfo` that a user-initiated activity is running and
+    /// the system should not put it to sleep. Pairs with
+    /// `endRecordingProcessActivity()` — failing to balance these
+    /// re-introduces the App Nap-driven socket stall this fix targets.
+    private func beginRecordingProcessActivity() {
+        guard recordingActivityToken == nil else { return }
+        let token = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "Recappi live captions"
+        )
+        recordingActivityToken = token
+    }
+
+    private func endRecordingProcessActivity() {
+        guard let token = recordingActivityToken else { return }
+        ProcessInfo.processInfo.endActivity(token)
+        recordingActivityToken = nil
     }
 
     func stopRecording() async throws -> URL {
@@ -598,6 +764,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.timer?.invalidate()
         self.timer = nil
         stopMonitoringOutputDeviceChanges()
+        endRecordingProcessActivity()
 
         if uiTestMode.isEnabled {
             return try stopUITestRecording()
@@ -610,10 +777,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         let systemOutput = self.systemOutput
         let micOutput = self.micOutput
         let micSession = self.micSession
-        let liveCaptionTranscriber = self.liveCaptionTranscriber
         self.stream = nil
         self.systemOutput = nil
-        self.liveCaptionTranscriber = nil
         self.micSession = nil
         self.micOutput = nil
 
@@ -631,7 +796,13 @@ final class AudioRecorder: NSObject, ObservableObject {
         if let sessionDir {
             self.lastSessionDir = sessionDir
         }
-        stopLiveCaptions(liveCaptionTranscriber, saveTo: sessionDir)
+        // Phase 2 — route through the state-aware finalize path so a
+        // `stopRecording` arriving mid-restart drains the in-flight
+        // transition properly and flushes `liveCaptionStore` once.
+        // The store already holds the outgoing transcriber's entries
+        // (snapshotted at restart time) so caption history is
+        // preserved even if the transition Task gets cancelled here.
+        await finalizeLiveCaptionsForStop(saveTo: sessionDir)
 
         let finishedSystemURL = try await systemOutput?.finishWriting()
         let finishedMicURL = try await micOutput?.finishWriting()
@@ -730,6 +901,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     func reset() {
         cancelRefreshAppsRetry()
         stopMonitoringOutputDeviceChanges()
+        endRecordingProcessActivity()
         state = .idle
         elapsedSeconds = 0
         audioLevel = 0
@@ -752,7 +924,12 @@ final class AudioRecorder: NSObject, ObservableObject {
         stream = nil
         systemOutput = nil
         stopLiveCaptions(saveTo: nil)
-        liveCaptionTranscriber = nil
+        liveCaptionSnapshotTask?.cancel()
+        liveCaptionSnapshotTask = nil
+        // Phase 2 — drop accumulated entries and the lifecycle on
+        // recycle so the next recording starts from a clean slate.
+        liveCaptionStore.clear()
+        liveCaptionState = .none
         currentOutputAudioDeviceID = nil
         micSession = nil
         micOutput = nil
@@ -851,6 +1028,27 @@ final class AudioRecorder: NSObject, ObservableObject {
         )
     }
 
+    /// Monotonically-increasing token used by `restartLiveCaptions` to
+    /// detect that a newer restart has superseded an in-flight one.
+    /// Each restart captures its own value before spawning the
+    /// detached Task; if the value has moved by the time the Task
+    /// resumes from `await stopLiveCaptionsAwaitingClose(...)`, the
+    /// Task must decline to call `startLiveCaptionProvider`, otherwise
+    /// it stomps the provider the newer restart already installed.
+    private var restartGeneration: UInt64 = 0
+
+    /// Tail of the restart chain. Each `restartLiveCaptions` Task
+    /// `await`s the previous chain link's full value before doing
+    /// its own work, ensuring the body of a follow-up restart cannot
+    /// race ahead of a prior restart's stop-await. Without this, a
+    /// rapid second restart that captures `oldTranscriber = nil`
+    /// (because the first restart already cleared the field) would
+    /// blow through `stopLiveCaptionsAwaitingClose`'s nil-guard and
+    /// fire its next claim POST while the first restart's WebSocket
+    /// is still mid-close — the exact concurrent-claim signature
+    /// seen in production logs.
+    private var pendingRestartTask: Task<Void, Never>?
+
     private func restartLiveCaptions(
         localeIdentifier: String,
         message: String = "Switching live caption language…"
@@ -858,17 +1056,114 @@ final class AudioRecorder: NSObject, ObservableObject {
         guard #available(macOS 26.0, *) else { return }
         guard let systemOutput else { return }
 
-        let oldTranscriber = liveCaptionTranscriber
-        liveCaptionTranscriber = nil
+        let oldProvider = liveCaptionState.activeProvider
+        // Phase 2 — snapshot the outgoing provider's accumulated
+        // captions into `liveCaptionStore` BEFORE clearing the field
+        // and dispatching the close handshake. This is the load-
+        // bearing step that closes Codex Finding #2: even if a
+        // `stopRecording` arrives while the transition Task is
+        // suspended in its close-await, the outgoing captions are
+        // already safe in the store.
+        let oldEntries = drainEntriesUsingHooks(from: oldProvider)
+        if !oldEntries.isEmpty {
+            liveCaptionStore.add(oldEntries)
+        }
+        // Tear down the previous snapshot subscription. A fresh one
+        // is installed when `startLiveCaptionProvider` constructs the
+        // next actor.
+        liveCaptionSnapshotTask?.cancel()
+        liveCaptionSnapshotTask = nil
         systemOutput.onLiveCaptionSampleBuffer = nil
-        stopLiveCaptions(oldTranscriber, saveTo: nil)
 
         liveCaptionCarryoverSegments = liveCaptionSegments
         liveCaptionMessage = message
         liveCaptionStatusPhase = .preparing
         liveCaptionIsFinal = false
 
+        restartGeneration &+= 1
+        let myGeneration = restartGeneration
+        let previousRestartTask = pendingRestartTask
+
+        // Awaiting the old socket's close before claiming the new
+        // session prevents the production "two GET /proxy/<userKey>
+        // canceled" log signature: the server fan-out used to kill the
+        // still-healthy WS the instant the next claim POST arrived.
+        // We also chain off `previousRestartTask` so a second restart
+        // that captured `oldProvider = nil` still waits for the
+        // first restart's body (including its stop-await) to return.
+        let newTask = Task { @MainActor [weak self] in
+            await previousRestartTask?.value
+            guard let self else { return }
+            await self.performRestartLiveCaptionsBody(
+                oldProvider: oldProvider,
+                localeIdentifier: localeIdentifier,
+                generation: myGeneration
+            )
+        }
+        pendingRestartTask = newTask
+        // Phase 2 — entering `.transitioning` makes the in-flight
+        // restart observable to `finalizeLiveCaptionsForStop` (and
+        // therefore to `stopRecording`). `to` is nil until the
+        // close-await returns and `startLiveCaptionProvider` runs;
+        // stop-then-start ordering is preserved.
+        liveCaptionState = .transitioning(
+            from: oldProvider,
+            to: nil,
+            transitionTask: newTask,
+            generation: myGeneration
+        )
+    }
+
+    /// Body of the detached Task spawned by `restartLiveCaptions`.
+    /// Extracted so unit tests can pin the generation-guard behavior
+    /// by injecting stubbed `stop` / `start` closures. Both
+    /// production and tests share the same control flow — they only
+    /// differ in what `await stop(...)` and `start(...)` actually do.
+    private func performRestartLiveCaptionsBody(
+        oldProvider: LiveCaptionProvider?,
+        localeIdentifier: String,
+        generation: UInt64
+    ) async {
+#if DEBUG
+        if let stopOverride = liveCaptionRestartStopOverrideForTesting,
+           let startOverride = liveCaptionRestartStartOverrideForTesting {
+            await stopOverride(oldProvider)
+            // Generation guard: if a newer restart bumped the token
+            // while we were suspended in the `stop` await, decline to
+            // call `start`. The newer restart's provider has already
+            // been installed (or is about to be) and our `start`
+            // would stomp it — exactly the race that produced the
+            // overlapping `POST /sessions` signature in production.
+            guard restartGeneration == generation else { return }
+            // Phase 2 — also bail if a concurrent `stopRecording` /
+            // `finalizeLiveCaptionsForStop` has advanced the
+            // lifecycle past `.transitioning`. The generation token
+            // alone doesn't cover this case (stop doesn't bump it).
+            guard isCurrentLiveCaptionTransition(generation: generation) else { return }
+            startOverride(localeIdentifier)
+            return
+        }
+#endif
+        await stopLiveCaptionsAwaitingClose(oldProvider, saveTo: nil)
+        // Generation guard: see DEBUG branch above. Same rule, same
+        // reason — a newer restart supersedes this Task's `start`.
+        guard restartGeneration == generation else { return }
+        // Same stop-supersede guard as the DEBUG branch.
+        guard isCurrentLiveCaptionTransition(generation: generation) else { return }
+        guard state == .recording, let systemOutput else { return }
         startLiveCaptionProvider(for: systemOutput, localeIdentifier: localeIdentifier)
+    }
+
+    /// Phase 2 — returns true when `liveCaptionState` is still
+    /// `.transitioning(generation: <generation>)`. Used by
+    /// `performRestartLiveCaptionsBody` to short-circuit the start
+    /// hook when a concurrent stop has moved the lifecycle to
+    /// `.stopping` or `.none` after the close-await began.
+    private func isCurrentLiveCaptionTransition(generation: UInt64) -> Bool {
+        if case .transitioning(_, _, _, let g) = liveCaptionState {
+            return g == generation
+        }
+        return false
     }
 
     private func startLiveCaptions(for systemOutput: SystemAudioOutput) async {
@@ -919,10 +1214,10 @@ final class AudioRecorder: NSObject, ObservableObject {
             // Bilingual toggle picks the OpenAI translation session
             // (`includeSourceTranscript=true` so we still get the
             // source row); otherwise we mint the standard transcription
-            // session. The transcriber multiplexes both shapes so the
-            // rest of the pipeline doesn't care.
+            // session. The actor multiplexes both shapes so the rest
+            // of the pipeline doesn't care.
             let lockedConfig = activeLiveCaptionConfiguration ?? liveCaptionRecordingConfiguration()
-            let mode: BackendRealtimeLiveCaptionTranscriber.Mode = lockedConfig.showsTranslation
+            let mode: RealtimeLiveCaptionMode = lockedConfig.showsTranslation
                 ? .translation(
                     targetLanguage: Self.normalizedRealtimeTranslationTargetLanguage(
                         lockedConfig.targetLanguage
@@ -937,19 +1232,21 @@ final class AudioRecorder: NSObject, ObservableObject {
                 "live-caption",
                 "provider.start backend=true mode=\(Self.liveCaptionModeLabel(mode)) language=\(Self.normalizedRealtimeLanguage(localeIdentifier)) target=\(lockedConfig.targetLanguage) contextHintChars=\(contextHint?.count ?? 0)"
             )
-            let backendTranscriber = BackendRealtimeLiveCaptionTranscriber(
-                client: client,
+            _ = contextHint // Context hint is currently only logged; the
+            // actor reuses the language/mode pair handed to the
+            // connector. Preserving the parameter keeps the diagnostics
+            // signature identical to pre-refactor production logs.
+            let connector = LiveRealtimeSessionConnector(client: client)
+            let backendActor = RealtimeLiveCaptionActor(
+                connector: connector,
                 language: Self.normalizedRealtimeLanguage(localeIdentifier),
-                mode: mode,
-                contextHint: contextHint
-            ) { [weak self] snapshot in
-                self?.applyLiveCaptionSnapshot(snapshot)
-            }
-            liveCaptionTranscriber = backendTranscriber
-            systemOutput.onLiveCaptionSampleBuffer = { [weak backendTranscriber] sampleBuffer in
-                backendTranscriber?.append(sampleBuffer)
-            }
-            backendTranscriber.start()
+                mode: mode
+            )
+            installBackendLiveCaptionActor(
+                backendActor,
+                for: systemOutput,
+                localeIdentifier: localeIdentifier
+            )
             return
         }
 
@@ -966,11 +1263,63 @@ final class AudioRecorder: NSObject, ObservableObject {
         let liveTranscriber = LiveCaptionTranscriber { [weak self] snapshot in
             self?.applyLiveCaptionSnapshot(snapshot)
         }
-        liveCaptionTranscriber = liveTranscriber
+        liveCaptionState = .running(
+            provider: .local(liveTranscriber),
+            locale: localeIdentifier,
+            generation: restartGeneration
+        )
         systemOutput.onLiveCaptionSampleBuffer = { [weak liveTranscriber] sampleBuffer in
             liveTranscriber?.append(sampleBuffer)
         }
         liveTranscriber.start(localeIdentifier: localeIdentifier)
+    }
+
+    /// Install a freshly-constructed backend actor as the active live-
+    /// caption provider: wire audio routing into the actor, spawn the
+    /// snapshot-subscription Task, transition the state to
+    /// `.running(.backend(...))`, and kick off the actor's `start()`.
+    /// Extracted so the UI-test path (which constructs the actor with
+    /// a different `RecappiAPIClient`) can share the same wiring.
+    private func installBackendLiveCaptionActor(
+        _ backendActor: RealtimeLiveCaptionActor,
+        for systemOutput: SystemAudioOutput,
+        localeIdentifier: String
+    ) {
+        // Phase 3d — promote the lifecycle to `.running`. Any
+        // outgoing `.transitioning` state for the same generation
+        // is replaced here. A LATER restart that bumped the
+        // generation has already moved the state forward; the
+        // generation-guard in `performRestartLiveCaptionsBody`
+        // prevented us from being called in that case.
+        liveCaptionState = .running(
+            provider: .backend(backendActor),
+            locale: localeIdentifier,
+            generation: restartGeneration
+        )
+
+        // Audio: the system output hands us sample buffers on a
+        // background queue. The actor's nonisolated `append(sampleBuffer:)`
+        // does the PCM16 conversion off-actor and hops onto the actor
+        // to enqueue the encoded frame, so we can plug it in directly.
+        systemOutput.onLiveCaptionSampleBuffer = { [weak backendActor] sampleBuffer in
+            backendActor?.append(sampleBuffer: sampleBuffer)
+        }
+
+        // Snapshot subscription: every `LiveCaptionSnapshot` the actor
+        // publishes flows into `applyLiveCaptionSnapshot(_:)` on the
+        // MainActor, same shape as the legacy callback.
+        liveCaptionSnapshotTask?.cancel()
+        let snapshots = Task { @MainActor [weak self] in
+            for await snapshot in await backendActor.captionSnapshots() {
+                guard !Task.isCancelled else { return }
+                self?.applyLiveCaptionSnapshot(snapshot)
+            }
+        }
+        liveCaptionSnapshotTask = snapshots
+
+        Task { [weak backendActor] in
+            await backendActor?.start()
+        }
     }
 
     private static func normalizedRealtimeLanguage(_ localeIdentifier: String) -> String {
@@ -985,7 +1334,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         LiveCaptionTranslationTargetLanguageOption.normalizedCode(language)
     }
 
-    private static func liveCaptionModeLabel(_ mode: BackendRealtimeLiveCaptionTranscriber.Mode) -> String {
+    private static func liveCaptionModeLabel(_ mode: RealtimeLiveCaptionMode) -> String {
         switch mode {
         case .transcription:
             return "transcription"
@@ -995,23 +1344,23 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     var canReconnectLiveCaptions: Bool {
-        liveCaptionTranscriber is BackendRealtimeLiveCaptionTranscriber
-            || (uiTestMode.isEnabled && state == .recording)
+        if case .running(.backend, _, _) = liveCaptionState { return true }
+        return uiTestMode.isEnabled && state == .recording
     }
 
     func reconnectLiveCaptionsNow() {
-        guard let transcriber = liveCaptionTranscriber as? BackendRealtimeLiveCaptionTranscriber else {
-            guard uiTestMode.isEnabled else {
-                DiagnosticsLog.warning("live-caption", "reconnect.ignored reason=unsupported_provider")
-                return
-            }
-            DiagnosticsLog.event("live-caption", "reconnect.manual.ui_test")
-            liveCaptionMessage = "正在重新连接字幕服务"
-            liveCaptionStatusPhase = .failed
+        if case .running(.backend(let backendActor), _, _) = liveCaptionState {
+            DiagnosticsLog.event("live-caption", "reconnect.manual")
+            Task { await backendActor.reconnectNow() }
             return
         }
-        DiagnosticsLog.event("live-caption", "reconnect.manual")
-        transcriber.reconnectNow()
+        guard uiTestMode.isEnabled else {
+            DiagnosticsLog.warning("live-caption", "reconnect.ignored reason=unsupported_provider")
+            return
+        }
+        DiagnosticsLog.event("live-caption", "reconnect.manual.ui_test")
+        liveCaptionMessage = "正在重新连接字幕服务"
+        liveCaptionStatusPhase = .failed
     }
 
     private nonisolated static func fileSummary(_ url: URL?) -> String {
@@ -1033,21 +1382,205 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func stopLiveCaptions(saveTo sessionDir: URL?) {
-        stopLiveCaptions(liveCaptionTranscriber, saveTo: sessionDir)
+        stopLiveCaptions(liveCaptionState.activeProvider, saveTo: sessionDir)
     }
 
-    private func stopLiveCaptions(_ transcriber: Any?, saveTo sessionDir: URL?) {
-        guard transcriber != nil else { return }
+    /// Fire-and-forget stop. Detaches into a Task so non-async call
+    /// sites (state transitions, error cleanup) can keep their current
+    /// signatures. `restartLiveCaptions` uses the async variant below
+    /// when it needs to serialize against the next claim POST.
+    private func stopLiveCaptions(_ provider: LiveCaptionProvider?, saveTo sessionDir: URL?) {
+        guard let provider else { return }
         DiagnosticsLog.event(
             "live-caption",
             "provider.stop saveDir=\(sessionDir?.lastPathComponent ?? "none")"
         )
-        if #available(macOS 26.0, *), let transcriber = transcriber as? LiveCaptionTranscriber {
-            transcriber.stop(saveTo: sessionDir)
+        switch provider {
+        case .backend(let backendActor):
+            Task { _ = await backendActor.stop(saveTo: sessionDir) }
+        case .local(let transcriber):
+            if #available(macOS 26.0, *) {
+                transcriber.stop(saveTo: sessionDir)
+            }
+#if DEBUG
+        case .testSentinel:
+            // Sentinels have no real I/O. Tests inject behaviour through
+            // `liveCaptionRestartStopOverrideForTesting`; the legacy
+            // fire-and-forget path is unreachable in those tests.
+            break
+#endif
         }
-        if let transcriber = transcriber as? BackendRealtimeLiveCaptionTranscriber {
-            transcriber.stop(saveTo: sessionDir)
+    }
+
+    /// Stop the live captions and await the WebSocket close handshake
+    /// before returning. `restartLiveCaptions` chains the next session
+    /// claim after this so the server never sees two near-simultaneous
+    /// claim POSTs for the same userKey.
+    private func stopLiveCaptionsAwaitingClose(_ provider: LiveCaptionProvider?, saveTo sessionDir: URL?) async {
+        guard let provider else { return }
+        DiagnosticsLog.event(
+            "live-caption",
+            "provider.stop.await_close saveDir=\(sessionDir?.lastPathComponent ?? "none")"
+        )
+        switch provider {
+        case .backend(let backendActor):
+            _ = await backendActor.stop(saveTo: sessionDir)
+        case .local(let transcriber):
+            if #available(macOS 26.0, *) {
+                transcriber.stop(saveTo: sessionDir)
+            }
+#if DEBUG
+        case .testSentinel:
+            // Sentinels short-circuit via the test override hook; the
+            // production path here is unreachable in tests.
+            break
+#endif
         }
+    }
+
+    // MARK: - Phase 2: caption persistence
+
+    /// Phase 2 — snapshot a provider's `[LiveCaptionEntry]`
+    /// accumulator without mutating its WebSocket state. The DEBUG
+    /// test seam routes through `liveCaptionDrainOverrideForTesting`
+    /// so unit tests can drive the carryover path without standing up
+    /// real I/O. Production paths dispatch over the concrete provider
+    /// type — the cloud actor's `drainEntries()` or (on macOS 26+) the
+    /// on-device `LiveCaptionTranscriber.drainEntriesForTransition()`.
+    private func drainEntriesUsingHooks(from provider: LiveCaptionProvider?) -> [LiveCaptionEntry] {
+#if DEBUG
+        if let drainOverride = liveCaptionDrainOverrideForTesting {
+            return drainOverride(provider)
+        }
+#endif
+        guard let provider else { return [] }
+        switch provider {
+        case .backend(let backendActor):
+            // Bridge across actor isolation through a checked task. The
+            // call site is MainActor-bound and synchronous, so we
+            // dispatch to a temporary Task and block on its value via
+            // `_blockingDrain`. Production code only invokes this
+            // synchronously from `restartLiveCaptions` /
+            // `finalizeLiveCaptionsForStop` — both already hold the
+            // MainActor and can tolerate the short hop.
+            return Self.blockingActorDrain(backendActor)
+        case .local(let transcriber):
+            if #available(macOS 26.0, *) {
+                return transcriber.drainEntriesForTransition()
+            }
+            return []
+#if DEBUG
+        case .testSentinel:
+            // The drain hook above intercepts sentinel-bearing test
+            // states. Reaching this case without a hook means a test
+            // installed a sentinel but forgot to install a drain hook
+            // — that's a test wiring bug; report it as empty.
+            return []
+#endif
+        }
+    }
+
+    /// Synchronously fetch `drainEntries()` from the actor. The actor's
+    /// internal mutex never blocks for I/O — `drainEntries` is a pure
+    /// in-memory snapshot — so a small synchronous bridge using a
+    /// semaphore is safe here. Avoids forcing every caller of
+    /// `drainEntriesUsingHooks` to become `async` (which would ripple
+    /// through `restartLiveCaptions` and break the synchronous restart
+    /// chain `LiveCaptionState` was designed around).
+    private static func blockingActorDrain(_ actor: RealtimeLiveCaptionActor) -> [LiveCaptionEntry] {
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result: [LiveCaptionEntry] = []
+        Task.detached {
+            let entries = await actor.drainEntries()
+            result = entries
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
+    }
+
+    /// Phase 2 — central "stop the live captions and flush carryover"
+    /// entry point. Replaces the previous direct call to
+    /// `stopLiveCaptionsAwaitingClose(_:saveTo:)` from `stopRecording`,
+    /// routing the active / transitioning transcriber's entries
+    /// through `liveCaptionStore` so caption history is preserved
+    /// across the restart-then-stop window (Codex Finding #2).
+    private func finalizeLiveCaptionsForStop(saveTo sessionDir: URL?) async {
+        let snapshot = liveCaptionState
+        // Switch to `.stopping` so concurrent restart Tasks observe
+        // the lifecycle has advanced and decline to install a new
+        // provider after their `start` hook runs.
+        switch snapshot {
+        case .none:
+            liveCaptionState = .stopping(provider: nil)
+        case .running(let p, _, _):
+            liveCaptionState = .stopping(provider: p)
+        case .transitioning(_, let to, _, _):
+            liveCaptionState = .stopping(provider: to)
+        case .stopping:
+            break
+        }
+
+        switch snapshot {
+        case .none:
+            break
+        case .running(let provider, _, _):
+            let entries = drainEntriesUsingHooks(from: provider)
+            if !entries.isEmpty {
+                liveCaptionStore.add(entries)
+            }
+            await stopLiveCaptionsAwaitingCloseUsingHooks(provider)
+        case .transitioning(_, let to, let transitionTask, _):
+            // The `from`-side entries were snapshotted into
+            // `liveCaptionStore` synchronously inside
+            // `restartLiveCaptions(...)` before the transition Task
+            // was spawned. Cancel the Task so it can't promote the
+            // lifecycle to `.running(to, ...)` underneath us; then
+            // drain whatever the (possibly nil) `to` provider has
+            // accumulated and close it.
+            transitionTask.cancel()
+            if let to {
+                let entries = drainEntriesUsingHooks(from: to)
+                if !entries.isEmpty {
+                    liveCaptionStore.add(entries)
+                }
+                await stopLiveCaptionsAwaitingCloseUsingHooks(to)
+            }
+        case .stopping(let provider):
+            // A concurrent stop already started; wait for its close,
+            // then flush.
+            if let provider {
+                await stopLiveCaptionsAwaitingCloseUsingHooks(provider)
+            }
+        }
+
+        liveCaptionSnapshotTask?.cancel()
+        liveCaptionSnapshotTask = nil
+        liveCaptionState = .none
+
+        if let sessionDir {
+            do {
+                try await liveCaptionStore.flush(to: sessionDir)
+            } catch {
+                DiagnosticsLog.error(
+                    "live-caption",
+                    "store.flush.failed \(DiagnosticsLog.errorSummary(error))"
+                )
+            }
+        }
+    }
+
+    /// Phase 2 — wraps `stopLiveCaptionsAwaitingClose` and the DEBUG
+    /// test override so the stop-finalize and restart paths share one
+    /// dispatch point.
+    private func stopLiveCaptionsAwaitingCloseUsingHooks(_ provider: LiveCaptionProvider?) async {
+#if DEBUG
+        if let stopOverride = liveCaptionRestartStopOverrideForTesting {
+            await stopOverride(provider)
+            return
+        }
+#endif
+        await stopLiveCaptionsAwaitingClose(provider, saveTo: nil)
     }
 
     // MARK: - Permissions
@@ -1188,23 +1721,36 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         DiagnosticsLog.event("live-caption", "provider.start.ui_test backend=true mode=transcription")
-        let contextHint = RecordingContextPrompt.liveCaptionHint(
-            sceneRaw: AppConfig.shared.recordingSceneTemplate,
-            extraPrompt: AppConfig.shared.recordingExtraPrompt
+        let client = RecappiAPIClient(
+            origin: AppConfig.shared.effectiveBackendBaseURL,
+            bearerToken: bearerToken
         )
-        let backendTranscriber = BackendRealtimeLiveCaptionTranscriber(
-            client: RecappiAPIClient(
-                origin: AppConfig.shared.effectiveBackendBaseURL,
-                bearerToken: bearerToken
-            ),
+        let connector = LiveRealtimeSessionConnector(client: client)
+        let backendActor = RealtimeLiveCaptionActor(
+            connector: connector,
             language: Self.normalizedRealtimeLanguage(AppConfig.shared.normalizedCloudLanguage),
-            mode: .transcription,
-            contextHint: contextHint
-        ) { [weak self] snapshot in
-            self?.applyLiveCaptionSnapshot(snapshot)
+            mode: .transcription
+        )
+        // UI tests do not exercise the system audio path, so the
+        // sample-buffer wiring is skipped here — but the snapshot
+        // subscription still bridges the actor's published phases
+        // into the panel so the UI surfaces preparing → listening.
+        liveCaptionState = .running(
+            provider: .backend(backendActor),
+            locale: AppConfig.shared.normalizedCloudLanguage,
+            generation: restartGeneration
+        )
+        liveCaptionSnapshotTask?.cancel()
+        let snapshots = Task { @MainActor [weak self] in
+            for await snapshot in await backendActor.captionSnapshots() {
+                guard !Task.isCancelled else { return }
+                self?.applyLiveCaptionSnapshot(snapshot)
+            }
         }
-        liveCaptionTranscriber = backendTranscriber
-        backendTranscriber.start()
+        liveCaptionSnapshotTask = snapshots
+        Task { [backendActor] in
+            await backendActor.start()
+        }
     }
 
     private func recordingSessionMetadata() -> RecordingSessionMetadata {

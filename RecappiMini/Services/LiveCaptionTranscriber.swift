@@ -265,17 +265,29 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
     }
 
     private func saveEntries(to sessionDir: URL) {
-        let finalEntries = stateQueue.sync {
-            let finals = entries.filter(\.isFinal)
-            if !finals.isEmpty { return finals }
-            return latestPartialEntry.map { [$0] } ?? []
-        }
+        let finalEntries = currentEntriesSnapshot()
         guard !finalEntries.isEmpty,
               let data = try? JSONEncoder().encode(finalEntries) else {
             return
         }
         let url = sessionDir.appendingPathComponent("live-captions.json")
         try? data.write(to: url, options: .atomic)
+    }
+
+    /// Phase 2 — caller-driven snapshot used by `AudioRecorder` to
+    /// drain entries into `RecordingCaptionStore` instead of going
+    /// through this transcriber's own disk-writer.
+    @available(macOS 26.0, *)
+    func drainEntriesForTransition() -> [LiveCaptionEntry] {
+        currentEntriesSnapshot()
+    }
+
+    private func currentEntriesSnapshot() -> [LiveCaptionEntry] {
+        stateQueue.sync {
+            let finals = entries.filter(\.isFinal)
+            if !finals.isEmpty { return finals }
+            return latestPartialEntry.map { [$0] } ?? []
+        }
     }
 
     private func reservePendingAudioBuffer() -> Bool {
