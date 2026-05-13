@@ -688,9 +688,18 @@ struct CloudRecordingDetail: View {
                 }
                 .padding(.bottom, isLast ? 0 : 14)
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isActive ? activeAccent.opacity(0.045) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isActive ? activeAccent.opacity(0.13) : Color.clear, lineWidth: 0.6)
+            )
         }
         .buttonStyle(.plain)
-        .contentShape(Rectangle())
     }
 
     private var timelineEmptyState: some View {
