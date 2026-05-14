@@ -11,14 +11,20 @@ struct DoneState: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
-                Text("🎉")
-                    .font(.system(size: 14))
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DT.statusReady)
                     .frame(width: 16, height: 16)
 
-                Text("Meeting saved")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(Color.dtLabel)
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.doneTitle)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Meeting saved")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                        .accessibilityIdentifier(AccessibilityIDs.Panel.doneTitle)
+                    Text(statusSubtitle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                }
 
                 Spacer(minLength: 0)
 
@@ -28,65 +34,58 @@ struct DoneState: View {
                     .foregroundStyle(Color.dtLabelSecondary)
             }
 
-            primaryActionButton
-
-            HStack(spacing: 12) {
-                secondaryActionButton(
-                    title: "View recording",
-                    systemImage: "rectangle.stack",
-                    action: onShow
-                )
-                .accessibilityIdentifier(AccessibilityIDs.Panel.showButton)
+            HStack(spacing: 8) {
+                primaryActionChip
 
                 if hasTranscript {
-                    secondaryActionButton(
-                        title: "Copy",
-                        systemImage: "doc.on.doc",
-                        action: onCopy
-                    )
+                    quietLink(title: "Copy", action: onCopy)
                 }
 
                 Spacer(minLength: 0)
 
-                secondaryActionButton(
-                    title: "Done",
-                    systemImage: "checkmark",
-                    action: onNew
-                )
+                quietLink(title: "Dismiss", action: onNew)
             }
-            .frame(height: 22)
         }
     }
 
-    private var primaryActionButton: some View {
+    private var statusSubtitle: String {
+        canTranscribe
+            ? "Uploaded to Cloud · transcript pending"
+            : "Ready in Recappi Cloud"
+    }
+
+    private var primaryActionChip: some View {
         Button(action: canTranscribe ? onTranscribe : onShow) {
-            HStack(spacing: 8) {
-                Image(systemName: canTranscribe ? "waveform.badge.magnifyingglass" : "rectangle.stack")
-                    .font(.system(size: 12.5, weight: .semibold))
+            HStack(spacing: 5) {
                 Text(canTranscribe ? "Transcribe in Cloud" : "View in Cloud")
-                    .font(.system(size: 12, weight: .semibold))
-                Spacer(minLength: 0)
+                    .font(.system(size: 11, weight: .semibold))
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 10.5, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
             }
+            .foregroundStyle(DT.statusReady)
+            .padding(.horizontal, 10)
+            .frame(height: 22)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(DT.statusReady.opacity(0.12))
+            )
+            .contentShape(Capsule(style: .continuous))
         }
-        .buttonStyle(PanelPushButtonStyle(primary: true))
+        .buttonStyle(.plain)
         .help(canTranscribe ? "Start cloud transcription and open Recappi Cloud" : "Open this recording in Recappi Cloud")
         .accessibilityIdentifier(canTranscribe ? AccessibilityIDs.Panel.transcribeButton : AccessibilityIDs.Panel.showButton)
     }
 
-    private func secondaryActionButton(
-        title: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
+    private func quietLink(title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
+            Text(title)
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(Color.dtLabelSecondary)
+                .padding(.horizontal, 4)
+                .frame(height: 22)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contentShape(Rectangle())
     }
 
     private var hasTranscript: Bool {

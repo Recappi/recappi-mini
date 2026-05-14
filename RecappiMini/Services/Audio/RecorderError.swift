@@ -8,6 +8,7 @@ enum RecorderError: LocalizedError {
     case micDenied
     case screenCaptureDenied
     case micSetupFailed
+    case micCaptureFailed
     case notRecording
     case noSessionDir
     case exportFailed
@@ -28,6 +29,7 @@ enum RecorderError: LocalizedError {
         case .micDenied: return "Microphone access denied. Enable in System Settings > Privacy & Security > Microphone"
         case .screenCaptureDenied: return "Screen & system audio recording access is required. Enable Recappi Mini in System Settings > Privacy & Security > Screen & System Audio Recording"
         case .micSetupFailed: return "Couldn't set up microphone capture"
+        case .micCaptureFailed: return "Microphone audio was enabled, but no microphone audio was captured"
         case .notRecording: return "Not currently recording"
         case .noSessionDir: return "No session directory"
         case .exportFailed: return "Failed to merge audio sources"

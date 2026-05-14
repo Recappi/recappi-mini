@@ -25,11 +25,20 @@ enum AudioMixer {
     }
 
     /// Mixes `sources` together and writes the result to `destination`.
-    /// Missing or unreadable sources are skipped silently so a mic-only or
-    /// system-only recording still produces output.
+    /// Every supplied source must be readable. The recorder decides which
+    /// sources are optional before calling this function; silently dropping a
+    /// supplied mic source would create a successful but incomplete recording.
     static func mix(sources: [URL], to destination: URL) async throws {
-        let readable = sources.compactMap { url -> AVAudioFile? in
-            try? AVAudioFile(forReading: url)
+        let readable = try sources.map { url in
+            do {
+                return try AVAudioFile(forReading: url)
+            } catch {
+                DiagnosticsLog.error(
+                    "recording",
+                    "mix.source_unreadable file=\(url.lastPathComponent) \(DiagnosticsLog.errorSummary(error))"
+                )
+                throw RecorderError.exportFailed
+            }
         }
         guard !readable.isEmpty else {
             throw RecorderError.exportFailed

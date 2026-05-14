@@ -2061,6 +2061,28 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(audioFile.fileFormat.channelCount, 2)
     }
 
+    func testAudioMixerDoesNotSilentlyDropUnreadableMicSource() async throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let invalidMic = temp.appendingPathComponent("mic.m4a")
+        try Data("not an audio file".utf8).write(to: invalidMic)
+        let destination = temp.appendingPathComponent("mixed-recording.m4a")
+
+        do {
+            try await AudioMixer.mix(
+                sources: [AutomationPaths.recordingFixture, invalidMic],
+                to: destination
+            )
+            XCTFail("Expected an unreadable supplied mic source to fail the mix.")
+        } catch RecorderError.exportFailed {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        } catch {
+            XCTFail("Expected RecorderError.exportFailed, got \(error).")
+        }
+    }
+
     func testAudioMixerAveragesHotMicAndSystemSources() async throws {
         XCTAssertEqual(AudioMixer.outputHeadroom(forSourceCount: 1), 1.0)
         XCTAssertEqual(AudioMixer.outputHeadroom(forSourceCount: 2), 0.5)
@@ -2282,6 +2304,26 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
         let bands = AudioLevelExtractor.analyzeSamplesForTesting(samples, sampleRate: sampleRate)
         XCTAssertEqual(bands.count, AudioSpectrumConfiguration.bucketCount)
+    }
+
+    @MainActor
+    func testRecordingMeterDoesNotLetSilentSystemFramesStarveMicPeak() {
+        let recorder = AudioRecorder()
+        let silent = AudioMeterFrame(
+            peak: 0,
+            bands: Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
+        )
+        let mic = AudioMeterFrame(
+            peak: 0.9,
+            bands: Array(repeating: 0.9, count: AudioRecorder.spectrumBucketCount)
+        )
+
+        recorder.ingestMeterFrameForTesting(silent, now: 1.0)
+        recorder.ingestMeterFrameForTesting(mic, now: 1.01)
+        recorder.ingestMeterFrameForTesting(silent, now: 1.04)
+
+        XCTAssertGreaterThan(recorder.audioLevel, 0.8)
+        XCTAssertGreaterThan(recorder.audioSpectrumLevels.max() ?? 0, 0.8)
     }
 
     @MainActor

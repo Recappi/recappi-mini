@@ -80,10 +80,43 @@ struct RecordingState: View {
                 Button {
                     recorder.setIncludesMicrophoneAudio(!recorder.includesMicrophoneAudio)
                 } label: {
-                    Image(systemName: recorder.includesMicrophoneAudio ? "mic.fill" : "mic.slash.fill")
-                        .font(.system(size: 12))
+                    ZStack(alignment: .topTrailing) {
+                        if recorder.includesMicrophoneAudio {
+                            RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                                .fill(DT.systemRed.opacity(0.14))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                                        .strokeBorder(DT.systemRed.opacity(0.35), lineWidth: 0.5)
+                                )
+                                .frame(width: 28, height: 28)
+                        }
+
+                        Image(systemName: recorder.includesMicrophoneAudio ? "mic.fill" : "mic.slash.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(
+                                recorder.includesMicrophoneAudio
+                                    ? DT.systemRed
+                                    : Palette.labelTertiary
+                            )
+                            .frame(width: 28, height: 28)
+
+                        if recorder.includesMicrophoneAudio {
+                            Circle()
+                                .fill(DT.systemRed)
+                                .frame(width: 5.5, height: 5.5)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Palette.surfacePanel, lineWidth: 1)
+                                )
+                                .offset(x: 3, y: -2.5)
+                                .modifier(PulsingModifier())
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(PanelIconButtonStyle())
+                .buttonStyle(.plain)
                 .help(recorder.includesMicrophoneAudio ? "Microphone on (click to mute)" : "Microphone muted (click to unmute)")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.microphoneIncludeButton)
 

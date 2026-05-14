@@ -62,6 +62,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// SwiftUI doesn't burn a re-render per ScreenCaptureKit buffer.
     private var lastLevelPublish: CFTimeInterval = 0
     private var lastHistoryPublish: CFTimeInterval = 0
+    private var pendingMeterPeak: Float = 0
+    private var pendingMeterBands: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
     private let uiTestMode = UITestModeConfiguration.shared
     private var uiTestInjectedAudioApps: [String: AudioApp] = [:]
     private var uiTestInjectedActiveBundleIDs: Set<String> = []
@@ -436,13 +438,14 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     func startRecording() async throws {
         guard state == .idle else { return }
+        setIncludesMicrophoneAudio(AppConfig.shared.recordingIncludeMicrophoneAudio)
         activeRecordingID = UUID()
         let metadata = recordingSessionMetadata()
         let autoStopContext = detectedMeetingContextForNextRecording()
         activeLiveCaptionConfiguration = liveCaptionRecordingConfiguration()
         DiagnosticsLog.event(
             "recording",
-            "start.request selectedBundle=\(selectedApp?.id ?? "all-system-audio") cloudCaptions=\(AppConfig.shared.backendRealtimeLiveCaptionsEnabled) bilingual=\(activeLiveCaptionConfiguration?.showsTranslation ?? false) language=\(AppConfig.shared.normalizedCloudLanguage)"
+            "start.request selectedBundle=\(selectedApp?.id ?? "all-system-audio") includeMic=\(includesMicrophoneAudio) cloudCaptions=\(AppConfig.shared.backendRealtimeLiveCaptionsEnabled) bilingual=\(activeLiveCaptionConfiguration?.showsTranslation ?? false) language=\(AppConfig.shared.normalizedCloudLanguage)"
         )
         pendingDetectedMeetingRecordingContext = nil
         recordingSuggestion = nil
@@ -516,6 +519,10 @@ final class AudioRecorder: NSObject, ObservableObject {
             guard let micDevice = AVCaptureDevice.default(for: .audio) else {
                 throw RecorderError.noMicrophone
             }
+            DiagnosticsLog.event(
+                "recording",
+                "mic.device name=\(DiagnosticsLog.sanitize(micDevice.localizedName, maxLength: 80)) uniqueIDHash=\(micDevice.uniqueID.hashValue)"
+            )
             let deviceInput = try AVCaptureDeviceInput(device: micDevice)
             guard captureSession.canAddInput(deviceInput) else {
                 throw RecorderError.micSetupFailed
@@ -549,9 +556,10 @@ final class AudioRecorder: NSObject, ObservableObject {
             try startMonitoringOutputDeviceChanges()
             try await scStream.startCapture()
             captureSession.startRunning()
+            mcOut.setIncludesAudio(includesMicrophoneAudio)
             DiagnosticsLog.event(
                 "recording",
-                "capture.started dir=\(sessionDir.lastPathComponent) selectedBundle=\(selectedApp?.id ?? "all-system-audio") outputDevice=\(outputAudioDeviceID)"
+                "capture.started dir=\(sessionDir.lastPathComponent) selectedBundle=\(selectedApp?.id ?? "all-system-audio") includeMic=\(includesMicrophoneAudio) outputDevice=\(outputAudioDeviceID)"
             )
 
             self.audioLevel = 0
@@ -559,6 +567,8 @@ final class AudioRecorder: NSObject, ObservableObject {
             self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
             self.lastLevelPublish = 0
             self.lastHistoryPublish = 0
+            self.pendingMeterPeak = 0
+            self.pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
             self.detectedMeetingRecordingContext = autoStopContext
             self.state = .recording
             self.elapsedSeconds = 0
@@ -640,6 +650,14 @@ final class AudioRecorder: NSObject, ObservableObject {
             "writers.finished system=\(Self.fileSummary(finishedSystemURL)) mic=\(Self.fileSummary(finishedMicURL))"
         )
 
+        if hasIncludedMicrophoneAudioInCurrentRecording, finishedMicURL == nil {
+            DiagnosticsLog.error(
+                "recording",
+                "mic.capture_missing dir=\(sessionDir?.lastPathComponent ?? "none")"
+            )
+            throw RecorderError.micCaptureFailed
+        }
+
         if let stopCaptureError {
             throw stopCaptureError
         }
@@ -694,36 +712,52 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     /// Merge the latest peak + spectrum from either audio source into the
-    /// live recording meter. Called from the capture queues — we hop to the
-    /// main actor, take the max of system + mic, and cap publish rate to 30 Hz.
+    /// live recording meter. Called from the capture queues. We accumulate
+    /// the max of system + mic frames between UI publishes; otherwise a
+    /// high-frequency silent system stream can consume the 30 Hz throttle
+    /// window and starve microphone frames from the visible waveform.
     nonisolated func ingestMeterFrame(_ frame: AudioMeterFrame) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let now = CACurrentMediaTime()
+            self.ingestMeterFrame(frame, now: CACurrentMediaTime())
+        }
+    }
 
-            // Hold peak with light decay so a single-buffer spike still reads
-            // visually over the ~33ms publish window.
-            let smoothed = max(self.audioLevel * 0.82, frame.peak)
+    func ingestMeterFrameForTesting(_ frame: AudioMeterFrame, now: CFTimeInterval) {
+        ingestMeterFrame(frame, now: now)
+    }
 
-            if now - self.lastLevelPublish >= 1.0 / 30.0 {
-                self.lastLevelPublish = now
-                self.audioLevel = smoothed
+    private func ingestMeterFrame(_ frame: AudioMeterFrame, now: CFTimeInterval) {
+        let incoming = normalizeSpectrum(frame.bands)
+        if pendingMeterBands.count != Self.spectrumBucketCount {
+            pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
+        }
+        pendingMeterPeak = max(pendingMeterPeak, frame.peak)
+        pendingMeterBands = zip(pendingMeterBands, incoming).map(max)
 
-                let incoming = normalizeSpectrum(frame.bands)
-                let decayed = self.audioSpectrumLevels.map { $0 * 0.72 }
-                self.audioSpectrumLevels = zip(decayed, incoming).map(max)
+        // Hold peak with light decay so a single-buffer spike still reads
+        // visually over the publish window.
+        let smoothed = max(audioLevel * 0.82, pendingMeterPeak)
+
+        if now - lastLevelPublish >= 1.0 / 30.0 {
+            lastLevelPublish = now
+            audioLevel = smoothed
+
+            let decayed = audioSpectrumLevels.map { $0 * 0.72 }
+            audioSpectrumLevels = zip(decayed, pendingMeterBands).map(max)
+            pendingMeterPeak = 0
+            pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
+        }
+
+        if now - lastHistoryPublish >= Self.historySampleInterval {
+            lastHistoryPublish = now
+            let historyValue = min(1, pow(max(smoothed, 0), 0.75))
+            var history = audioLevelHistory
+            history.append(historyValue)
+            if history.count > Self.spectrumBucketCount {
+                history.removeFirst(history.count - Self.spectrumBucketCount)
             }
-
-            if now - self.lastHistoryPublish >= Self.historySampleInterval {
-                self.lastHistoryPublish = now
-                let historyValue = min(1, pow(max(smoothed, 0), 0.75))
-                var history = self.audioLevelHistory
-                history.append(historyValue)
-                if history.count > Self.spectrumBucketCount {
-                    history.removeFirst(history.count - Self.spectrumBucketCount)
-                }
-                self.audioLevelHistory = history
-            }
+            audioLevelHistory = history
         }
     }
 
@@ -737,6 +771,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
         lastLevelPublish = 0
         lastHistoryPublish = 0
+        pendingMeterPeak = 0
+        pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
         liveCaptionSegments = []
         liveCaptionCarryoverSegments = []
         liveCaptionMessage = nil
@@ -1133,6 +1169,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
         self.lastLevelPublish = 0
         self.lastHistoryPublish = 0
+        self.pendingMeterPeak = 0
+        self.pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
         self.liveCaptionSegments = []
         self.liveCaptionCarryoverSegments = []
         self.liveCaptionMessage = nil

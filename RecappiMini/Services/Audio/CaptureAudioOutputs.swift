@@ -40,6 +40,8 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     private let writer: SegmentedAudioWriter
     private let stateQueue = DispatchQueue(label: "RecappiMini.MicAudioOutput.state")
     private var includesAudio = true
+    private var didLogFirstBuffer = false
+    private var didLogFirstIncludedBuffer = false
 
     var onMeterFrame: ((AudioMeterFrame) -> Void)?
 
@@ -60,6 +62,14 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     ) {
         guard sampleBuffer.isValid else { return }
         let included = stateQueue.sync { includesAudio }
+        if !didLogFirstBuffer {
+            didLogFirstBuffer = true
+            DiagnosticsLog.event("recording", "mic.first_buffer included=\(included)")
+        }
+        if included, !didLogFirstIncludedBuffer {
+            didLogFirstIncludedBuffer = true
+            DiagnosticsLog.event("recording", "mic.first_included_buffer")
+        }
         writer.append(sampleBuffer, muted: !included)
         if included {
             onMeterFrame?(AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount))
