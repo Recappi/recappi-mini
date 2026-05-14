@@ -58,12 +58,12 @@ final class RealtimeLiveCaptionActorClientFindingsTests: XCTestCase {
 
     // MARK: - Finding #9 — Ping timeout must observe cancellation
 
-    /// When `sendPing()` never resolves (half-open socket), the
-    /// watchdog's race-against-timeout must NOT hang waiting for the
-    /// dead ping. With a short ping timeout, the probe must return
-    /// (with `pingFailedAndReconnected` since the timeout arm wins)
-    /// within a small window — not deadlock waiting for `sendPing()`
-    /// that never resolves.
+    /// When `sendPing()` does not resolve before the timeout
+    /// (half-open socket), the watchdog's race-against-timeout must
+    /// NOT hang waiting for the dead ping. With a short ping timeout,
+    /// the probe must return (with `pingFailedAndReconnected` since
+    /// the timeout arm wins) within a small window — not deadlock
+    /// waiting for `sendPing()`.
     func testStallProbeReturnsWhenPingNeverResolves() async {
         let connector = MockRealtimeSessionConnector()
         let actor = RealtimeLiveCaptionActor(
@@ -92,12 +92,13 @@ final class RealtimeLiveCaptionActorClientFindingsTests: XCTestCase {
             XCTFail("Expected MockRealtimeSocket on live.")
             return
         }
-        // Install a ping handler that suspends forever — simulating a
-        // half-open socket where the pong callback never arrives.
+        // Install a ping handler that will not complete within the
+        // probe timeout — simulating a half-open socket where the pong
+        // callback never arrives. Use cancellation-aware sleep rather
+        // than a deliberately leaked checked continuation, otherwise
+        // the test itself emits Swift continuation-misuse warnings.
         mock.setPingHandler({
-            try await withCheckedThrowingContinuation { (_: CheckedContinuation<Void, Error>) in
-                // Never resume — emulate a dropped pong.
-            }
+            try await Task.sleep(nanoseconds: 60_000_000_000)
         })
 
         let start = Date()
