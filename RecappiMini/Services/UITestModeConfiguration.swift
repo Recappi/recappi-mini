@@ -22,6 +22,9 @@ struct UITestModeConfiguration {
     let simulatedLiveCaptionTranslationText: String?
     let useBackendRealtimeLiveCaptions: Bool
     let openCloudWindowOnLaunch: Bool
+    let openSettingsWindowOnLaunch: Bool
+    let stateBoardVisualFixtureEnabled: Bool
+    let stateBoardRecordingPanelState: String?
     /// Test-only override: pretend the selected recording has a newer cloud
     /// version after each detail refresh, so reviewers can see the
     /// `newerVersionStrip` banner without orchestrating a real concurrent
@@ -67,6 +70,10 @@ struct UITestModeConfiguration {
         commandFilePath = env["RECAPPI_UI_TEST_COMMAND_FILE"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         manualAuthEnabled = env["RECAPPI_ENABLE_MANUAL_AUTH"] == "1"
         openCloudWindowOnLaunch = env["RECAPPI_TEST_OPEN_CLOUD_WINDOW"] == "1"
+        openSettingsWindowOnLaunch = env["RECAPPI_TEST_OPEN_SETTINGS_WINDOW"] == "1"
+        stateBoardVisualFixtureEnabled = env["RECAPPI_TEST_STATE_BOARD_FIXTURE"] == "1"
+        stateBoardRecordingPanelState = env["RECAPPI_TEST_RECORDING_PANEL_STATE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         useBackendRealtimeLiveCaptions = env["RECAPPI_TEST_USE_BACKEND_REALTIME"] == "1"
         forceNewerVersionBannerForTesting = env["RECAPPI_TEST_FORCE_NEWER_VERSION_BANNER"] == "1"
         perfLogEnabled = env["RECAPPI_PERF_LOG"] == "1"

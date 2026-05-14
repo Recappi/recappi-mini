@@ -17,3 +17,6 @@ xcuserdata/
 # App output
 *.app
 *.ipa
+
+# Local design-review screenshots
+.snapshot-board/

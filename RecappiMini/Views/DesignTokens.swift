@@ -27,6 +27,9 @@ enum DT {
     static let statusReady = Color(red: 90/255, green: 218/255, blue: 174/255)
     static let statusUploading = Color(red: 112/255, green: 166/255, blue: 255/255)
     static let statusWarning = Color(red: 232/255, green: 178/255, blue: 91/255)
+    static let recordingLiveBlue = Color(red: 14/255, green: 165/255, blue: 233/255)
+    static let recordingDestructiveRed = Color(red: 255/255, green: 69/255, blue: 58/255)
+    static let recordingErrorAmber = Color(red: 245/255, green: 158/255, blue: 11/255)
 
     /// Mint green used in the recording-state logo tile. Matches the tint
     /// in the Figma design's dark-pill mockup — bright enough to pop on

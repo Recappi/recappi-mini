@@ -13,7 +13,7 @@ struct ErrorState: View {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 14))
-                    .foregroundStyle(DT.systemOrange)
+                    .foregroundStyle(DT.recordingErrorAmber)
                     .frame(width: 16, height: 16)
                     .padding(.top, 1)
 
@@ -50,21 +50,37 @@ struct ErrorState: View {
     private var actionsRow: some View {
         if recorder.lastSessionDir != nil {
             HStack(spacing: 6) {
-                Button("Show", action: onShow).buttonStyle(PanelPushButtonStyle())
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.showButton)
-                if isConfigRelated {
-                    Button("Settings…", action: onSettings).buttonStyle(PanelPushButtonStyle())
-                        .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
-                }
-                Button("Retry", action: onRetry).buttonStyle(PanelPushButtonStyle(primary: true))
+                Button("Retry", action: onRetry)
+                    .buttonStyle(ErrorRetryButtonStyle())
                     .accessibilityIdentifier(AccessibilityIDs.Panel.retryButton)
+                moreMenu
             }
         } else if isConfigRelated {
             HStack(spacing: 6) {
-                Button("Settings…", action: onSettings).buttonStyle(PanelPushButtonStyle(primary: true))
+                Button("Settings…", action: onSettings)
+                    .buttonStyle(ErrorRetryButtonStyle())
                     .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
             }
         }
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Button("Show in Finder", action: onShow)
+                .accessibilityIdentifier(AccessibilityIDs.Panel.showButton)
+            if isConfigRelated {
+                Button("Settings…", action: onSettings)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .bold))
+                .frame(maxWidth: .infinity)
+                .frame(height: 22)
+        }
+        .menuStyle(.borderlessButton)
+        .buttonStyle(PanelPushButtonStyle())
+        .help("More recovery actions")
     }
 
     private var title: String {
@@ -82,5 +98,24 @@ struct ErrorState: View {
             || lower.contains("session")
             || lower.contains("sign in")
             || lower.contains("language not supported")
+    }
+}
+
+private struct ErrorRetryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Color.black.opacity(0.88))
+            .frame(maxWidth: .infinity)
+            .frame(height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .fill(DT.recordingErrorAmber)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+            )
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
     }
 }

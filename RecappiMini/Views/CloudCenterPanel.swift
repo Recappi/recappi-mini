@@ -47,7 +47,9 @@ struct CloudCenterPanel: View {
             cloudAudioPlayer.close()
         }
         .task {
-            await store.loadInitialIfNeeded()
+            if !UITestModeConfiguration.shared.stateBoardVisualFixtureEnabled {
+                await store.loadInitialIfNeeded()
+            }
         }
         .confirmationDialog(
             "Delete this cloud recording?",

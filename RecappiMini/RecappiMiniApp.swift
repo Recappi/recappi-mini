@@ -154,6 +154,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         // in the correct appearance.
         ThemeManager.shared.startObserving()
         NSApp.setActivationPolicy(.accessory)
+        if uiTestMode.stateBoardVisualFixtureEnabled {
+            UserDefaults.standard.set(true, forKey: "recordingIncludeMicrophoneAudio")
+            AppConfig.shared.recordingIncludeMicrophoneAudio = true
+            AppConfig.shared.recordingAutoTranscribeAfterUpload = true
+            UserDefaults.standard.set("spectrum", forKey: "recappi.panel.recordingWaveformMode")
+            installStateBoardCloudFixture()
+        }
         installStatusItemIfNeeded()
         appUpdater.prepareForUserInitiatedCheck = { [weak self] in
             self?.prepareForForegroundUpdateCheck()
@@ -163,6 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         }
         Task { @MainActor in
             await AuthSessionStore.shared.bootstrapForUITestsIfNeeded()
+            if self.uiTestMode.openSettingsWindowOnLaunch {
+                self.showSettingsWindow()
+            }
             if self.uiTestMode.openCloudWindowOnLaunch {
                 self.showCloudCenter()
             }
@@ -295,6 +305,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                     self?.reconcileLiveCaptionPanelPresentation()
                 }
             }
+
+        installStateBoardRecordingPanelFixtureIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -693,6 +705,165 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         window.toolbarStyle = .unified
         window.makeKeyAndOrderFront(nil)
         managedWindows.cloudWindow = window
+    }
+
+    private func installStateBoardCloudFixture() {
+        let created = Date().addingTimeInterval(-3_600)
+        let recording = CloudRecording(
+            id: "state-board-weekly-sync",
+            userId: "state-board-user",
+            title: "Weekly engineering sync",
+            summaryTitle: "Weekly engineering sync",
+            sourceTitle: "Google Meet",
+            sourceAppName: "Google Chrome",
+            sourceAppBundleID: "com.google.Chrome",
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .ready,
+            sizeBytes: 8_600_000,
+            durationMs: 1_840_000,
+            sampleRate: 48_000,
+            channels: 2,
+            contentType: "audio/mpeg",
+            activeTranscriptId: "state-board-transcript",
+            createdAt: created,
+            updatedAt: created.addingTimeInterval(120)
+        )
+        let later = CloudRecording(
+            id: "state-board-design-review",
+            userId: "state-board-user",
+            title: "Design review with platform team",
+            summaryTitle: "Design review with platform team",
+            sourceTitle: "Zoom",
+            sourceAppName: "Zoom",
+            sourceAppBundleID: "us.zoom.xos",
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .ready,
+            sizeBytes: 5_200_000,
+            durationMs: 1_120_000,
+            sampleRate: 48_000,
+            channels: 2,
+            contentType: "audio/mpeg",
+            activeTranscriptId: "state-board-transcript-2",
+            createdAt: created.addingTimeInterval(-86_400),
+            updatedAt: created.addingTimeInterval(-85_800)
+        )
+        cloudStore.recordings = [recording, later]
+        cloudStore.selectedRecordingID = recording.id
+        cloudStore.totalRecordingCount = 2
+        cloudStore.lastSuccessfulRefreshAt = Date()
+        cloudStore.state = .loaded
+        cloudStore.transcriptCache[recording.id] = Self.stateBoardTranscriptFixture()
+        cloudStore.transcriptCacheRecordingUpdatedAt[recording.id] = recording.updatedAt
+        cloudStore.transcriptionJobsByRecordingID[recording.id] = [
+            TranscriptionJob(
+                id: "state-board-job",
+                status: .succeeded,
+                transcriptId: recording.activeTranscriptId,
+                provider: "Recappi Cloud",
+                model: "gpt-4o-transcribe",
+                language: "en-US",
+                prompt: nil,
+                error: nil,
+                attempts: 1,
+                enqueuedAt: nil,
+                startedAt: nil,
+                finishedAt: nil
+            )
+        ]
+    }
+
+    private func installStateBoardRecordingPanelFixtureIfNeeded() {
+        guard uiTestMode.stateBoardVisualFixtureEnabled,
+              let state = uiTestMode.stateBoardRecordingPanelState?.lowercased(),
+              !state.isEmpty else {
+            return
+        }
+
+        switch state {
+        case "processing":
+            recorder.state = .processing(.polling(jobStatus: "summarizing"))
+
+        case "done-transcribe-pending", "done_transcribe_pending":
+            AppConfig.shared.recordingAutoTranscribeAfterUpload = false
+            recorder.state = .done(result: stateBoardRecordingResult(transcript: nil, duration: 74))
+
+        case "done-ready", "done_ready", "done-transcript", "done_transcript":
+            AppConfig.shared.recordingAutoTranscribeAfterUpload = true
+            recorder.state = .done(result: stateBoardRecordingResult(
+                transcript: "Ava: Keep the saved receipt focused on one Cloud action.\nBen: Make dismiss quiet and let the next flow feel calm.",
+                duration: 193
+            ))
+
+        case "error":
+            let sessionDir = stateBoardSessionDirectory(name: "state-board-error")
+            recorder.lastSessionDir = sessionDir
+            recorder.state = .error(message: "Cloud session expired. Sign in again, then retry processing.")
+
+        default:
+            break
+        }
+    }
+
+    private func stateBoardRecordingResult(transcript: String?, duration: Int) -> RecordingResult {
+        let sessionDir = stateBoardSessionDirectory(name: "state-board-\(UUID().uuidString)")
+        var manifest = RemoteSessionManifest.stage("synced")
+        manifest.recordingId = "state-board-recording-\(sessionDir.lastPathComponent)"
+        _ = RecordingStore.saveRemoteManifest(manifest, in: sessionDir)
+        if let transcript {
+            try? RecordingStore.saveTranscript(transcript, in: sessionDir)
+        }
+        recorder.lastSessionDir = sessionDir
+        return RecordingResult(folderURL: sessionDir, transcript: transcript, duration: duration)
+    }
+
+    private func stateBoardSessionDirectory(name: String) -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("recappi-state-board", isDirectory: true)
+            .appendingPathComponent(name, isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private static func stateBoardTranscriptFixture() -> TranscriptResponse? {
+        let raw = """
+        {
+          "id": "state-board-transcript",
+          "text": "Ava opened by framing the onboarding funnel. Ben noted that live captions need clearer status feedback. Chloe proposed simplifying the saved receipt so the primary action is obvious.",
+          "summaryStatus": "succeeded",
+          "summaryInsights": {
+            "title": "Weekly engineering sync",
+            "tldr": "The team aligned on a calmer recording receipt, clearer live-caption feedback, and a smaller follow-up list for the next release.",
+            "keyPoints": [
+              "Keep the saved receipt focused on one primary Cloud action.",
+              "Show live caption connection state without interrupting the recording flow.",
+              "Use the current UI board to compare spacing, hierarchy, and state coverage before redesigning."
+            ],
+            "decisions": [
+              "Ship the two-line saved receipt framework.",
+              "Capture current product states before opening a broader redesign."
+            ],
+            "actionItems": [
+              { "who": "Ava", "what": "Prepare the Pencil review board." },
+              { "who": "Ben", "what": "Audit live caption error and reconnect states." }
+            ],
+            "timeline": [
+              { "startMs": 0, "endMs": 420000, "title": "Receipt hierarchy", "summary": "The group compared the saved-state actions and agreed the Cloud link should be the only prominent CTA." },
+              { "startMs": 420000, "endMs": 980000, "title": "Live caption feedback", "summary": "The team reviewed caption states and called out missing reconnect and bilingual screenshots for the design board." },
+              { "startMs": 980000, "endMs": 1840000, "title": "Design board plan", "summary": "Everyone agreed to collect reproducible state screenshots before committing to a new visual direction." }
+            ]
+          },
+          "segments": [
+            { "startMs": 0, "endMs": 180000, "speaker": "Ava", "text": "Let's start with the capture flow and make sure the receipt only has one obvious primary action." },
+            { "startMs": 180000, "endMs": 420000, "speaker": "Ben", "text": "The cloud link should be primary, while dismiss can stay quiet and low-contrast." },
+            { "startMs": 420000, "endMs": 760000, "speaker": "Chloe", "text": "Live captions still need visible reconnect and bilingual states in the board." },
+            { "startMs": 760000, "endMs": 1200000, "speaker": "Ava", "text": "Before redesigning, let's lay out the current app surfaces side by side and mark the confusing parts." },
+            { "startMs": 1200000, "endMs": 1840000, "speaker": "Ben", "text": "After that, we can tune hierarchy and spacing with Pencil instead of guessing from one screenshot." }
+          ]
+        }
+        """
+        return try? JSONDecoder().decode(TranscriptResponse.self, from: Data(raw.utf8))
     }
 
     func setLiveCaptionPanelPresented(_ presented: Bool) {

@@ -28,13 +28,13 @@ struct IdleState: View {
 
                             Text("Record app")
                                 .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(DT.waveformLit)
+                                .foregroundStyle(DT.recordingLiveBlue)
                                 .padding(.horizontal, 6)
                                 .frame(height: 16)
                                 .fixedSize(horizontal: true, vertical: false)
                                 .background(
                                     Capsule()
-                                        .fill(DT.waveformLit.opacity(0.13))
+                                        .fill(DT.recordingLiveBlue.opacity(0.13))
                                 )
                         }
                         .frame(maxWidth: .infinity, alignment: .trailing)

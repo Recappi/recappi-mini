@@ -14,6 +14,8 @@ enum AccessibilityIDs {
         static let openCloudButton = "recappi.settings.openCloudButton"
         static let billingUsage = "recappi.settings.billingUsage"
         static let billingRefreshButton = "recappi.settings.billingRefreshButton"
+        static let accountSidebarRow = "recappi.settings.sidebar.account"
+        static let transcriptionSidebarRow = "recappi.settings.sidebar.transcription"
         static let permissionMicrophoneStatus = "recappi.settings.permissionMicrophoneStatus"
         static let permissionScreenCaptureStatus = "recappi.settings.permissionScreenCaptureStatus"
         static let requestMicrophoneButton = "recappi.settings.requestMicrophoneButton"

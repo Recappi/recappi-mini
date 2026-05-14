@@ -20,6 +20,7 @@ struct RecordingState: View {
     @ObservedObject var recorder: AudioRecorder
     @ObservedObject private var appDelegate = AppDelegate.shared
     @AppStorage("recappi.panel.recordingWaveformMode") private var waveformModeRaw = WaveformMode.spectrum.rawValue
+    @State private var isConfirmingDiscard = false
     var onDiscard: () -> Void
     var onStop: () -> Void
     var onClose: () -> Void
@@ -32,9 +33,9 @@ struct RecordingState: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Circle()
-                    .fill(DT.systemRed)
+                    .fill(DT.recordingLiveBlue)
                     .frame(width: 6, height: 6)
-                    .shadow(color: DT.systemRed.opacity(0.6), radius: 2)
+                    .shadow(color: DT.recordingLiveBlue.opacity(0.6), radius: 2)
                     .modifier(PulsingModifier())
                 Text(formatTime(recorder.elapsedSeconds))
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -81,28 +82,26 @@ struct RecordingState: View {
                     recorder.setIncludesMicrophoneAudio(!recorder.includesMicrophoneAudio)
                 } label: {
                     ZStack(alignment: .topTrailing) {
-                        if recorder.includesMicrophoneAudio {
-                            RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                                .fill(DT.systemRed.opacity(0.14))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                                        .strokeBorder(DT.systemRed.opacity(0.35), lineWidth: 0.5)
-                                )
-                                .frame(width: 28, height: 28)
-                        }
+                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                            .fill(Palette.surfaceChip.opacity(0.72))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
+                            )
+                            .frame(width: 28, height: 28)
 
                         Image(systemName: recorder.includesMicrophoneAudio ? "mic.fill" : "mic.slash.fill")
                             .font(.system(size: 12))
                             .foregroundStyle(
                                 recorder.includesMicrophoneAudio
-                                    ? DT.systemRed
+                                    ? DT.recordingLiveBlue
                                     : Palette.labelTertiary
                             )
                             .frame(width: 28, height: 28)
 
                         if recorder.includesMicrophoneAudio {
                             Circle()
-                                .fill(DT.systemRed)
+                                .fill(DT.recordingLiveBlue)
                                 .frame(width: 5.5, height: 5.5)
                                 .overlay(
                                     Circle()
@@ -120,13 +119,7 @@ struct RecordingState: View {
                 .help(recorder.includesMicrophoneAudio ? "Microphone on (click to mute)" : "Microphone muted (click to unmute)")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.microphoneIncludeButton)
 
-                Button(action: onDiscard) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(PanelIconButtonStyle())
-                .help("Discard")
-                .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
+                moreMenu
 
                 PrimaryRecordButton(kind: .stop, action: onStop)
                     .keyboardShortcut(.return, modifiers: [])
@@ -134,6 +127,17 @@ struct RecordingState: View {
                     .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
             }
             .frame(height: 28)
+        }
+        .confirmationDialog(
+            "Discard this recording?",
+            isPresented: $isConfirmingDiscard,
+            titleVisibility: .visible
+        ) {
+            Button("Discard Recording", role: .destructive, action: onDiscard)
+                .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This stops the capture and removes the current recording.")
         }
     }
 
@@ -145,6 +149,26 @@ struct RecordingState: View {
         case .history:
             DotMatrixWaveform(levels: recorder.audioLevelHistory)
         }
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Button(role: .destructive) {
+                isConfirmingDiscard = true
+            } label: {
+                Label("Discard recording", systemImage: "trash")
+            }
+            .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .bold))
+                .frame(width: 28, height: 28)
+                .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 28, height: 28)
+        .help("More recording actions")
     }
 
     private var recordingSourceLabel: String {
@@ -161,7 +185,7 @@ struct RecordingState: View {
                         .frame(width: 12, height: 12)
                         .clipShape(RoundedRectangle(cornerRadius: 2.5, style: .continuous))
                     Circle()
-                        .fill(DT.waveformLit)
+                        .fill(DT.recordingLiveBlue)
                         .frame(width: 4.5, height: 4.5)
                         .overlay(
                             Circle()

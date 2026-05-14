@@ -11,7 +11,7 @@ struct ProcessingState: View {
             HStack(spacing: 12) {
                 Circle()
                     .trim(from: 0, to: 0.75)
-                    .stroke(Color.dtLabel, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                    .stroke(DT.recordingLiveBlue, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
                     .frame(width: 16, height: 16)
                     .rotationEffect(.degrees(spin ? 360 : 0))
                     .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spin)
@@ -50,7 +50,7 @@ struct ProcessingState: View {
                     switch phase.progressStyle {
                     case .determinate(let progress):
                         Capsule()
-                            .fill(DT.waveformLit)
+                            .fill(DT.recordingLiveBlue)
                             .frame(width: width * max(0, min(1, progress)), height: 3)
                             .animation(.easeOut(duration: 0.25), value: progress)
 
@@ -61,13 +61,13 @@ struct ProcessingState: View {
                         let segmentWidth = min(max(remainingWidth * 0.45, 26), max(remainingWidth, 26))
 
                         Capsule()
-                            .fill(DT.waveformLit.opacity(0.85))
+                            .fill(DT.recordingLiveBlue.opacity(0.85))
                             .frame(width: baseWidth, height: 3)
                             .animation(.easeOut(duration: 0.25), value: base)
 
                         if remainingWidth > 0 {
                             Capsule()
-                                .fill(DT.waveformLit)
+                                .fill(DT.recordingLiveBlue)
                                 .frame(width: min(segmentWidth, remainingWidth), height: 3)
                                 .offset(x: baseWidth + ((remainingWidth - min(segmentWidth, remainingWidth)) * (shimmerPhase ? 1 : 0)))
                                 .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 1.1).repeatForever(autoreverses: true), value: shimmerPhase)

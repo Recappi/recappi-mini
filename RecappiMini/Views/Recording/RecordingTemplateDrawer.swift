@@ -6,6 +6,7 @@ struct RecordingOptionsButton: View {
 
     @ObservedObject private var config = AppConfig.shared
     @State private var isShowingOptions = false
+    @State private var isPromptExpanded = false
     @State private var promptEditorMeasuredHeight: CGFloat = 44
 
     private var scene: RecordingSceneTemplate {
@@ -62,85 +63,218 @@ struct RecordingOptionsButton: View {
     }
 
     private var optionsPopover: some View {
-        Form {
-            Section {
-                Picker("Language", selection: speechLanguageBinding) {
-                    ForEach(SpeechLanguageOption.common) { option in
-                        Text(option.title).tag(option.id)
+        VStack(alignment: .leading, spacing: 22) {
+            optionsSection("Audio capture") {
+                optionsPickerRow("Language") {
+                    Picker("Language", selection: speechLanguageBinding) {
+                        ForEach(SpeechLanguageOption.common) { option in
+                            Text(option.title).tag(option.id)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.sharedLanguageButton)
                 }
-                .accessibilityIdentifier(AccessibilityIDs.Panel.sharedLanguageButton)
 
-                Toggle("Include microphone", isOn: $config.recordingIncludeMicrophoneAudio)
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.microphoneIncludeButton)
+                optionsToggleRow(
+                    "Include microphone",
+                    subtitle: "Mix your microphone into the recording",
+                    isOn: $config.recordingIncludeMicrophoneAudio,
+                    accessibilityID: AccessibilityIDs.Panel.microphoneIncludeButton
+                )
             }
 
-            Section("Live captions") {
-                Toggle("Enable", isOn: liveCaptionDisplayBinding)
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.liveCaptionDisplayToggle)
+            optionsSection("Live captions") {
+                optionsToggleRow(
+                    "Enable",
+                    subtitle: "Show a floating caption strip while recording",
+                    isOn: liveCaptionDisplayBinding,
+                    accessibilityID: AccessibilityIDs.Panel.liveCaptionDisplayToggle
+                )
 
-                Picker("Translate", selection: translateModeBinding) {
-                    Text("Off").tag("")
-                    Divider()
-                    ForEach(LiveCaptionTranslationTargetLanguageOption.common) { option in
-                        Text(option.title).tag(option.id)
+                optionsPickerRow("Translate") {
+                    Picker("Translate", selection: translateModeBinding) {
+                        Text("Off").tag("")
+                        Divider()
+                        ForEach(LiveCaptionTranslationTargetLanguageOption.common) { option in
+                            Text(option.title).tag(option.id)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .disabled(!canConfigureTranslation)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.liveCaptionTranslateToggle)
                 }
-                .disabled(!canConfigureTranslation)
-                .accessibilityIdentifier(AccessibilityIDs.Panel.liveCaptionTranslateToggle)
 
                 if !config.backendRealtimeLiveCaptionsEnabled {
                     Text("Translation requires backend Realtime captions in Settings.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Palette.labelTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            Section("Cloud transcription") {
-                Picker("Scene", selection: $config.recordingSceneTemplate) {
-                    ForEach(RecordingSceneTemplate.allCases) { option in
-                        Text(option.title).tag(option.rawValue)
+            optionsSection("Cloud transcription") {
+                optionsPickerRow("Scene") {
+                    Picker("Scene", selection: $config.recordingSceneTemplate) {
+                        ForEach(RecordingSceneTemplate.allCases) { option in
+                            Text(option.title).tag(option.rawValue)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.summaryScenePicker)
                 }
-                .accessibilityIdentifier(AccessibilityIDs.Panel.summaryScenePicker)
 
-                Toggle("Run after upload", isOn: $config.recordingAutoTranscribeAfterUpload)
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.autoTranscribeToggle)
+                optionsToggleRow(
+                    "Auto-process after upload",
+                    subtitle: "Start transcript and summary as soon as upload finishes",
+                    isOn: $config.recordingAutoTranscribeAfterUpload,
+                    accessibilityID: AccessibilityIDs.Panel.autoTranscribeToggle
+                )
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Prompt")
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                    AlignedPromptTextView(
-                        text: $config.recordingExtraPrompt,
-                        measuredHeight: $promptEditorMeasuredHeight,
-                        placeholder: "Add context: names, terms, goals…",
-                        fontSize: 11,
-                        textInset: NSSize(width: 7, height: 7),
-                        accessibilityIdentifier: AccessibilityIDs.Panel.promptField,
-                        isEditable: true
-                    )
-                    .frame(minHeight: 44, maxHeight: max(44, promptEditorMeasuredHeight))
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.gray.opacity(0.15))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(Color.gray.opacity(0.25), lineWidth: 0.5)
-                    )
-                    .animation(DT.motionAware(DT.ease(0.15)), value: promptEditorMeasuredHeight)
-                }
-                .padding(.vertical, 2)
+                promptDisclosure
             }
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
+        .padding(18)
         .frame(width: 360)
-        .frame(minHeight: 320, idealHeight: 400, maxHeight: 500)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Palette.surfaceElevated)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Palette.borderSubtle, lineWidth: 0.5)
+        )
         .preferredColorScheme(.dark)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Panel.recordingOptionsPopover)
+        .onAppear {
+            if !config.recordingExtraPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                isPromptExpanded = true
+            }
+        }
+    }
+
+    private func optionsSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title.uppercased())
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundStyle(DT.statusReady)
+                .tracking(0.8)
+            VStack(alignment: .leading, spacing: 10, content: content)
+        }
+    }
+
+    private func optionsPickerRow<Control: View>(
+        _ title: String,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Palette.labelPrimary)
+            Spacer(minLength: 12)
+            control()
+                .controlSize(.small)
+        }
+        .frame(minHeight: 26)
+    }
+
+    private func optionsToggleRow(
+        _ title: String,
+        subtitle: String,
+        isOn: Binding<Bool>,
+        accessibilityID: String
+    ) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Palette.labelPrimary)
+                    Text(subtitle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Palette.labelTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                switchGlyph(isOn: isOn.wrappedValue)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
+        .accessibilityIdentifier(accessibilityID)
+    }
+
+    private func switchGlyph(isOn: Bool) -> some View {
+        Capsule(style: .continuous)
+            .fill(isOn ? DT.recordingLiveBlue : Palette.surfaceChip)
+            .frame(width: 34, height: 20)
+            .overlay(alignment: isOn ? .trailing : .leading) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 16, height: 16)
+                    .shadow(color: .black.opacity(0.22), radius: 1, y: 0.5)
+                    .padding(2)
+            }
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
+            )
+            .animation(DT.motionAware(DT.ease(0.14)), value: isOn)
+    }
+
+    @ViewBuilder
+    private var promptDisclosure: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(DT.motionAware(DT.ease(0.16))) {
+                    isPromptExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isPromptExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                    Text("Add prompt context")
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(DT.recordingLiveBlue)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(AccessibilityIDs.Panel.promptDisclosureButton)
+
+            if isPromptExpanded {
+                AlignedPromptTextView(
+                    text: $config.recordingExtraPrompt,
+                    measuredHeight: $promptEditorMeasuredHeight,
+                    placeholder: "Names, terms, goals…",
+                    fontSize: 11,
+                    textInset: NSSize(width: 8, height: 8),
+                    accessibilityIdentifier: AccessibilityIDs.Panel.promptField,
+                    isEditable: true
+                )
+                .frame(minHeight: 46, maxHeight: max(46, promptEditorMeasuredHeight))
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Palette.surfaceChip.opacity(0.65))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Palette.borderSubtle, lineWidth: 0.5)
+                )
+                .animation(DT.motionAware(DT.ease(0.15)), value: promptEditorMeasuredHeight)
+            }
+        }
     }
 
     private var canConfigureTranslation: Bool {

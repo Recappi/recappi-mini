@@ -1712,6 +1712,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         self.audioLevel = 0
         self.audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
         self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
+        seedStateBoardMeterIfNeeded()
         self.lastLevelPublish = 0
         self.lastHistoryPublish = 0
         self.pendingMeterPeak = 0
@@ -1770,6 +1771,23 @@ final class AudioRecorder: NSObject, ObservableObject {
             Task { @MainActor in
                 self?.elapsedSeconds += 1
             }
+        }
+    }
+
+    private func seedStateBoardMeterIfNeeded() {
+        guard uiTestMode.stateBoardVisualFixtureEnabled else { return }
+        let count = Self.spectrumBucketCount
+        let denominator = Double(max(count - 1, 1))
+        audioSpectrumLevels = (0..<count).map { index in
+            let phase = Double(index) / denominator
+            let wave = (sin(Double(index) * 0.52) + 1) / 2
+            let envelope = 0.30 + 0.70 * (1 - abs(phase - 0.48))
+            return Float(0.08 + 0.84 * wave * envelope)
+        }
+        audioLevelHistory = (0..<count).map { index in
+            let phase = Double(index) / denominator
+            let wave = (sin(phase * Double.pi * 3.2 - Double.pi / 3) + 1) / 2
+            return Float(0.12 + 0.76 * wave)
         }
     }
 

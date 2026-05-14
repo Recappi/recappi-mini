@@ -34,6 +34,7 @@ struct SettingsView: View {
                 Section {
                     accountSidebarRow
                         .tag(SettingsItem.account)
+                        .accessibilityIdentifier(AccessibilityIDs.Settings.accountSidebarRow)
                 }
 
                 Section {
@@ -54,6 +55,7 @@ struct SettingsView: View {
                         color: .green
                     )
                     .tag(SettingsItem.transcription)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.transcriptionSidebarRow)
                 }
 
                 Section {

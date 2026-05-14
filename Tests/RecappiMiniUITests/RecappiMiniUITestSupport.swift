@@ -14,6 +14,8 @@ enum UITestIDs {
         static let openCloudButton = "recappi.settings.openCloudButton"
         static let billingUsage = "recappi.settings.billingUsage"
         static let speechLanguagePicker = "recappi.settings.speechLanguagePicker"
+        static let accountSidebarRow = "recappi.settings.sidebar.account"
+        static let transcriptionSidebarRow = "recappi.settings.sidebar.transcription"
     }
 
     enum Panel {
@@ -22,6 +24,10 @@ enum UITestIDs {
         static let closeButton = "recappi.panel.closeButton"
         static let recordingSuggestion = "recappi.panel.recordingSuggestion"
         static let meetingPrompt = "recappi.panel.meetingPrompt"
+        static let recordingOptionsButton = "recappi.panel.recordingOptionsButton"
+        static let recordingOptionsPopover = "recappi.panel.recordingOptionsPopover"
+        static let waveformToggle = "recappi.panel.waveformToggle"
+        static let microphoneIncludeButton = "recappi.panel.microphoneIncludeButton"
         static let recordButton = "recappi.panel.recordButton"
         static let stopButton = "recappi.panel.stopButton"
         static let cloudButton = "recappi.panel.cloudButton"
@@ -35,6 +41,9 @@ enum UITestIDs {
         static let processingTitle = "recappi.panel.processingTitle"
         static let doneTitle = "recappi.panel.doneTitle"
         static let errorTitle = "recappi.panel.errorTitle"
+        static let transcribeButton = "recappi.panel.transcribeButton"
+        static let showButton = "recappi.panel.showButton"
+        static let retryButton = "recappi.panel.retryButton"
     }
 
     enum Cloud {

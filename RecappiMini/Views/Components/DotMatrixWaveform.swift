@@ -20,6 +20,8 @@ enum DotMatrixWaveformModel {
 
 struct DotMatrixWaveform: View {
     let levels: [Float]
+    var litColor: Color = DT.waveformLit
+    var unlitColor: Color = DT.waveformUnlit
 
     private let rows: Int = 5
 
@@ -42,8 +44,8 @@ struct DotMatrixWaveform: View {
                     let y = CGFloat(row) * rowStep + (rowStep - dotSize) / 2
                     let rect = CGRect(x: x, y: y, width: dotSize, height: dotSize)
                     let color: Color = row >= firstLit
-                        ? DT.waveformLit
-                        : DT.waveformUnlit
+                        ? litColor
+                        : unlitColor
                     ctx.fill(Path(ellipseIn: rect), with: .color(color))
                 }
             }
