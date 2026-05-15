@@ -21,6 +21,7 @@ final class NativeOAuthCoordinator: NSObject {
     nonisolated static let callbackPath = "/callback"
     nonisolated static let bridgePath = "/api/native-oauth-bridge"
     nonisolated static let loginPath = "/login"
+    nonisolated static let prefersEphemeralWebBrowserSession = false
 
     private var webAuthenticationSession: ASWebAuthenticationSession?
     private var webAuthenticationRelay: WebAuthenticationCompletionRelay?
@@ -122,11 +123,11 @@ final class NativeOAuthCoordinator: NSObject {
             )
 
             session.presentationContextProvider = self
-            // Keep the native sign-in sheet isolated from the user's Safari
-            // session. The backend's `/login?native=1` route currently redirects
-            // already-signed-in web sessions to `/`, which strands the flow on
-            // the website instead of reaching the native OAuth bridge.
-            session.prefersEphemeralWebBrowserSession = true
+            // Use the normal browser profile so Google can reuse the user's
+            // existing account cookies. The native `/login?native=1` flow now
+            // stays on the bridge path even when a web cookie already exists,
+            // so an ephemeral/private browser session is no longer needed.
+            session.prefersEphemeralWebBrowserSession = Self.prefersEphemeralWebBrowserSession
             webAuthenticationSession = session
 
             if session.start() {

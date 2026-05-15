@@ -1508,6 +1508,13 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(items["errorCallbackURL"], items["callbackURL"])
     }
 
+    func testNativeOAuthPrefersPersistentBrowserSession() {
+        XCTAssertFalse(
+            NativeOAuthCoordinator.prefersEphemeralWebBrowserSession,
+            "Native OAuth should use the user's normal browser session so Google sign-in does not open a private/incognito browser."
+        )
+    }
+
     func testNativeOAuthExtractsBridgeExchangeCode() throws {
         let callbackURL = try XCTUnwrap(URL(string: "recappi://auth/callback?code=bridge-code-123"))
         XCTAssertEqual(
