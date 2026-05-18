@@ -1074,9 +1074,15 @@ actor RealtimeLiveCaptionActor {
                 // Finding #8).
                 if let serverError = handleReceiveSuccess(message: message) {
                     guard isCurrent(socket: socket, generation: generation) else { return }
+                    if let evt = serverError as? RealtimeServerEventError {
+                        trace(
+                            "server.error",
+                            "type='\(Self.tagString(evt.serverType))' code='\(Self.tagString(evt.serverCode))' message='\(DiagnosticsLog.sanitize(evt.message, maxLength: 240))'"
+                        )
+                    }
                     trace(
                         "ws.drop",
-                        "code=\(socket.closeCode) reason='\(Self.closeReasonString(socket.closeReason))' sinceOpenMs=\(sinceOpenMs())"
+                        "code=\(socket.closeCode) reason='\(Self.closeReasonString(socket.closeReason))' sinceOpenMs=\(sinceOpenMs()) cause=server.error"
                     )
                     await scheduleReconnect(after: serverError, attempt: 1)
                     return
@@ -1101,9 +1107,10 @@ actor RealtimeLiveCaptionActor {
                 // teardown that won't recover by reconnecting. Mirror
                 // the legacy class's `isTerminalCloseCode` semantics.
                 let rawCode = socket.closeCode
+                let errDescription = DiagnosticsLog.sanitize(String(describing: error), maxLength: 240)
                 trace(
                     "ws.drop",
-                    "code=\(rawCode) reason='\(Self.closeReasonString(socket.closeReason))' sinceOpenMs=\(sinceOpenMs())"
+                    "code=\(rawCode) reason='\(Self.closeReasonString(socket.closeReason))' sinceOpenMs=\(sinceOpenMs()) cause=receive.throw err='\(errDescription)'"
                 )
                 if Self.isTerminalCloseCode(rawCode) {
                     await transitionToTerminalStop(rawCode: rawCode, reason: socket.closeReason)
@@ -1134,6 +1141,14 @@ actor RealtimeLiveCaptionActor {
             return ""
         }
         return DiagnosticsLog.sanitize(text, maxLength: 120)
+    }
+
+    /// Sanitize an optional short tag (server error type/code) for trace
+    /// payloads. Returns empty string when the value is nil/empty so the
+    /// `field='...'` slot is always present and parseable.
+    private static func tagString(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "" }
+        return DiagnosticsLog.sanitize(value, maxLength: 64)
     }
 
     /// Peek at a received WebSocket message and return a short tag
@@ -1260,7 +1275,11 @@ actor RealtimeLiveCaptionActor {
             // receive loop transitions out of `.live`.
             let message = event.error?.message ?? "Realtime session failed."
             publishSnapshot(.statusOnly(phase: .failed, message: message))
-            return RealtimeServerEventError(message: message)
+            return RealtimeServerEventError(
+                message: message,
+                serverType: event.error?.type,
+                serverCode: event.error?.code
+            )
         default:
             break
         }
@@ -2332,6 +2351,8 @@ struct RealtimeReceiveEvent: Decodable {
 }
 
 struct RealtimeReceiveError: Decodable {
+    let type: String?
+    let code: String?
     let message: String?
 }
 
@@ -2343,6 +2364,8 @@ struct RealtimeReceiveError: Decodable {
 /// the legacy class's `RealtimeServerEventError`.
 struct RealtimeServerEventError: LocalizedError, Sendable {
     let message: String
+    let serverType: String?
+    let serverCode: String?
     var errorDescription: String? { message }
 }
 

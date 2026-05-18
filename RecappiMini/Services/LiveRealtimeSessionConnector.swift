@@ -267,6 +267,20 @@ final class URLSessionWebSocketSocket: NSObject, RealtimeSocket, URLSessionWebSo
         // didComplete fires for cancellations / transport errors that
         // didn't go through a clean close. Treat as a close for the
         // purpose of unblocking `waitForClose()`.
+        //
+        // Trace the URLSession-level error here too: when the transport
+        // fails (timeout, connection reset, host unreachable) the close
+        // handshake never lands, so `didCloseWith` does not fire and the
+        // receive-loop's `ws.drop` only carries `code=0` with no `err`
+        // string. This trace bridges the gap so we can recover the
+        // underlying NSError for those failure modes.
+        if let error {
+            let errText = DiagnosticsLog.sanitize(String(describing: error), maxLength: 240)
+            DiagnosticsLog.event(
+                "rt-trace",
+                "ws.task_complete err='\(errText)'"
+            )
+        }
         signalClosed()
     }
 
