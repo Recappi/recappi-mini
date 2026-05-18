@@ -89,6 +89,15 @@ struct LiveRealtimeSessionConnector: RealtimeSessionConnector {
         let task = perTaskSession.webSocketTask(with: request)
         adapter.bind(task: task, session: perTaskSession)
         task.resume()
+        // Task C: emit a socket-layer trace so the diagnostics log
+        // shows the WebSocket open/close handshake even when the
+        // actor's traces haven't fired yet (e.g. a server-side reject
+        // during the upgrade lands in `didCompleteWithError` before
+        // the receive loop's first iteration).
+        DiagnosticsLog.event(
+            "rt-trace",
+            "ws.open sid=\(claim.sessionId) host=\(claim.websocketURL.host ?? "?")"
+        )
         return adapter
     }
 
@@ -231,6 +240,22 @@ final class URLSessionWebSocketSocket: NSObject, RealtimeSocket, URLSessionWebSo
         didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
         reason: Data?
     ) {
+        // Task C: socket-layer close trace. Note this adapter doesn't
+        // hold the actor's `sid=` / `gen=` context, so the trace omits
+        // them — the receive-loop's `ws.drop` line (emitted from the
+        // actor a few ms later) does carry the sid and bridges the
+        // gap. The reason payload is sanitized so a malicious
+        // server-supplied reason can't break the log format.
+        let reasonText: String
+        if let reason, let text = String(data: reason, encoding: .utf8), !text.isEmpty {
+            reasonText = DiagnosticsLog.sanitize(text, maxLength: 120)
+        } else {
+            reasonText = ""
+        }
+        DiagnosticsLog.event(
+            "rt-trace",
+            "ws.close code=\(closeCode.rawValue) reason='\(reasonText)'"
+        )
         signalClosed()
     }
 

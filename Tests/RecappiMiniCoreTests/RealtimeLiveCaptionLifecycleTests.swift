@@ -537,6 +537,12 @@ final class MockRealtimeSocket: RealtimeSocket, @unchecked Sendable {
     /// to set these alongside throwing the next pending `receive()`.
     private var _closeCode: Int = 0
     private var _closeReason: Data?
+    /// Pending close error queued by `simulateCloseFromServer` when no
+    /// `receive()` waiter exists yet. The next `receive()` call observes
+    /// this and throws immediately. Mirrors the receive-message queue
+    /// (`receivedMessages`) so close simulation is order-independent
+    /// with respect to the receive task's startup.
+    private var _pendingCloseError: Error?
     var closeCode: Int { lock.withLock { _closeCode } }
     var closeReason: Data? { lock.withLock { _closeReason } }
 
@@ -611,6 +617,18 @@ final class MockRealtimeSocket: RealtimeSocket, @unchecked Sendable {
     func receive() async throws -> RealtimeSocketMessage {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RealtimeSocketMessage, Error>) in
             lock.lock()
+            // Drain any close error that landed before this waiter
+            // registered. Without this, a `simulateCloseFromServer`
+            // that races the receive-loop startup would silently drop
+            // its throw (no pending waiter at the time) and leave the
+            // loop blocked indefinitely. Matches the message-queue
+            // semantics for `enqueueScriptedMessage`.
+            if let pending = _pendingCloseError {
+                _pendingCloseError = nil
+                lock.unlock()
+                continuation.resume(throwing: pending)
+                return
+            }
             if !receivedMessages.isEmpty {
                 let next = receivedMessages.removeFirst()
                 lock.unlock()
@@ -661,7 +679,9 @@ final class MockRealtimeSocket: RealtimeSocket, @unchecked Sendable {
     /// Simulate a server-issued close. Throws the next pending
     /// `receive()` with an error and snapshots the close code / reason
     /// so the actor's terminal-code logic can pick them up via the
-    /// `closeCode` / `closeReason` protocol points.
+    /// `closeCode` / `closeReason` protocol points. If no `receive()`
+    /// waiter has registered yet (the receive task is still booting),
+    /// the error is queued so the very next `receive()` call throws it.
     func simulateCloseFromServer(code: Int, reason: Data? = nil, error: Error) {
         var closeWaitersToResume: [CheckedContinuation<Void, Never>] = []
         let waiters: [CheckedContinuation<RealtimeSocketMessage, Error>] = lock.withLock {
@@ -669,6 +689,10 @@ final class MockRealtimeSocket: RealtimeSocket, @unchecked Sendable {
             _closeReason = reason
             let pending = pendingReceiveWaiters
             pendingReceiveWaiters.removeAll()
+            if pending.isEmpty {
+                // No waiter yet — queue the error for the next receive.
+                _pendingCloseError = error
+            }
             closeWaitersToResume = _closeWaiters
             _closeWaiters.removeAll()
             return pending

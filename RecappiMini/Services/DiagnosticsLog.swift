@@ -106,3 +106,24 @@ private final class DiagnosticsFileWriter: @unchecked Sendable {
         return formatter.string(from: Date())
     }
 }
+
+/// Diagnostic feature flags. Lightweight UserDefaults-backed toggles
+/// that let support / dogfooders opt into verbose trace categories
+/// without rebuilding the app. Defaults are conservative in release
+/// (off) and helpful in DEBUG (on) so developers see the trace stream
+/// out of the box.
+enum Diagnostics {
+    private static let verboseRealtimeKey = "recappi.diagnostics.verboseRealtime"
+
+    /// When true, the realtime live-caption actor emits high-cadence
+    /// `rt-trace` entries (per-audio-frame send/exit, per-receive-loop
+    /// iter, etc.) into `DiagnosticsLog`. The headline lifecycle and
+    /// failure traces remain on regardless of this flag.
+    static var verboseRealtime: Bool {
+        #if DEBUG
+        return UserDefaults.standard.object(forKey: verboseRealtimeKey) as? Bool ?? true
+        #else
+        return UserDefaults.standard.bool(forKey: verboseRealtimeKey)
+        #endif
+    }
+}

@@ -148,6 +148,21 @@ actor RealtimeLiveCaptionActor {
     private var lifecycle: Lifecycle = .created
     private var nextGeneration: Int = 0
 
+    // MARK: Diagnostic trace state (Task C)
+    //
+    // `lastClaimedSessionId` is captured from `RealtimeSessionClaim`
+    // inside `performClaim` so every subsequent `trace(...)` line can
+    // include the server-issued realtime session id. The server-side
+    // proxy emits the same `sid=` into Cloudflare Workers logs, so
+    // production failures can be cross-correlated end-to-end.
+    //
+    // `liveOpenedAt` is stamped when the lifecycle enters `.live` and
+    // cleared on reconnect / stop. The receive-loop drop traces compute
+    // `sinceOpenMs` from this so we can tell at-a-glance whether a
+    // drop happened just after handshake or deep into a long session.
+    private var lastClaimedSessionId: String?
+    private var liveOpenedAt: Date?
+
     // MARK: Audio routing (Phase 3b)
     //
     // Pre-live audio is buffered in a small bounded queue so frames
@@ -304,6 +319,7 @@ actor RealtimeLiveCaptionActor {
     /// inspection seams below.
     func start() async {
         guard case .created = lifecycle else { return }
+        trace("start", "mode=\(mode.isTranslation ? "translation" : "transcription")")
         await beginClaim(attempt: 0)
     }
 
@@ -311,6 +327,7 @@ actor RealtimeLiveCaptionActor {
     /// rather than writing them. Callers (Phase 2: `AudioRecorder`)
     /// will merge these with carryover and persist once.
     func stop(saveTo: URL?) async -> [LiveCaptionEntry] {
+        trace("stop")
         // Pattern-match on the current case to capture the in-flight
         // socket (if any), cancel ongoing tasks, then transition to
         // `.stopping` while we wait for the close handshake.
@@ -319,6 +336,9 @@ actor RealtimeLiveCaptionActor {
         switch lifecycle {
         case .created:
             lifecycle = .stopped
+            trace("phase", "to=\(Self.snapshotTag(lifecycle.snapshot))")
+            lastClaimedSessionId = nil
+            liveOpenedAt = nil
             return drainEntries()
         case .claiming(_, let claimTask):
             claimTask.cancel()
@@ -339,6 +359,7 @@ actor RealtimeLiveCaptionActor {
             return drainEntries()
         }
         lifecycle = .stopping(socket: socketToClose)
+        trace("phase", "to=\(Self.snapshotTag(lifecycle.snapshot))")
         // Audio captured during the shutdown window belongs to the
         // dying session. Drop it so the queue empties before we hit
         // `.stopped`. We do this BEFORE the final commit so we don't
@@ -368,6 +389,13 @@ actor RealtimeLiveCaptionActor {
             await awaitCloseHandshakeWithTimeout(socket: socket)
         }
         lifecycle = .stopped
+        trace("phase", "to=\(Self.snapshotTag(lifecycle.snapshot))")
+        // Sensitive per-session fields are reset on terminal stop so a
+        // future `start()` doesn't accidentally inherit stale state
+        // (Task C: keep `lastClaimedSessionId` / `liveOpenedAt` aligned
+        // with the live lifecycle window).
+        lastClaimedSessionId = nil
+        liveOpenedAt = nil
         finishAllSnapshotStreams()
         // Saving to disk is the AudioRecorder's job in Phase 2; we
         // simply return the entries here. The `saveTo` parameter is
@@ -626,6 +654,12 @@ actor RealtimeLiveCaptionActor {
             droppedAudioCount += 1
         }
         pendingAudio.append(payload)
+        // Surface sustained pre-live back-pressure into the verbose
+        // trace so a stuck claim is visually obvious in the diagnostics
+        // log. Threshold matches the spec's "exceeds N (say 32)" hint.
+        if pendingAudio.count > 32 {
+            trace("audio.send.queue_high", "queued=\(pendingAudio.count)", verboseOnly: true)
+        }
     }
 
     /// Flush the buffered audio onto a freshly-live socket. Called
@@ -656,6 +690,7 @@ actor RealtimeLiveCaptionActor {
     /// audio silently — same bug the legacy class's `sendAudio` path
     /// already avoids by dispatching off `mode.isTranslation`.
     private func sendAudio(_ payload: Data, on socket: RealtimeSocket) async {
+        trace("audio.send.begin", "bytes=\(payload.count)", verboseOnly: true)
         let eventType = mode.isTranslation
             ? "session.input_audio_buffer.append"
             : "input_audio_buffer.append"
@@ -686,6 +721,7 @@ actor RealtimeLiveCaptionActor {
             await escalateSendFailure(error: error, socket: socket)
             return
         }
+        trace("audio.send.end", verboseOnly: true)
         // Transcription mode: accumulate sent bytes and force a manual
         // commit once we've buffered the legacy threshold of voiced
         // audio. Translation mode is a continuous stream — the upstream
@@ -723,6 +759,7 @@ actor RealtimeLiveCaptionActor {
             receiveTask.cancel()
             watchdogTask.cancel()
         }
+        trace("ws.send_failure", "err=\(DiagnosticsLog.errorSummary(error))")
         let wrapped = RealtimeSendFailureError(underlying: error.localizedDescription)
         await scheduleReconnect(after: wrapped, attempt: 1)
     }
@@ -876,9 +913,11 @@ actor RealtimeLiveCaptionActor {
             await self.performClaim(generation: generation, attempt: attempt)
         }
         lifecycle = .claiming(generation: generation, claimTask: claimTask)
+        trace("phase", "to=\(Self.snapshotTag(lifecycle.snapshot))")
     }
 
     private func performClaim(generation: Int, attempt: Int) async {
+        trace("claim.begin", "attempt=\(attempt)")
         // Snapshot the connector before the await so we don't re-touch
         // actor state across the suspension.
         let connector = self.connector
@@ -893,6 +932,12 @@ actor RealtimeLiveCaptionActor {
                   currentGeneration == generation else {
                 return
             }
+            // Record the server-issued realtime session id so subsequent
+            // `trace(...)` lines can correlate against the server-side
+            // proxy's `sid=` traces. Done BEFORE the socket open so a
+            // crash inside `openSocket` still surfaces the sid.
+            lastClaimedSessionId = claim.sessionId
+            trace("claim.success", "sid=\(claim.sessionId)")
 
             let socket = try await connector.openSocket(for: claim)
             // Same re-check — claim succeeded but the lifecycle may
@@ -935,12 +980,16 @@ actor RealtimeLiveCaptionActor {
                 guard let self else { return }
                 await self.runStallWatchdogLoop(socket: socket, generation: generation)
             }
+            // Stamp the live-open instant so drop traces can compute
+            // `sinceOpenMs`. Cleared on reconnect / stop.
+            liveOpenedAt = Date()
             lifecycle = .live(
                 socket: socket,
                 generation: generation,
                 receiveTask: receiveTask,
                 watchdogTask: watchdogTask
             )
+            trace("phase", "to=live")
             // Drain any audio captured while we were claiming / opening
             // the socket. The flush is performed on the actor so a
             // concurrent stop()/reconnectNow() can race in and the
@@ -953,6 +1002,16 @@ actor RealtimeLiveCaptionActor {
             guard case .claiming(let currentGeneration, _) = lifecycle,
                   currentGeneration == generation else {
                 return
+            }
+            // Map the error onto an HTTP status when possible — the
+            // proxy returns 429 here under the reconnect-storm scenario
+            // we're investigating (suspect #2), so making the status
+            // a first-class field in the trace lets the server-side log
+            // join across `sid=` and the client trace by status.
+            if case let RecappiAPIError.http(statusCode, _) = error {
+                trace("claim.error", "status=\(statusCode) err=\(DiagnosticsLog.errorSummary(error))")
+            } else {
+                trace("claim.error", "status=-1 err=\(DiagnosticsLog.errorSummary(error))")
             }
             await scheduleReconnect(after: error, attempt: attempt)
         }
@@ -990,9 +1049,23 @@ actor RealtimeLiveCaptionActor {
         // task is spawned so the watchdog and receive loop both see a
         // consistent baseline at task start.
         while !Task.isCancelled {
+            // Verbose per-iter trace fires before suspending on
+            // `socket.receive()` — guarded behind `verboseOnly` so it
+            // costs nothing in steady state when the flag is off.
+            trace("ws.recv.iter", verboseOnly: true)
             do {
                 let message = try await socket.receive()
                 guard isCurrent(socket: socket, generation: generation) else { return }
+                // Cheap event-type derivation for the verbose recv
+                // trace: peek at the message body without re-parsing the
+                // whole event (the canonical parse happens inside
+                // `handleReceiveSuccess`). When parsing isn't trivial,
+                // fall back to a bytes count so the trace always carries
+                // SOME shape information.
+                if Diagnostics.verboseRealtime {
+                    let typeTag = Self.peekReceiveType(message: message)
+                    trace("ws.recv", "type=\(typeTag)", verboseOnly: true)
+                }
                 // A server `{"type":"error"}` event arrives through the
                 // success arm — `receive()` itself never throws on a
                 // server-side application error. If `handleReceiveSuccess`
@@ -1001,6 +1074,10 @@ actor RealtimeLiveCaptionActor {
                 // Finding #8).
                 if let serverError = handleReceiveSuccess(message: message) {
                     guard isCurrent(socket: socket, generation: generation) else { return }
+                    trace(
+                        "ws.drop",
+                        "code=\(socket.closeCode) reason='\(Self.closeReasonString(socket.closeReason))' sinceOpenMs=\(sinceOpenMs())"
+                    )
                     await scheduleReconnect(after: serverError, attempt: 1)
                     return
                 }
@@ -1024,6 +1101,10 @@ actor RealtimeLiveCaptionActor {
                 // teardown that won't recover by reconnecting. Mirror
                 // the legacy class's `isTerminalCloseCode` semantics.
                 let rawCode = socket.closeCode
+                trace(
+                    "ws.drop",
+                    "code=\(rawCode) reason='\(Self.closeReasonString(socket.closeReason))' sinceOpenMs=\(sinceOpenMs())"
+                )
                 if Self.isTerminalCloseCode(rawCode) {
                     await transitionToTerminalStop(rawCode: rawCode, reason: socket.closeReason)
                     return
@@ -1032,6 +1113,61 @@ actor RealtimeLiveCaptionActor {
                 return
             }
         }
+    }
+
+    /// Compute the elapsed time since the lifecycle entered `.live`.
+    /// Returns 0 when `liveOpenedAt` is unset (we already exited live
+    /// or never reached it), which keeps the trace shape uniform.
+    private func sinceOpenMs() -> Int {
+        guard let openedAt = liveOpenedAt else { return 0 }
+        let elapsed = Date().timeIntervalSince(openedAt)
+        return max(0, Int(elapsed * 1000))
+    }
+
+    /// Decode the optional close-reason payload into a sanitized
+    /// short string. Empty / undecodable returns `""` so the trace
+    /// payload's `reason='...'` slot is always parseable.
+    static func closeReasonString(_ reason: Data?) -> String {
+        guard let reason,
+              let text = String(data: reason, encoding: .utf8),
+              !text.isEmpty else {
+            return ""
+        }
+        return DiagnosticsLog.sanitize(text, maxLength: 120)
+    }
+
+    /// Peek at a received WebSocket message and return a short tag
+    /// (event type for text frames, byte count for binary frames). We
+    /// avoid a full JSON decode here — the receive loop already parses
+    /// the message in `handleReceiveSuccess`, and the trace's job is
+    /// just to fingerprint the frame so verbose logs are scannable.
+    static func peekReceiveType(message: RealtimeSocketMessage) -> String {
+        switch message {
+        case .text(let text):
+            if let typeValue = extractType(fromTextFrame: text) {
+                return DiagnosticsLog.sanitize(typeValue, maxLength: 64)
+            }
+            return "text(bytes=\(text.utf8.count))"
+        case .data(let data):
+            return "data(bytes=\(data.count))"
+        }
+    }
+
+    /// Lightweight scan for the top-level `"type"` field of a JSON
+    /// event. Returns `nil` if the frame doesn't look like a JSON
+    /// object with a string `type`. Cheap by design: bails on the
+    /// first match without allocating a `JSONDecoder` (the verbose
+    /// trace fires per-receive — full decoding here would be wasteful
+    /// when the next line in the receive loop does the canonical
+    /// decode).
+    private static func extractType(fromTextFrame text: String) -> String? {
+        guard let data = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dict = object as? [String: Any],
+              let type = dict["type"] as? String else {
+            return nil
+        }
+        return type
     }
 
     /// Map a successful receive into transcript / bilingual state and
@@ -1431,6 +1567,12 @@ actor RealtimeLiveCaptionActor {
         let message = Self.terminalCloseUserMessage(rawCloseCode: rawCode, reason: reason)
         publishSnapshot(.statusOnly(phase: .failed, message: message))
         lifecycle = .stopped
+        trace("phase", "to=\(Self.snapshotTag(lifecycle.snapshot))")
+        // Clear per-session diagnostic state so the next `start()`
+        // doesn't carry the stale sid / openedAt into a fresh
+        // lifecycle (Task C).
+        lastClaimedSessionId = nil
+        liveOpenedAt = nil
         finishAllSnapshotStreams()
     }
 
@@ -1523,6 +1665,7 @@ actor RealtimeLiveCaptionActor {
               secondsSinceLastInbound >= stallWatchdogSecondsSinceInbound else {
             return .skipped
         }
+        trace("ws.watchdog.fire", "quietForSec=\(Int(secondsSinceLastInbound))")
 
         // Race the ping against a timeout. `withTaskGroup` would await
         // every child before exiting, which deadlocks the probe when
@@ -1664,12 +1807,20 @@ actor RealtimeLiveCaptionActor {
 
     private func scheduleReconnect(after error: Error, attempt: Int) async {
         let delay = reconnectDelay(forAttempt: attempt)
+        trace("reconnect.schedule", "attempt=\(attempt) delayMs=\(Int(delay * 1000))")
         lifecycle = .reconnecting(
             generation: nextGeneration,
             attempt: attempt,
             scheduledAt: Date(),
             delay: delay
         )
+        trace("phase", "to=\(Self.snapshotTag(lifecycle.snapshot))")
+        // The .live window is over: clear the open-instant so a future
+        // drop trace doesn't compute `sinceOpenMs` against a defunct
+        // socket. `lastClaimedSessionId` deliberately stays — the next
+        // claim will overwrite it, but until then traces continue to
+        // identify which session we're reconnecting from.
+        liveOpenedAt = nil
         // Audio captured pre-reconnect belongs to the failed session;
         // replaying it on the next live socket replays a window the
         // server already considered stalled / dropped. Wipe the queue
@@ -1685,6 +1836,7 @@ actor RealtimeLiveCaptionActor {
         let nanoseconds = UInt64(delay * 1_000_000_000)
         try? await Task.sleep(nanoseconds: nanoseconds)
         guard case .reconnecting = lifecycle else { return }
+        trace("reconnect.fire")
         await beginClaim(attempt: attempt + 1)
     }
 
@@ -1693,6 +1845,63 @@ actor RealtimeLiveCaptionActor {
         guard !delays.isEmpty else { return 0 }
         let bounded = max(0, min(attempt, delays.count - 1))
         return delays[bounded]
+    }
+
+    // MARK: Diagnostic trace helper (Task C)
+
+    /// Emit one `rt-trace` entry into `DiagnosticsLog` carrying the
+    /// current generation, claimed realtime session id, and lifecycle
+    /// phase. Free-form `payload` is appended verbatim (callers
+    /// pre-sanitize any server-supplied substrings via
+    /// `DiagnosticsLog.sanitize(_:maxLength:)`).
+    ///
+    /// `verboseOnly` gates high-cadence call sites (audio send begin/end,
+    /// receive-loop iter) on `Diagnostics.verboseRealtime`. The headline
+    /// lifecycle / failure traces leave the flag at its default so they
+    /// always reach the log.
+    private func trace(_ event: String, _ payload: String = "", verboseOnly: Bool = false) {
+        if verboseOnly && !Diagnostics.verboseRealtime { return }
+        let gen = currentGenerationForTrace
+        let sid = lastClaimedSessionId ?? "-"
+        let phaseTag = Self.snapshotTag(lifecycle.snapshot)
+        let suffix = payload.isEmpty ? "" : " " + payload
+        DiagnosticsLog.event(
+            "rt-trace",
+            "sid=\(sid) gen=\(gen) phase=\(phaseTag) event=\(event)\(suffix)"
+        )
+    }
+
+    /// Generation counter as observed from the current lifecycle case.
+    /// `.created` and `.stopped` have no associated generation; we
+    /// surface `nextGeneration` as a best-effort hint so the trace
+    /// continues to carry a monotonically-increasing sequence number.
+    private var currentGenerationForTrace: Int {
+        switch lifecycle {
+        case .created, .stopped:
+            return nextGeneration
+        case .claiming(let g, _):
+            return g
+        case .live(_, let g, _, _):
+            return g
+        case .reconnecting(let g, _, _, _):
+            return g
+        case .stopping:
+            return nextGeneration
+        }
+    }
+
+    /// Short tag for a `RealtimeLifecycleSnapshot`. Used inside the
+    /// `rt-trace` line so each entry self-identifies which phase the
+    /// actor was in when the event fired.
+    static func snapshotTag(_ snapshot: RealtimeLifecycleSnapshot) -> String {
+        switch snapshot {
+        case .created: return "created"
+        case .claiming: return "claiming"
+        case .live: return "live"
+        case .reconnecting: return "reconnecting"
+        case .stopping: return "stopping"
+        case .stopped: return "stopped"
+        }
     }
 
 #if DEBUG
