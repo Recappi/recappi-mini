@@ -1127,7 +1127,7 @@ actor RealtimeLiveCaptionActor {
     /// Decode the optional close-reason payload into a sanitized
     /// short string. Empty / undecodable returns `""` so the trace
     /// payload's `reason='...'` slot is always parseable.
-    static func closeReasonString(_ reason: Data?) -> String {
+    private static func closeReasonString(_ reason: Data?) -> String {
         guard let reason,
               let text = String(data: reason, encoding: .utf8),
               !text.isEmpty else {
@@ -1141,7 +1141,7 @@ actor RealtimeLiveCaptionActor {
     /// avoid a full JSON decode here — the receive loop already parses
     /// the message in `handleReceiveSuccess`, and the trace's job is
     /// just to fingerprint the frame so verbose logs are scannable.
-    static func peekReceiveType(message: RealtimeSocketMessage) -> String {
+    private static func peekReceiveType(message: RealtimeSocketMessage) -> String {
         switch message {
         case .text(let text):
             if let typeValue = extractType(fromTextFrame: text) {
@@ -1859,12 +1859,21 @@ actor RealtimeLiveCaptionActor {
     /// receive-loop iter) on `Diagnostics.verboseRealtime`. The headline
     /// lifecycle / failure traces leave the flag at its default so they
     /// always reach the log.
-    private func trace(_ event: String, _ payload: String = "", verboseOnly: Bool = false) {
+    /// `payload` is `@autoclosure` so verbose-only call sites that
+    /// interpolate per-frame state (e.g. `"bytes=\(payload.count)"`)
+    /// don't pay the string-allocation cost when the verbose flag is
+    /// off. The closure is invoked at most once, after the gate check.
+    private func trace(
+        _ event: String,
+        _ payload: @autoclosure () -> String = "",
+        verboseOnly: Bool = false
+    ) {
         if verboseOnly && !Diagnostics.verboseRealtime { return }
+        let resolved = payload()
         let gen = currentGenerationForTrace
         let sid = lastClaimedSessionId ?? "-"
         let phaseTag = Self.snapshotTag(lifecycle.snapshot)
-        let suffix = payload.isEmpty ? "" : " " + payload
+        let suffix = resolved.isEmpty ? "" : " " + resolved
         DiagnosticsLog.event(
             "rt-trace",
             "sid=\(sid) gen=\(gen) phase=\(phaseTag) event=\(event)\(suffix)"
@@ -1893,7 +1902,7 @@ actor RealtimeLiveCaptionActor {
     /// Short tag for a `RealtimeLifecycleSnapshot`. Used inside the
     /// `rt-trace` line so each entry self-identifies which phase the
     /// actor was in when the event fired.
-    static func snapshotTag(_ snapshot: RealtimeLifecycleSnapshot) -> String {
+    private static func snapshotTag(_ snapshot: RealtimeLifecycleSnapshot) -> String {
         switch snapshot {
         case .created: return "created"
         case .claiming: return "claiming"

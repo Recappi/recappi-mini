@@ -109,21 +109,37 @@ private final class DiagnosticsFileWriter: @unchecked Sendable {
 
 /// Diagnostic feature flags. Lightweight UserDefaults-backed toggles
 /// that let support / dogfooders opt into verbose trace categories
-/// without rebuilding the app. Defaults are conservative in release
-/// (off) and helpful in DEBUG (on) so developers see the trace stream
-/// out of the box.
+/// without rebuilding the app. Defaults are conservative in both
+/// release and DEBUG (off) — the high-cadence streams overflow the
+/// 1 MB log rotation in under two minutes, so engineers opt in
+/// explicitly via the UserDefaults key when reproducing an issue.
+/// Values are read once at first access (see `cachedVerboseRealtime`)
+/// and require an app restart to change.
 enum Diagnostics {
     private static let verboseRealtimeKey = "recappi.diagnostics.verboseRealtime"
+
+    /// Cached once at first access. `static let` is lazily initialised and
+    /// thread-safe (dispatch_once-equivalent), so the hot-path read in
+    /// `verboseRealtime` is a single load instead of a UserDefaults trip
+    /// per audio frame (~50/s). Trade-off: flipping the UserDefaults key
+    /// at runtime requires an app restart to take effect — acceptable
+    /// because diagnostic toggles are set once per debug session.
+    ///
+    /// DEBUG default is `false` to match release: the 1 MB log rotation
+    /// would otherwise spill the headline lifecycle traces inside ~60-90s
+    /// of speech. Engineers opt in explicitly via the UserDefaults key
+    /// when reproducing.
+    private static let cachedVerboseRealtime: Bool = {
+        #if DEBUG
+        return UserDefaults.standard.object(forKey: verboseRealtimeKey) as? Bool ?? false
+        #else
+        return UserDefaults.standard.bool(forKey: verboseRealtimeKey)
+        #endif
+    }()
 
     /// When true, the realtime live-caption actor emits high-cadence
     /// `rt-trace` entries (per-audio-frame send/exit, per-receive-loop
     /// iter, etc.) into `DiagnosticsLog`. The headline lifecycle and
     /// failure traces remain on regardless of this flag.
-    static var verboseRealtime: Bool {
-        #if DEBUG
-        return UserDefaults.standard.object(forKey: verboseRealtimeKey) as? Bool ?? true
-        #else
-        return UserDefaults.standard.bool(forKey: verboseRealtimeKey)
-        #endif
-    }
+    static var verboseRealtime: Bool { cachedVerboseRealtime }
 }
