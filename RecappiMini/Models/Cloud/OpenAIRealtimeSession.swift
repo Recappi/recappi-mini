@@ -80,7 +80,7 @@ struct OpenAIRealtimeQuotaSnapshot: Decodable, Sendable {
     let tier: String
     let periodStart: Int
     let periodEnd: Int
-    let mintsUsed: Int
-    let mintsCap: Int?
+    let minutesUsed: Int
+    let minutesCap: Int?
     let claimsPerMinute: Int
 }

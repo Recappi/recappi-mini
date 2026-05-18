@@ -304,8 +304,8 @@ final class LiveRealtimeSessionConnectorTests: XCTestCase {
                 "tier": "free",
                 "periodStart": 1_700_000_000,
                 "periodEnd": 1_700_086_400,
-                "mintsUsed": 0,
-                "mintsCap": 60,
+                "minutesUsed": 0,
+                "minutesCap": 60,
                 "claimsPerMinute": 6,
             ],
         ]
