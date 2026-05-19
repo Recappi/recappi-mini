@@ -48,6 +48,7 @@ extension CloudLibraryStore {
         billingStatus = snapshot.decodedBillingStatus
         transcriptCache = snapshot.decodedTranscripts
         transcriptionJobsByRecordingID = snapshot.decodedTranscriptionJobsByRecordingID
+        speakerOverridesByRecordingID = snapshot.decodedSpeakerOverridesByRecordingID
         // Older snapshot versions did not persist this map. The decoded
         // dictionary will be empty for those caches; the shape-based
         // fallback in `loadTranscriptForSelection` is intentionally the
@@ -82,6 +83,7 @@ extension CloudLibraryStore {
             billingStatus: billingStatus,
             transcriptCache: transcriptCache,
             transcriptionJobsByRecordingID: transcriptionJobsByRecordingID,
+            speakerOverridesByRecordingID: speakerOverridesByRecordingID,
             transcriptCacheRecordingUpdatedAt: transcriptCacheRecordingUpdatedAt
         )
         await cache.saveSnapshot(snapshot)
@@ -93,6 +95,26 @@ extension CloudLibraryStore {
             userId: session.userId,
             backendOrigin: AuthSessionStore.normalizeOrigin(config.effectiveBackendBaseURL)
         )
+    }
+
+    func searchCachedRecordings(
+        query: String,
+        speakerRawName: String? = nil,
+        limit: Int = 50
+    ) async -> [CloudIndexedSearchResult] {
+        guard let context = cacheContext() else { return [] }
+        do {
+            return try await cache.searchCachedRecordings(
+                userId: context.userId,
+                backendOrigin: context.backendOrigin,
+                query: query,
+                speakerRawName: speakerRawName,
+                limit: limit
+            )
+        } catch {
+            NSLog("[Recappi] Cloud cache search failed: \(error.localizedDescription)")
+            return []
+        }
     }
 
     func transcriptMessage(for error: Error) -> String {

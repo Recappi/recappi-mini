@@ -131,8 +131,9 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
         XCTAssertTrue(panel.waitForExistence(timeout: 15), "Expected live caption panel.")
         try capture(panel, named: "liveCaptions_expanded")
 
+        XCTAssertTrue(revealLiveCaptionChrome(in: app, timeout: 10), "Expected live caption mode button.")
         let mode = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
-        XCTAssertTrue(mode.waitForExistence(timeout: 10), "Expected live caption mode button.")
+        XCTAssertTrue(mode.exists, "Expected live caption mode button.")
         mode.hover()
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         mode.click()
@@ -158,6 +159,21 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
         summary.click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         try capture(largestWindow(in: app), named: "cloud_summary")
+        let summaryBadge = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.summarySourceBadgePrefix)
+        ).firstMatch
+        if summaryBadge.waitForExistence(timeout: 5) {
+            summaryBadge.click()
+            let sourcePopover = uiElement(app, id: UITestIDs.Cloud.summarySourcePopover)
+            XCTAssertTrue(sourcePopover.waitForExistence(timeout: 5), "Expected summary source popover.")
+            try captureScreenRegion(
+                around: [largestWindow(in: app), sourcePopover],
+                named: "cloud_summary_source_popover",
+                horizontalPadding: 24,
+                verticalPadding: 24
+            )
+            app.typeKey(.escape, modifierFlags: [])
+        }
 
         let timeline = app.buttons[UITestIDs.Cloud.jumpToTimelineButton]
         XCTAssertTrue(timeline.waitForExistence(timeout: 10), "Expected Timeline tab button.")
@@ -170,6 +186,41 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
         transcript.click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         try capture(largestWindow(in: app), named: "cloud_transcription")
+        let speakerChip = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.speakerChipPrefix)
+        ).firstMatch
+        if speakerChip.waitForExistence(timeout: 5) {
+            speakerChip.click()
+            let renamePopover = uiElement(app, id: UITestIDs.Cloud.speakerRenamePopover)
+            XCTAssertTrue(renamePopover.waitForExistence(timeout: 5), "Expected speaker rename popover.")
+            try captureScreenRegion(
+                around: [largestWindow(in: app), renamePopover],
+                named: "cloud_speaker_rename_popover",
+                horizontalPadding: 24,
+                verticalPadding: 24
+            )
+            app.typeKey(.escape, modifierFlags: [])
+        }
+
+        let searchField = app.descendants(matching: .any)
+            .matching(identifier: UITestIDs.Cloud.searchField)
+            .firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5), "Expected Cloud search field.")
+        searchField.click()
+        searchField.typeText("caption")
+        let searchResults = uiElement(app, id: UITestIDs.Cloud.searchResults)
+        XCTAssertTrue(searchResults.waitForExistence(timeout: 5), "Expected Cloud search results.")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        try capture(largestWindow(in: app), named: "cloud_search_results")
+
+        let firstSearchResult = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.searchResultRowPrefix)
+        ).firstMatch
+        if firstSearchResult.waitForExistence(timeout: 5) {
+            firstSearchResult.click()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+            try capture(largestWindow(in: app), named: "cloud_search_jump_highlight")
+        }
     }
 
     private func captureSettingsStates() throws {

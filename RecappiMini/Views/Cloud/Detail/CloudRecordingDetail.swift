@@ -20,6 +20,11 @@ struct CloudRecordingDetail: View {
     @State private var transcriptVersionErrorMessage: String?
     @State private var retranscribeSceneDraft = RecordingSceneTemplate.meeting.rawValue
     @State private var retranscribePromptDraft = ""
+    @State private var renamingSpeakerRawName: String?
+    @State private var speakerRenameDraft = ""
+    @State private var speakerNoteDraft = ""
+    @State private var speakerEmojiDraft = ""
+    @State private var summarySourcePopoverKey: String?
 
     let recording: CloudRecording
     let recordingWebURL: URL?
@@ -32,6 +37,11 @@ struct CloudRecordingDetail: View {
     let playbackAudioURL: URL?
     let playbackSourceDescription: String
     let playbackErrorMessage: String?
+    @Binding var cloudSearchQuery: String
+    @Binding var selectedSearchSpeakerRawName: String?
+    @Binding var speakerOverrides: [String: CloudSpeakerDisplayOverride]
+    let indexedSearchResults: [CloudIndexedSearchResult]
+    let isCloudSearchLoading: Bool
     @ObservedObject var audioPlayer: CloudMeetingAudioPlayer
     let isTranscriptLoading: Bool
     let isJobHistoryLoading: Bool
@@ -105,6 +115,10 @@ struct CloudRecordingDetail: View {
             transcriptVersionErrorMessage = nil
             activeDetailSection = .summary
             refreshPlayerMetadataIfNeeded()
+            cloudSearchQuery = ""
+            selectedSearchSpeakerRawName = nil
+            renamingSpeakerRawName = nil
+            summarySourcePopoverKey = nil
         }
     }
 
@@ -117,13 +131,21 @@ struct CloudRecordingDetail: View {
         // the capsule.
         VStack(alignment: .leading, spacing: 0) {
             CloudDetailHeaderSection {
-                detailHeader
+                if isCloudSearchActive {
+                    searchDetailHeader
+                } else {
+                    detailHeader
+                }
             } latestJob: {
                 latestJobStrip
             } newerVersion: {
                 newerVersionStrip
             } navigation: {
-                detailNavigationRow
+                if isCloudSearchActive {
+                    searchNavigationRow
+                } else {
+                    detailNavigationRow
+                }
             }
             .animation(DT.motionAware(DT.ease(0.20)), value: latestJob?.status)
             .animation(DT.motionAware(DT.ease(0.20)), value: hasNewerVersion)
@@ -144,36 +166,47 @@ struct CloudRecordingDetail: View {
 
             Divider().overlay(Palette.borderHairline)
 
-            CloudDetailScrollableSections(
-                hasSummarySection: isSummaryNavigationAvailable,
-                activeSegmentID: activeSegmentID(in: visibleTranscript?.displaySegmentRows ?? []),
-                isPlaybackActive: audioPlayer.isPlaying,
-                pendingScrollTarget: $pendingScrollTarget,
-                activeDetailSection: $activeDetailSection,
-                onUpdateOffsets: updateActiveDetailSection(with:)
-            ) {
-                transcriptInsightStack
-            } timeline: {
-                timelineSectionView
-            } transcriptHeader: {
-                segmentsHeader
-            } transcriptCard: {
-                transcriptCard
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                // Empty inset just reserves layout space equal to the
-                // capsule's footprint so the scrollable area can scroll
-                // past the floating player.
-                Color.clear.frame(height: floatingPlayerInset)
+            if isCloudSearchActive {
+                cloudSearchResultsPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                CloudDetailScrollableSections(
+                    hasSummarySection: isSummaryNavigationAvailable,
+                    activeSegmentID: activeSegmentID(in: visibleTranscript?.displaySegmentRows ?? []),
+                    isPlaybackActive: audioPlayer.isPlaying,
+                    pendingScrollTarget: $pendingScrollTarget,
+                    activeDetailSection: $activeDetailSection,
+                    onUpdateOffsets: updateActiveDetailSection(with:)
+                ) {
+                    transcriptInsightStack
+                } timeline: {
+                    timelineSectionView
+                } transcriptHeader: {
+                    segmentsHeader
+                } transcriptCard: {
+                    transcriptCard
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    // Empty inset just reserves layout space equal to the
+                    // capsule's footprint so the scrollable area can scroll
+                    // past the floating player.
+                    Color.clear.frame(height: floatingPlayerInset)
+                }
             }
         }
         .overlay(alignment: .bottom) {
-            CloudDetailPlaybackSection {
-                bottomPlaybackBar
+            if !isCloudSearchActive {
+                CloudDetailPlaybackSection {
+                    bottomPlaybackBar
+                }
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
         .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: shouldShowProcessingContextStrip)
+        .animation(DT.motionAware(.spring(response: 0.26, dampingFraction: 0.88)), value: isCloudSearchActive)
     }
 
     /// Approximate height of the Liquid Glass playback capsule
@@ -272,6 +305,59 @@ struct CloudRecordingDetail: View {
         }
     }
 
+    private var searchNavigationRow: some View {
+        HStack(alignment: .center, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11.5, weight: .semibold))
+                Text("Search results")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("All recordings")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+            }
+            .foregroundStyle(Color.dtLabel)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Palette.controlFillPress)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(DT.appAccent.opacity(0.26), lineWidth: 0.6)
+            )
+
+            HStack(spacing: 6) {
+                sourceCountChip(
+                    "Verbatim",
+                    systemImage: "text.quote",
+                    count: cloudSearchResults.filter { $0.source == .transcript }.count
+                )
+                sourceCountChip(
+                    "Notes",
+                    systemImage: "note.text",
+                    count: cloudSearchResults.filter { $0.source == .summary }.count
+                )
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                cloudSearchQuery = ""
+                selectedSearchSpeakerRawName = nil
+            } label: {
+                Text("Clear")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Capsule(style: .continuous).fill(Palette.controlFillHover))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     private var detailJumpBar: some View {
         HStack(spacing: 2) {
             detailJumpSegment(
@@ -283,8 +369,8 @@ struct CloudRecordingDetail: View {
             )
 
             detailJumpSegment(
-                title: "Timeline",
-                systemImage: "clock",
+                title: "Chapters",
+                systemImage: "play.rectangle",
                 section: .timeline,
                 accessibilityID: AccessibilityIDs.Cloud.jumpToTimelineButton,
                 isDisabled: false
@@ -340,6 +426,385 @@ struct CloudRecordingDetail: View {
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.45 : 1)
         .accessibilityIdentifier(accessibilityID)
+    }
+
+    private var isCloudSearchActive: Bool {
+        !cloudSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || selectedSearchSpeakerRawName != nil
+    }
+
+    private var visibleSpeakerIdentities: [CloudSpeakerIdentity] {
+        speakerIdentities(for: visibleTranscript?.displaySegmentRows ?? [])
+    }
+
+    private func speakerIdentities(for rows: [CloudTranscriptSegmentDisplayRow]) -> [CloudSpeakerIdentity] {
+        var seen: Set<String> = []
+        var identities: [CloudSpeakerIdentity] = []
+        for speaker in rows.compactMap(\.speaker).map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !speaker.isEmpty {
+            guard !seen.contains(speaker) else { continue }
+            seen.insert(speaker)
+            if let identity = speakerIdentity(for: speaker, index: identities.count) {
+                identities.append(identity)
+            }
+        }
+        return identities
+    }
+
+    private func speakerIdentity(for rawName: String?, index: Int? = nil) -> CloudSpeakerIdentity? {
+        guard let raw = rawName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        let allNames = (visibleTranscript?.displaySegmentRows ?? [])
+            .compactMap(\.speaker)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let offset: Int
+        if let index {
+            offset = index
+        } else {
+            let unique = allNames.reduce(into: [String]()) { result, name in
+                if !result.contains(name) {
+                    result.append(name)
+                }
+            }
+            offset = unique.firstIndex(of: raw) ?? 0
+        }
+        let speakerID = CloudSpeakerModel.speakerID(forRawName: raw)
+        let override = speakerOverrides[speakerID]
+        return CloudSpeakerIdentity(
+            speakerID: speakerID,
+            rawName: raw,
+            displayName: override?.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? override!.displayName
+                : raw,
+            emoji: override?.emoji.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? override!.emoji
+                : CloudSpeakerIdentity.defaultEmoji(at: offset),
+            color: CloudSpeakerIdentity.defaultColor(at: offset),
+            note: override?.note
+        )
+    }
+
+    private var cloudSearchResults: [CloudSearchResult] {
+        let query = cloudSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let indexedResults = indexedSearchResults.map(cloudSearchResult(from:))
+        let results = indexedResults.isEmpty && UITestModeConfiguration.shared.stateBoardVisualFixtureEnabled
+            ? currentRecordingSearchResults + stateBoardGlobalSearchFixtureResults
+            : indexedResults
+        return results.filter { result in
+            let speakerMatches = selectedSearchSpeakerRawName == nil || result.speaker?.rawName == selectedSearchSpeakerRawName
+            let queryMatches = query.isEmpty || result.searchableText.lowercased().contains(query)
+            return speakerMatches && queryMatches
+        }
+    }
+
+    private var allCloudSearchResults: [CloudSearchResult] {
+        let indexedResults = indexedSearchResults.map(cloudSearchResult(from:))
+        return indexedResults.isEmpty && UITestModeConfiguration.shared.stateBoardVisualFixtureEnabled
+            ? currentRecordingSearchResults + stateBoardGlobalSearchFixtureResults
+            : indexedResults
+    }
+
+    private func cloudSearchResult(from indexed: CloudIndexedSearchResult) -> CloudSearchResult {
+        CloudSearchResult(
+            id: indexed.id,
+            recordingID: indexed.recordingID,
+            recordingTitle: indexed.recordingTitle,
+            source: CloudSearchResultSource(indexed.source),
+            sectionBreadcrumb: indexed.sectionBreadcrumb,
+            marker: indexed.marker,
+            text: indexed.text,
+            speaker: speakerIdentity(for: indexed.speakerRawName),
+            targetSegmentID: indexed.targetSegmentID,
+            isCurrentRecording: indexed.recordingID == recording.id
+        )
+    }
+
+    private var currentRecordingSearchResults: [CloudSearchResult] {
+        var results: [CloudSearchResult] = []
+
+        for row in visibleTranscript?.displaySegmentRows ?? [] {
+            results.append(
+                CloudSearchResult(
+                    id: "\(recording.id)-transcript-\(row.id)",
+                    recordingID: recording.id,
+                    recordingTitle: recording.presentationTitle,
+                    source: .transcript,
+                    sectionBreadcrumb: "Transcript",
+                    marker: row.marker,
+                    text: row.text,
+                    speaker: speakerIdentity(for: row.speaker),
+                    targetSegmentID: row.id,
+                    isCurrentRecording: true
+                )
+            )
+        }
+
+        let summaryEntries = currentSummarySearchEntries()
+        for entry in summaryEntries {
+            results.append(
+                CloudSearchResult(
+                    id: "\(recording.id)-summary-\(entry.section)-\(abs(entry.text.hashValue))",
+                    recordingID: recording.id,
+                    recordingTitle: recording.presentationTitle,
+                    source: .summary,
+                    sectionBreadcrumb: "Notes · \(entry.section)",
+                    marker: nil,
+                    text: entry.text,
+                    speaker: nil,
+                    targetSegmentID: nil,
+                    isCurrentRecording: true
+                )
+            )
+        }
+
+        return results
+    }
+
+    private func currentSummarySearchEntries() -> [(section: String, text: String)] {
+        guard let insights = structuredSummaryInsights else {
+            if let summaryInsightText {
+                return [("Overview", summaryInsightText)]
+            }
+            return []
+        }
+
+        var entries: [(String, String)] = []
+        if let summaryText = insights.summaryText {
+            entries.append(("TL;DR", summaryText))
+        }
+        entries.append(contentsOf: insights.keyPoints.map { ("Key points", $0) })
+        entries.append(contentsOf: insights.decisions.map { ("Decisions", $0) })
+        entries.append(contentsOf: insights.actionItemTexts.map { ("Action items", $0) })
+        entries.append(contentsOf: insights.quoteTexts.map { ("Quotes", $0) })
+        return entries
+    }
+
+    private var stateBoardGlobalSearchFixtureResults: [CloudSearchResult] {
+        guard UITestModeConfiguration.shared.stateBoardVisualFixtureEnabled else { return [] }
+        return [
+            CloudSearchResult(
+                id: "fixture-design-summary",
+                recordingID: "fixture-design",
+                recordingTitle: "Design review with platform team",
+                source: .summary,
+                sectionBreadcrumb: "Notes · Key points",
+                marker: nil,
+                text: "The team compared caption panel affordances, search placement, and speaker labeling before moving into production SwiftUI mocks.",
+                speaker: nil,
+                targetSegmentID: nil,
+                isCurrentRecording: false
+            ),
+            CloudSearchResult(
+                id: "fixture-design-transcript",
+                recordingID: "fixture-design",
+                recordingTitle: "Design review with platform team",
+                source: .transcript,
+                sectionBreadcrumb: "Transcript",
+                marker: "12:04",
+                text: "The caption panel should stay quiet until hover, but search needs to work across every recording, not only this transcript.",
+                speaker: CloudSpeakerIdentity(
+                    speakerID: CloudSpeakerModel.speakerID(forRawName: "Maya"),
+                    rawName: "Maya",
+                    displayName: "Maya",
+                    emoji: "💬",
+                    color: CloudSpeakerIdentity.defaultColor(at: 3),
+                    note: nil
+                ),
+                targetSegmentID: nil,
+                isCurrentRecording: false
+            ),
+            CloudSearchResult(
+                id: "fixture-sales-summary",
+                recordingID: "fixture-sales",
+                recordingTitle: "Customer support sync",
+                source: .summary,
+                sectionBreadcrumb: "Notes · Decisions",
+                marker: nil,
+                text: "Support agreed to use transcript search for exact quotes and note search for recurring customer themes.",
+                speaker: nil,
+                targetSegmentID: nil,
+                isCurrentRecording: false
+            ),
+            CloudSearchResult(
+                id: "fixture-sales-transcript",
+                recordingID: "fixture-sales",
+                recordingTitle: "Customer support sync",
+                source: .transcript,
+                sectionBreadcrumb: "Transcript",
+                marker: "08:41",
+                text: "Search should find the exact transcript sentence and also surface the related summary section when the wording differs.",
+                speaker: CloudSpeakerIdentity(
+                    speakerID: CloudSpeakerModel.speakerID(forRawName: "Noah"),
+                    rawName: "Noah",
+                    displayName: "Noah",
+                    emoji: "🎧",
+                    color: CloudSpeakerIdentity.defaultColor(at: 1),
+                    note: nil
+                ),
+                targetSegmentID: nil,
+                isCurrentRecording: false
+            ),
+        ]
+    }
+
+    private var cloudSearchResultsPane: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                searchHeader
+
+                if cloudSearchResults.isEmpty {
+                    searchEmptyState
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(cloudSearchResults) { result in
+                            CloudSearchResultRow(result: result) {
+                                activateSearchResult(result)
+                            }
+                            .accessibilityIdentifier(AccessibilityIDs.Cloud.searchResultRowPrefix + result.id)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Palette.surfaceCard)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Palette.borderHairline, lineWidth: 1)
+                    )
+                }
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 16)
+            .padding(.bottom, 20)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.searchResults)
+    }
+
+    private var searchHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(cloudSearchResults.count) results")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
+                Text("across all recordings")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+
+                if isCloudSearchLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.65)
+                        .frame(width: 16, height: 16)
+                }
+
+                HStack(spacing: 5) {
+                    sourceCountChip(
+                        "Verbatim",
+                        systemImage: "text.quote",
+                        count: cloudSearchResults.filter { $0.source == .transcript }.count
+                    )
+                    sourceCountChip(
+                        "Notes",
+                        systemImage: "note.text",
+                        count: cloudSearchResults.filter { $0.source == .summary }.count
+                    )
+                }
+            }
+
+            if !visibleSpeakerIdentities.isEmpty {
+                FlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                    searchFilterChip(title: "All speakers", rawName: nil)
+                    ForEach(visibleSpeakerIdentities) { speaker in
+                        searchFilterChip(
+                            title: "\(speaker.emoji) \(speaker.displayName)",
+                            rawName: speaker.rawName
+                        )
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Palette.surfaceCardSubtle)
+        )
+    }
+
+    private func sourceCountChip(_ title: String, systemImage: String, count: Int) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.system(size: 8.5, weight: .semibold))
+            Text("\(count)")
+                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+            Text(title)
+                .font(.system(size: 9.5, weight: .semibold))
+        }
+        .foregroundStyle(Color.dtLabelSecondary)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Capsule(style: .continuous).fill(Palette.controlFillHover))
+    }
+
+    private func searchFilterChip(title: String, rawName: String?) -> some View {
+        let isSelected = selectedSearchSpeakerRawName == rawName
+        return Button {
+            selectedSearchSpeakerRawName = rawName
+        } label: {
+            Text(title)
+                .font(.system(size: 10.5, weight: isSelected ? .bold : .semibold))
+                .foregroundStyle(isSelected ? DT.appAccentSoft : Color.dtLabelSecondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(isSelected ? DT.appAccent.opacity(0.24) : Palette.controlFillHover)
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(isSelected ? DT.appAccent.opacity(0.70) : Palette.borderHairline, lineWidth: 0.7)
+                )
+                .shadow(color: isSelected ? DT.appAccent.opacity(0.12) : .clear, radius: 5, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var searchEmptyState: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color.dtLabelTertiary)
+            Text("No transcript or note results yet.")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(Color.dtLabelSecondary)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Palette.surfaceCard)
+        )
+    }
+
+    private func activateSearchResult(_ result: CloudSearchResult) {
+        cloudSearchQuery = ""
+        selectedSearchSpeakerRawName = nil
+        switch result.source {
+        case .summary:
+            activeDetailSection = .summary
+            pendingScrollTarget = .summary
+            pinnedSegmentID = nil
+        case .transcript:
+            activeDetailSection = .transcript
+            pendingScrollTarget = .transcript
+            pinnedSegmentID = result.isCurrentRecording ? result.targetSegmentID : nil
+        }
     }
 
     private func updateActiveDetailSection(with offsets: [CloudDetailSection: CGFloat]) {
@@ -477,10 +942,10 @@ struct CloudRecordingDetail: View {
                 summaryCalloutBlock(title: "TL;DR", text: tldr)
             }
 
-            summaryBulletSection(title: "Key points", systemImage: "sparkles", items: insights.keyPoints, accent: DT.statusReady)
+            summaryBulletSection(title: "Key points", systemImage: "sparkles", items: insights.keyPoints, accent: DT.statusReady, sectionKey: "key")
             summaryTopicSection(items: insights.topics)
-            summaryBulletSection(title: "Decisions", systemImage: "checkmark.seal", items: insights.decisions, accent: DT.systemBlue)
-            summaryBulletSection(title: "Action items", systemImage: "checklist", items: insights.actionItemTexts, accent: DT.systemOrange)
+            summaryBulletSection(title: "Decisions", systemImage: "checkmark.seal", items: insights.decisions, accent: DT.appAccentSoft, sectionKey: "decision")
+            summaryBulletSection(title: "Action items", systemImage: "checklist", items: insights.actionItemTexts, accent: DT.systemOrange, sectionKey: "action")
             summaryQuoteSection(items: insights.quoteTexts)
         }
     }
@@ -558,21 +1023,32 @@ struct CloudRecordingDetail: View {
         }
     }
 
-    /// Timeline tab content rendered between Summary and Transcript in the
-    /// scroll view. Wraps the rail-style chapter list with a section header
-    /// matching the visual rhythm of the transcript section so it reads as a
-    /// distinct top-level destination, not an embedded Summary block.
+    /// Chapter navigation rendered between Summary and Transcript in the
+    /// scroll view. This is intentionally framed as an audio jump surface,
+    /// not a second thematic summary.
     private var timelineSectionView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Image(systemName: "clock")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.dtLabelSecondary)
-                Text("Timeline")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.dtLabel)
+            HStack(alignment: .center, spacing: 9) {
+                ZStack {
+                    Circle()
+                        .fill(DT.appAccent.opacity(0.14))
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(DT.appAccentSoft)
+                }
+                .frame(width: 24, height: 24)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Audio chapters")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                    Text("Jump through the recording")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                }
+
                 Spacer(minLength: 0)
-                Text("Chapters")
+                Text("\(timelineEntries.count) chapters")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(Color.dtLabelTertiary)
                     .padding(.horizontal, 6)
@@ -653,7 +1129,6 @@ struct CloudRecordingDetail: View {
                 }
                 .frame(width: 22)
 
-            // Content column
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(entry.timeRange)
@@ -677,13 +1152,28 @@ struct CloudRecordingDetail: View {
                             .fixedSize(horizontal: false, vertical: true)
 
                         Spacer(minLength: 0)
+
+                        HStack(spacing: 4) {
+                            Image(systemName: isActive ? "speaker.wave.2.fill" : "play.fill")
+                                .font(.system(size: 8.5, weight: .bold))
+                            Text(isActive ? "Playing" : "Jump")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .foregroundStyle(isActive ? activeAccent : Color.dtLabelSecondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(isActive ? activeAccent.opacity(0.16) : Palette.controlFillHover)
+                        )
                     }
                     .padding(.top, isActive ? 3 : 4)
 
                     Text(entry.summary)
-                        .font(.system(size: 12))
+                        .font(.system(size: 11.5))
                         .foregroundStyle(isFuture ? Color.dtLabelTertiary : Color.dtLabelSecondary)
                         .lineSpacing(2.5)
+                        .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.bottom, isLast ? 0 : 14)
@@ -710,10 +1200,10 @@ struct CloudRecordingDetail: View {
                 .frame(width: 20, height: 20)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("No timeline available")
+                Text("No chapters available")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
-                Text("Generate a new summary for this recording to create chapter markers.")
+                Text("Generate a new summary for this recording to create audio chapter markers.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(Color.dtLabelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -745,7 +1235,7 @@ struct CloudRecordingDetail: View {
     }
 
     @ViewBuilder
-    private func summaryBulletSection(title: String, systemImage: String, items: [String], accent: Color) -> some View {
+    private func summaryBulletSection(title: String, systemImage: String, items: [String], accent: Color, sectionKey: String) -> some View {
         if !items.isEmpty {
             summarySectionBlock(title: title, systemImage: systemImage, accent: accent) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -760,11 +1250,97 @@ struct CloudRecordingDetail: View {
                                 .foregroundStyle(Color.dtLabelSecondary)
                                 .lineSpacing(1.5)
                                 .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 4)
+                            if let identity = summaryAttributionIdentity(for: entry.offset) {
+                                summarySourceBadge(identity, key: "\(sectionKey)-\(entry.offset)")
+                                    .padding(.top, 1)
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func summarySourceBadge(_ identity: CloudSpeakerIdentity, key: String) -> some View {
+        Button {
+            summarySourcePopoverKey = key
+        } label: {
+            HStack(spacing: 4) {
+                Text(identity.emoji)
+                    .font(.system(size: 9.5))
+                Text(identity.displayName)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(identity.color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2.5)
+            .background(Capsule(style: .continuous).fill(identity.color.opacity(0.11)))
+            .overlay(Capsule(style: .continuous).strokeBorder(identity.color.opacity(0.22), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(identity.displayName) source")
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.summarySourceBadgePrefix + key)
+        .popover(
+            isPresented: Binding(
+                get: { summarySourcePopoverKey == key },
+                set: { isPresented in if !isPresented { summarySourcePopoverKey = nil } }
+            ),
+            arrowEdge: .top
+        ) {
+            summarySourcePopover(for: identity)
+        }
+    }
+
+    private func summaryAttributionIdentity(for offset: Int) -> CloudSpeakerIdentity? {
+        let identities = visibleSpeakerIdentities
+        guard !identities.isEmpty else { return nil }
+        return identities[offset % identities.count]
+    }
+
+    private func summarySourcePopover(for identity: CloudSpeakerIdentity) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                speakerAvatar(identity, size: 22)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(identity.displayName)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                    Text("Source transcript segments")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(summarySourceRows(for: identity).prefix(3)) { row in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(row.marker)
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(identity.color)
+                            .frame(width: 44, alignment: .leading)
+                        Text(row.text)
+                            .font(.system(size: 11.2))
+                            .foregroundStyle(Color.dtLabelSecondary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .padding(13)
+        .frame(width: 320, alignment: .leading)
+        .background(DT.recordingShell)
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.summarySourcePopover)
+    }
+
+    private func summarySourceRows(for identity: CloudSpeakerIdentity) -> [CloudTranscriptSegmentDisplayRow] {
+        let rows = visibleTranscript?.displaySegmentRows ?? []
+        let matches = rows.filter { $0.speaker == identity.rawName }
+        return matches.isEmpty ? Array(rows.prefix(3)) : matches
     }
 
     @ViewBuilder
@@ -1044,6 +1620,51 @@ struct CloudRecordingDetail: View {
         .disabled(isPreparingPlaybackAudio)
         .help(isPlaying ? "Pause" : "Play recording")
         .accessibilityIdentifier(AccessibilityIDs.Cloud.headerPlayButton)
+    }
+
+    private var searchDetailHeader: some View {
+        HStack(alignment: .center, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(DT.appAccent.opacity(0.14))
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(DT.appAccentSoft)
+            }
+            .frame(width: 34, height: 34)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Search all recordings")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
+                    .lineLimit(1)
+
+                Text(searchModeSubtitle)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                cloudSearchQuery = ""
+                selectedSearchSpeakerRawName = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10.5, weight: .bold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(PanelIconButtonStyle(size: 28))
+            .help("Close search")
+        }
+    }
+
+    private var searchModeSubtitle: String {
+        let query = cloudSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            return "Verbatim hits and notes across every recording"
+        }
+        return "Results for “\(query)”"
     }
 
     private var processingScene: RecordingSceneTemplate {
@@ -1616,28 +2237,202 @@ struct CloudRecordingDetail: View {
     }
 
     private var segmentsHeader: some View {
-        HStack {
-            Text("Transcript")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color.dtLabelTertiary)
-                .tracking(0.45)
-            if let visibleTranscript {
-                Text("\(visibleTranscript.displaySegmentRows.count)")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Transcript")
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.dtLabelTertiary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule(style: .continuous).fill(Palette.controlFillHover))
+                    .tracking(0.45)
+                if let visibleTranscript {
+                    Text("\(visibleTranscript.displaySegmentRows.count)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule(style: .continuous).fill(Palette.controlFillHover))
+                }
+                Spacer(minLength: 0)
+                ZStack {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.72)
+                        .opacity(isVisibleTranscriptLoading ? 1 : 0)
+                }
+                .frame(width: 16, height: 16)
             }
-            Spacer(minLength: 0)
-            ZStack {
-                ProgressView()
-                    .controlSize(.small)
-                    .scaleEffect(0.72)
-                    .opacity(isVisibleTranscriptLoading ? 1 : 0)
+
+            if !visibleSpeakerIdentities.isEmpty {
+                speakerBar
             }
-            .frame(width: 16, height: 16)
         }
+    }
+
+    private var speakerBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(visibleSpeakerIdentities) { speaker in
+                    speakerChip(speaker, showsHint: true)
+                }
+            }
+            .padding(.horizontal, 1)
+        }
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerBar)
+    }
+
+    private func speakerChip(_ identity: CloudSpeakerIdentity, showsHint: Bool = false) -> some View {
+        Button {
+            presentSpeakerRenamePopover(for: identity)
+        } label: {
+            HStack(spacing: 7) {
+                speakerAvatar(identity, size: 22)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(identity.displayName)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                        .lineLimit(1)
+                    if showsHint {
+                        Text(identity.note?.isEmpty == false ? identity.note! : "Tap to rename")
+                            .font(.system(size: 9.2, weight: .medium))
+                            .foregroundStyle(Color.dtLabelTertiary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .padding(.leading, 6)
+            .padding(.trailing, 9)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(identity.color.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(identity.color.opacity(0.18), lineWidth: 0.7)
+            )
+        }
+        .buttonStyle(.plain)
+        .popover(
+            isPresented: Binding(
+                get: { renamingSpeakerRawName == identity.rawName },
+                set: { isPresented in if !isPresented { renamingSpeakerRawName = nil } }
+            ),
+            arrowEdge: .top
+        ) {
+            speakerRenamePopover
+        }
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerChipPrefix + identity.rawName)
+    }
+
+    private func speakerAvatar(_ identity: CloudSpeakerIdentity, size: CGFloat) -> some View {
+        ZStack {
+            Circle()
+                .fill(identity.color.opacity(0.16))
+            Text(identity.emoji)
+                .font(.system(size: size * 0.52))
+        }
+        .frame(width: size, height: size)
+        .overlay(
+            Circle()
+                .strokeBorder(identity.color.opacity(0.28), lineWidth: 0.7)
+        )
+    }
+
+    private func presentSpeakerRenamePopover(for identity: CloudSpeakerIdentity) {
+        speakerRenameDraft = identity.displayName
+        speakerNoteDraft = identity.note ?? ""
+        speakerEmojiDraft = identity.emoji
+        renamingSpeakerRawName = identity.rawName
+    }
+
+    private var speakerRenamePopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                if let rawName = renamingSpeakerRawName,
+                   let identity = speakerIdentity(for: rawName) {
+                    speakerAvatar(identity, size: 28)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Rename speaker")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                    Text("Applies to every matching segment in this meeting.")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                }
+            }
+
+            HStack(spacing: 6) {
+                ForEach(CloudSpeakerIdentity.emojiChoices, id: \.self) { emoji in
+                    Button {
+                        speakerEmojiDraft = emoji
+                    } label: {
+                        Text(emoji)
+                            .font(.system(size: 14))
+                            .frame(width: 24, height: 24)
+                            .background(
+                                Circle()
+                                    .fill(speakerEmojiDraft == emoji ? DT.appAccent.opacity(0.16) : Palette.controlFillHover)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                TextField("Speaker name", text: $speakerRenameDraft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 8)
+                    .frame(height: 30)
+                    .background(
+                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                            .fill(Palette.surfaceCardSubtle)
+                    )
+
+                TextField("Add note (optional)", text: $speakerNoteDraft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11.5))
+                    .padding(.horizontal, 8)
+                    .frame(height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                            .fill(Palette.surfaceCardSubtle)
+                    )
+            }
+
+            HStack(spacing: 8) {
+                Label("Apply to all \(renamingSpeakerRawName ?? "speaker") segments", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(DT.appAccent)
+                Spacer(minLength: 0)
+                Button("Cancel") {
+                    renamingSpeakerRawName = nil
+                }
+                .buttonStyle(PanelPushButtonStyle())
+                Button("Save") {
+                    saveSpeakerRename()
+                }
+                .buttonStyle(PanelPushButtonStyle(primary: true))
+            }
+        }
+        .padding(14)
+        .frame(width: 348, alignment: .leading)
+        .background(DT.recordingShell)
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerRenamePopover)
+    }
+
+    private func saveSpeakerRename() {
+        guard let rawName = renamingSpeakerRawName else { return }
+        let normalizedName = speakerRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedEmoji = speakerEmojiDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedNote = speakerNoteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let speakerID = CloudSpeakerModel.speakerID(forRawName: rawName)
+        speakerOverrides[speakerID] = CloudSpeakerDisplayOverride(
+            displayName: normalizedName.isEmpty ? rawName : normalizedName,
+            emoji: normalizedEmoji.isEmpty ? CloudSpeakerIdentity.defaultEmoji(at: 0) : normalizedEmoji,
+            note: normalizedNote.isEmpty ? nil : normalizedNote
+        )
+        renamingSpeakerRawName = nil
     }
 
     private var transcriptDurationSeconds: Double? {
@@ -1758,6 +2553,12 @@ struct CloudRecordingDetail: View {
                         CloudTranscriptSegmentRow(
                             row: row,
                             isActive: row.id == activeSegmentID,
+                            speaker: speakerIdentity(for: row.speaker),
+                            onSpeakerSelect: {
+                                if let identity = speakerIdentity(for: row.speaker) {
+                                    presentSpeakerRenamePopover(for: identity)
+                                }
+                            },
                             onSelect: { jumpToSegment(row) }
                         )
                         .id(row.id)
@@ -1867,54 +2668,271 @@ private struct CloudTranscriptSegmentDisplayRow: Identifiable {
     let text: String
 }
 
-private struct CloudTranscriptSegmentRow: View {
-    let row: CloudTranscriptSegmentDisplayRow
-    let isActive: Bool
+private struct CloudSpeakerIdentity: Identifiable {
+    let speakerID: String
+    let rawName: String
+    let displayName: String
+    let emoji: String
+    let color: Color
+    let note: String?
+
+    var id: String { speakerID }
+
+    static let emojiChoices = ["🎤", "🎧", "📻", "👤", "💬", "✨"]
+
+    static func defaultEmoji(at index: Int) -> String {
+        emojiChoices[index % emojiChoices.count]
+    }
+
+    static func defaultColor(at index: Int) -> Color {
+        [
+            Color(red: 168/255, green: 139/255, blue: 250/255),
+            Color(red: 96/255, green: 165/255, blue: 250/255),
+            Color(red: 244/255, green: 114/255, blue: 182/255),
+            Color(red: 52/255, green: 211/255, blue: 153/255),
+            Color(red: 251/255, green: 191/255, blue: 36/255),
+            Color(red: 45/255, green: 212/255, blue: 191/255),
+        ][index % 6]
+    }
+}
+
+private enum CloudSearchResultSource: Equatable {
+    case transcript
+    case summary
+
+    init(_ indexedSource: CloudIndexedSearchSource) {
+        switch indexedSource {
+        case .transcript:
+            self = .transcript
+        case .summary:
+            self = .summary
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .transcript:
+            "Verbatim"
+        case .summary:
+            "Notes"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .transcript:
+            "text.quote"
+        case .summary:
+            "note.text"
+        }
+    }
+
+    var accent: Color {
+        switch self {
+        case .transcript:
+            DT.appAccent
+        case .summary:
+            DT.appAccentSoft
+        }
+    }
+}
+
+private struct CloudSearchResult: Identifiable {
+    let id: String
+    let recordingID: String
+    let recordingTitle: String
+    let source: CloudSearchResultSource
+    let sectionBreadcrumb: String
+    let marker: String?
+    let text: String
+    let speaker: CloudSpeakerIdentity?
+    let targetSegmentID: String?
+    let isCurrentRecording: Bool
+
+    var searchableText: String {
+        [
+            recordingTitle,
+            source.title,
+            sectionBreadcrumb,
+            marker,
+            text,
+            speaker?.rawName,
+            speaker?.displayName,
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+    }
+}
+
+private struct CloudSearchResultRow: View {
+    let result: CloudSearchResult
     let onSelect: () -> Void
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(alignment: .top, spacing: 12) {
-                Capsule(style: .continuous)
-                    .fill(isActive ? DT.waveformLit.opacity(0.9) : Palette.controlFillHover)
-                    .frame(width: isActive ? 2 : 3)
-                    .padding(.vertical, 2)
+            HStack(alignment: .top, spacing: 11) {
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    .fill(stripeColor.opacity(result.source == .summary ? 0.55 : 0.88))
+                    .frame(width: 4)
+                    .padding(.vertical, 4)
 
-                Text(row.marker)
-                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(isActive ? Color.dtLabelSecondary : Color.dtLabelTertiary)
-                    .frame(width: 64, alignment: .leading)
-                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(alignment: .firstTextBaseline, spacing: 7) {
+                        sourceBadge
 
-                VStack(alignment: .leading, spacing: 3) {
-                    if let speaker = row.speaker {
-                        Text(speaker)
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(Color.dtLabelSecondary)
+                        Text(result.recordingTitle)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(Color.dtLabel)
                             .lineLimit(1)
+
+                        Text(result.sectionBreadcrumb)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(Color.dtLabelTertiary)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 0)
                     }
 
-                    Text(row.text)
-                        .font(.system(size: 14, weight: .regular))
+                    HStack(spacing: 7) {
+                        if let speaker = result.speaker {
+                            HStack(spacing: 4) {
+                                Text(speaker.emoji)
+                                    .font(.system(size: 10))
+                                Text(speaker.displayName)
+                                    .font(.system(size: 10.5, weight: .semibold))
+                            }
+                            .foregroundStyle(speaker.color)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule(style: .continuous).fill(speaker.color.opacity(0.10)))
+                        }
+
+                        if let marker = result.marker {
+                            Text(marker)
+                                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(Color.dtLabelTertiary)
+                        }
+
+                        if !result.isCurrentRecording {
+                            Text("Different recording")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(DT.appAccentSoft)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+
+                    Text(result.text)
+                        .font(.system(size: 13.2))
                         .foregroundStyle(Color.dtLabel)
-                        .lineSpacing(3)
+                        .lineSpacing(2)
+                        .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isActive ? Palette.surfaceCardSubtleActive : Palette.surfaceCardSubtle)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Palette.surfaceCardSubtle)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Palette.borderHairline, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.7)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+
+    private var stripeColor: Color {
+        switch result.source {
+        case .transcript:
+            result.speaker?.color ?? result.source.accent
+        case .summary:
+            result.source.accent
+        }
+    }
+
+    private var sourceBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: result.source.systemImage)
+                .font(.system(size: 8.5, weight: .semibold))
+            Text(result.source.title)
+                .font(.system(size: 9.8, weight: .semibold))
+        }
+        .foregroundStyle(result.source.accent)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2.5)
+        .background(Capsule(style: .continuous).fill(result.source.accent.opacity(0.10)))
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(result.source.accent.opacity(0.18), lineWidth: 0.5)
+        )
+    }
+}
+
+private struct CloudTranscriptSegmentRow: View {
+    let row: CloudTranscriptSegmentDisplayRow
+    let isActive: Bool
+    let speaker: CloudSpeakerIdentity?
+    let onSpeakerSelect: () -> Void
+    let onSelect: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Capsule(style: .continuous)
+                .fill(speaker?.color.opacity(isActive ? 0.96 : 0.78) ?? (isActive ? DT.waveformLit.opacity(0.9) : Palette.controlFillHover))
+                .frame(width: isActive ? 4 : 3)
+                .padding(.vertical, 2)
+
+            Text(row.marker)
+                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                .foregroundStyle(isActive ? Color.dtLabelSecondary : Color.dtLabelTertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(width: 82, alignment: .leading)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 5) {
+                if let speaker {
+                    Button(action: onSpeakerSelect) {
+                        HStack(spacing: 5) {
+                            Text(speaker.emoji)
+                                .font(.system(size: 9.5))
+                            Text(speaker.displayName)
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(speaker.color)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule(style: .continuous).fill(speaker.color.opacity(0.10)))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Text(row.text)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color.dtLabel)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isActive ? Palette.surfaceCardSubtleActive : Palette.surfaceCardSubtle)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(isActive ? DT.appAccent.opacity(0.30) : Palette.borderHairline, lineWidth: isActive ? 1.1 : 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onTapGesture(perform: onSelect)
         .help(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
         .disabled(row.startMs == nil && row.endMs == nil)
     }

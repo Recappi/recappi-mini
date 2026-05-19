@@ -23,6 +23,10 @@ struct CloudCenterPanel: View {
     @State var contextMenuTargetRecording: CloudRecording?
     @State var pendingRenameRecording: CloudRecording?
     @State var renameDraft: String = ""
+    @State var cloudSearchQuery: String = ""
+    @State var selectedCloudSearchSpeakerRawName: String?
+    @State var cloudIndexedSearchResults: [CloudIndexedSearchResult] = []
+    @State var isCloudSearchLoading = false
 
     init(store: CloudLibraryStore = CloudLibraryStore(), recorder: AudioRecorder) {
         _store = StateObject(wrappedValue: store)
@@ -50,6 +54,9 @@ struct CloudCenterPanel: View {
             if !UITestModeConfiguration.shared.stateBoardVisualFixtureEnabled {
                 await store.loadInitialIfNeeded()
             }
+        }
+        .task(id: cloudSearchTaskKey) {
+            await refreshCloudSearchResults()
         }
         .confirmationDialog(
             "Delete this cloud recording?",
@@ -113,6 +120,9 @@ struct CloudCenterPanel: View {
 
     @ToolbarContentBuilder
     var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            CloudToolbarSearchInput(text: $cloudSearchQuery)
+        }
         ToolbarItem(placement: .automatic) {
             if isCurrentMeetingActive {
                 Button {
@@ -142,6 +152,41 @@ struct CloudCenterPanel: View {
             .help("Refresh cloud recordings")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.refreshButton)
         }
+    }
+
+    var isCloudSearchActive: Bool {
+        !cloudSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || selectedCloudSearchSpeakerRawName != nil
+    }
+
+    var cloudSearchTaskKey: String {
+        [
+            cloudSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines),
+            selectedCloudSearchSpeakerRawName ?? "",
+            "\(store.recordings.count)",
+            "\(store.transcriptCache.count)",
+        ].joined(separator: "\u{1f}")
+    }
+
+    @MainActor
+    func refreshCloudSearchResults() async {
+        let query = cloudSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let speaker = selectedCloudSearchSpeakerRawName
+        guard !query.isEmpty || speaker != nil else {
+            cloudIndexedSearchResults = []
+            isCloudSearchLoading = false
+            return
+        }
+        isCloudSearchLoading = true
+        let results = await store.searchCachedRecordings(
+            query: query,
+            speakerRawName: speaker,
+            limit: 80
+        )
+        guard query == cloudSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines),
+              speaker == selectedCloudSearchSpeakerRawName else { return }
+        cloudIndexedSearchResults = results
+        isCloudSearchLoading = false
     }
 
     // MARK: - Bindings
@@ -178,6 +223,62 @@ struct CloudCenterPanel: View {
                 store.select(rec)
             }
         )
+    }
+}
+
+private struct CloudToolbarSearchInput: View {
+    @Binding var text: String
+
+    var body: some View {
+        NativeToolbarSearchField(text: $text)
+            .frame(width: 260, height: 28)
+    }
+}
+
+private struct NativeToolbarSearchField: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = "Search all recordings"
+        field.controlSize = .regular
+        field.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        field.sendsSearchStringImmediately = true
+        field.sendsWholeSearchString = false
+        field.focusRingType = .none
+        field.delegate = context.coordinator
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.searchFieldAction(_:))
+        field.setAccessibilityIdentifier(AccessibilityIDs.Cloud.searchField)
+        return field
+    }
+
+    func updateNSView(_ nsView: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            text.wrappedValue = field.stringValue
+        }
+
+        @MainActor @objc func searchFieldAction(_ sender: NSSearchField) {
+            text.wrappedValue = sender.stringValue
+        }
     }
 }
 

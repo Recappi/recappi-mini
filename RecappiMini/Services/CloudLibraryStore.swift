@@ -25,6 +25,7 @@ final class CloudLibraryStore: ObservableObject {
     @Published var totalRecordingCount: Int?
     @Published var transcriptCache: [String: TranscriptResponse] = [:]
     @Published var transcriptionJobsByRecordingID: [String: [TranscriptionJob]] = [:]
+    @Published var speakerOverridesByRecordingID: [String: [String: CloudSpeakerDisplayOverride]] = [:]
     @Published var nextCursor: String?
     @Published var isLoadingMore = false
     @Published var isRefreshing = false

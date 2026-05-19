@@ -48,6 +48,7 @@ extension CloudLibraryStore {
         transcriptCache.removeValue(forKey: recordingID)
         transcriptCacheRecordingUpdatedAt.removeValue(forKey: recordingID)
         transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
+        speakerOverridesByRecordingID.removeValue(forKey: recordingID)
         recordingIDsWithNewerVersions.remove(recordingID)
         locallyManagedRecordingUpdatedAt.removeValue(forKey: recordingID)
         playbackAudioURLsByRecordingID.removeValue(forKey: recordingID)
@@ -57,6 +58,18 @@ extension CloudLibraryStore {
             selectedRecordingID = recordings.first?.id
         }
         state = recordings.isEmpty ? .empty : .loaded
+        scheduleCachePersist()
+    }
+
+    func updateSpeakerOverrides(
+        _ overrides: [String: CloudSpeakerDisplayOverride],
+        for recordingID: String
+    ) {
+        if overrides.isEmpty {
+            speakerOverridesByRecordingID.removeValue(forKey: recordingID)
+        } else {
+            speakerOverridesByRecordingID[recordingID] = overrides
+        }
         scheduleCachePersist()
     }
 

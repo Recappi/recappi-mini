@@ -9,7 +9,7 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
     /// `transcriptCacheRecordingUpdatedAt` decodes as an empty dict, so
     /// the runtime falls back to the shape-based summary recovery in
     /// `loadTranscriptForSelection` for those records.
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     let version: Int
     let userId: String
@@ -21,6 +21,7 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
     let billingStatus: BillingStatusSnapshot?
     let transcripts: [String: TranscriptResponseSnapshot]
     let transcriptionJobsByRecordingID: [String: [TranscriptionJob]]?
+    let speakerOverridesByRecordingID: [String: [String: CloudSpeakerDisplayOverride]]?
     /// Recording-level `updatedAt` captured at the moment a transcript was
     /// written into the store's `transcriptCache`. Persisted so the
     /// freshness anchor survives app restarts. Optional in the JSON to keep
@@ -37,6 +38,7 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
         billingStatus: BillingStatus?,
         transcriptCache: [String: TranscriptResponse],
         transcriptionJobsByRecordingID: [String: [TranscriptionJob]] = [:],
+        speakerOverridesByRecordingID: [String: [String: CloudSpeakerDisplayOverride]] = [:],
         transcriptCacheRecordingUpdatedAt: [String: Date] = [:],
         transcriptLimit: Int = 20
     ) {
@@ -49,6 +51,7 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
         self.selectedRecordingID = selectedRecordingID
         self.billingStatus = billingStatus.map(BillingStatusSnapshot.init)
         self.transcriptionJobsByRecordingID = transcriptionJobsByRecordingID
+        self.speakerOverridesByRecordingID = speakerOverridesByRecordingID
 
         var orderedIDs: [String] = []
         if let selectedRecordingID {
@@ -99,6 +102,10 @@ struct CloudLibrarySnapshot: Codable, Equatable, Sendable {
 
     var decodedTranscriptionJobsByRecordingID: [String: [TranscriptionJob]] {
         transcriptionJobsByRecordingID ?? [:]
+    }
+
+    var decodedSpeakerOverridesByRecordingID: [String: [String: CloudSpeakerDisplayOverride]] {
+        speakerOverridesByRecordingID ?? [:]
     }
 
     var decodedTranscriptCacheRecordingUpdatedAt: [String: Date] {
@@ -225,4 +232,3 @@ private func decodeViaAPIModel<T: Decodable, Source: Encodable>(
     guard let data = try? JSONEncoder.cloudCache.encode(source) else { return nil }
     return try? JSONDecoder.cloudCache.decode(type, from: data)
 }
-

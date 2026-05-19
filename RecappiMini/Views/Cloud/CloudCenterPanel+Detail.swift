@@ -77,6 +77,14 @@ extension CloudCenterPanel {
                 playbackAudioURL: store.selectedPlaybackAudioURL,
                 playbackSourceDescription: store.selectedPlaybackSourceDescription,
                 playbackErrorMessage: store.playbackErrorMessage,
+                cloudSearchQuery: $cloudSearchQuery,
+                selectedSearchSpeakerRawName: $selectedCloudSearchSpeakerRawName,
+                speakerOverrides: Binding(
+                    get: { store.speakerOverridesByRecordingID[recording.id] ?? [:] },
+                    set: { store.updateSpeakerOverrides($0, for: recording.id) }
+                ),
+                indexedSearchResults: cloudIndexedSearchResults,
+                isCloudSearchLoading: isCloudSearchLoading,
                 audioPlayer: cloudAudioPlayer,
                 isTranscriptLoading: store.isSelectedTranscriptLoading,
                 isJobHistoryLoading: store.isSelectedJobHistoryLoading,

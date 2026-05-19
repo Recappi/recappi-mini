@@ -91,15 +91,17 @@ struct LiveCaptionFloatingPanel: View {
                 panelBackground(cornerRadius: cornerRadius)
             }
         }
-        .onHover { hovering in
-            withAnimation(DT.motionAware(DT.ease(DT.Motion.elementPresence))) {
-                chromeVisible = hovering
-            }
-        }
+        .onHover(perform: updateChromeVisibility)
         .focusable(false)
         .recappiSuppressFocusRing()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanel)
+    }
+
+    private func updateChromeVisibility(_ hovering: Bool) {
+        withAnimation(DT.motionAware(DT.ease(DT.Motion.elementPresence))) {
+            chromeVisible = hovering
+        }
     }
 
     private var expandedBody: some View {
@@ -272,6 +274,7 @@ struct LiveCaptionFloatingPanel: View {
             glassShape(Capsule(style: .continuous))
         )
         .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
+        .onHover(perform: updateChromeVisibility)
         .focusable(false)
         .recappiSuppressFocusRing()
         .accessibilityHidden(!chromeVisible)
@@ -367,6 +370,7 @@ struct LiveCaptionFloatingPanel: View {
             color: .green,
             label: "workspace"
         ))
+        .onHover(perform: updateChromeVisibility)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionWorkspace)
     }

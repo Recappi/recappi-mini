@@ -1265,7 +1265,16 @@ final class RecappiMiniCoreTests: XCTestCase {
             selectedRecordingID: "rec_123",
             billingStatus: billing,
             transcriptCache: ["rec_123": transcript],
-            transcriptionJobsByRecordingID: ["rec_123": [job]]
+            transcriptionJobsByRecordingID: ["rec_123": [job]],
+            speakerOverridesByRecordingID: [
+                "rec_123": [
+                    CloudSpeakerModel.speakerID(forRawName: "Peng"): CloudSpeakerDisplayOverride(
+                        displayName: "Peng Xiao",
+                        emoji: "🎤",
+                        note: "Host"
+                    ),
+                ],
+            ]
         )
         let encoded = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(CloudLibrarySnapshot.self, from: encoded)
@@ -1281,6 +1290,10 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(decoded.decodedTranscripts["rec_123"]?.segments.first?.speaker, "Peng")
         XCTAssertEqual(decoded.decodedTranscriptionJobsByRecordingID["rec_123"]?.first?.id, "job_123")
         XCTAssertEqual(decoded.decodedTranscriptionJobsByRecordingID["rec_123"]?.first?.status, .queued)
+        XCTAssertEqual(
+            decoded.decodedSpeakerOverridesByRecordingID["rec_123"]?[CloudSpeakerModel.speakerID(forRawName: "Peng")]?.displayName,
+            "Peng Xiao"
+        )
         XCTAssertEqual(decoded.nextCursor, "next_456")
         XCTAssertEqual(decoded.selectedRecordingID, "rec_123")
     }
@@ -1377,6 +1390,113 @@ final class RecappiMiniCoreTests: XCTestCase {
             accuracy: 0.001
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: temp.appendingPathComponent("cloud-cache.sqlite3").path))
+    }
+
+    func testCloudLibraryCachePersistsSpeakerOverridesInSQLite() async throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let recording = try JSONDecoder().decode(
+            CloudRecording.self,
+            from: """
+            {
+              "id": "rec_speakers",
+              "userId": "user_123",
+              "title": "Speaker sync",
+              "status": "ready"
+            }
+            """.data(using: .utf8)!
+        )
+        let speakerID = CloudSpeakerModel.speakerID(forRawName: "Speaker 1")
+        let cache = CloudLibraryCache(directoryURL: temp)
+        let snapshot = CloudLibrarySnapshot(
+            userId: "user_123",
+            backendOrigin: "https://recordmeet.ing",
+            savedAt: Date(timeIntervalSince1970: 1_776_957_994),
+            recordings: [recording],
+            nextCursor: nil,
+            selectedRecordingID: "rec_speakers",
+            billingStatus: nil,
+            transcriptCache: [:],
+            speakerOverridesByRecordingID: [
+                "rec_speakers": [
+                    speakerID: CloudSpeakerDisplayOverride(
+                        displayName: "Ava",
+                        emoji: "🎧",
+                        note: "Interviewer"
+                    ),
+                ],
+            ]
+        )
+
+        await cache.saveSnapshot(snapshot)
+
+        let loadedSnapshot = await cache.loadSnapshot(userId: "user_123", backendOrigin: "https://recordmeet.ing")
+        let loaded = try XCTUnwrap(loadedSnapshot)
+        XCTAssertEqual(loaded.decodedSpeakerOverridesByRecordingID["rec_speakers"]?[speakerID]?.displayName, "Ava")
+        XCTAssertEqual(loaded.decodedSpeakerOverridesByRecordingID["rec_speakers"]?[speakerID]?.emoji, "🎧")
+        XCTAssertEqual(loaded.decodedSpeakerOverridesByRecordingID["rec_speakers"]?[speakerID]?.note, "Interviewer")
+    }
+
+    func testCloudLibraryCacheBuildsFTSIndexForTranscriptAndSummary() async throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let recording = try JSONDecoder().decode(
+            CloudRecording.self,
+            from: """
+            {
+              "id": "rec_search",
+              "userId": "user_123",
+              "title": "Weekly engineering sync",
+              "status": "ready"
+            }
+            """.data(using: .utf8)!
+        )
+        let transcript = try JSONDecoder().decode(
+            TranscriptResponse.self,
+            from: """
+            {
+              "id": "tr_search",
+              "text": "Live captions need reconnect states.",
+              "summaryJson": "{\\"tldr\\":\\"The team aligned on live caption reconnect polish.\\",\\"keyPoints\\":[\\"Search should include notes and transcripts.\\"]}",
+              "segments": [
+                { "startMs": 420000, "endMs": 760000, "text": "Live captions need reconnect states.", "speaker": "Chloe" },
+                { "startMs": 760000, "endMs": 900000, "text": "Search should cover exact transcript sentences.", "speaker": "Ava" }
+              ]
+            }
+            """.data(using: .utf8)!
+        )
+        let cache = CloudLibraryCache(directoryURL: temp)
+        let snapshot = CloudLibrarySnapshot(
+            userId: "user_123",
+            backendOrigin: "https://recordmeet.ing",
+            savedAt: Date(timeIntervalSince1970: 1_776_957_994),
+            recordings: [recording],
+            nextCursor: nil,
+            selectedRecordingID: "rec_search",
+            billingStatus: nil,
+            transcriptCache: ["rec_search": transcript]
+        )
+
+        await cache.saveSnapshot(snapshot)
+
+        let captionResults = try await cache.searchCachedRecordings(
+            userId: "user_123",
+            backendOrigin: "https://recordmeet.ing",
+            query: "caption"
+        )
+        XCTAssertTrue(captionResults.contains { $0.source == .transcript && $0.speakerRawName == "Chloe" })
+        XCTAssertTrue(captionResults.contains { $0.source == .summary && $0.sectionBreadcrumb == "Notes · TL;DR" })
+
+        let avaResults = try await cache.searchCachedRecordings(
+            userId: "user_123",
+            backendOrigin: "https://recordmeet.ing",
+            query: "Search",
+            speakerRawName: "Ava"
+        )
+        XCTAssertEqual(avaResults.map(\.speakerRawName), ["Ava"])
+        XCTAssertEqual(avaResults.first?.targetSegmentID, "segment-1-760000-900000")
     }
 
     func testCloudLibraryCacheMigratesLegacyJSONSnapshotIntoSQLite() async throws {

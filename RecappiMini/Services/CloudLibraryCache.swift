@@ -54,6 +54,26 @@ actor CloudLibraryCache {
         }
     }
 
+    func searchCachedRecordings(
+        userId: String,
+        backendOrigin: String,
+        query: String,
+        speakerRawName: String? = nil,
+        limit: Int = 50
+    ) throws -> [CloudIndexedSearchResult] {
+        try withDatabase { db in
+            try createSchemaIfNeeded(db)
+            return try searchSQLiteIndex(
+                db,
+                userId: userId,
+                backendOrigin: backendOrigin,
+                query: query,
+                speakerRawName: speakerRawName,
+                limit: limit
+            )
+        }
+    }
+
     nonisolated static func defaultDirectoryURL() -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser
@@ -147,6 +167,11 @@ private extension CloudLibraryCache {
                 userId: userId,
                 backendOrigin: backendOrigin
             )
+            let speakerOverridesByRecordingID = try loadSpeakerOverrides(
+                db,
+                userId: userId,
+                backendOrigin: backendOrigin
+            )
 
             return CloudLibrarySnapshot(
                 userId: userId,
@@ -158,6 +183,7 @@ private extension CloudLibraryCache {
                 billingStatus: billingStatus,
                 transcriptCache: transcriptCache,
                 transcriptionJobsByRecordingID: transcriptionJobsByRecordingID,
+                speakerOverridesByRecordingID: speakerOverridesByRecordingID,
                 transcriptCacheRecordingUpdatedAt: transcriptCacheRecordingUpdatedAt,
                 transcriptLimit: max(transcriptCache.count, 20)
             )
@@ -175,6 +201,8 @@ private extension CloudLibraryCache {
                 try insertRecordings(db, snapshot)
                 try insertTranscripts(db, snapshot)
                 try insertTranscriptionJobs(db, snapshot)
+                try insertSpeakerOverrides(db, snapshot)
+                try rebuildSearchIndex(db, snapshot)
                 try execute(db, "COMMIT")
             } catch {
                 try? execute(db, "ROLLBACK")
@@ -254,6 +282,34 @@ private extension CloudLibraryCache {
         );
         """)
         try execute(db, """
+        CREATE TABLE IF NOT EXISTS cloud_speaker_overrides (
+            user_id TEXT NOT NULL,
+            backend_origin TEXT NOT NULL,
+            recording_id TEXT NOT NULL,
+            speaker_id TEXT NOT NULL,
+            payload BLOB NOT NULL,
+            PRIMARY KEY (user_id, backend_origin, recording_id, speaker_id),
+            FOREIGN KEY (user_id, backend_origin)
+                REFERENCES cloud_snapshots(user_id, backend_origin)
+                ON DELETE CASCADE
+        );
+        """)
+        try execute(db, """
+        CREATE VIRTUAL TABLE IF NOT EXISTS cloud_search_fts USING fts5(
+            user_id UNINDEXED,
+            backend_origin UNINDEXED,
+            recording_id UNINDEXED,
+            row_id UNINDEXED,
+            source UNINDEXED,
+            section,
+            title,
+            speaker,
+            marker,
+            body,
+            tokenize='unicode61'
+        );
+        """)
+        try execute(db, """
         CREATE INDEX IF NOT EXISTS idx_cloud_recordings_order
         ON cloud_recordings(user_id, backend_origin, position);
         """)
@@ -264,10 +320,65 @@ private extension CloudLibraryCache {
     }
 
     func deletePartition(_ db: OpaquePointer, userId: String, backendOrigin: String) throws {
-        for table in ["cloud_transcription_jobs", "cloud_transcripts", "cloud_recordings", "cloud_snapshots"] {
+        for table in ["cloud_search_fts", "cloud_speaker_overrides", "cloud_transcription_jobs", "cloud_transcripts", "cloud_recordings", "cloud_snapshots"] {
             try run(db, "DELETE FROM \(table) WHERE user_id = ? AND backend_origin = ?") { statement in
                 try bindText(statement, 1, userId)
                 try bindText(statement, 2, backendOrigin)
+            }
+        }
+    }
+
+    func insertSpeakerOverrides(_ db: OpaquePointer, _ snapshot: CloudLibrarySnapshot) throws {
+        let statement = try prepare(db, """
+        INSERT INTO cloud_speaker_overrides (
+            user_id, backend_origin, recording_id, speaker_id, payload
+        ) VALUES (?, ?, ?, ?, ?)
+        """)
+        defer { sqlite3_finalize(statement) }
+
+        for recordingID in snapshot.decodedSpeakerOverridesByRecordingID.keys.sorted() {
+            guard let overrides = snapshot.decodedSpeakerOverridesByRecordingID[recordingID] else { continue }
+            for speakerID in overrides.keys.sorted() {
+                guard let override = overrides[speakerID] else { continue }
+                sqlite3_reset(statement)
+                sqlite3_clear_bindings(statement)
+                try bindText(statement, 1, snapshot.userId)
+                try bindText(statement, 2, snapshot.backendOrigin)
+                try bindText(statement, 3, recordingID)
+                try bindText(statement, 4, speakerID)
+                try bindData(statement, 5, JSONEncoder.cloudCache.encode(override))
+                try stepDone(statement, db)
+            }
+        }
+    }
+
+    func rebuildSearchIndex(_ db: OpaquePointer, _ snapshot: CloudLibrarySnapshot) throws {
+        let recordingsByID = Dictionary(uniqueKeysWithValues: snapshot.decodedRecordings.map { ($0.id, $0) })
+        let statement = try prepare(db, """
+        INSERT INTO cloud_search_fts (
+            user_id, backend_origin, recording_id, row_id, source,
+            section, title, speaker, marker, body
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """)
+        defer { sqlite3_finalize(statement) }
+
+        for recordingID in snapshot.transcripts.keys.sorted() {
+            guard let recording = recordingsByID[recordingID],
+                  let transcript = snapshot.transcripts[recordingID]?.transcript else { continue }
+            for entry in CloudSearchIndexBuilder.entries(recording: recording, transcript: transcript) {
+                sqlite3_reset(statement)
+                sqlite3_clear_bindings(statement)
+                try bindText(statement, 1, snapshot.userId)
+                try bindText(statement, 2, snapshot.backendOrigin)
+                try bindText(statement, 3, entry.recordingID)
+                try bindText(statement, 4, entry.targetSegmentID ?? entry.id)
+                try bindText(statement, 5, entry.source.rawValue)
+                try bindText(statement, 6, entry.sectionBreadcrumb)
+                try bindText(statement, 7, entry.recordingTitle)
+                try bindText(statement, 8, entry.speakerRawName)
+                try bindText(statement, 9, entry.marker)
+                try bindText(statement, 10, entry.text)
+                try stepDone(statement, db)
             }
         }
     }
@@ -435,6 +546,37 @@ private extension CloudLibraryCache {
         return jobsByRecordingID
     }
 
+    func loadSpeakerOverrides(
+        _ db: OpaquePointer,
+        userId: String,
+        backendOrigin: String
+    ) throws -> [String: [String: CloudSpeakerDisplayOverride]] {
+        let statement = try prepare(db, """
+        SELECT recording_id, speaker_id, payload
+        FROM cloud_speaker_overrides
+        WHERE user_id = ? AND backend_origin = ?
+        ORDER BY recording_id ASC, speaker_id ASC
+        """)
+        defer { sqlite3_finalize(statement) }
+        try bindText(statement, 1, userId)
+        try bindText(statement, 2, backendOrigin)
+
+        var overrides: [String: [String: CloudSpeakerDisplayOverride]] = [:]
+        while true {
+            let code = sqlite3_step(statement)
+            if code == SQLITE_DONE { break }
+            guard code == SQLITE_ROW else { throw SQLiteCacheError(sqliteMessage(db)) }
+            guard let recordingID = columnText(statement, 0),
+                  let speakerID = columnText(statement, 1),
+                  let data = columnData(statement, 2) else { continue }
+            overrides[recordingID, default: [:]][speakerID] = try JSONDecoder.cloudCache.decode(
+                CloudSpeakerDisplayOverride.self,
+                from: data
+            )
+        }
+        return overrides
+    }
+
     func loadPayloadRows<T: Decodable>(
         _ db: OpaquePointer,
         sql: String,
@@ -456,6 +598,94 @@ private extension CloudLibraryCache {
             values.append(try JSONDecoder.cloudCache.decode(T.self, from: data))
         }
         return values
+    }
+
+    func searchSQLiteIndex(
+        _ db: OpaquePointer,
+        userId: String,
+        backendOrigin: String,
+        query: String,
+        speakerRawName: String?,
+        limit: Int
+    ) throws -> [CloudIndexedSearchResult] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSpeaker = speakerRawName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasSpeakerFilter = trimmedSpeaker?.isEmpty == false
+
+        var clauses = [
+            "user_id = ?",
+            "backend_origin = ?",
+        ]
+        var ftsQuery: String?
+        if let builtQuery = Self.ftsQuery(for: trimmedQuery) {
+            ftsQuery = builtQuery
+            clauses.append("cloud_search_fts MATCH ?")
+        }
+        if hasSpeakerFilter {
+            clauses.append("speaker = ?")
+        }
+
+        let orderBy = ftsQuery == nil ? "title COLLATE NOCASE, rowid" : "rank"
+        let statement = try prepare(db, """
+        SELECT recording_id, row_id, source, section, title, speaker, marker, body
+        FROM cloud_search_fts
+        WHERE \(clauses.joined(separator: " AND "))
+        ORDER BY \(orderBy)
+        LIMIT ?
+        """)
+        defer { sqlite3_finalize(statement) }
+
+        var bindIndex: Int32 = 1
+        try bindText(statement, bindIndex, userId)
+        bindIndex += 1
+        try bindText(statement, bindIndex, backendOrigin)
+        bindIndex += 1
+        if let ftsQuery {
+            try bindText(statement, bindIndex, ftsQuery)
+            bindIndex += 1
+        }
+        if hasSpeakerFilter {
+            try bindText(statement, bindIndex, trimmedSpeaker)
+            bindIndex += 1
+        }
+        try bindInt(statement, bindIndex, max(1, limit))
+
+        var results: [CloudIndexedSearchResult] = []
+        while true {
+            let code = sqlite3_step(statement)
+            if code == SQLITE_DONE { break }
+            guard code == SQLITE_ROW else { throw SQLiteCacheError(sqliteMessage(db)) }
+            guard let recordingID = columnText(statement, 0),
+                  let rowID = columnText(statement, 1),
+                  let rawSource = columnText(statement, 2),
+                  let source = CloudIndexedSearchSource(rawValue: rawSource),
+                  let section = columnText(statement, 3),
+                  let title = columnText(statement, 4),
+                  let text = columnText(statement, 7) else { continue }
+            results.append(CloudIndexedSearchResult(
+                id: "\(recordingID)-\(rawSource)-\(rowID)",
+                recordingID: recordingID,
+                recordingTitle: title,
+                source: source,
+                sectionBreadcrumb: section,
+                marker: columnText(statement, 6),
+                text: text,
+                speakerRawName: columnText(statement, 5),
+                targetSegmentID: source == .transcript ? rowID : nil
+            ))
+        }
+        return results
+    }
+
+    nonisolated static func ftsQuery(for query: String) -> String? {
+        let tokens = query
+            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .map { String($0).trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty }
+        guard !tokens.isEmpty else { return nil }
+        return tokens
+            .map { "\"\($0.replacingOccurrences(of: "\"", with: "\"\""))\"*" }
+            .joined(separator: " ")
     }
 }
 
