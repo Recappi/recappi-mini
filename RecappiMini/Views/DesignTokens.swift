@@ -20,9 +20,9 @@ enum DT {
     static let systemRed = Color(red: 255/255, green: 59/255, blue: 48/255)
     static let systemRedDeep = Color(red: 220/255, green: 36/255, blue: 30/255)
     static let systemRedLight = Color(red: 255/255, green: 120/255, blue: 110/255)
-    static let appAccent = Color(red: 5/255, green: 150/255, blue: 105/255)
-    static let appAccentDeep = Color(red: 4/255, green: 120/255, blue: 87/255)
-    static let appAccentSoft = Color(red: 16/255, green: 185/255, blue: 129/255)
+    static let appAccent = Palette.appAccent
+    static let appAccentDeep = Palette.appAccentDeep
+    static let appAccentSoft = Palette.appAccentSoft
     static let brandTileTop = Color(red: 52/255, green: 211/255, blue: 153/255)
     static let brandTileBottom = Color(red: 16/255, green: 185/255, blue: 129/255)
     static let systemBlue = appAccent
@@ -55,7 +55,7 @@ enum DT {
     /// avoid the old neon mint on light/glass surfaces where it blooms too
     /// brightly.
     static let waveformLit = appAccent
-    static let waveformUnlit = Color(red: 17/255, green: 24/255, blue: 39/255).opacity(0.22)
+    static let waveformUnlit = Palette.waveformUnlit
 
     // MARK: - Radii (pt)
 

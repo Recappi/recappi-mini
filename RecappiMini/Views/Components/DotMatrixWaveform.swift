@@ -43,9 +43,11 @@ enum DotMatrixWaveformModel {
 }
 
 struct DotMatrixWaveform: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let levels: [Float]
-    var litColor: Color = DT.waveformLit
-    var unlitColor: Color = DT.waveformUnlit
+    var litColor: Color?
+    var unlitColor: Color?
 
     @State private var displayedLevels: [Float] = []
     @State private var targetLevels: [Float] = []
@@ -84,9 +86,9 @@ struct DotMatrixWaveform: View {
                     let color: Color
                     if isReleasing {
                         let rowFade = Double(row + 1) / Double(rows)
-                        color = litColor.opacity(max(0.16, releaseOpacity * (0.52 + rowFade * 0.28)))
+                        color = resolvedLitColor.opacity(max(0.16, releaseOpacity * (0.52 + rowFade * 0.28)))
                     } else {
-                        color = isLit ? litColor : unlitColor
+                        color = isLit ? resolvedLitColor : resolvedUnlitColor
                     }
                     ctx.fill(Path(ellipseIn: rect), with: .color(color))
                 }
@@ -99,6 +101,22 @@ struct DotMatrixWaveform: View {
         .onChange(of: levels) { _, newLevels in
             updateDisplayedLevels(to: newLevels)
         }
+    }
+
+    private var resolvedLitColor: Color {
+        if let litColor {
+            return litColor
+        }
+
+        return DT.waveformLit
+    }
+
+    private var resolvedUnlitColor: Color {
+        if let unlitColor {
+            return unlitColor
+        }
+
+        return colorScheme == .dark ? Color.white.opacity(0.20) : DT.waveformUnlit
     }
 
     private func updateDisplayedLevels(to newLevels: [Float]) {

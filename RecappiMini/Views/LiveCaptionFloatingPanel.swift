@@ -61,6 +61,7 @@ enum LiveCaptionPanelMode: String {
 struct LiveCaptionFloatingPanel: View {
     @ObservedObject var recorder: AudioRecorder
     @EnvironmentObject private var config: AppConfig
+    @Environment(\.colorScheme) private var colorScheme
     @State private var paneVisibility: LiveCaptionPaneVisibility = .both
     @State private var chromeVisible = false
     let mode: LiveCaptionPanelMode
@@ -98,7 +99,6 @@ struct LiveCaptionFloatingPanel: View {
                 chromeVisible = hovering
             }
         }
-        .preferredColorScheme(.light)
         .focusable(false)
         .recappiSuppressFocusRing()
         .accessibilityElement(children: .contain)
@@ -204,8 +204,8 @@ struct LiveCaptionFloatingPanel: View {
 
     private func glassShape<S: Shape>(_ shape: S) -> some View {
         shape
-            .fill(Color.white.opacity(Self.glassLegibilityTint))
-            .glassEffect(.regular.tint(Color.white.opacity(Self.glassMaterialTint)), in: shape)
+            .fill(glassLegibilityFill)
+            .glassEffect(.regular.tint(glassMaterialTint), in: shape)
             .clipShape(shape)
             .compositingGroup()
     }
@@ -217,6 +217,8 @@ struct LiveCaptionFloatingPanel: View {
                     .font(.system(size: 9, weight: .bold))
             }
             .buttonStyle(PanelIconButtonStyle(size: 22))
+            .focusable(false)
+            .recappiSuppressFocusRing()
             .help(mode.toggleTitle)
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanelModeButton)
 
@@ -225,6 +227,8 @@ struct LiveCaptionFloatingPanel: View {
                     .font(.system(size: 9, weight: .bold))
             }
             .buttonStyle(PanelIconButtonStyle(size: 22))
+            .focusable(false)
+            .recappiSuppressFocusRing()
             .help("Hide live captions for this meeting")
             .accessibilityLabel("Hide live captions")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionCloseButton)
@@ -271,6 +275,8 @@ struct LiveCaptionFloatingPanel: View {
             glassShape(Capsule(style: .continuous))
         )
         .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
+        .focusable(false)
+        .recappiSuppressFocusRing()
         .accessibilityHidden(!chromeVisible)
         .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: liveCaptionErrorMessage != nil)
             .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: liveCaptionShowsTranslation)
@@ -294,6 +300,8 @@ struct LiveCaptionFloatingPanel: View {
                 .foregroundStyle(DT.statusWarning)
         }
         .buttonStyle(PanelIconButtonStyle(size: 22))
+        .focusable(false)
+        .recappiSuppressFocusRing()
         .help(message)
         .accessibilityLabel("Reconnect live captions")
         .accessibilityValue(message)
@@ -430,6 +438,8 @@ struct LiveCaptionFloatingPanel: View {
                 .frame(width: 30, height: 22)
         }
         .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: selected))
+        .focusable(false)
+        .recappiSuppressFocusRing()
         .disabled(!canToggle)
         .help(title)
         .accessibilityLabel(title)
@@ -817,8 +827,6 @@ struct LiveCaptionFloatingPanel: View {
     private static let compactCaptionMaxCJKCharacters: Int = 46
     private static let compactCaptionFontSize: CGFloat = 12.5
     private static let compactCaptionLineSpacing: CGFloat = 1
-    private static let glassLegibilityTint: Double = 0.12
-    private static let glassMaterialTint: Double = 0.12
     private static let expandedHeaderBandHeight: CGFloat = 44
 
     /// Height reserved for the compact caption's 2-line slot. System
@@ -828,11 +836,23 @@ struct LiveCaptionFloatingPanel: View {
     private static let compactCaptionTwoLineHeight: CGFloat = 34
 
     private var glassTextPrimary: Color {
-        Color.black.opacity(0.92)
+        isDarkMode ? Color.white.opacity(0.94) : Color.black.opacity(0.92)
     }
 
     private var glassTextSecondary: Color {
-        Color.black.opacity(0.70)
+        isDarkMode ? Color.white.opacity(0.68) : Color.black.opacity(0.70)
+    }
+
+    private var glassLegibilityFill: Color {
+        isDarkMode ? Color.black.opacity(0.22) : Color.white.opacity(0.12)
+    }
+
+    private var glassMaterialTint: Color {
+        isDarkMode ? Color.black.opacity(0.16) : Color.white.opacity(0.12)
+    }
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
     }
 
     private var sourceLine: String {
@@ -896,6 +916,7 @@ private struct LiveCaptionStreamPane: View {
 }
 
 private struct LiveCaptionTextViewport: View {
+    @Environment(\.colorScheme) private var colorScheme
     let segments: [LiveCaptionSegment]
     let placeholderText: String
     let isPlaceholder: Bool
@@ -913,6 +934,7 @@ private struct LiveCaptionTextViewport: View {
                         segments: segments,
                         placeholderText: placeholderText,
                         isPlaceholder: isPlaceholder,
+                        colorScheme: colorScheme,
                         viewportID: viewportID,
                         textID: textID
                     )
@@ -1005,6 +1027,7 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
     let segments: [LiveCaptionSegment]
     let placeholderText: String
     let isPlaceholder: Bool
+    let colorScheme: ColorScheme
     let viewportID: String
     let textID: String
 
@@ -1060,6 +1083,7 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             segments,
             placeholderText: placeholderText,
             isPlaceholder: isPlaceholder,
+            colorScheme: colorScheme,
             scrollToBottom: true
         )
         return scrollView
@@ -1071,6 +1095,7 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             segments,
             placeholderText: placeholderText,
             isPlaceholder: isPlaceholder,
+            colorScheme: colorScheme,
             scrollToBottom: shouldScroll
         )
     }
@@ -1107,6 +1132,7 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             _ segments: [LiveCaptionSegment],
             placeholderText: String,
             isPlaceholder: Bool,
+            colorScheme: ColorScheme,
             scrollToBottom: Bool
         ) {
             guard let textView = textView, let storage = textView.textStorage else { return }
@@ -1120,22 +1146,23 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             let isBilingual = segments.contains { ($0.translatedText?.isEmpty == false) }
 
             if isPlaceholder {
-                applyFlatText(placeholderText, isPlaceholder: true, scrollToBottom: scrollToBottom, storage: storage)
+                applyFlatText(placeholderText, isPlaceholder: true, colorScheme: colorScheme, scrollToBottom: scrollToBottom, storage: storage)
                 return
             }
 
             if isBilingual {
-                applyBilingualSegments(segments, scrollToBottom: scrollToBottom, storage: storage)
+                applyBilingualSegments(segments, colorScheme: colorScheme, scrollToBottom: scrollToBottom, storage: storage)
                 return
             }
 
             let flat = segments.map(\.sourceText).joined(separator: "\n")
-            applyFlatText(flat, isPlaceholder: false, scrollToBottom: scrollToBottom, storage: storage)
+            applyFlatText(flat, isPlaceholder: false, colorScheme: colorScheme, scrollToBottom: scrollToBottom, storage: storage)
         }
 
         private func applyFlatText(
             _ text: String,
             isPlaceholder: Bool,
+            colorScheme: ColorScheme,
             scrollToBottom: Bool,
             storage: NSTextStorage
         ) {
@@ -1144,7 +1171,7 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
                 return
             }
 
-            let attrs = Self.flatAttributes(isPlaceholder: isPlaceholder)
+            let attrs = Self.flatAttributes(isPlaceholder: isPlaceholder, colorScheme: colorScheme)
 
             if text == appliedText {
                 storage.setAttributes(attrs, range: NSRange(location: 0, length: storage.length))
@@ -1195,12 +1222,13 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
         /// is cheap.
         private func applyBilingualSegments(
             _ segments: [LiveCaptionSegment],
+            colorScheme: ColorScheme,
             scrollToBottom: Bool,
             storage: NSTextStorage
         ) {
             let attributed = NSMutableAttributedString()
-            let sourceAttrs = Self.flatAttributes(isPlaceholder: false)
-            let translationAttrs = Self.translationAttributes()
+            let sourceAttrs = Self.flatAttributes(isPlaceholder: false, colorScheme: colorScheme)
+            let translationAttrs = Self.translationAttributes(colorScheme: colorScheme)
 
             for (index, segment) in segments.enumerated() {
                 if index > 0 {
@@ -1229,17 +1257,22 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             }
         }
 
-        private static func flatAttributes(isPlaceholder: Bool) -> [NSAttributedString.Key: Any] {
+        private static func flatAttributes(isPlaceholder: Bool, colorScheme: ColorScheme) -> [NSAttributedString.Key: Any] {
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = 2
             paragraph.paragraphSpacing = 6
             paragraph.lineBreakMode = .byWordWrapping
             paragraph.alignment = .left
-            let foreground: NSColor = isPlaceholder
-                ? NSColor.black.withAlphaComponent(0.62)
-                : NSColor.black.withAlphaComponent(0.92)
+            let isDarkMode = colorScheme == .dark
+            let foreground: NSColor = if isDarkMode {
+                NSColor.white.withAlphaComponent(isPlaceholder ? 0.66 : 0.94)
+            } else {
+                NSColor.black.withAlphaComponent(isPlaceholder ? 0.62 : 0.92)
+            }
             let shadow = NSShadow()
-            shadow.shadowColor = NSColor.white.withAlphaComponent(isPlaceholder ? 0.25 : 0.45)
+            shadow.shadowColor = isDarkMode
+                ? NSColor.black.withAlphaComponent(isPlaceholder ? 0.28 : 0.42)
+                : NSColor.white.withAlphaComponent(isPlaceholder ? 0.25 : 0.45)
             shadow.shadowBlurRadius = 0.8
             shadow.shadowOffset = .zero
             return [
@@ -1250,19 +1283,24 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             ]
         }
 
-        private static func translationAttributes() -> [NSAttributedString.Key: Any] {
+        private static func translationAttributes(colorScheme: ColorScheme) -> [NSAttributedString.Key: Any] {
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = 2
             paragraph.paragraphSpacing = 6
             paragraph.lineBreakMode = .byWordWrapping
             paragraph.alignment = .left
             let shadow = NSShadow()
-            shadow.shadowColor = NSColor.white.withAlphaComponent(0.35)
+            let isDarkMode = colorScheme == .dark
+            shadow.shadowColor = isDarkMode
+                ? NSColor.black.withAlphaComponent(0.35)
+                : NSColor.white.withAlphaComponent(0.35)
             shadow.shadowBlurRadius = 0.7
             shadow.shadowOffset = .zero
             return [
                 .font: NSFont.systemFont(ofSize: 15, weight: .medium),
-                .foregroundColor: NSColor.black.withAlphaComponent(0.70),
+                .foregroundColor: isDarkMode
+                    ? NSColor.white.withAlphaComponent(0.72)
+                    : NSColor.black.withAlphaComponent(0.70),
                 .paragraphStyle: paragraph,
                 .shadow: shadow,
             ]

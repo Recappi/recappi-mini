@@ -52,6 +52,16 @@ enum Palette {
     static let labelTertiary   = dynamicAlpha(light: (0x000000, 0.40), dark: (0xFFFFFF, 0.38))
     static let labelQuaternary = dynamicAlpha(light: (0x000000, 0.20), dark: (0xFFFFFF, 0.16))
 
+    // MARK: - Accent
+
+    /// Recappi green should not be the same physical color in both
+    /// appearances: light glass needs a deeper green to avoid blooming, while
+    /// dark glass needs a brighter green to keep the accent alive.
+    static let appAccent = dynamic(light: 0x047857, dark: 0x34D399)
+    static let appAccentDeep = dynamic(light: 0x065F46, dark: 0x10B981)
+    static let appAccentSoft = dynamic(light: 0x059669, dark: 0x6EE7B7)
+    static let waveformUnlit = dynamicAlpha(light: (0x111827, 0.22), dark: (0xFFFFFF, 0.20))
+
     // MARK: - Shadows
 
     static let shadowPanel = dynamicAlpha(light: (0x000000, 0.18), dark: (0x000000, 0.45))
