@@ -67,67 +67,122 @@ struct RecordingState: View {
             }
             .padding(.horizontal, 2)
 
-            HStack(spacing: 6) {
-                Button(action: handleWaveformTap) {
-                    waveformView
-                        .frame(maxWidth: .infinity, maxHeight: 28)
-                        .padding(.leading, 4)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(waveformHelpText)
-                .accessibilityIdentifier(AccessibilityIDs.Panel.waveformToggle)
-
-                Button {
-                    recorder.setIncludesMicrophoneAudio(!recorder.includesMicrophoneAudio)
-                } label: {
-                    ZStack(alignment: .topTrailing) {
-                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                            .fill(Palette.surfaceChip.opacity(0.72))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
-                            )
-                            .frame(width: 28, height: 28)
-
-                        Image(systemName: recorder.includesMicrophoneAudio ? "mic.fill" : "mic.slash.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(
-                                recorder.includesMicrophoneAudio
-                                    ? DT.recordingLiveBlue
-                                    : Palette.labelTertiary
-                            )
-                            .frame(width: 28, height: 28)
-
-                        if recorder.includesMicrophoneAudio {
-                            Circle()
-                                .fill(DT.recordingLiveBlue)
-                                .frame(width: 5.5, height: 5.5)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Palette.surfacePanel, lineWidth: 1)
-                                )
-                                .offset(x: 3, y: -2.5)
-                                .modifier(PulsingModifier())
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(recorder.includesMicrophoneAudio ? "Microphone on (click to mute)" : "Microphone muted (click to unmute)")
-                .accessibilityIdentifier(AccessibilityIDs.Panel.microphoneIncludeButton)
-
-                moreMenu
-
-                PrimaryRecordButton(kind: .stop, action: onStop)
-                    .keyboardShortcut(.return, modifiers: [])
-                    .help("Stop")
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
-            }
-            .frame(height: 28)
+            controlsRow
+                .frame(height: 28)
         }
+    }
+
+    @ViewBuilder
+    private var controlsRow: some View {
+        if isConfirmingDiscard {
+            discardConfirmationRow
+        } else {
+            recordingControlsRow
+        }
+    }
+
+    private var recordingControlsRow: some View {
+        HStack(spacing: 6) {
+            Button(action: handleWaveformTap) {
+                waveformView
+                    .frame(maxWidth: .infinity, maxHeight: 28)
+                    .padding(.leading, 4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(waveformHelpText)
+            .accessibilityIdentifier(AccessibilityIDs.Panel.waveformToggle)
+
+            microphoneButton
+
+            moreMenu
+
+            PrimaryRecordButton(kind: .stop, action: onStop)
+                .keyboardShortcut(.return, modifiers: [])
+                .help("Stop")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
+        }
+    }
+
+    private var discardConfirmationRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "trash")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(DT.recordingDestructiveRed)
+                .frame(width: 18, height: 28)
+
+            Text("Discard recording?")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(Palette.labelPrimary)
+                .lineLimit(1)
+                .layoutPriority(1)
+
+            Spacer(minLength: 0)
+
+            Button("Cancel") {
+                withAnimation(DT.motionAware(DT.ease(DT.Motion.elementPresence))) {
+                    isConfirmingDiscard = false
+                }
+            }
+            .buttonStyle(RecordingInlineConfirmButtonStyle())
+            .keyboardShortcut(.cancelAction)
+
+            Button("Discard") {
+                isConfirmingDiscard = false
+                onDiscard()
+            }
+            .buttonStyle(RecordingInlineConfirmButtonStyle(destructive: true))
+            .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
+
+            PrimaryRecordButton(kind: .stop, action: onStop)
+                .keyboardShortcut(.return, modifiers: [])
+                .help("Stop")
+                .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
+        }
+        .transition(.opacity)
+    }
+
+    private var microphoneButton: some View {
+        Button {
+            recorder.setIncludesMicrophoneAudio(!recorder.includesMicrophoneAudio)
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                    .fill(Palette.surfaceChip.opacity(0.72))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                            .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
+                    )
+                    .frame(width: 28, height: 28)
+
+                Image(systemName: recorder.includesMicrophoneAudio ? "mic.fill" : "mic.slash.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(
+                        recorder.includesMicrophoneAudio
+                            ? DT.recordingLiveBlue
+                            : Palette.labelTertiary
+                    )
+                    .frame(width: 28, height: 28)
+
+                if recorder.includesMicrophoneAudio {
+                    Circle()
+                        .fill(DT.recordingLiveBlue)
+                        .frame(width: 5.5, height: 5.5)
+                        .overlay(
+                            Circle()
+                                .stroke(Palette.surfacePanel, lineWidth: 1)
+                        )
+                        .offset(x: 3, y: -2.5)
+                        .modifier(PulsingModifier())
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(recorder.includesMicrophoneAudio ? "Microphone on (click to mute)" : "Microphone muted (click to unmute)")
+        .accessibilityIdentifier(AccessibilityIDs.Panel.microphoneIncludeButton)
     }
 
     @ViewBuilder
@@ -160,54 +215,6 @@ struct RecordingState: View {
         .help("More recording actions")
         .accessibilityLabel("More recording actions")
         .accessibilityIdentifier(AccessibilityIDs.Panel.recordingMoreButton)
-        .popover(isPresented: $isConfirmingDiscard, arrowEdge: .bottom) {
-            discardConfirmationPopover
-        }
-    }
-
-    private var discardConfirmationPopover: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "trash")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(DT.recordingDestructiveRed)
-                    .frame(width: 24, height: 24)
-                    .background(
-                        Circle()
-                            .fill(DT.recordingDestructiveRed.opacity(0.12))
-                    )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Discard this recording?")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Palette.labelPrimary)
-                    Text("This stops capture and removes the current recording.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Palette.labelSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            HStack(spacing: 7) {
-                Button("Cancel") {
-                    isConfirmingDiscard = false
-                }
-                .buttonStyle(RecordingDiscardConfirmButtonStyle())
-
-                Button("Discard") {
-                    isConfirmingDiscard = false
-                    onDiscard()
-                }
-                .buttonStyle(RecordingDiscardConfirmButtonStyle(destructive: true))
-                .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
-            }
-        }
-        .padding(12)
-        .frame(width: 260)
-        .background(Palette.surfaceElevated)
-        .preferredColorScheme(.dark)
-        .presentationBackground(Palette.surfaceElevated)
-        .presentationCornerRadius(14)
     }
 
     private var recordingSourceLabel: String {
@@ -274,7 +281,7 @@ struct RecordingState: View {
     }
 }
 
-private struct RecordingDiscardConfirmButtonStyle: ButtonStyle {
+private struct RecordingInlineConfirmButtonStyle: ButtonStyle {
     var destructive = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -295,7 +302,7 @@ private struct RecordingDiscardConfirmButtonStyle: ButtonStyle {
             label
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(destructive ? DT.recordingDestructiveRed : Palette.labelPrimary)
-                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 8)
                 .frame(height: 24)
                 .background(
                     RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)

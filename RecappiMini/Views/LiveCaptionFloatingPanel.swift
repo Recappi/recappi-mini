@@ -932,7 +932,7 @@ private struct LiveCaptionTextViewport: View {
         .accessibilityValue(Text(displayedAccessibilityLabel))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .modifier(LiveCaptionDebugLayoutBorder(
-            color: .blue,
+            color: DT.appAccent,
             label: "viewport"
         ))
     }

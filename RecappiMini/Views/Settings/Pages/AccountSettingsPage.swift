@@ -24,7 +24,7 @@ struct AccountSettingsPage: View {
                 title: "Account",
                 subtitle: "Sign in to Recappi Cloud, manage usage, and toggle cloud transcription.",
                 systemImage: "person.crop.circle",
-                color: .blue
+                color: DT.appAccent
             )
 
             Section {

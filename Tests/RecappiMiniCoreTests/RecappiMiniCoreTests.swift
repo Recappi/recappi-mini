@@ -1688,6 +1688,32 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(resized.size.height, 172)
     }
 
+    func testRecordingPanelKeepsPostRecordingStatesAtStableMinHeight() {
+        XCTAssertNil(RecordingPanel.contentMinHeight(for: .idle))
+        XCTAssertNil(RecordingPanel.contentMinHeight(for: .starting))
+
+        XCTAssertEqual(
+            RecordingPanel.contentMinHeight(for: .recording),
+            RecordingPanel.activeCaptureContentMinHeight
+        )
+        XCTAssertEqual(
+            RecordingPanel.contentMinHeight(for: .processing(.polling(jobStatus: "summarizing"))),
+            RecordingPanel.activeCaptureContentMinHeight
+        )
+        XCTAssertEqual(
+            RecordingPanel.contentMinHeight(for: .done(result: RecordingResult(
+                folderURL: FileManager.default.temporaryDirectory,
+                transcript: nil,
+                duration: 74
+            ))),
+            RecordingPanel.activeCaptureContentMinHeight
+        )
+        XCTAssertEqual(
+            RecordingPanel.contentMinHeight(for: .error(message: "Cloud session expired.")),
+            RecordingPanel.activeCaptureContentMinHeight
+        )
+    }
+
     func testUploadAudioExporterProducesWaveSidecar() async throws {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -1951,6 +1977,17 @@ final class RecappiMiniCoreTests: XCTestCase {
     func testDotMatrixLeavesSilenceUnlit() {
         let litRows = DotMatrixWaveformModel.litRowCounts(for: Array(repeating: 0, count: 40))
         XCTAssertTrue(litRows.allSatisfy { $0 == 0 })
+    }
+
+    func testDotMatrixReleaseFrameSnapsUpAndAnimatesDown() {
+        let frame = DotMatrixWaveformModel.releaseFrame(
+            displayed: [0.2, 0.8, 0.4],
+            incoming: [0.7, 0.3, 0.5]
+        )
+
+        XCTAssertEqual(frame.attack, [0.7, 0.8, 0.5])
+        XCTAssertEqual(frame.target, [0.7, 0.3, 0.5])
+        XCTAssertTrue(frame.needsRelease)
     }
 
     @MainActor

@@ -20,23 +20,26 @@ enum DT {
     static let systemRed = Color(red: 255/255, green: 59/255, blue: 48/255)
     static let systemRedDeep = Color(red: 220/255, green: 36/255, blue: 30/255)
     static let systemRedLight = Color(red: 255/255, green: 120/255, blue: 110/255)
-    static let systemBlue = Color(red: 0/255, green: 122/255, blue: 255/255)
-    static let systemBluePress = Color(red: 0/255, green: 101/255, blue: 212/255)
+    static let appAccent = Color(red: 5/255, green: 150/255, blue: 105/255)
+    static let appAccentDeep = Color(red: 4/255, green: 120/255, blue: 87/255)
+    static let appAccentSoft = Color(red: 16/255, green: 185/255, blue: 129/255)
+    static let brandTileTop = Color(red: 52/255, green: 211/255, blue: 153/255)
+    static let brandTileBottom = Color(red: 16/255, green: 185/255, blue: 129/255)
+    static let systemBlue = appAccent
+    static let systemBluePress = appAccentDeep
     static let systemGreen = Color(red: 52/255, green: 199/255, blue: 89/255)
     static let systemOrange = Color(red: 255/255, green: 159/255, blue: 10/255)
-    static let statusReady = Color(red: 90/255, green: 218/255, blue: 174/255)
-    static let statusUploading = Color(red: 112/255, green: 166/255, blue: 255/255)
+    static let statusReady = appAccent
+    static let statusUploading = appAccentSoft
     static let statusWarning = Color(red: 232/255, green: 178/255, blue: 91/255)
-    static let recordingLiveBlue = Color(red: 14/255, green: 165/255, blue: 233/255)
+    static let recordingLiveBlue = appAccent
     static let recordingDestructiveRed = Color(red: 255/255, green: 69/255, blue: 58/255)
     static let recordingErrorAmber = Color(red: 245/255, green: 158/255, blue: 11/255)
 
-    /// Mint green used in the recording-state logo tile. Matches the tint
-    /// in the Figma design's dark-pill mockup — bright enough to pop on
-    /// our light Liquid Glass shell, not so saturated it clashes with the
-    /// record button's red.
-    static let accentGreenLight = Color(red: 72/255, green: 230/255, blue: 178/255)
-    static let accentGreenDeep = Color(red: 18/255, green: 184/255, blue: 130/255)
+    /// Brand tile green stays brighter than the operational accent so the logo
+    /// keeps its friendly identity on light Liquid Glass.
+    static let accentGreenLight = brandTileTop
+    static let accentGreenDeep = brandTileBottom
 
     /// Pill / settings-card surface. Resolves to charcoal in dark mode and
     /// near-white in light mode via `Palette.surfacePanel`. Kept under the
@@ -48,11 +51,11 @@ enum DT {
     /// either appearance.
     static let recordingChip = Palette.surfaceChip
 
-    /// Waveform dot colors from the Figma spec (node 94:32916).
-    /// Lit: `#1DF8B3`. Unlit: `#000000` — pure black against the
-    /// charcoal shell reads as dim "off" dots.
-    static let waveformLit = Color(red: 29/255, green: 248/255, blue: 179/255)
-    static let waveformUnlit = Color.black
+    /// Recording waveform accent. Keep this in the Recappi green family, but
+    /// avoid the old neon mint on light/glass surfaces where it blooms too
+    /// brightly.
+    static let waveformLit = appAccent
+    static let waveformUnlit = Color(red: 17/255, green: 24/255, blue: 39/255).opacity(0.22)
 
     // MARK: - Radii (pt)
 
@@ -262,22 +265,27 @@ struct LogoTile: View {
             .padding(size * 0.083)
             .frame(width: size, height: size)
             .background(
-                // Figma: linear-gradient 0→20% white overlay on #1DF8B3
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(DT.waveformLit)
+                    .fill(
+                        LinearGradient(
+                            colors: [DT.brandTileTop, DT.brandTileBottom],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .overlay(
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
                             .fill(LinearGradient(
-                                colors: [Color.white.opacity(0), Color.white.opacity(0.2)],
-                                startPoint: .top, endPoint: .bottom))
+                                colors: [Color.white.opacity(0.24), Color.white.opacity(0.02)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing))
                     )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
             )
-            // Figma: box-shadow: 0px 1px 2px rgba(0,0,0,0.25), 0px 4px 18.8px #4CB191
-            .shadow(color: Color(red: 76/255, green: 177/255, blue: 145/255).opacity(0.65), radius: glowRadius, y: glowYOffset)
+            .shadow(color: DT.brandTileBottom.opacity(0.32), radius: glowRadius, y: glowYOffset)
             .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
     }
 
@@ -398,7 +406,7 @@ struct DarkChipButtonStyle: ButtonStyle {
     }
 }
 
-/// Panel push button. Primary uses the app accent (#1DF8B3) on a dark chip
+/// Panel push button. Primary uses the app accent on a dark chip
 /// so it reads as the affirmative action regardless of theme; secondary
 /// pulls its fill from `Palette.surfaceChip` so it adapts to light/dark.
 struct PanelPushButtonStyle: ButtonStyle {
@@ -415,7 +423,7 @@ struct PanelPushButtonStyle: ButtonStyle {
                     .fill(
                         primary
                         ? LinearGradient(
-                            colors: [DT.waveformLit, Color(red: 14/255, green: 210/255, blue: 152/255)],
+                            colors: [DT.appAccentSoft, DT.appAccent],
                             startPoint: .top, endPoint: .bottom
                         )
                         : LinearGradient(

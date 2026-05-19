@@ -51,6 +51,7 @@ enum AccessibilityIDs {
         static let transcribeButton = "recappi.panel.transcribeButton"
         static let recordingOptionsButton = "recappi.panel.recordingOptionsButton"
         static let recordingOptionsPopover = "recappi.panel.recordingOptionsPopover"
+        static let recordingOptionsSettingsButton = "recappi.panel.recordingOptionsSettingsButton"
         static let sharedLanguageButton = "recappi.panel.sharedLanguageButton"
         static let sharedLanguagePopover = "recappi.panel.sharedLanguagePopover"
         static let transcriptionSummaryButton = "recappi.panel.transcriptionSummaryButton"

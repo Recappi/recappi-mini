@@ -27,6 +27,7 @@ struct RecordingPanel: View {
                 width: DT.panelWidth - DT.panelPadding * 2,
                 alignment: .topLeading
             )
+            .frame(minHeight: Self.contentMinHeight(for: recorder.state), alignment: .topLeading)
             .padding(panelPadding)
             .frame(width: DT.panelWidth)
             // Height is intentionally intrinsic. `PillShellView` measures the
@@ -62,10 +63,21 @@ struct RecordingPanel: View {
     }
 
     private var panelContentTransition: AnyTransition {
-        .asymmetric(
-            insertion: .opacity.combined(with: .move(edge: .bottom)),
-            removal: .opacity
-        )
+        .opacity
+    }
+
+    /// Keep the active capture flow in one stable shell height. Without this,
+    /// stopping a recording makes AppKit resize the NSPanel while SwiftUI swaps
+    /// the inner state, which reads as a small panel jump.
+    nonisolated static let activeCaptureContentMinHeight: CGFloat = 52
+
+    nonisolated static func contentMinHeight(for state: RecorderState) -> CGFloat? {
+        switch state {
+        case .recording, .processing, .done, .error:
+            return activeCaptureContentMinHeight
+        case .idle, .starting:
+            return nil
+        }
     }
 
     @ViewBuilder

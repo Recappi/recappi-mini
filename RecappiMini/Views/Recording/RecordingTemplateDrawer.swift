@@ -4,6 +4,7 @@ import SwiftUI
 struct RecordingOptionsButton: View {
     let isDisabled: Bool
 
+    @Environment(\.openSettings) private var openSettings
     @ObservedObject private var config = AppConfig.shared
     @State private var isShowingOptions = false
     @State private var isPromptExpanded = false
@@ -135,6 +136,33 @@ struct RecordingOptionsButton: View {
 
                 promptDisclosure
             }
+
+            Divider()
+                .overlay(Palette.borderSubtle)
+
+            Button {
+                isShowingOptions = false
+                AppDelegate.shared.prepareForSettingsScenePresentation()
+                openSettings()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 16)
+                    Text("Open Settings…")
+                        .font(.system(size: 11.5, weight: .medium))
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Palette.labelTertiary)
+                }
+                .foregroundStyle(Palette.labelSecondary)
+                .frame(height: 24)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open Recappi Mini Settings")
+            .accessibilityIdentifier(AccessibilityIDs.Panel.recordingOptionsSettingsButton)
         }
         .padding(18)
         .frame(width: 360)
