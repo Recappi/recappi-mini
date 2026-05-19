@@ -85,9 +85,6 @@ struct LiveCaptionFloatingPanel: View {
                 compactBody
             }
         }
-        .id(mode)
-        .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .bottomTrailing)))
-        .animation(DT.motionAware(DT.easeSpring(DT.Motion.liveCaptionModeSwap)), value: mode)
         .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .background {
             if mode == .compact {

@@ -509,6 +509,47 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         )
     }
 
+    func testLiveCaptionsModeToggleSurvivesRepeatedCompactExpand() throws {
+        let liveCaption = """
+        Live captions should survive repeated compact and expanded mode changes without the floating panel closing or the app exiting.
+        """
+
+        let app = launchRecappiApp(
+            authToken: "invalid-test-token",
+            simulatedLiveCaptionText: liveCaption
+        )
+
+        startFixtureRecording(in: app)
+        XCTAssertTrue(
+            uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel).waitForExistence(timeout: 15),
+            "Expected live captions panel."
+        )
+
+        for iteration in 0..<8 {
+            XCTAssertNotEqual(app.state, .notRunning, "App exited before LC mode toggle \(iteration).")
+            XCTAssertTrue(
+                revealLiveCaptionChrome(in: app),
+                "Expected live-caption chrome before LC mode toggle \(iteration)."
+            )
+
+            let modeButton = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
+            XCTAssertTrue(
+                modeButton.waitForExistence(timeout: 5),
+                "Expected compact/expanded mode control before LC mode toggle \(iteration)."
+            )
+            modeButton.hover()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+            modeButton.click()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+
+            XCTAssertNotEqual(app.state, .notRunning, "App exited after LC mode toggle \(iteration).")
+            XCTAssertTrue(
+                uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel).waitForExistence(timeout: 5),
+                "Expected live captions panel after LC mode toggle \(iteration)."
+            )
+        }
+    }
+
     func testDetectedMeetingSuggestionAutoStopsWhenAudioEnds() throws {
         let app = launchRecappiApp(
             authToken: "invalid-test-token",

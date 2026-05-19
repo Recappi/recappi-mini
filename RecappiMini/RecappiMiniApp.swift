@@ -891,16 +891,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func toggleLiveCaptionPanelMode() {
-        withAnimation(DT.motionAware(DT.easeSpring(DT.Motion.liveCaptionModeSwap))) {
-            switch liveCaptionPanelMode {
-            case .expanded:
-                liveCaptionPanelMode = .compact
-            case .compact:
-                liveCaptionPanelMode = .expanded
-            }
+        switch liveCaptionPanelMode {
+        case .expanded:
+            liveCaptionPanelMode = .compact
+        case .compact:
+            liveCaptionPanelMode = .expanded
         }
         DispatchQueue.main.async { [weak self] in
-            self?.resizeLiveCaptionWindowToContent(animated: true)
+            self?.resizeLiveCaptionWindowToContent(animated: false, usesFittingSize: false)
         }
     }
 
@@ -1034,7 +1032,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         window.close()
     }
 
-    private func resizeLiveCaptionWindowToContent(animated: Bool = false) {
+    private func resizeLiveCaptionWindowToContent(animated: Bool = false, usesFittingSize: Bool = true) {
         guard let liveCaptionWindow = managedWindows.liveCaptionWindow,
               let hostingView = liveCaptionWindow.contentView as? LiveCaptionPassthroughHostingView<AnyView> else {
             managedWindows.liveCaptionWindow?.setContentSize(liveCaptionPanelMode.defaultWindowSize)
@@ -1044,8 +1042,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             return
         }
 
-        hostingView.layoutSubtreeIfNeeded()
-        let fittingSize = hostingView.fittingSize
+        let fittingSize: NSSize
+        if usesFittingSize {
+            hostingView.layoutSubtreeIfNeeded()
+            fittingSize = hostingView.fittingSize
+        } else {
+            fittingSize = liveCaptionPanelMode.defaultWindowSize
+        }
 
         // Capture the visual bottom/right edges BEFORE resizing. The
         // panel is parked near the dock and screen edge; mode morphs should
