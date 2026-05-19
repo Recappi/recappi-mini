@@ -128,17 +128,6 @@ struct RecordingState: View {
             }
             .frame(height: 28)
         }
-        .confirmationDialog(
-            "Discard this recording?",
-            isPresented: $isConfirmingDiscard,
-            titleVisibility: .visible
-        ) {
-            Button("Discard Recording", role: .destructive, action: onDiscard)
-                .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This stops the capture and removes the current recording.")
-        }
     }
 
     @ViewBuilder
@@ -158,7 +147,7 @@ struct RecordingState: View {
             } label: {
                 Label("Discard recording", systemImage: "trash")
             }
-            .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
+            .accessibilityIdentifier(AccessibilityIDs.Panel.discardMenuItem)
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 12, weight: .bold))
@@ -169,6 +158,56 @@ struct RecordingState: View {
         .menuIndicator(.hidden)
         .frame(width: 28, height: 28)
         .help("More recording actions")
+        .accessibilityLabel("More recording actions")
+        .accessibilityIdentifier(AccessibilityIDs.Panel.recordingMoreButton)
+        .popover(isPresented: $isConfirmingDiscard, arrowEdge: .bottom) {
+            discardConfirmationPopover
+        }
+    }
+
+    private var discardConfirmationPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "trash")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(DT.recordingDestructiveRed)
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Circle()
+                            .fill(DT.recordingDestructiveRed.opacity(0.12))
+                    )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Discard this recording?")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Palette.labelPrimary)
+                    Text("This stops capture and removes the current recording.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.labelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            HStack(spacing: 7) {
+                Button("Cancel") {
+                    isConfirmingDiscard = false
+                }
+                .buttonStyle(RecordingDiscardConfirmButtonStyle())
+
+                Button("Discard") {
+                    isConfirmingDiscard = false
+                    onDiscard()
+                }
+                .buttonStyle(RecordingDiscardConfirmButtonStyle(destructive: true))
+                .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
+            }
+        }
+        .padding(12)
+        .frame(width: 260)
+        .background(Palette.surfaceElevated)
+        .preferredColorScheme(.dark)
+        .presentationBackground(Palette.surfaceElevated)
+        .presentationCornerRadius(14)
     }
 
     private var recordingSourceLabel: String {
@@ -232,5 +271,56 @@ struct RecordingState: View {
         let h = seconds / 3600, m = (seconds % 3600) / 60, s = seconds % 60
         if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
         return String(format: "%02d:%02d", m, s)
+    }
+}
+
+private struct RecordingDiscardConfirmButtonStyle: ButtonStyle {
+    var destructive = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        Chrome(
+            isPressed: configuration.isPressed,
+            destructive: destructive,
+            label: configuration.label
+        )
+    }
+
+    private struct Chrome<Label: View>: View {
+        let isPressed: Bool
+        let destructive: Bool
+        let label: Label
+        @State private var hovered = false
+
+        var body: some View {
+            label
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(destructive ? DT.recordingDestructiveRed : Palette.labelPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                        .fill(backgroundFill)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+                        .strokeBorder(borderColor, lineWidth: destructive ? 0.8 : 0.5)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: DT.R.control, style: .continuous))
+                .scaleEffect(isPressed ? 0.98 : 1)
+                .onHover { hovered = $0 }
+                .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
+                .animation(DT.motionAware(DT.ease(0.08)), value: isPressed)
+        }
+
+        private var backgroundFill: Color {
+            if destructive {
+                return DT.recordingDestructiveRed.opacity(isPressed ? 0.16 : (hovered ? 0.12 : 0.07))
+            }
+            return isPressed ? Palette.controlFillPress : (hovered ? Palette.controlFillHover : Palette.surfaceChip.opacity(0.55))
+        }
+
+        private var borderColor: Color {
+            destructive ? DT.recordingDestructiveRed.opacity(hovered || isPressed ? 0.36 : 0.22) : Palette.borderHairline
+        }
     }
 }

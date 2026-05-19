@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DERIVED_DATA_DIR="$ROOT_DIR/.build/xcode/DerivedData"
-RESULT_BUNDLE="$ROOT_DIR/.build/xcode/RecappiMiniUISmokeTests.xcresult"
+RESULT_BUNDLE="$ROOT_DIR/.build/xcode/RecappiMiniStateBoardUITests.xcresult"
 AUTH_TOKEN_OVERRIDE_FILE="$ROOT_DIR/.build/xcode/recappi_test_auth_token.txt"
 BACKEND_OVERRIDE_FILE="$ROOT_DIR/.build/xcode/recappi_test_backend_url.txt"
 RECORDINGS_ROOT_OVERRIDE_FILE="$ROOT_DIR/.build/xcode/recappi_test_recordings_root.txt"
@@ -44,6 +44,6 @@ xcodebuild \
   -destination 'platform=macOS' \
   -derivedDataPath "$DERIVED_DATA_DIR" \
   -resultBundlePath "$RESULT_BUNDLE" \
-  -only-testing:RecappiMiniUITests/AAARecappiMiniLaunchSmokeUITests \
+  -only-testing:RecappiMiniUITests/RecappiMiniStateBoardUITests/testCaptureStateBoardV0 \
   test \
   "$@"

@@ -62,6 +62,22 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.35))
         try captureRecordingPanel(in: app, named: "recording_recording_micOn")
 
+        let more = uiElement(app, id: UITestIDs.Panel.recordingMoreButton)
+        XCTAssertTrue(more.waitForExistence(timeout: 5), "Expected recording More button.")
+        more.click()
+        let discardMenuItem = app.menuItems[UITestIDs.Panel.discardMenuItem]
+        XCTAssertTrue(discardMenuItem.waitForExistence(timeout: 5), "Expected discard menu item.")
+        discardMenuItem.click()
+        let discardConfirmButton = app.buttons[UITestIDs.Panel.discardButton]
+        XCTAssertTrue(discardConfirmButton.waitForExistence(timeout: 5), "Expected discard confirmation popover.")
+        try captureScreenRegion(
+            around: panelBoundsElements(in: app) + [discardConfirmButton],
+            named: "recording_discard_confirm",
+            horizontalPadding: 80,
+            verticalPadding: 80
+        )
+        app.typeKey(.escape, modifierFlags: [])
+
         let stop = app.buttons[UITestIDs.Panel.stopButton]
         XCTAssertTrue(stop.waitForExistence(timeout: 5), "Expected stop button.")
         stop.click()
@@ -117,6 +133,8 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
 
         let mode = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
         XCTAssertTrue(mode.waitForExistence(timeout: 10), "Expected live caption mode button.")
+        mode.hover()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         mode.click()
         try capture(panel, named: "liveCaptions_compact")
 

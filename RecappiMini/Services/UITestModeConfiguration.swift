@@ -20,6 +20,7 @@ struct UITestModeConfiguration {
     let detectedMeetingAutoStopGraceSeconds: TimeInterval?
     let simulatedLiveCaptionText: String?
     let simulatedLiveCaptionTranslationText: String?
+    let simulatedLiveCaptionErrorMessage: String?
     let useBackendRealtimeLiveCaptions: Bool
     let openCloudWindowOnLaunch: Bool
     let openSettingsWindowOnLaunch: Bool
@@ -94,6 +95,8 @@ struct UITestModeConfiguration {
         simulatedLiveCaptionText = env["RECAPPI_TEST_LIVE_CAPTION_TEXT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         simulatedLiveCaptionTranslationText = env["RECAPPI_TEST_LIVE_CAPTION_TRANSLATION_TEXT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        simulatedLiveCaptionErrorMessage = env["RECAPPI_TEST_LIVE_CAPTION_ERROR_MESSAGE"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let bundleID = env["RECAPPI_TEST_AUTO_PROMPT_BUNDLE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)

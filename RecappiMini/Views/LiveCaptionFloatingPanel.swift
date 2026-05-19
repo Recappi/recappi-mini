@@ -25,10 +25,11 @@ enum LiveCaptionPanelMode: String {
     var defaultWindowSize: NSSize {
         switch self {
         case .expanded:
-            // First-open default. The user can drag the panel taller
-            // for more caption history; we no longer pin the SwiftUI
-            // tree to a hard-coded height so the resize sticks.
-            return NSSize(width: 560, height: 420)
+            // First-open default: a caption-first floating overlay, not
+            // a document-like window. The transparent top band is reserved
+            // for the hover-only header chip so controls can slide above the
+            // caption sheet without consuming its readable height.
+            return NSSize(width: 560, height: 216)
         case .compact:
             return NSSize(width: 542, height: 94)
         }
@@ -61,6 +62,7 @@ struct LiveCaptionFloatingPanel: View {
     @ObservedObject var recorder: AudioRecorder
     @EnvironmentObject private var config: AppConfig
     @State private var paneVisibility: LiveCaptionPaneVisibility = .both
+    @State private var chromeVisible = false
     let mode: LiveCaptionPanelMode
     let onToggleMode: () -> Void
     let onClose: () -> Void
@@ -82,12 +84,23 @@ struct LiveCaptionFloatingPanel: View {
                 compactBody
             }
         }
+        .id(mode)
+        .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .bottomTrailing)))
+        .animation(DT.motionAware(DT.easeSpring(DT.Motion.liveCaptionModeSwap)), value: mode)
         .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .background(panelBackground(cornerRadius: cornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Palette.borderSubtle, lineWidth: 0.6)
-        )
+        .background {
+            if mode == .compact {
+                panelBackground(cornerRadius: cornerRadius)
+            }
+        }
+        .onHover { hovering in
+            withAnimation(DT.motionAware(DT.ease(DT.Motion.elementPresence))) {
+                chromeVisible = hovering
+            }
+        }
+        .preferredColorScheme(.light)
+        .focusable(false)
+        .recappiSuppressFocusRing()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanel)
     }
@@ -98,12 +111,29 @@ struct LiveCaptionFloatingPanel: View {
         // gets clamped by intermediate intrinsic-size frames and the
         // viewport stops short of a user-resized window's bottom edge.
         GeometryReader { proxy in
-            VStack(alignment: .leading, spacing: 10) {
-                header
+            let headerBand = Self.expandedHeaderBandHeight
+            let cardHeight = max(96, proxy.size.height - headerBand)
 
+            ZStack(alignment: .top) {
                 liveCaptionWorkspace
+                    .frame(height: cardHeight, alignment: .topLeading)
+                    .background(panelBackground(cornerRadius: mode.cornerRadius))
+                    .padding(.top, headerBand)
+
+                minimalLiveDot
+                    .padding(12)
+                    .padding(.top, headerBand)
+                    .opacity(chromeVisible ? 0 : 1)
+                    .scaleEffect(chromeVisible ? 0.88 : 1)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+
+                header
+                    .padding(.horizontal, 18)
+                    .padding(.top, 4)
+                    .opacity(chromeVisible ? 1 : 0.001)
+                    .offset(y: chromeVisible ? 0 : headerBand)
+                    .zIndex(2)
             }
-            .padding(12)
             .frame(
                 width: max(mode.contentWidth, proxy.size.width),
                 height: proxy.size.height,
@@ -117,23 +147,7 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var compactBody: some View {
-        // Compact layout: caption fills the LEFT in a fixed two-line
-        // slot; recording dot + elapsed time + expand/close cluster on
-        // the RIGHT. The slot's height is pinned by the outer
-        // `.frame(height:)` (NOT `lineLimit(2, reservesSpace: true)`)
-        // because `Alignment.leading` is (h: leading, v: center), so a
-        // 1-line caption sits visually centered inside the slot instead
-        // of hugging the top edge.
-        HStack(alignment: .center, spacing: 10) {
-            // Caption slot — a transparent `Color.clear` that owns the
-            // **full** middle-lane rectangle (so SwiftUI accessibility
-            // and XCUITest frames measure the slot, not the wrapped
-            // text-glyph bounding box) with the visible Text rendered
-            // as an overlay. The Text uses `.lineLimit(2)` and wraps
-            // freely; the slot's own height is pinned to two lines so
-            // the bar stays a stable size whether the caption is one
-            // or two lines, and `Alignment.leading` (h: leading,
-            // v: center) keeps a short caption visually centered.
+        ZStack(alignment: .trailing) {
             Color.clear
                 .frame(
                     maxWidth: .infinity,
@@ -143,7 +157,8 @@ struct LiveCaptionFloatingPanel: View {
                 .overlay(alignment: .leading) {
                     Text(compactDisplayLine)
                         .font(.system(size: Self.compactCaptionFontSize, weight: hasLiveCaptionSegments ? .semibold : .medium))
-                        .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
+                        .foregroundStyle(hasLiveCaptionSegments ? glassTextPrimary : glassTextSecondary)
+                        .shadow(color: Color.white.opacity(0.40), radius: 0.6, x: 0, y: 0)
                         .lineSpacing(Self.compactCaptionLineSpacing)
                         .multilineTextAlignment(.leading)
                         .lineLimit(2)
@@ -154,20 +169,28 @@ struct LiveCaptionFloatingPanel: View {
                 .accessibilityValue(Text(compactDisplayLine))
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
 
-            HStack(alignment: .center, spacing: 6) {
-                Circle()
-                    .fill(DT.systemRed)
-                    .frame(width: 6, height: 6)
-                    .modifier(PulsingModifier())
+            HStack(alignment: .center, spacing: 7) {
+                compactLiveBadge
                 Text(timeText(recorder.elapsedSeconds))
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundStyle(Color.dtLabelSecondary)
+                    .foregroundStyle(glassTextSecondary)
                     .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionElapsedTime)
+                if let liveCaptionErrorMessage {
+                    liveCaptionErrorIndicator(message: liveCaptionErrorMessage)
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                }
                 captionControlButtons
             }
+            .padding(.leading, 10)
+            .background(
+                glassShape(Capsule(style: .continuous))
+            )
+            .opacity(chromeVisible ? 1 : 0)
+            .offset(x: chromeVisible ? 0 : 8)
+            .accessibilityHidden(!chromeVisible)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 14)
         .padding(.vertical, 8)
         // Pin to nominal content width: the compact NSWindow is fixed to
         // `defaultWindowSize`, so `.infinity` here would blow the
@@ -176,34 +199,19 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private func panelBackground(cornerRadius: CGFloat) -> some View {
-        // `.regularMaterial` adapts to the system appearance; the tinted
-        // overlay gives the panel its slightly lifted look in both
-        // light and dark themes.
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.regularMaterial)
-            .overlay {
-                Palette.surfaceLiveCaption
-                    .opacity(0.88)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            }
+        glassShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+
+    private func glassShape<S: Shape>(_ shape: S) -> some View {
+        shape
+            .fill(Color.white.opacity(Self.glassLegibilityTint))
+            .glassEffect(.regular.tint(Color.white.opacity(Self.glassMaterialTint)), in: shape)
+            .clipShape(shape)
+            .compositingGroup()
     }
 
     private var captionControlButtons: some View {
         HStack(spacing: 5) {
-            if recorder.canReconnectLiveCaptions {
-                Button {
-                    recorder.reconnectLiveCaptionsNow()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 9, weight: .bold))
-                }
-                .buttonStyle(PanelIconButtonStyle(size: 22))
-                .help("Reconnect live captions")
-                .accessibilityLabel("Reconnect live captions")
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionReconnectButton)
-                .transition(.opacity.combined(with: .scale(scale: 0.92)))
-            }
-
             Button(action: onToggleMode) {
                 Image(systemName: mode.toggleIcon)
                     .font(.system(size: 9, weight: .bold))
@@ -221,57 +229,75 @@ struct LiveCaptionFloatingPanel: View {
             .accessibilityLabel("Hide live captions")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionCloseButton)
         }
-        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: recorder.canReconnectLiveCaptions)
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 8) {
-            liveBadge
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Current meeting")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.dtLabel)
-                Text(sourceLine)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color.dtLabelSecondary)
-                    .lineLimit(1)
+        HStack(alignment: .center, spacing: 9) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(DT.systemRed)
+                    .frame(width: 5, height: 5)
+                    .modifier(PulsingModifier())
+                Text("Live captions")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(glassTextPrimary)
             }
 
+            Text(sourceLine)
+                .font(.system(size: 10, weight: .regular))
+                .foregroundStyle(glassTextSecondary)
+                .lineLimit(1)
+
             Spacer(minLength: 10)
+
+            liveCaptionDisplayControl
 
             Text(timeText(recorder.elapsedSeconds))
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(Color.dtLabelSecondary)
+                .foregroundStyle(glassTextSecondary)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionElapsedTime)
 
             if let liveCaptionErrorMessage {
                 liveCaptionErrorIndicator(message: liveCaptionErrorMessage)
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
 
-            if liveCaptionShowsTranslation {
-                paneVisibilityControls
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
-
-            liveCaptionModeStatus
-
             captionControlButtons
         }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(
+            glassShape(Capsule(style: .continuous))
+        )
+        .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
+        .accessibilityHidden(!chromeVisible)
         .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: liveCaptionErrorMessage != nil)
-        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: liveCaptionShowsTranslation)
+            .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: liveCaptionShowsTranslation)
+    }
+
+    private var minimalLiveDot: some View {
+        Circle()
+            .fill(DT.systemRed)
+            .frame(width: 6, height: 6)
+            .modifier(PulsingModifier())
+            .shadow(color: DT.systemRed.opacity(0.35), radius: 4, x: 0, y: 0)
+            .accessibilityHidden(true)
     }
 
     private func liveCaptionErrorIndicator(message: String) -> some View {
-        Image(systemName: "exclamationmark.triangle.fill")
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(DT.statusWarning)
-            .frame(width: 22, height: 22)
-            .contentShape(Rectangle())
+        Button {
+            recorder.reconnectLiveCaptionsNow()
+        } label: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DT.statusWarning)
+        }
+        .buttonStyle(PanelIconButtonStyle(size: 22))
         .help(message)
-        .accessibilityLabel("Live caption error")
+        .accessibilityLabel("Reconnect live captions")
         .accessibilityValue(message)
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionReconnectButton)
     }
 
     private var liveBadge: some View {
@@ -279,9 +305,10 @@ struct LiveCaptionFloatingPanel: View {
             Circle()
                 .fill(DT.systemRed)
                 .frame(width: 6, height: 6)
+                .modifier(PulsingModifier())
             Text("Live")
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Color.dtLabel)
+                .foregroundStyle(glassTextPrimary)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
@@ -289,18 +316,39 @@ struct LiveCaptionFloatingPanel: View {
             Capsule(style: .continuous)
                 .fill(DT.systemRed.opacity(0.16))
         )
-        .overlay(
+    }
+
+    private var compactLiveBadge: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(DT.systemRed)
+                .frame(width: 6, height: 6)
+                .modifier(PulsingModifier())
+            Text("Live")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(glassTextPrimary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
             Capsule(style: .continuous)
-                .strokeBorder(DT.systemRed.opacity(0.28), lineWidth: 0.6)
+                .fill(DT.systemRed.opacity(0.12))
         )
+    }
+
+    private var verticalHeaderDivider: some View {
+        Rectangle()
+            .fill(Palette.borderHairline)
+            .frame(width: 1, height: 22)
     }
 
     private var liveCaptionWorkspace: some View {
         VStack(alignment: .leading, spacing: 0) {
             GeometryReader { proxy in
                 liveCaptionPaneGrid
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, liveCaptionShowsTranslation ? 14 : 18)
+                    .padding(.top, 14)
+                    .padding(.bottom, 12)
                     .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -308,11 +356,7 @@ struct LiveCaptionFloatingPanel: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Palette.controlFillHover)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Palette.borderHairline, lineWidth: 0.6)
+                .fill(Color.clear)
         )
         .modifier(LiveCaptionDebugLayoutBorder(
             color: .green,
@@ -322,55 +366,108 @@ struct LiveCaptionFloatingPanel: View {
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionWorkspace)
     }
 
-    private var paneVisibilityControls: some View {
-        HStack(spacing: 4) {
-            Button {
-                togglePane(.captionOnly)
-            } label: {
-                Image(systemName: "captions.bubble")
+    private var liveCaptionDisplayControl: some View {
+        Group {
+            if liveCaptionShowsTranslation {
+                paneVisibilityControls
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            } else {
+                Image(systemName: "text.alignleft")
                     .font(.system(size: 11, weight: .semibold))
                     .frame(width: 24, height: 20)
+                    .accessibilityLabel("Original captions")
             }
-            .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: paneVisibility.showsCaption))
-            .disabled(paneVisibility == .captionOnly)
-            .help("Caption only")
-            .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionToggleButton)
-
-            Button {
-                togglePane(.translationOnly)
-            } label: {
-                Image(systemName: "translate")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 24, height: 20)
-            }
-            .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: paneVisibility.showsTranslation))
-            .disabled(paneVisibility == .translationOnly)
-            .help("Translation only")
-            .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingTranslationToggleButton)
         }
-        .padding(2)
+        .foregroundStyle(glassTextSecondary)
+        .padding(.horizontal, liveCaptionShowsTranslation ? 4 : 8)
+        .padding(.vertical, 5)
         .background(
-            Capsule(style: .continuous)
-                .fill(Palette.controlFillHover)
+            glassShape(Capsule(style: .continuous))
         )
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(Palette.borderHairline, lineWidth: 0.6)
-        )
-        .help("Show or hide each live caption stream. At least one panel stays visible.")
+        .help("Caption display is chosen before recording starts.")
     }
 
-    private func togglePane(_ pane: LiveCaptionPaneVisibility) {
-        switch (pane, paneVisibility) {
-        case (.captionOnly, .both):
+    private var paneVisibilityControls: some View {
+        HStack(spacing: 4) {
+            paneStreamToggleButton(
+                stream: .caption,
+                systemImage: "captions.bubble",
+                selectedSystemImage: "captions.bubble.fill",
+                title: "Original captions",
+                accessibilityIdentifier: AccessibilityIDs.Cloud.currentMeetingCaptionToggleButton
+            )
+            paneStreamToggleButton(
+                stream: .translation,
+                systemImage: "translate",
+                selectedSystemImage: "translate",
+                title: "Translation only",
+                accessibilityIdentifier: AccessibilityIDs.Cloud.currentMeetingTranslationToggleButton
+            )
+        }
+        .help("Toggle each live caption stream. At least one stream stays visible.")
+    }
+
+    private enum PaneStream {
+        case caption
+        case translation
+    }
+
+    private func paneStreamToggleButton(
+        stream: PaneStream,
+        systemImage: String,
+        selectedSystemImage: String,
+        title: String,
+        accessibilityIdentifier: String
+    ) -> some View {
+        let selected = isPaneStreamSelected(stream)
+        let canToggle = canTogglePaneStream(stream)
+        return Button {
+            togglePaneStream(stream)
+        } label: {
+            Image(systemName: selected ? selectedSystemImage : systemImage)
+                .font(.system(size: 12, weight: selected ? .bold : .semibold))
+                .symbolVariant(selected ? .fill : .none)
+                .frame(width: 30, height: 22)
+        }
+        .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: selected))
+        .disabled(!canToggle)
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityValue(selected ? "Shown" : "Hidden")
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private func isPaneStreamSelected(_ stream: PaneStream) -> Bool {
+        switch stream {
+        case .caption:
+            return paneVisibility.showsCaption
+        case .translation:
+            return paneVisibility.showsTranslation
+        }
+    }
+
+    private func canTogglePaneStream(_ stream: PaneStream) -> Bool {
+        switch stream {
+        case .caption:
+            return paneVisibility.showsTranslation || !paneVisibility.showsCaption
+        case .translation:
+            return paneVisibility.showsCaption || !paneVisibility.showsTranslation
+        }
+    }
+
+    private func togglePaneStream(_ stream: PaneStream) {
+        switch (stream, paneVisibility) {
+        case (.caption, .both):
             paneVisibility = .translationOnly
-        case (.captionOnly, .translationOnly):
+        case (.caption, .translationOnly):
             paneVisibility = .both
-        case (.translationOnly, .both):
+        case (.caption, .captionOnly):
+            break
+        case (.translation, .both):
             paneVisibility = .captionOnly
-        case (.translationOnly, .captionOnly):
+        case (.translation, .captionOnly):
             paneVisibility = .both
-        default:
+        case (.translation, .translationOnly):
             break
         }
     }
@@ -444,33 +541,61 @@ struct LiveCaptionFloatingPanel: View {
     @ViewBuilder
     private var liveCaptionPaneGrid: some View {
         if liveCaptionShowsTranslation {
-            HStack(alignment: .top, spacing: 10) {
-                if paneVisibility.showsCaption {
-                    LiveCaptionStreamPane(
-                        title: "Caption",
-                        systemImage: "captions.bubble",
+            VStack(alignment: .leading, spacing: 12) {
+                switch paneVisibility {
+                case .both:
+                    GeometryReader { proxy in
+                        let gap: CGFloat = 18
+                        let sourceWidth = max(160, (proxy.size.width - gap) * 0.57)
+                        let translationWidth = max(140, proxy.size.width - gap - sourceWidth)
+                        HStack(alignment: .top, spacing: gap) {
+                            LiveCaptionTextViewport(
+                                segments: sourcePaneSegments,
+                                placeholderText: captionPlaceholderText,
+                                isPlaceholder: sourcePaneSegments.isEmpty,
+                                errorMessage: nil,
+                                viewportID: AccessibilityIDs.Cloud.currentMeetingCaptionViewport,
+                                textID: AccessibilityIDs.Cloud.currentMeetingCaption
+                            )
+                            .frame(width: sourceWidth, height: proxy.size.height, alignment: .topLeading)
+
+                            LiveCaptionTextViewport(
+                                segments: translationOnlySegments,
+                                placeholderText: translationPlaceholderText,
+                                isPlaceholder: translationOnlySegments.isEmpty,
+                                errorMessage: nil,
+                                viewportID: AccessibilityIDs.Cloud.currentMeetingTranslationViewport,
+                                textID: AccessibilityIDs.Cloud.currentMeetingTranslation
+                            )
+                            .frame(width: translationWidth, height: proxy.size.height, alignment: .topLeading)
+                        }
+                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                    }
+                    .transition(.opacity)
+                case .captionOnly:
+                    LiveCaptionTextViewport(
                         segments: sourcePaneSegments,
                         placeholderText: captionPlaceholderText,
-                        isPlaceholder: paneVisibility != .both && sourcePaneSegments.isEmpty,
+                        isPlaceholder: sourcePaneSegments.isEmpty,
                         errorMessage: nil,
                         viewportID: AccessibilityIDs.Cloud.currentMeetingCaptionViewport,
                         textID: AccessibilityIDs.Cloud.currentMeetingCaption
                     )
-                }
-                if paneVisibility.showsTranslation {
-                    LiveCaptionStreamPane(
-                        title: "Translation",
-                        systemImage: "translate",
-                        segments: translationPaneSegments,
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                case .translationOnly:
+                    LiveCaptionTextViewport(
+                        segments: translationOnlySegments,
                         placeholderText: translationPlaceholderText,
-                        isPlaceholder: paneVisibility != .both && translationPaneSegments.isEmpty,
+                        isPlaceholder: translationOnlySegments.isEmpty,
                         errorMessage: nil,
                         viewportID: AccessibilityIDs.Cloud.currentMeetingTranslationViewport,
                         textID: AccessibilityIDs.Cloud.currentMeetingTranslation
                     )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
-            .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
+            .foregroundStyle(hasLiveCaptionSegments ? glassTextPrimary : glassTextSecondary)
+            .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: paneVisibility)
         } else {
             LiveCaptionTextViewport(
                 segments: viewportSegments,
@@ -480,7 +605,7 @@ struct LiveCaptionFloatingPanel: View {
                 viewportID: AccessibilityIDs.Cloud.currentMeetingCaptionViewport,
                 textID: AccessibilityIDs.Cloud.currentMeetingCaption
             )
-            .foregroundStyle(hasLiveCaptionSegments ? Color.dtLabel : Color.dtLabelSecondary)
+            .foregroundStyle(hasLiveCaptionSegments ? glassTextPrimary : glassTextSecondary)
         }
     }
 
@@ -492,16 +617,12 @@ struct LiveCaptionFloatingPanel: View {
                 .font(.system(size: 10, weight: .semibold))
                 .lineLimit(1)
         }
-        .foregroundStyle(Color.dtLabelSecondary)
+        .foregroundStyle(glassTextSecondary)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
             Capsule(style: .continuous)
-                .fill(Palette.controlFillHover)
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(Palette.borderHairline, lineWidth: 0.6)
+                .fill(Color.white.opacity(0.24))
         )
         .help("Caption display is chosen before recording starts.")
     }
@@ -509,6 +630,22 @@ struct LiveCaptionFloatingPanel: View {
     private var liveCaptionShowsTranslation: Bool {
         recorder.activeLiveCaptionConfiguration?.showsTranslation
             ?? config.liveCaptionsBilingualEnabled
+    }
+
+    private var liveCaptionDisplayTitle: String {
+        guard liveCaptionShowsTranslation else { return "Original" }
+        switch paneVisibility {
+        case .both:
+            return "Bilingual"
+        case .captionOnly:
+            return "Original"
+        case .translationOnly:
+            let lockedConfig = recorder.activeLiveCaptionConfiguration
+            let target = LiveCaptionTranslationTargetLanguageOption
+                .option(for: lockedConfig?.targetLanguage ?? config.liveCaptionsTranslationTargetLanguage)
+                .shortTitle
+            return target
+        }
     }
 
     private var liveCaptionModeStatusText: String {
@@ -520,6 +657,43 @@ struct LiveCaptionFloatingPanel: View {
             .option(for: lockedConfig?.targetLanguage ?? config.liveCaptionsTranslationTargetLanguage)
             .shortTitle
         return "Caption + \(target)"
+    }
+
+    private var bilingualViewportSegments: [LiveCaptionSegment] {
+        let pairedSegments = recorder.liveCaptionSegments.filter { segment in
+            let source = segment.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let translated = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return !source.isEmpty || !translated.isEmpty
+        }
+        if pairedSegments.contains(where: { $0.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }) {
+            return pairedSegments
+        }
+
+        let maxCount = max(sourcePaneSegments.count, translationPaneSegments.count)
+        guard maxCount > 0 else { return [] }
+        return (0..<maxCount).map { index in
+            let source = index < sourcePaneSegments.count ? sourcePaneSegments[index].sourceText : ""
+            let translated = index < translationPaneSegments.count ? translationPaneSegments[index].sourceText : ""
+            return LiveCaptionSegment(
+                id: "bilingual-line-\(index)",
+                sourceText: source,
+                translatedText: translated.isEmpty ? nil : translated,
+                isFinal: index < maxCount - 1,
+                sequence: index
+            )
+        }
+    }
+
+    private var translationOnlySegments: [LiveCaptionSegment] {
+        translationPaneSegments.enumerated().map { index, segment in
+            LiveCaptionSegment(
+                id: "translation-only-\(index)",
+                sourceText: segment.sourceText,
+                translatedText: nil,
+                isFinal: segment.isFinal,
+                sequence: segment.sequence
+            )
+        }
     }
 
     /// True when the recorder has at least one accumulated caption
@@ -643,12 +817,23 @@ struct LiveCaptionFloatingPanel: View {
     private static let compactCaptionMaxCJKCharacters: Int = 46
     private static let compactCaptionFontSize: CGFloat = 12.5
     private static let compactCaptionLineSpacing: CGFloat = 1
+    private static let glassLegibilityTint: Double = 0.12
+    private static let glassMaterialTint: Double = 0.12
+    private static let expandedHeaderBandHeight: CGFloat = 44
 
     /// Height reserved for the compact caption's 2-line slot. System
     /// 12.5pt + lineSpacing 1 measures ~31pt for two lines; rounding
     /// to 34 gives ascender clearance and a little breathing room that
     /// vertically centers 1-line content inside the slot.
     private static let compactCaptionTwoLineHeight: CGFloat = 34
+
+    private var glassTextPrimary: Color {
+        Color.black.opacity(0.92)
+    }
+
+    private var glassTextSecondary: Color {
+        Color.black.opacity(0.70)
+    }
 
     private var sourceLine: String {
         recorder.recordingAppName ?? recorder.selectedApp?.name ?? "All system audio"
@@ -670,11 +855,27 @@ private struct LiveCaptionStreamPane: View {
     let placeholderText: String
     let isPlaceholder: Bool
     let errorMessage: String?
+    let showsChrome: Bool
     let viewportID: String
     let textID: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 8) {
+            if showsChrome {
+                HStack(spacing: 6) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(title)
+                        .font(.system(size: 10, weight: .semibold))
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+                    Spacer(minLength: 0)
+                }
+        .foregroundStyle(Color.black.opacity(0.42))
+                .padding(.horizontal, 2)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
             LiveCaptionTextViewport(
                 segments: segments,
                 placeholderText: placeholderText,
@@ -685,6 +886,12 @@ private struct LiveCaptionStreamPane: View {
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(showsChrome ? 12 : 6)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(Palette.surfaceElevated.opacity(showsChrome ? 0.46 : 0))
+        )
+        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: showsChrome)
     }
 }
 
@@ -755,16 +962,14 @@ private struct LiveCaptionErrorBanner: View {
                 .font(.system(size: 12, weight: .medium))
                 .lineLimit(2)
         }
-        .foregroundStyle(Color.dtLabelSecondary)
+        .foregroundStyle(Color.black.opacity(0.56))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Palette.controlFillPress)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Palette.borderHairline, lineWidth: 0.6)
+                .fill(.thinMaterial)
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.28)))
+                .glassEffect(.clear.tint(Color.white.opacity(0.08)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         )
     }
 }
@@ -774,15 +979,16 @@ private struct LiveCaptionSegmentedButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(isSelected ? Color.dtLabel : Color.dtLabelSecondary)
+            .foregroundStyle(isSelected ? Color.black.opacity(0.94) : Color.black.opacity(0.46))
             .background(
                 Capsule(style: .continuous)
                     .fill(
                         isSelected
-                            ? DT.waveformLit.opacity(0.16)
-                            : (configuration.isPressed ? Palette.controlFillHover : Color.clear)
+                            ? Color.white.opacity(0.48)
+                            : (configuration.isPressed ? Color.black.opacity(0.06) : Color.clear)
                     )
             )
+            .shadow(color: isSelected ? Color.white.opacity(0.30) : Color.clear, radius: 1.5, x: 0, y: 0)
             .contentShape(Capsule(style: .continuous))
     }
 }
@@ -1030,12 +1236,17 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             paragraph.lineBreakMode = .byWordWrapping
             paragraph.alignment = .left
             let foreground: NSColor = isPlaceholder
-                ? NSColor.secondaryLabelColor
-                : NSColor.labelColor
+                ? NSColor.black.withAlphaComponent(0.62)
+                : NSColor.black.withAlphaComponent(0.92)
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.white.withAlphaComponent(isPlaceholder ? 0.25 : 0.45)
+            shadow.shadowBlurRadius = 0.8
+            shadow.shadowOffset = .zero
             return [
-                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+                .font: NSFont.systemFont(ofSize: 16, weight: .semibold),
                 .foregroundColor: foreground,
                 .paragraphStyle: paragraph,
+                .shadow: shadow,
             ]
         }
 
@@ -1045,10 +1256,15 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             paragraph.paragraphSpacing = 6
             paragraph.lineBreakMode = .byWordWrapping
             paragraph.alignment = .left
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.white.withAlphaComponent(0.35)
+            shadow.shadowBlurRadius = 0.7
+            shadow.shadowOffset = .zero
             return [
-                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
-                .foregroundColor: NSColor.secondaryLabelColor,
+                .font: NSFont.systemFont(ofSize: 15, weight: .medium),
+                .foregroundColor: NSColor.black.withAlphaComponent(0.70),
                 .paragraphStyle: paragraph,
+                .shadow: shadow,
             ]
         }
 

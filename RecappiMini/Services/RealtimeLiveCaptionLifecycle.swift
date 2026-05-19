@@ -222,6 +222,8 @@ actor RealtimeLiveCaptionActor {
     // so a fresh socket starts a clean commit window.
     private var hasUncommittedAudio: Bool = false
     private var uncommittedAudioByteCount: Int = 0
+    private var didLogFirstAudioSend: Bool = false
+    private var didLogFirstInboundEvent: Bool = false
 
     // MARK: Stall watchdog state (Phase 3c.2)
     //
@@ -595,6 +597,15 @@ actor RealtimeLiveCaptionActor {
     /// allowed but the recurring threshold-trip is not.
     static let minimumManualCommitByteCount = 4_800
 
+    private static func modeLabel(_ mode: RealtimeLiveCaptionMode) -> String {
+        switch mode {
+        case .transcription:
+            return "transcription"
+        case .translation(let targetLanguage):
+            return "translation:\(targetLanguage)"
+        }
+    }
+
     /// Force a reconnect from `.live`. No-op from other states (a
     /// caller racing against `stop()` must not be able to resurrect
     /// a torn-down session).
@@ -707,7 +718,8 @@ actor RealtimeLiveCaptionActor {
         // legacy class uses. The watchdog needs both "we are sending
         // audio" and "we haven't heard anything back" to decide a
         // probe is warranted.
-        if RealtimeAudioEncoder.containsLikelySpeech(payload) {
+        let likelySpeech = RealtimeAudioEncoder.containsLikelySpeech(payload)
+        if likelySpeech {
             voicedAudioBufferCountSinceInbound += 1
         }
         do {
@@ -722,6 +734,13 @@ actor RealtimeLiveCaptionActor {
             return
         }
         trace("audio.send.end", verboseOnly: true)
+        if !didLogFirstAudioSend {
+            didLogFirstAudioSend = true
+            DiagnosticsLog.event(
+                "live-caption",
+                "audio.first_sent mode=\(Self.modeLabel(mode)) bytes=\(payload.count) likelySpeech=\(likelySpeech)"
+            )
+        }
         // Transcription mode: accumulate sent bytes and force a manual
         // commit once we've buffered the legacy threshold of voiced
         // audio. Translation mode is a continuous stream — the upstream
@@ -925,7 +944,15 @@ actor RealtimeLiveCaptionActor {
         let mode = self.mode
 
         do {
+            DiagnosticsLog.event(
+                "live-caption",
+                "claim.start mode=\(Self.modeLabel(mode)) language=\(language) attempt=\(attempt)"
+            )
             let claim = try await connector.claimSession(mode: mode, language: language)
+            DiagnosticsLog.event(
+                "live-caption",
+                "claim.success mode=\(Self.modeLabel(mode)) session=\(DiagnosticsLog.sanitize(claim.sessionId, maxLength: 64))"
+            )
             // Re-check after await — `stop()` may have advanced the
             // lifecycle while we were suspended.
             guard case .claiming(let currentGeneration, _) = lifecycle,
@@ -963,6 +990,8 @@ actor RealtimeLiveCaptionActor {
             // the previous session (Codex Finding #5).
             hasUncommittedAudio = false
             uncommittedAudioByteCount = 0
+            didLogFirstAudioSend = false
+            didLogFirstInboundEvent = false
             // Context-hint guard resets per socket. The new live
             // session must observe `session.created` before we send
             // the hint, and the per-socket guard ensures we don't
@@ -990,6 +1019,10 @@ actor RealtimeLiveCaptionActor {
                 watchdogTask: watchdogTask
             )
             trace("phase", "to=live")
+            DiagnosticsLog.event(
+                "live-caption",
+                "socket.live mode=\(Self.modeLabel(mode)) generation=\(generation) pendingAudio=\(pendingAudio.count)"
+            )
             // Drain any audio captured while we were claiming / opening
             // the socket. The flush is performed on the actor so a
             // concurrent stop()/reconnectNow() can race in and the
@@ -1013,6 +1046,11 @@ actor RealtimeLiveCaptionActor {
             } else {
                 trace("claim.error", "status=-1 err=\(DiagnosticsLog.errorSummary(error))")
             }
+            DiagnosticsLog.error(
+                "live-caption",
+                "claim.failed mode=\(Self.modeLabel(mode)) attempt=\(attempt) \(DiagnosticsLog.errorSummary(error))"
+            )
+            publishSnapshot(.statusOnly(phase: .failed, message: "Live captions are reconnecting…"))
             await scheduleReconnect(after: error, attempt: attempt)
         }
     }
@@ -1210,6 +1248,7 @@ actor RealtimeLiveCaptionActor {
         guard let event = try? JSONDecoder().decode(RealtimeReceiveEvent.self, from: payload) else {
             return nil
         }
+        logFirstInboundEventIfNeeded(event.type)
         switch event.type {
         case "session.created", "transcription_session.created":
             // Reset the stall counters so the watchdog waits for fresh
@@ -1289,6 +1328,15 @@ actor RealtimeLiveCaptionActor {
     private func markTranscriptOutput() {
         voicedAudioBufferCountSinceInbound = 0
         lastInboundTranscriptAt = Date()
+    }
+
+    private func logFirstInboundEventIfNeeded(_ type: String) {
+        guard !didLogFirstInboundEvent else { return }
+        didLogFirstInboundEvent = true
+        DiagnosticsLog.event(
+            "live-caption",
+            "inbound.first_event mode=\(Self.modeLabel(mode)) type=\(type)"
+        )
     }
 
     private func appendTranscriptDelta(

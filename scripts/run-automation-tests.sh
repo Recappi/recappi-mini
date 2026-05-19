@@ -36,6 +36,9 @@ pkill -f "$ROOT_DIR/build/Recappi Mini.app/Contents/MacOS/RecappiMini" >/dev/nul
 pkill -f "$ROOT_DIR/build/RecappiMini.app/Contents/MacOS/RecappiMini" >/dev/null 2>&1 || true
 pkill -f "RecappiMiniUITests-Runner.app/Contents/MacOS/RecappiMiniUITests-Runner" >/dev/null 2>&1 || true
 
+/usr/bin/swift "$ROOT_DIR/scripts/select-abc-input-source.swift" || \
+  echo "warning: failed to switch UI tests to ABC keyboard input source" >&2
+
 xcodebuild \
   -project "$ROOT_DIR/RecappiMiniAutomation.xcodeproj" \
   -scheme RecappiMiniAutomation \

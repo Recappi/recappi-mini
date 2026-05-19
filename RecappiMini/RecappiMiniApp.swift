@@ -891,13 +891,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func toggleLiveCaptionPanelMode() {
-        switch liveCaptionPanelMode {
-        case .expanded:
-            liveCaptionPanelMode = .compact
-        case .compact:
-            liveCaptionPanelMode = .expanded
+        withAnimation(DT.motionAware(DT.easeSpring(DT.Motion.liveCaptionModeSwap))) {
+            switch liveCaptionPanelMode {
+            case .expanded:
+                liveCaptionPanelMode = .compact
+            case .compact:
+                liveCaptionPanelMode = .expanded
+            }
         }
-        resizeLiveCaptionWindowToContent()
+        DispatchQueue.main.async { [weak self] in
+            self?.resizeLiveCaptionWindowToContent(animated: true)
+        }
     }
 
     func applyLiveCaptionDisplayPreference() {
@@ -974,6 +978,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             delegate: self
         )
 
+        window.becomesKeyOnlyIfNeeded = true
+        hostingView.refusesFirstResponder = true
+
         hostingView.layoutSubtreeIfNeeded()
         let fittingSize = hostingView.fittingSize
         window.setContentSize(NSSize(
@@ -995,7 +1002,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private func applyLiveCaptionContentSizeConstraints(_ window: NSWindow, mode: LiveCaptionPanelMode) {
         switch mode {
         case .expanded:
-            window.contentMinSize = NSSize(width: 560, height: 280)
+            window.contentMinSize = mode.defaultWindowSize
             window.contentMaxSize = NSSize(width: 900, height: 1200)
         case .compact:
             window.contentMinSize = mode.defaultWindowSize
@@ -1027,7 +1034,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         window.close()
     }
 
-    private func resizeLiveCaptionWindowToContent() {
+    private func resizeLiveCaptionWindowToContent(animated: Bool = false) {
         guard let liveCaptionWindow = managedWindows.liveCaptionWindow,
               let hostingView = liveCaptionWindow.contentView as? LiveCaptionPassthroughHostingView<AnyView> else {
             managedWindows.liveCaptionWindow?.setContentSize(liveCaptionPanelMode.defaultWindowSize)
@@ -1037,25 +1044,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             return
         }
 
-        hostingView.rootView = liveCaptionRootView()
         hostingView.layoutSubtreeIfNeeded()
         let fittingSize = hostingView.fittingSize
 
-        // Capture the visual bottom edge BEFORE resizing. NSWindow
-        // origin is bottom-left, so `frame.origin.y` is the bottom edge
-        // in Cocoa screen coords. `setContentSize` would otherwise
-        // re-anchor at the top-left, but the user parks this panel near
-        // the dock and expects the bottom edge to stay put while the
-        // top edge slides up/down on mode toggle.
+        // Capture the visual bottom/right edges BEFORE resizing. The
+        // panel is parked near the dock and screen edge; mode morphs should
+        // feel anchored there instead of popping from the top-left.
         let previousBottomY = liveCaptionWindow.frame.origin.y
+        let previousMaxX = liveCaptionWindow.frame.maxX
         applyLiveCaptionContentSizeConstraints(liveCaptionWindow, mode: liveCaptionPanelMode)
-        liveCaptionWindow.setContentSize(NSSize(
+        let targetContentSize = NSSize(
             width: max(liveCaptionPanelMode.defaultWindowSize.width, fittingSize.width),
             height: max(liveCaptionPanelMode.defaultWindowSize.height, fittingSize.height)
-        ))
-        var anchoredFrame = liveCaptionWindow.frame
-        anchoredFrame.origin.y = previousBottomY
-        liveCaptionWindow.setFrame(anchoredFrame, display: true)
+        )
+        var contentRect = liveCaptionWindow.contentRect(forFrameRect: liveCaptionWindow.frame)
+        contentRect.size = targetContentSize
+        var targetFrame = liveCaptionWindow.frameRect(forContentRect: contentRect)
+        targetFrame.origin.x = previousMaxX - targetFrame.width
+        targetFrame.origin.y = previousBottomY
+
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+              animated,
+              liveCaptionWindow.isVisible else {
+            liveCaptionWindow.setFrame(targetFrame, display: true)
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = DT.Motion.liveCaptionModeSwap
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.2, 1)
+            context.allowsImplicitAnimation = true
+            liveCaptionWindow.animator().setFrame(targetFrame, display: true)
+        }
     }
 
     private func liveCaptionRootView() -> AnyView {
@@ -1065,17 +1085,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         // outside the frame (via `panel.hasShadow = true`).
         AnyView(
             ThemedHost {
-                LiveCaptionFloatingPanel(
-                    recorder: recorder,
-                    mode: liveCaptionPanelMode,
-                    onToggleMode: { [weak self] in
-                        self?.toggleLiveCaptionPanelMode()
-                    },
-                    onClose: { [weak self] in
-                        self?.setLiveCaptionPanelPresented(false)
-                    }
-                )
-                .environmentObject(AppConfig.shared)
+                LiveCaptionFloatingPanelHost(appDelegate: self, recorder: recorder)
             }
         )
     }
@@ -1724,6 +1734,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 }
 
+private struct LiveCaptionFloatingPanelHost: View {
+    @ObservedObject var appDelegate: AppDelegate
+    @ObservedObject var recorder: AudioRecorder
+
+    var body: some View {
+        LiveCaptionFloatingPanel(
+            recorder: recorder,
+            mode: appDelegate.liveCaptionPanelMode,
+            onToggleMode: {
+                appDelegate.toggleLiveCaptionPanelMode()
+            },
+            onClose: {
+                appDelegate.setLiveCaptionPanelPresented(false)
+            }
+        )
+        .environmentObject(AppConfig.shared)
+    }
+}
+
 /// Drops mouse hits on the four rounded-corner gaps outside the
 /// visible panel surface so clicks pass through to whatever's behind.
 /// The corners are computed geometrically — `super.hitTest` returns
@@ -1735,6 +1764,15 @@ final class LiveCaptionPassthroughHostingView<Content: View>: NSHostingView<Cont
     /// outer bound — anything inside the larger inset is opaque in
     /// both modes.
     private let cornerRadius: CGFloat = 16
+    var refusesFirstResponder = false
+
+    override var acceptsFirstResponder: Bool {
+        refusesFirstResponder ? false : super.acceptsFirstResponder
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        refusesFirstResponder ? false : super.becomeFirstResponder()
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let bounds = self.bounds

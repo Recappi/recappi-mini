@@ -34,6 +34,8 @@ enum AccessibilityIDs {
         static let recordButton = "recappi.panel.recordButton"
         static let stopButton = "recappi.panel.stopButton"
         static let closeButton = "recappi.panel.closeButton"
+        static let recordingMoreButton = "recappi.panel.recordingMoreButton"
+        static let discardMenuItem = "recappi.panel.discardMenuItem"
         static let discardButton = "recappi.panel.discardButton"
         static let waveformToggle = "recappi.panel.waveformToggle"
         static let liveCaptionText = "recappi.panel.liveCaptionText"

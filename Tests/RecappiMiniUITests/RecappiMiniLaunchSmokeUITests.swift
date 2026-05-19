@@ -131,8 +131,8 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         )
         XCTAssertGreaterThanOrEqual(
             captionViewport.frame.height,
-            290,
-            "Expected live captions to fill the expanded panel height instead of leaving a large empty lower area."
+            96,
+            "Expected live captions to keep a readable expanded viewport while staying compact enough to feel like an overlay."
         )
         XCTAssertGreaterThan(
             caption.frame.height,
@@ -170,6 +170,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         )
 
         let closeCaptionPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaptionCloseButton)
+        XCTAssertTrue(revealLiveCaptionChrome(in: app), "Expected live-caption chrome to reveal on hover.")
         XCTAssertTrue(closeCaptionPanel.waitForExistence(timeout: 10), "Expected a close control on the floating Live Caption panel.")
         closeCaptionPanel.click()
         XCTAssertTrue(
@@ -187,9 +188,12 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             currentMeetingPanel.waitForExistence(timeout: 5),
             "Expected the recording-panel captions button to reopen the floating Live Caption panel."
         )
+        XCTAssertTrue(revealLiveCaptionChrome(in: app), "Expected live-caption chrome to reveal after reopening.")
 
         let modeButton = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
         XCTAssertTrue(modeButton.waitForExistence(timeout: 10), "Expected a compact/expanded mode control.")
+        modeButton.hover()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         modeButton.click()
         let compactCaption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
         XCTAssertTrue(compactCaption.waitForExistence(timeout: 5), "Expected compact caption text.")
@@ -221,7 +225,8 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         let liveCaption = "Reconnect smoke caption should stay visible after a manual reconnect click."
         let app = launchRecappiApp(
             authToken: "invalid-test-token",
-            simulatedLiveCaptionText: liveCaption
+            simulatedLiveCaptionText: liveCaption,
+            simulatedLiveCaptionErrorMessage: "Live caption connection lost. Click to reconnect."
         )
 
         startFixtureRecording(in: app)
@@ -236,8 +241,15 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             .joined(separator: " ")
         XCTAssertTrue(captionText.localizedCaseInsensitiveContains("Reconnect smoke caption"))
 
+        XCTAssertTrue(revealLiveCaptionChrome(in: app), "Expected live-caption chrome to reveal for reconnect.")
+
         let reconnectButton = app.buttons[UITestIDs.Cloud.currentMeetingCaptionReconnectButton]
-        XCTAssertTrue(reconnectButton.waitForExistence(timeout: 5), "Expected a manual reconnect control in the live caption panel.")
+        XCTAssertTrue(reconnectButton.waitForExistence(timeout: 5), "Expected a clickable live-caption warning control.")
+        XCTAssertTrue(
+            (reconnectButton.value as? String ?? "")
+                .localizedCaseInsensitiveContains("connection lost"),
+            "Expected warning control to expose the error text."
+        )
         reconnectButton.click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
 
@@ -311,9 +323,9 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         startFixtureRecording(in: app, showTranslation: true)
 
         let captionViewport = app.scrollViews[UITestIDs.Cloud.currentMeetingCaptionViewport]
-        XCTAssertTrue(captionViewport.waitForExistence(timeout: 10), "Expected source caption viewport.")
+        XCTAssertTrue(captionViewport.waitForExistence(timeout: 10), "Expected bilingual source caption viewport.")
         let translationViewport = app.scrollViews[UITestIDs.Cloud.currentMeetingTranslationViewport]
-        XCTAssertTrue(translationViewport.waitForExistence(timeout: 10), "Expected translation viewport.")
+        XCTAssertTrue(translationViewport.waitForExistence(timeout: 10), "Expected bilingual translation viewport.")
 
         let caption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
         let captionText = [caption.label, caption.value as? String]
@@ -322,45 +334,33 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         XCTAssertTrue(captionText.contains("If you have a team, pay attention."))
         XCTAssertTrue(captionText.contains("It is a very important thing."))
         XCTAssertTrue(captionText.contains("You should pay them too"))
-
         let translation = uiElement(app, id: UITestIDs.Cloud.currentMeetingTranslation)
-        let translationTextValue = [translation.label, translation.value as? String]
+        let renderedTranslationText = [translation.label, translation.value as? String]
             .compactMap { $0 }
             .joined(separator: "\n")
-        XCTAssertTrue(translationTextValue.contains("如果你有一个团队，要多关注他们。"))
-        XCTAssertTrue(translationTextValue.contains("这是一件很重要的事情。"))
-        XCTAssertTrue(translationTextValue.contains("你也应该付钱给他们"))
+        XCTAssertTrue(renderedTranslationText.contains("如果你有一个团队，要多关注他们。"))
+        XCTAssertTrue(renderedTranslationText.contains("这是一件很重要的事情。"))
+        XCTAssertTrue(renderedTranslationText.contains("你也应该付钱给他们"))
+
+        XCTAssertTrue(revealLiveCaptionChrome(in: app), "Expected live-caption stream controls to reveal on hover.")
 
         let captionToggle = app.buttons[UITestIDs.Cloud.currentMeetingCaptionToggleButton]
         let translationToggle = app.buttons[UITestIDs.Cloud.currentMeetingTranslationToggleButton]
-        XCTAssertTrue(captionToggle.waitForExistence(timeout: 5), "Expected caption pane toggle.")
-        XCTAssertTrue(translationToggle.waitForExistence(timeout: 5), "Expected translation pane toggle.")
+        let bilingualToggle = app.buttons[UITestIDs.Cloud.currentMeetingBilingualToggle]
+        XCTAssertTrue(captionToggle.waitForExistence(timeout: 5), "Expected caption stream toggle.")
+        XCTAssertTrue(translationToggle.waitForExistence(timeout: 5), "Expected translation stream toggle.")
+        XCTAssertFalse(bilingualToggle.exists, "Bilingual mode is represented by both two-key stream toggles being on.")
 
-        XCTAssertTrue(waitUntilEnabled(translationToggle, timeout: 5), "Expected translation pane toggle to be enabled while both panes are visible.")
+        XCTAssertTrue(waitUntilEnabled(translationToggle, timeout: 5), "Expected translation stream toggle to be enabled while both streams are visible.")
         translationToggle.click()
-        XCTAssertTrue(
-            waitForNonExistence(of: translationViewport, timeout: 5),
-            "Expected translation pane to hide when caption stays visible."
-        )
-        XCTAssertTrue(captionViewport.exists, "Caption pane should remain visible.")
-        XCTAssertFalse(
-            captionToggle.isEnabled,
-            "The remaining visible pane toggle should be disabled so both panes cannot be hidden."
-        )
-
+        XCTAssertTrue(captionViewport.exists, "Caption stream should remain visible after hiding translation.")
+        XCTAssertTrue(waitUntilEnabled(translationToggle, timeout: 5), "Expected translation stream toggle to re-enable translation.")
         translationToggle.click()
-        XCTAssertTrue(translationViewport.waitForExistence(timeout: 5), "Expected translation pane to return.")
-        XCTAssertTrue(waitUntilEnabled(captionToggle, timeout: 5), "Expected caption pane toggle to be enabled while both panes are visible.")
+        XCTAssertTrue(captionViewport.waitForExistence(timeout: 5), "Expected paired bilingual stream to return.")
+        XCTAssertTrue(translationViewport.waitForExistence(timeout: 5), "Expected translation stream to return.")
+        XCTAssertTrue(waitUntilEnabled(captionToggle, timeout: 5), "Expected caption stream toggle to be enabled while both streams are visible.")
         captionToggle.click()
-        XCTAssertTrue(
-            waitForNonExistence(of: captionViewport, timeout: 5),
-            "Expected caption pane to hide when translation stays visible."
-        )
-        XCTAssertTrue(translationViewport.exists, "Translation pane should remain visible.")
-        XCTAssertFalse(
-            translationToggle.isEnabled,
-            "The remaining visible pane toggle should be disabled so both panes cannot be hidden."
-        )
+        XCTAssertTrue(translationViewport.exists, "Translation stream should remain visible after hiding captions.")
     }
 
     func testLiveCaptionsExpandedPanelFitsMediumCaptionGeometry() throws {
@@ -431,17 +431,22 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let currentMeetingPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
         XCTAssertTrue(currentMeetingPanel.waitForExistence(timeout: 15), "Expected live captions panel.")
+        XCTAssertTrue(revealLiveCaptionChrome(in: app), "Expected live-caption mode control to reveal on hover.")
 
         let modeButton = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
         XCTAssertTrue(modeButton.waitForExistence(timeout: 10), "Expected a compact/expanded mode control.")
+        modeButton.hover()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         modeButton.click()
 
         let compactCaption = uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
         XCTAssertTrue(compactCaption.waitForExistence(timeout: 5), "Expected compact caption text.")
         let compactModeButton = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
-        XCTAssertTrue(compactModeButton.exists, "Expected compact mode control to remain visible.")
         let compactElapsedTime = app.staticTexts[UITestIDs.Cloud.currentMeetingCaptionElapsedTime]
-        XCTAssertTrue(compactElapsedTime.exists, "Expected compact elapsed time to remain visible.")
+        compactCaption.hover()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertTrue(compactModeButton.waitForExistence(timeout: 5), "Expected compact mode control to appear on hover.")
+        XCTAssertTrue(compactElapsedTime.waitForExistence(timeout: 5), "Expected compact elapsed time to appear on hover.")
         let compactPanel = uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel)
         let compactGeometry = """
         compactPanel.frame=\(compactPanel.frame)

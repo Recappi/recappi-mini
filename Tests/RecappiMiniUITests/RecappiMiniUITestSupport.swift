@@ -26,6 +26,9 @@ enum UITestIDs {
         static let meetingPrompt = "recappi.panel.meetingPrompt"
         static let recordingOptionsButton = "recappi.panel.recordingOptionsButton"
         static let recordingOptionsPopover = "recappi.panel.recordingOptionsPopover"
+        static let recordingMoreButton = "recappi.panel.recordingMoreButton"
+        static let discardMenuItem = "recappi.panel.discardMenuItem"
+        static let discardButton = "recappi.panel.discardButton"
         static let waveformToggle = "recappi.panel.waveformToggle"
         static let microphoneIncludeButton = "recappi.panel.microphoneIncludeButton"
         static let recordButton = "recappi.panel.recordButton"
@@ -134,6 +137,7 @@ extension XCTestCase {
         detectedMeetingAutoStopGraceSeconds: TimeInterval? = nil,
         simulatedLiveCaptionText: String? = nil,
         simulatedLiveCaptionTranslationText: String? = nil,
+        simulatedLiveCaptionErrorMessage: String? = nil,
         backendURL: String? = nil,
         useBackendRealtimeLiveCaptions: Bool = false,
         openCloudWindowOnLaunch: Bool = false
@@ -172,6 +176,9 @@ extension XCTestCase {
         }
         if let simulatedLiveCaptionTranslationText, !simulatedLiveCaptionTranslationText.isEmpty {
             app.launchEnvironment["RECAPPI_TEST_LIVE_CAPTION_TRANSLATION_TEXT"] = simulatedLiveCaptionTranslationText
+        }
+        if let simulatedLiveCaptionErrorMessage, !simulatedLiveCaptionErrorMessage.isEmpty {
+            app.launchEnvironment["RECAPPI_TEST_LIVE_CAPTION_ERROR_MESSAGE"] = simulatedLiveCaptionErrorMessage
         }
         if useBackendRealtimeLiveCaptions {
             app.launchEnvironment["RECAPPI_TEST_USE_BACKEND_REALTIME"] = "1"
@@ -517,6 +524,30 @@ extension XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return element.exists && element.isEnabled
+    }
+
+    @discardableResult
+    func revealLiveCaptionChrome(in app: XCUIApplication, timeout: TimeInterval = 5) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        let chromeSentinel = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
+        let hoverTargets = [
+            uiElement(app, id: UITestIDs.Cloud.currentMeetingPanel),
+            uiElement(app, id: UITestIDs.Cloud.currentMeetingCaptionWorkspace),
+            uiElement(app, id: UITestIDs.Cloud.currentMeetingCaption)
+        ]
+
+        while Date() < deadline {
+            for target in hoverTargets where target.exists {
+                target.hover()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.18))
+                if chromeSentinel.exists {
+                    return true
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+        }
+
+        return chromeSentinel.exists
     }
 
     private func authStatusSnapshot(from element: XCUIElement) -> String {

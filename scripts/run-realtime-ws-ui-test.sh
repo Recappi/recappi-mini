@@ -43,6 +43,9 @@ BACKEND_URL="http://127.0.0.1:${PORT_LINE#PORT=}"
 echo "Using fake realtime backend at $BACKEND_URL"
 echo "$BACKEND_URL" >/tmp/recappi-mini-fake-realtime-backend-url
 
+/usr/bin/swift "$ROOT_DIR/scripts/select-abc-input-source.swift" || \
+  echo "warning: failed to switch UI tests to ABC keyboard input source" >&2
+
 RECAPPI_TEST_FAKE_REALTIME_BACKEND_URL="$BACKEND_URL" \
   xcodebuild test \
     -project RecappiMiniAutomation.xcodeproj \

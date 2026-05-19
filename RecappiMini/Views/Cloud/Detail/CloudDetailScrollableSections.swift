@@ -49,22 +49,27 @@ struct CloudDetailScrollableSections<Summary: View, Timeline: View, TranscriptHe
                         ) {
                             summary
                         }
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                     case .timeline:
                         timeline
                             .id(CloudDetailSection.timeline)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                     case .transcript:
                         CloudDetailTranscriptSection(
                             offsetReader: { EmptyView() },
                             header: { transcriptHeader },
                             card: { transcriptCard }
                         )
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
+                .id(activeDetailSection)
                 .padding(.horizontal, 22)
                 .padding(.top, 16)
                 .padding(.bottom, 20)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            .animation(DT.motionAware(DT.easeSpring(DT.Motion.cloudSectionSwap)), value: activeDetailSection)
             .coordinateSpace(name: "cloudDetailScroll")
             .onChange(of: activeSegmentID) { _, id in
                 // Loading or switching recordings can make the active
@@ -91,7 +96,7 @@ struct CloudDetailScrollableSections<Summary: View, Timeline: View, TranscriptHe
             }
             .onChange(of: pendingScrollTarget) { _, target in
                 guard let target else { return }
-                withAnimation(DT.motionAware(DT.ease(0.18))) {
+                withAnimation(DT.motionAware(DT.easeSpring(DT.Motion.cloudSectionSwap))) {
                     activeDetailSection = target
                 }
                 if target == .transcript,

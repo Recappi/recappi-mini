@@ -1761,6 +1761,12 @@ final class AudioRecorder: NSObject, ObservableObject {
             ]
             self.liveCaptionIsFinal = false
         }
+        if let simulatedError = uiTestMode.simulatedLiveCaptionErrorMessage,
+           !simulatedError.isEmpty {
+            liveCaptionMessage = simulatedError
+            liveCaptionStatusPhase = .failed
+            liveCaptionIsFinal = false
+        }
         if uiTestMode.useBackendRealtimeLiveCaptions {
             startBackendRealtimeLiveCaptionsForUITest()
         }
