@@ -155,10 +155,36 @@ xcrun actool "$PROJECT_DIR/RecappiMini/Resources/Recappi.icon" \
 /usr/libexec/PlistBuddy -c "Merge $PARTIAL_PLIST" "$APP_BUNDLE/Contents/Info.plist"
 rm -f "$PARTIAL_PLIST"
 
+sign_sparkle_framework() {
+    local sparkle_framework="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+    if [ ! -d "$sparkle_framework" ]; then
+        return
+    fi
+
+    local sign_args=(
+        --force
+        --sign "$CODESIGN_IDENTITY"
+        --options runtime
+    )
+    if [ "$RELEASE_MODE" = "1" ] && [ "$CODESIGN_IDENTITY" != "-" ]; then
+        sign_args+=(--timestamp)
+    fi
+
+    # Sparkle's XPC services and helper tools must keep their own bundle/code
+    # identifiers. Signing the outer app with --deep rewrites them to the host
+    # bundle identifier and breaks the installer XPC handshake.
+    codesign "${sign_args[@]}" "$sparkle_framework/Versions/B/XPCServices/Installer.xpc"
+    codesign "${sign_args[@]}" --preserve-metadata=entitlements "$sparkle_framework/Versions/B/XPCServices/Downloader.xpc"
+    codesign "${sign_args[@]}" "$sparkle_framework/Versions/B/Autoupdate"
+    codesign "${sign_args[@]}" "$sparkle_framework/Versions/B/Updater.app"
+    codesign "${sign_args[@]}" "$sparkle_framework"
+}
+
+sign_sparkle_framework
+
 if [ "$RELEASE_MODE" = "1" ] && [ "$CODESIGN_IDENTITY" != "-" ]; then
     codesign \
         --force \
-        --deep \
         --sign "$CODESIGN_IDENTITY" \
         --identifier "com.recappi.mini" \
         --options runtime \
@@ -168,8 +194,10 @@ if [ "$RELEASE_MODE" = "1" ] && [ "$CODESIGN_IDENTITY" != "-" ]; then
 else
     # Preserve the existing local-dev behavior unless callers opt into
     # release signing or explicitly request ad-hoc signing with `-`.
-    codesign --force --deep --sign "$CODESIGN_IDENTITY" --identifier "com.recappi.mini" --entitlements "$ENTITLEMENTS_PATH" "$APP_BUNDLE"
+    codesign --force --sign "$CODESIGN_IDENTITY" --identifier "com.recappi.mini" --entitlements "$ENTITLEMENTS_PATH" "$APP_BUNDLE"
 fi
+
+"$PROJECT_DIR/scripts/verify-sparkle-signing.sh" "$APP_BUNDLE"
 
 if [ "$APP_BUNDLE" != "$LEGACY_APP_BUNDLE" ]; then
     ln -s "$(basename "$APP_BUNDLE")" "$LEGACY_APP_BUNDLE"

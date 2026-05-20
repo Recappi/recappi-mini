@@ -106,6 +106,7 @@ jobs:
 
           bash scripts/build-app.sh
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          bash scripts/verify-sparkle-signing.sh "$APP_PATH"
 
       - name: Package DMG
         shell: bash
