@@ -50,10 +50,16 @@ struct ErrorState: View {
     private var actionsRow: some View {
         if recorder.lastSessionDir != nil {
             HStack(spacing: 6) {
-                Button("Retry", action: onRetry)
-                    .buttonStyle(ErrorRetryButtonStyle())
-                    .accessibilityIdentifier(AccessibilityIDs.Panel.retryButton)
-                moreMenu
+                if isRetryable {
+                    Button("Retry", action: onRetry)
+                        .buttonStyle(ErrorRetryButtonStyle())
+                        .accessibilityIdentifier(AccessibilityIDs.Panel.retryButton)
+                    moreMenu
+                } else {
+                    Button("Show in Finder", action: onShow)
+                        .buttonStyle(PanelPushButtonStyle())
+                        .accessibilityIdentifier(AccessibilityIDs.Panel.showButton)
+                }
             }
         } else if isConfigRelated {
             HStack(spacing: 6) {
@@ -79,12 +85,27 @@ struct ErrorState: View {
                 .frame(height: 22)
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .buttonStyle(PanelPushButtonStyle())
         .help("More recovery actions")
     }
 
     private var title: String {
-        recorder.lastSessionDir != nil ? "Processing failed" : "Recording failed"
+        if isMissingCapturedAudio {
+            return "Recording failed"
+        }
+        return recorder.lastSessionDir != nil ? "Processing failed" : "Recording failed"
+    }
+
+    private var isRetryable: Bool {
+        !isMissingCapturedAudio
+    }
+
+    private var isMissingCapturedAudio: Bool {
+        let lower = message.lowercased()
+        return lower.contains("no audio was captured")
+            || lower.contains("recorded audio is missing")
+            || lower.contains("meeting app was closed")
     }
 
     private var isConfigRelated: Bool {

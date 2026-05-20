@@ -336,6 +336,41 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertNil(SessionProcessor.cloudUploadContentType(for: URL(fileURLWithPath: "/tmp/recording.caf")))
     }
 
+    func testSessionProcessorRejectsMissingPrimaryRecordingBeforeUpload() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let missingRecording = RecordingStore.audioFileURL(in: temp)
+
+        do {
+            try SessionProcessor.validatePrimaryRecordingForUpload(missingRecording)
+            XCTFail("Expected missing recording.m4a to fail before upload.")
+        } catch SessionProcessorError.recordingAudioMissing {
+            // Expected: don't create a remote recording and then fail upload.
+        } catch {
+            XCTFail("Expected recordingAudioMissing, got \(error).")
+        }
+    }
+
+    func testSessionProcessorRejectsEmptyPrimaryRecordingBeforeUpload() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let emptyRecording = RecordingStore.audioFileURL(in: temp)
+        try Data().write(to: emptyRecording)
+
+        do {
+            try SessionProcessor.validatePrimaryRecordingForUpload(emptyRecording)
+            XCTFail("Expected empty recording.m4a to fail before upload.")
+        } catch SessionProcessorError.recordingAudioMissing {
+            // Expected: a zero-byte capture is not a valid upload asset.
+        } catch {
+            XCTFail("Expected recordingAudioMissing, got \(error).")
+        }
+    }
+
     func testCloudRecordingWebURLUsesBackendOrigin() throws {
         let url = try XCTUnwrap(
             cloudRecordingWebURL(
@@ -1888,6 +1923,23 @@ final class RecappiMiniCoreTests: XCTestCase {
             XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
         } catch {
             XCTFail("Expected RecorderError.exportFailed, got \(error).")
+        }
+    }
+
+    func testAudioMixerReportsNoCapturedAudioForEmptySourceList() async throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let destination = temp.appendingPathComponent("mixed-recording.m4a")
+
+        do {
+            try await AudioMixer.mix(sources: [], to: destination)
+            XCTFail("Expected an empty capture to fail as noCapturedAudio.")
+        } catch RecorderError.noCapturedAudio {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        } catch {
+            XCTFail("Expected RecorderError.noCapturedAudio, got \(error).")
         }
     }
 

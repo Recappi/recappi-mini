@@ -858,6 +858,18 @@ final class AudioRecorder: NSObject, ObservableObject {
             finishedSystemURL,
             hasIncludedMicrophoneAudioInCurrentRecording ? finishedMicURL : nil,
         ].compactMap { $0 }
+        guard !sourceURLs.isEmpty else {
+            DiagnosticsLog.error(
+                "recording",
+                "capture.no_audio_sources dir=\(sessionDir.lastPathComponent)"
+            )
+            AudioCaptureDiagnostics.write(
+                sources: [],
+                output: nil,
+                to: sessionDir
+            )
+            throw RecorderError.noCapturedAudio
+        }
 
         do {
             try await AudioMixer.mix(

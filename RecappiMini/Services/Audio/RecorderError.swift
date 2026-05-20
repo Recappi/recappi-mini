@@ -21,6 +21,7 @@ enum RecorderError: LocalizedError {
     case failedToAppendAudio
     case failedToFinalizeSegment
     case finishAlreadyRequested
+    case noCapturedAudio
 
     var errorDescription: String? {
         switch self {
@@ -42,6 +43,7 @@ enum RecorderError: LocalizedError {
         case .failedToAppendAudio: return "Couldn't append captured audio"
         case .failedToFinalizeSegment: return "Couldn't finalize the recorded audio segment"
         case .finishAlreadyRequested: return "Audio finishing is already in progress"
+        case .noCapturedAudio: return "No audio was captured. If the meeting app was closed before stopping, start a new recording."
         }
     }
 }

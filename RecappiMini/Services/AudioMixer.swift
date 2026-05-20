@@ -41,7 +41,7 @@ enum AudioMixer {
             }
         }
         guard !readable.isEmpty else {
-            throw RecorderError.exportFailed
+            throw RecorderError.noCapturedAudio
         }
 
         // Offline rendering must happen off the main actor because

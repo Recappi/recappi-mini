@@ -295,6 +295,8 @@ final class SessionProcessor {
         onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void,
         onCloudRecordingDeleted: @escaping @MainActor @Sendable (String) -> Void
     ) async throws -> UploadedRecordingAsset {
+        try Self.validatePrimaryRecordingForUpload(primaryURL)
+
         let uploadAsset: UploadAudioAsset
         if let contentType = Self.cloudUploadContentType(for: primaryURL) {
             uploadAsset = UploadAudioAsset(
@@ -446,6 +448,14 @@ final class SessionProcessor {
             )
             await client.abortRecordingIfNeeded(recordingId: created.id)
             throw UploadAttemptFailure(error: error, abandonedRecordingID: created.id)
+        }
+    }
+
+    nonisolated static func validatePrimaryRecordingForUpload(_ fileURL: URL) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: fileURL.path),
+              Self.fileSize(fileURL) > 0 else {
+            throw SessionProcessorError.recordingAudioMissing
         }
     }
 
@@ -678,6 +688,7 @@ enum SessionProcessorError: LocalizedError {
     case cloudDisabled
     case jobFailed(String)
     case jobTimedOut
+    case recordingAudioMissing
 
     var errorDescription: String? {
         switch self {
@@ -687,6 +698,8 @@ enum SessionProcessorError: LocalizedError {
             return "Recappi transcription failed: \(error)"
         case .jobTimedOut:
             return "转写仍在后台处理中，请稍后刷新云端记录"
+        case .recordingAudioMissing:
+            return "Recorded audio is missing. If the meeting app was closed before stopping, start a new recording."
         }
     }
 }
