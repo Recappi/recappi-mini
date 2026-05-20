@@ -3,20 +3,15 @@
     <channel>
         <title>Recappi Mini</title>
         <item>
-            <title>1.0.106</title>
-            <pubDate>Wed, 20 May 2026 16:10:02 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.106</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.106</sparkle:fullReleaseNotesLink>
-            <sparkle:version>117</sparkle:version>
-            <sparkle:shortVersionString>1.0.106</sparkle:shortVersionString>
+            <title>1.0.107</title>
+            <pubDate>Wed, 20 May 2026 16:34:15 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.107</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.107</sparkle:fullReleaseNotesLink>
+            <sparkle:version>118</sparkle:version>
+            <sparkle:shortVersionString>1.0.107</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>Fixes:
-- Fixed a recording failure path where Recappi could continue into upload even when recording.m4a was missing or empty.
-- If no system or microphone audio is captured, Recappi now stops with a clear recording error instead of creating a broken cloud upload.
-- Added visible technical details to missing-audio errors so a screenshot can show the session folder and audio file states.
-- Added capture-health diagnostics for recording failures, including system/mic buffer counts and generated audio file sizes in audio-capture.json.
-- Removed the extra menu chevron from the recording error recovery menu.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.106/RecappiMini-1.0.106.dmg" length="5610272" type="application/octet-stream" sparkle:edSignature="1Zgj/5YndfXWfLfwkNe69al0IN2NP2eGDFBrkszoNeR8natE3+mr7TeMBGU+AbR5FtD7m2zI2Gh+BnrDMaY5Cg=="/>
+            <description><![CDATA[<pre>Automated release for v1.0.107.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.107/RecappiMini-1.0.107.dmg" length="5641579" type="application/octet-stream" sparkle:edSignature="pexzwF3nCxC1QGWAf8tNPcT3nJ3Amw8nt3l2qZ1aPicLb8tvgYwbUwI7WbciHGiq/vjus/qC6mRReYzTLl2UAA=="/>
         </item>
     </channel>
 </rss>
