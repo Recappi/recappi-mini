@@ -10,7 +10,17 @@
             <sparkle:version>113</sparkle:version>
             <sparkle:shortVersionString>1.0.102</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>Automated release for v1.0.102.</pre>]]></description>
+            <description><![CDATA[<pre>重要：v1.0.101 及之前版本用户需要手动安装一次本版本。
+
+由于这几个版本的自动更新组件 (Sparkle) 签名有问题，App 内的“检查更新”无法升级到本版本及以后。
+
+操作：从下方 RecappiMini-1.0.102.dmg 下载安装一次，之后所有自动更新会恢复正常。
+
+修复内容：
+- 修复自动更新链路 (Sparkle helper 签名)
+- 增加 release 流程签名校验，防止类似问题再次发生
+
+其它近期功能/性能改进沿用 v1.0.100/v1.0.101。</pre>]]></description>
             <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.102/RecappiMini-1.0.102.dmg" length="5734871" type="application/octet-stream" sparkle:edSignature="sjHCdp6v8toy+lXOd/NBZdpTJbth3PXpkbuAiWx7UPKW+niKFgPFrf9KSj8W0gtQEALt0rYa5UA5yzFQ7TB3BQ=="/>
         </item>
     </channel>
