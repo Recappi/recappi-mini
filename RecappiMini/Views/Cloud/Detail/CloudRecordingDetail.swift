@@ -2,11 +2,13 @@ import AppKit
 import SwiftUI
 
 private enum CloudTypography {
+    static let captionTiny: Font = .system(size: 10.5, weight: .regular)
+    static let captionTinyMono: Font = .system(size: 10.5, weight: .regular, design: .monospaced)
     static let caption: Font = .system(size: 11, weight: .regular)
     static let captionMono: Font = .system(size: 11, weight: .regular, design: .monospaced)
     static let body: Font = .system(size: 14, weight: .regular)
     static let label: Font = .system(size: 13, weight: .medium)
-    static let section: Font = .system(size: 15, weight: .semibold)
+    static let section: Font = .system(size: 16, weight: .semibold)
     static let title: Font = .system(size: 22, weight: .semibold)
 }
 
@@ -192,7 +194,7 @@ struct CloudRecordingDetail: View {
                 } timeline: {
                     timelineSectionView
                 } transcriptHeader: {
-                    segmentsHeader
+                    EmptyView()
                 } transcriptCard: {
                     transcriptCard
                 }
@@ -868,13 +870,8 @@ struct CloudRecordingDetail: View {
     @ViewBuilder
     private var transcriptInsightStack: some View {
         if let structuredSummaryInsights {
-            transcriptInsightCard(
-                title: "Summary",
-                systemImage: "text.alignleft",
-                accessibilityID: AccessibilityIDs.Cloud.summaryText
-            ) {
-                structuredSummaryContent(structuredSummaryInsights)
-            }
+            structuredSummaryContent(structuredSummaryInsights)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.summaryText)
         } else if let summaryInsightText {
             transcriptInsightCard(
                 title: "Summary",
@@ -926,16 +923,378 @@ struct CloudRecordingDetail: View {
     }
 
     private func structuredSummaryContent(_ insights: TranscriptSummaryInsights) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             if let tldr = insights.summaryText {
-                summaryCalloutBlock(title: "TL;DR", text: tldr)
+                summaryHeroCard(text: tldr, topics: insights.topics)
             }
 
-            summaryBulletSection(title: "Key points", systemImage: "sparkles", items: insights.keyPoints, accent: summaryNeutralAccent, sectionKey: "key")
-            summaryTopicSection(items: insights.topics)
-            summaryBulletSection(title: "Decisions", systemImage: "checkmark.seal", items: insights.decisions, accent: summaryNeutralAccent, sectionKey: "decision")
-            summaryBulletSection(title: "Action items", systemImage: "checklist", items: insights.actionItemTexts, accent: DT.appAccent, sectionKey: "action", usesAccentSurface: true)
-            summaryQuoteSection(items: insights.quoteTexts)
+            summaryGroupedListCard(insights: insights)
+        }
+        .frame(maxWidth: 760, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func summaryHeroCard(text: String, topics: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Summary")
+                .font(.footnote)
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.dtLabelTertiary)
+                .textCase(.uppercase)
+                .tracking(0.6)
+
+            markdownText(text)
+                .font(.body)
+                .foregroundStyle(Color.dtLabel)
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !topics.isEmpty {
+                FlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                    ForEach(Array(topics.enumerated()), id: \.offset) { entry in
+                        summaryTopicChip(entry.element, accent: summaryNeutralAccent)
+                    }
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(summaryCardBackground)
+    }
+
+    @ViewBuilder
+    private func summaryGroupedListCard(insights: TranscriptSummaryInsights) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            let hasKey = !insights.keyPoints.isEmpty
+            let hasDecisions = !insights.decisions.isEmpty
+            let hasSteps = !insights.actionItemTexts.isEmpty
+            let hasQuotes = !insights.quoteTexts.isEmpty
+
+            if hasKey {
+                summaryGroupedSubsection(label: "Key insights", items: insights.keyPoints, bullet: nil)
+            }
+
+            if hasDecisions {
+                if hasKey { Divider() }
+                summaryGroupedSubsection(label: "Decisions", items: insights.decisions, bullet: nil)
+            }
+
+            if hasSteps {
+                if hasKey || hasDecisions { Divider() }
+                summaryGroupedSubsection(label: "Next steps", items: insights.actionItemTexts, bullet: .nextStep)
+            }
+
+            if hasQuotes {
+                if hasKey || hasDecisions || hasSteps { Divider() }
+                summaryGroupedQuotes(items: insights.quoteTexts)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(summaryCardBackground)
+    }
+
+    @ViewBuilder
+    private func summaryGroupedQuotes(items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Notable quotes")
+                .font(.footnote)
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.dtLabelTertiary)
+                .textCase(.uppercase)
+                .tracking(0.6)
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, quote in
+                    markdownText(quote)
+                        .font(.body)
+                        .italic()
+                        .foregroundStyle(Color.dtLabel)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 10)
+                        .overlay(alignment: .leading) {
+                            Rectangle()
+                                .fill(Palette.borderSubtle)
+                                .frame(width: 2)
+                        }
+                }
+            }
+        }
+    }
+
+    enum SummaryBullet { case nextStep }
+
+    @ViewBuilder
+    private func summaryGroupedSubsection(label: String, items: [String], bullet: SummaryBullet?) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(label)
+                .font(.footnote)
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.dtLabelTertiary)
+                .textCase(.uppercase)
+                .tracking(0.6)
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(items.prefix(6).enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .top, spacing: 10) {
+                        if bullet == .nextStep {
+                            Image(systemName: "circle")
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundStyle(DT.appAccent)
+                                .padding(.top, 4)
+                        }
+                        markdownText(item)
+                            .font(.body)
+                            .foregroundStyle(Color.dtLabel)
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+    }
+
+
+    @ViewBuilder
+    private func summaryDecisions(items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            summaryCardTitle(label: "Decisions", systemImage: "checkmark.seal")
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(items.prefix(5).enumerated()), id: \.offset) { _, item in
+                    markdownText(item)
+                        .font(.body)
+                        .foregroundStyle(Color.dtLabel)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(summaryCardBackground)
+    }
+
+    @ViewBuilder
+    private func summaryTopicsCard(items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            summaryCardTitle(label: "Topics", systemImage: "tag")
+
+            FlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                ForEach(Array(items.enumerated()), id: \.offset) { entry in
+                    summaryTopicChip(entry.element, accent: summaryNeutralAccent)
+                }
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(summaryCardBackground)
+    }
+
+    @ViewBuilder
+    private func summaryQuotesCard(items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            summaryCardTitle(label: "Notable quotes", systemImage: "quote.bubble")
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(items.enumerated()), id: \.offset) { entry in
+                    markdownText(entry.element)
+                        .font(.body)
+                        .italic()
+                        .foregroundStyle(Color.dtLabel)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 12)
+                        .overlay(alignment: .leading) {
+                            Rectangle()
+                                .fill(Palette.borderSubtle)
+                                .frame(width: 2)
+                        }
+                }
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(summaryCardBackground)
+    }
+
+    private func splitLeadIn(_ text: String) -> (String, String?) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let separators: Set<Character> = ["。", ".", "！", "!", "？", "?", "：", ":"]
+        guard let idx = trimmed.firstIndex(where: { separators.contains($0) }) else {
+            return (trimmed, nil)
+        }
+        let leadEnd = trimmed.index(after: idx)
+        let lead = String(trimmed[..<leadEnd])
+        let rest = trimmed[leadEnd...].trimmingCharacters(in: .whitespacesAndNewlines)
+        if rest.isEmpty {
+            return (lead, nil)
+        }
+        return (lead, String(rest))
+    }
+
+    @ViewBuilder
+    private func summaryLede(text: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            summaryCardTitle(label: "Summary", systemImage: "text.alignleft")
+            markdownText(text)
+                .font(.body)
+                .foregroundStyle(Color.dtLabel)
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(summaryCardBackground)
+    }
+
+    private var summaryCardBackground: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(Color.dtLabel.opacity(0.04))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.dtLabel.opacity(0.06), lineWidth: 0.5)
+            )
+    }
+
+    @ViewBuilder
+    private func summaryCardTitle(label: String, systemImage: String) -> some View {
+        Text(label)
+            .font(.headline)
+            .foregroundStyle(Color.dtLabel)
+    }
+
+    @ViewBuilder
+    private func summaryInsights(items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            summaryCardTitle(label: "Key insights", systemImage: "sparkles")
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(items.prefix(5).enumerated()), id: \.offset) { _, item in
+                    insightParagraph(item)
+                }
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(summaryCardBackground)
+    }
+
+    @ViewBuilder
+    private func insightParagraph(_ text: String) -> some View {
+        markdownText(text)
+            .font(.body)
+            .foregroundStyle(Color.dtLabel)
+            .lineSpacing(4)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func summaryNextSteps(items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            summaryCardTitle(label: "Next steps", systemImage: "checklist")
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(items.prefix(5).enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "circle")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(DT.appAccent)
+                            .padding(.top, 3)
+                        markdownText(item)
+                            .font(.body)
+                            .foregroundStyle(Color.dtLabel)
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(summaryCardBackground)
+    }
+
+    @ViewBuilder
+    private func summaryMoreDetail(topics: [String], decisions: [String], quotes: [String]) -> some View {
+        let hasContent = !topics.isEmpty || !decisions.isEmpty || !quotes.isEmpty
+        if hasContent {
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 20) {
+                    if !topics.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Topics")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.dtLabelTertiary)
+                                .textCase(.uppercase)
+                                .tracking(0.5)
+                            FlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                                ForEach(Array(topics.enumerated()), id: \.offset) { entry in
+                                    summaryTopicChip(entry.element, accent: summaryNeutralAccent)
+                                }
+                            }
+                        }
+                    }
+
+                    if !decisions.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Decisions")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.dtLabelTertiary)
+                                .textCase(.uppercase)
+                                .tracking(0.5)
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(Array(decisions.enumerated()), id: \.offset) { _, item in
+                                    markdownText(item)
+                                        .font(CloudTypography.body)
+                                        .foregroundStyle(Color.dtLabel)
+                                        .lineSpacing(4)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                        }
+                    }
+
+                    if !quotes.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Notable quotes")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.dtLabelTertiary)
+                                .textCase(.uppercase)
+                                .tracking(0.5)
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(Array(quotes.enumerated()), id: \.offset) { _, quote in
+                                    markdownText(quote)
+                                        .font(CloudTypography.body)
+                                        .italic()
+                                        .foregroundStyle(Color.dtLabel)
+                                        .lineSpacing(4)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .padding(.leading, 12)
+                                        .overlay(alignment: .leading) {
+                                            Rectangle()
+                                                .fill(Palette.borderSubtle)
+                                                .frame(width: 2)
+                                        }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 14)
+            } label: {
+                Text("More detail")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+            }
         }
     }
 
@@ -1221,33 +1580,27 @@ struct CloudRecordingDetail: View {
         systemImage: String,
         items: [String],
         accent: Color,
-        sectionKey: String,
-        usesAccentSurface: Bool = false
+        sectionKey: String
     ) -> some View {
         if !items.isEmpty {
             summarySectionBlock(
                 title: title,
                 systemImage: systemImage,
-                accent: accent,
-                usesAccentSurface: usesAccentSurface
+                accent: accent
             ) {
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 10) {
                     ForEach(Array(items.enumerated()), id: \.offset) { entry in
-                        HStack(alignment: .top, spacing: 7) {
+                        HStack(alignment: .top, spacing: 10) {
                             Circle()
                                 .fill(accent.opacity(0.72))
-                                .frame(width: 5, height: 5)
-                                .padding(.top, 6.5)
+                                .frame(width: 4, height: 4)
+                                .padding(.top, 9)
                             markdownText(entry.element)
                                 .font(CloudTypography.body)
-                                .foregroundStyle(Color.dtLabelSecondary)
-                                .lineSpacing(1.5)
+                                .foregroundStyle(Color.dtLabel)
+                                .lineSpacing(4)
                                 .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 4)
-                            if let identity = summaryAttributionIdentity(for: entry.offset) {
-                                summarySourceBadge(identity, key: "\(sectionKey)-\(entry.offset)")
-                                    .padding(.top, 1)
-                            }
+                            Spacer(minLength: 0)
                         }
                     }
                 }
@@ -1366,17 +1719,17 @@ struct CloudRecordingDetail: View {
     private func summaryQuoteSection(items: [String]) -> some View {
         if !items.isEmpty {
             summarySectionBlock(title: "Notable quotes", systemImage: "quote.bubble", accent: Palette.labelTertiary) {
-                VStack(alignment: .leading, spacing: 7) {
+                VStack(alignment: .leading, spacing: 14) {
                     ForEach(Array(items.enumerated()), id: \.offset) { entry in
                         markdownText(entry.element)
                             .font(CloudTypography.body)
                             .italic()
-                            .foregroundStyle(Color.dtLabelSecondary)
-                            .lineSpacing(1.5)
+                            .foregroundStyle(Color.dtLabel)
+                            .lineSpacing(4)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.leading, 9)
+                            .padding(.leading, 12)
                             .overlay(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                                Rectangle()
                                     .fill(Palette.borderSubtle)
                                     .frame(width: 2)
                             }
@@ -1390,34 +1743,21 @@ struct CloudRecordingDetail: View {
         title: String,
         systemImage: String,
         accent: Color,
-        usesAccentSurface: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(CloudTypography.caption)
-                    .foregroundStyle(accent)
-                    .frame(width: 14)
-
-                Text(title)
-                    .font(CloudTypography.section)
-                    .foregroundStyle(Color.dtLabelSecondary)
-            }
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.dtLabelTertiary)
+                .textCase(.uppercase)
+                .tracking(0.6)
 
             content()
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(24)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(usesAccentSurface ? accent.opacity(0.045) : Palette.surfaceCardSubtle.opacity(0.5))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(usesAccentSurface ? accent.opacity(0.10) : Palette.borderHairline.opacity(0.5), lineWidth: 1)
-        )
+        .background(summaryCardBackground)
     }
 
     private func markdownText(_ text: String) -> Text {
@@ -1435,22 +1775,19 @@ struct CloudRecordingDetail: View {
         accessibilityID: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: systemImage)
-                    .font(CloudTypography.caption)
-                    .foregroundStyle(Color.dtLabelTertiary)
-                    .frame(width: 13)
-
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
                     .font(CloudTypography.section)
-                    .foregroundStyle(Color.dtLabelSecondary)
+                    .foregroundStyle(Color.dtLabel)
+                    .textCase(.uppercase)
+                    .tracking(0.6)
 
                 Spacer(minLength: 0)
 
                 if let trailingText {
                     Text(trailingText)
-                        .font(CloudTypography.caption)
+                        .font(CloudTypography.captionTiny)
                         .foregroundStyle(Color.dtLabelTertiary)
                 }
             }
@@ -1465,17 +1802,7 @@ struct CloudRecordingDetail: View {
                 content()
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Palette.surfaceCard)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Palette.borderHairline, lineWidth: 1)
-        )
         .accessibilityIdentifier(accessibilityID)
     }
 
@@ -2263,9 +2590,6 @@ struct CloudRecordingDetail: View {
                 .frame(width: 16, height: 16)
             }
 
-            if !visibleSpeakerIdentities.isEmpty {
-                speakerBar
-            }
         }
     }
 
@@ -2536,28 +2860,27 @@ struct CloudRecordingDetail: View {
     private var transcriptCard: some View {
         let segmentRows = computeSegmentRowsWithPerfLogging()
         let activeSegmentID = activeSegmentID(in: segmentRows)
+        let turnGroups = groupTranscriptRowsBySpeaker(segmentRows)
+        let activeGroupID = turnGroups.first(where: { group in
+            group.segments.contains(where: { $0.id == activeSegmentID })
+        })?.id
         Group {
-            if !segmentRows.isEmpty {
-                // `LazyVStack` (vs `VStack`): only the segments inside the
-                // viewport are laid out. For long recordings (~150-500 rows)
-                // this drops per-render layout work by an order of magnitude
-                // and is the main fix for the perceived lag when switching
-                // between recordings — the eager `VStack` was re-laying out
-                // every row each time SwiftUI re-evaluated this view.
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(segmentRows) { row in
-                        CloudTranscriptSegmentRow(
-                            row: row,
-                            isActive: row.id == activeSegmentID,
-                            speaker: speakerIdentity(for: row.speaker),
+            if !turnGroups.isEmpty {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(turnGroups) { group in
+                        CloudTranscriptTurnGroupView(
+                            group: group,
+                            isActive: group.id == activeGroupID,
+                            activeSegmentID: activeSegmentID,
+                            speaker: speakerIdentity(for: group.speaker),
                             onSpeakerSelect: {
-                                if let identity = speakerIdentity(for: row.speaker) {
+                                if let identity = speakerIdentity(for: group.speaker) {
                                     presentSpeakerRenamePopover(for: identity)
                                 }
                             },
-                            onSelect: { jumpToSegment(row) }
+                            onSelect: { segmentRow in jumpToSegment(segmentRow) }
                         )
-                        .id(row.id)
+                        .id(group.id)
                     }
                 }
                 .accessibilityElement(children: .contain)
@@ -2663,6 +2986,37 @@ private struct CloudTranscriptSegmentDisplayRow: Identifiable {
     let text: String
 }
 
+private struct CloudTranscriptTurnGroup: Identifiable {
+    let id: String
+    let speaker: String?
+    let segments: [CloudTranscriptSegmentDisplayRow]
+
+    var firstMarker: String { segments.first?.marker ?? "" }
+}
+
+private func groupTranscriptRowsBySpeaker(_ rows: [CloudTranscriptSegmentDisplayRow]) -> [CloudTranscriptTurnGroup] {
+    var groups: [CloudTranscriptTurnGroup] = []
+    var current: [CloudTranscriptSegmentDisplayRow] = []
+    var currentSpeaker: String? = nil
+    var seeded = false
+    for row in rows {
+        if seeded, row.speaker == currentSpeaker {
+            current.append(row)
+        } else {
+            if let first = current.first {
+                groups.append(CloudTranscriptTurnGroup(id: first.id, speaker: currentSpeaker, segments: current))
+            }
+            current = [row]
+            currentSpeaker = row.speaker
+            seeded = true
+        }
+    }
+    if let first = current.first {
+        groups.append(CloudTranscriptTurnGroup(id: first.id, speaker: currentSpeaker, segments: current))
+    }
+    return groups
+}
+
 private struct CloudSpeakerIdentity: Identifiable {
     let speakerID: String
     let rawName: String
@@ -2680,7 +3034,15 @@ private struct CloudSpeakerIdentity: Identifiable {
     }
 
     static func defaultColor(at index: Int) -> Color {
-        Color.dtLabelSecondary
+        let colors: [Color] = [
+            Color(red: 0.64, green: 0.52, blue: 0.96),
+            Color(red: 0.38, green: 0.57, blue: 0.92),
+            Color(red: 0.36, green: 0.72, blue: 0.56),
+            Color(red: 0.84, green: 0.58, blue: 0.82),
+            Color(red: 0.82, green: 0.67, blue: 0.39),
+            Color(red: 0.62, green: 0.65, blue: 0.72),
+        ]
+        return colors[index % colors.count]
     }
 }
 
@@ -2864,43 +3226,36 @@ private struct CloudTranscriptSegmentRow: View {
     let onSelect: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Capsule(style: .continuous)
-                .fill(speaker?.color.opacity(0.78) ?? Palette.controlFillHover)
-                .frame(width: 3)
-                .padding(.vertical, 2)
+        HStack(alignment: .top, spacing: 16) {
+            Rectangle()
+                .fill(speaker?.color.opacity(0.72) ?? Color.clear)
+                .frame(width: 2)
 
-            Text(row.marker)
-                .font(CloudTypography.captionMono)
-                .foregroundStyle(Color.dtLabelSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .frame(width: 82, alignment: .leading)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 5) {
-                if let speaker {
-                    Button(action: onSpeakerSelect) {
-                        HStack(spacing: 5) {
-                            Text(speaker.emoji)
-                                .font(.system(size: 9.5))
+            HStack(alignment: .firstTextBaseline, spacing: 18) {
+                VStack(alignment: .leading, spacing: 3) {
+                    if let speaker {
+                        Button(action: onSpeakerSelect) {
                             Text(speaker.displayName)
-                                .font(CloudTypography.caption)
+                                .font(CloudTypography.label)
+                                .foregroundStyle(Color.dtLabel)
                                 .lineLimit(1)
                         }
-                        .foregroundStyle(Color.dtLabelSecondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule(style: .continuous).fill(Palette.controlFillHover))
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+
+                    Text(row.marker)
+                        .font(CloudTypography.captionTinyMono)
+                        .foregroundStyle(Color.dtLabelTertiary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                 }
+                .frame(width: 76, alignment: .leading)
 
                 Button(action: onSelect) {
                     Text(row.text)
                         .font(CloudTypography.body)
                         .foregroundStyle(Color.dtLabel)
-                        .lineSpacing(3)
+                        .lineSpacing(5)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
@@ -2913,21 +3268,74 @@ private struct CloudTranscriptSegmentRow: View {
                 .accessibilityAddTraits(isActive ? .isSelected : [])
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onSelect)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isActive ? Palette.surfaceCardSubtleActive : Palette.surfaceCardSubtle)
+            Rectangle()
+                .fill(isActive ? Color.dtLabel.opacity(0.04) : Color.clear)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Palette.borderHairline, lineWidth: 1)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .onTapGesture(perform: onSelect)
         .help(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
         .disabled(row.startMs == nil && row.endMs == nil)
+    }
+}
+
+private struct CloudTranscriptTurnGroupView: View {
+    let group: CloudTranscriptTurnGroup
+    let isActive: Bool
+    let activeSegmentID: String?
+    let speaker: CloudSpeakerIdentity?
+    let onSpeakerSelect: () -> Void
+    let onSelect: (CloudTranscriptSegmentDisplayRow) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if let speaker {
+                    Button(action: onSpeakerSelect) {
+                        Text(speaker.displayName)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.dtLabelSecondary)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Text(group.firstMarker)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .lineLimit(1)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(group.segments) { seg in
+                    Text(seg.text)
+                        .font(CloudTypography.body)
+                        .foregroundStyle(Color.dtLabel)
+                        .lineSpacing(5)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptSegmentTextPrefix + seg.id)
+                        .accessibilityValue(seg.id == activeSegmentID ? "selected" : "not selected")
+                        .accessibilityAddTraits(seg.id == activeSegmentID ? .isSelected : [])
+                }
+            }
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Rectangle()
+                .fill(isActive ? Color.dtLabel.opacity(0.04) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let first = group.segments.first {
+                onSelect(first)
+            }
+        }
+        .help("Jump audio to this turn")
     }
 }
 
