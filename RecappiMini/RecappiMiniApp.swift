@@ -150,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     func finishLaunchingIfNeeded() {
         guard !didFinishLaunching else { return }
         didFinishLaunching = true
+        logAppLaunch()
         // Apply the user's theme before any window is created so the very
         // first surface (status item, floating panel, onboarding) comes up
         // in the correct appearance.
@@ -388,6 +389,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         settings.target = self
         menu.addItem(settings)
 
+        let openLogs = NSMenuItem(
+            title: "Open Logs Folder",
+            action: #selector(openLogsFolderFromStatusMenu),
+            keyEquivalent: ""
+        )
+        openLogs.target = self
+        menu.addItem(openLogs)
+
         menu.addItem(.separator())
 
         let about = NSMenuItem(
@@ -514,9 +523,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         checkForUpdatesMenuItem?.isEnabled = appUpdater.canCheckForUpdates
     }
 
+    private func logAppLaunch() {
+        let bundle = Bundle.main
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        let process = ProcessInfo.processInfo
+        DiagnosticsLog.event(
+            "app",
+            "launch version=\(version) build=\(build) pid=\(process.processIdentifier) os='\(DiagnosticsLog.sanitize(process.operatingSystemVersionString, maxLength: 80))' uiTest=\(uiTestMode.isEnabled) logs=\(DiagnosticsLog.fileURL.path)"
+        )
+    }
+
     @objc private func togglePanelFromStatusMenu() {
         togglePanel()
         updateStatusMenuItems()
+    }
+
+    @objc private func openLogsFolderFromStatusMenu() {
+        DiagnosticsLog.event("diagnostics", "open_logs_folder source=status_menu")
+        NSWorkspace.shared.open(DiagnosticsLog.logsDirectoryURL)
     }
 
     @objc private func showCloudCenterFromStatusMenu() {

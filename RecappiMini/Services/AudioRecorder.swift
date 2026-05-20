@@ -620,9 +620,12 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         do {
             try await requestMicrophoneAccessIfNeeded()
+            DiagnosticsLog.event("permissions", "microphone.authorized")
             guard CapturePermissionPrimer.shared.hasScreenCaptureAccess() else {
+                DiagnosticsLog.warning("permissions", "screen_capture.denied_or_missing")
                 throw RecorderError.screenCaptureDenied
             }
+            DiagnosticsLog.event("permissions", "screen_capture.authorized")
 
             let content = try await SCShareableContent.current
             guard let display = content.displays.first else {
@@ -1770,13 +1773,18 @@ final class AudioRecorder: NSObject, ObservableObject {
     private func requestMicrophoneAccessIfNeeded() async throws {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
+            DiagnosticsLog.event("permissions", "microphone.status authorized")
             return
         case .notDetermined:
+            DiagnosticsLog.event("permissions", "microphone.request.start")
             let granted = await AVCaptureDevice.requestAccess(for: .audio)
+            DiagnosticsLog.event("permissions", "microphone.request.result granted=\(granted)")
             if !granted { throw RecorderError.micDenied }
         case .denied, .restricted:
+            DiagnosticsLog.warning("permissions", "microphone.status denied_or_restricted")
             throw RecorderError.micDenied
         @unknown default:
+            DiagnosticsLog.warning("permissions", "microphone.status unknown")
             throw RecorderError.micDenied
         }
     }

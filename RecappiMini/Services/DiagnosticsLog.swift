@@ -6,6 +6,7 @@ enum DiagnosticsLog {
     private static let writer = DiagnosticsFileWriter(fileName: "diagnostics.log")
 
     static var fileURL: URL { writer.fileURL }
+    static var logsDirectoryURL: URL { writer.logsDirectoryURL }
 
     static func event(_ category: String, _ message: String) {
         append(level: "info", category: category, message: message)
@@ -50,18 +51,31 @@ enum DiagnosticsLog {
         }
         writer.append(line)
     }
+
+    #if DEBUG
+    static func flushForTests() {
+        writer.flush()
+    }
+    #endif
 }
 
-private final class DiagnosticsFileWriter: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "RecappiMini.DiagnosticsFileWriter")
-    private let maxBytes = 1_000_000
+final class DiagnosticsFileWriter: @unchecked Sendable {
+    private let queue: DispatchQueue
+    private let maxBytes: Int
+    private let maxRotatedFiles: Int
     let fileURL: URL
 
-    init(fileName: String) {
-        let logsDirectory = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Logs", isDirectory: true)
-            .appendingPathComponent("RecappiMini", isDirectory: true)
+    var logsDirectoryURL: URL { fileURL.deletingLastPathComponent() }
+
+    init(
+        fileName: String,
+        directory logsDirectory: URL = DiagnosticsFileWriter.defaultLogsDirectory,
+        maxBytes: Int = 1_000_000,
+        maxRotatedFiles: Int = 5
+    ) {
+        self.queue = DispatchQueue(label: "RecappiMini.DiagnosticsFileWriter.\(UUID().uuidString)")
+        self.maxBytes = maxBytes
+        self.maxRotatedFiles = max(0, maxRotatedFiles)
         try? FileManager.default.createDirectory(
             at: logsDirectory,
             withIntermediateDirectories: true
@@ -71,8 +85,12 @@ private final class DiagnosticsFileWriter: @unchecked Sendable {
 
     func append(_ body: String) {
         let line = "\(Self.timestamp()) \(body)\n"
-        queue.async { [fileURL, maxBytes] in
-            Self.rotateIfNeeded(fileURL: fileURL, maxBytes: maxBytes)
+        queue.async { [fileURL, maxBytes, maxRotatedFiles] in
+            Self.rotateIfNeeded(
+                fileURL: fileURL,
+                maxBytes: maxBytes,
+                maxRotatedFiles: maxRotatedFiles
+            )
             guard let data = line.data(using: .utf8) else { return }
             if FileManager.default.fileExists(atPath: fileURL.path),
                let handle = try? FileHandle(forWritingTo: fileURL) {
@@ -85,18 +103,59 @@ private final class DiagnosticsFileWriter: @unchecked Sendable {
         }
     }
 
-    private static func rotateIfNeeded(fileURL: URL, maxBytes: Int) {
+    func flush() {
+        queue.sync {}
+    }
+
+    static var defaultLogsDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent("RecappiMini", isDirectory: true)
+    }
+
+    private static func rotateIfNeeded(fileURL: URL, maxBytes: Int, maxRotatedFiles: Int) {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
               let size = attributes[.size] as? NSNumber,
               size.intValue >= maxBytes else {
             return
         }
 
-        let rotated = fileURL.deletingPathExtension()
-            .appendingPathExtension("1")
-            .appendingPathExtension(fileURL.pathExtension)
-        try? FileManager.default.removeItem(at: rotated)
-        try? FileManager.default.moveItem(at: fileURL, to: rotated)
+        let fileManager = FileManager.default
+        guard maxRotatedFiles > 0 else {
+            try? fileManager.removeItem(at: fileURL)
+            return
+        }
+
+        let oldest = rotatedURL(for: fileURL, index: maxRotatedFiles)
+        try? fileManager.removeItem(at: oldest)
+
+        if maxRotatedFiles > 1 {
+            for index in stride(from: maxRotatedFiles - 1, through: 1, by: -1) {
+                let source = rotatedURL(for: fileURL, index: index)
+                guard fileManager.fileExists(atPath: source.path) else { continue }
+                let destination = rotatedURL(for: fileURL, index: index + 1)
+                try? fileManager.removeItem(at: destination)
+                try? fileManager.moveItem(at: source, to: destination)
+            }
+        }
+
+        let first = rotatedURL(for: fileURL, index: 1)
+        try? fileManager.removeItem(at: first)
+        try? fileManager.moveItem(at: fileURL, to: first)
+    }
+
+    private static func rotatedURL(for fileURL: URL, index: Int) -> URL {
+        let directory = fileURL.deletingLastPathComponent()
+        let stem = fileURL.deletingPathExtension().lastPathComponent
+        let ext = fileURL.pathExtension
+        let rotatedName = "\(stem).\(index)"
+        guard !ext.isEmpty else {
+            return directory.appendingPathComponent(rotatedName)
+        }
+        return directory
+            .appendingPathComponent(rotatedName)
+            .appendingPathExtension(ext)
     }
 
     private static func timestamp() -> String {

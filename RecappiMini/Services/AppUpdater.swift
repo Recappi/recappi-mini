@@ -41,31 +41,40 @@ final class AppUpdater: NSObject, ObservableObject {
         super.init()
 
         userDriverDelegate.onWillFinishUpdateSession = { [weak self] in
+            DiagnosticsLog.event("updater", "session.finish")
             self?.finishUserInitiatedCheck?()
         }
+        DiagnosticsLog.event(
+            "updater",
+            "init canCheck=\(updater.canCheckForUpdates) autoCheck=\(updater.automaticallyChecksForUpdates) autoDownload=\(updater.automaticallyDownloadsUpdates)"
+        )
         observe(updater)
     }
 
     func start() {
         guard !didStartUpdater else { return }
         didStartUpdater = true
+        DiagnosticsLog.event("updater", "start")
         updaterController.startUpdater()
         synchronizeFromUpdater()
     }
 
     func checkForUpdates() {
+        DiagnosticsLog.event("updater", "check.user_initiated canCheck=\(updater.canCheckForUpdates)")
         prepareForUserInitiatedCheck?()
         updaterController.checkForUpdates(nil)
     }
 
     func setAutomaticallyChecksForUpdates(_ newValue: Bool) {
         guard updater.automaticallyChecksForUpdates != newValue else { return }
+        DiagnosticsLog.event("updater", "auto_check.changed value=\(newValue)")
         updater.automaticallyChecksForUpdates = newValue
         synchronizeFromUpdater()
     }
 
     func setAutomaticallyDownloadsUpdates(_ newValue: Bool) {
         guard updater.automaticallyDownloadsUpdates != newValue else { return }
+        DiagnosticsLog.event("updater", "auto_download.changed value=\(newValue)")
         updater.automaticallyDownloadsUpdates = newValue
         synchronizeFromUpdater()
     }

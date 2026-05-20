@@ -27,6 +27,8 @@ enum AccessibilityIDs {
         static let liveCaptionsBilingualTargetLanguagePicker = "recappi.settings.liveCaptionsBilingualTargetLanguagePicker"
         static let speechLanguagePicker = "recappi.settings.speechLanguagePicker"
         static let themePicker = "recappi.settings.themePicker"
+        static let openLogsFolderButton = "recappi.settings.openLogsFolderButton"
+        static let copyLogsPathButton = "recappi.settings.copyLogsPathButton"
     }
 
     enum Panel {

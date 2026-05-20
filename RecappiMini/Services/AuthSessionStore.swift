@@ -40,6 +40,10 @@ final class AuthSessionStore: ObservableObject {
             authStatusDetail = nil
             authFlowPhase = nil
         }
+        DiagnosticsLog.event(
+            "auth",
+            "store.init status=\(Self.statusLabel(authStatus)) persistedToken=\(hasPersistedToken) uiTest=\(uiTestMode.isEnabled)"
+        )
     }
 
     var currentSession: UserSession? {
@@ -90,6 +94,7 @@ final class AuthSessionStore: ObservableObject {
     }
 
     func startOAuth(provider: OAuthProvider, origin: String) async throws -> UserSession {
+        DiagnosticsLog.event("auth", "oauth.start provider=\(provider.rawValue) originHash=\(Self.normalizeOrigin(origin).hashValue)")
         beginAuthentication(.starting(provider: provider))
         let resolvedOrigin = Self.normalizeOrigin(origin)
         do {
@@ -108,16 +113,23 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .signedIn(bootstrap.session)
             authStatusDetail = nil
             authFlowPhase = nil
+            DiagnosticsLog.event(
+                "auth",
+                "oauth.succeeded provider=\(provider.rawValue) userHash=\(bootstrap.session.userId.hashValue) originHash=\(resolvedOrigin.hashValue)"
+            )
             return bootstrap.session
         } catch {
             if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
                 authStatus = .expired
             } else {
-                NSLog("[Recappi] auth.startOAuth: catch_all -> .failed type=\(String(describing: type(of: error)))")
                 authStatus = .failed
             }
             authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
+            DiagnosticsLog.error(
+                "auth",
+                "oauth.failed provider=\(provider.rawValue) \(DiagnosticsLog.errorSummary(error))"
+            )
             throw error
         }
     }
@@ -128,11 +140,13 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .failed
             authStatusDetail = RecappiSessionError.invalidBearerFormat.localizedDescription
             authFlowPhase = nil
+            DiagnosticsLog.warning("auth", "token_import.invalid_format")
             throw RecappiSessionError.invalidBearerFormat
         }
 
         beginAuthentication(.verifyingSession(provider: nil))
         let resolvedOrigin = Self.normalizeOrigin(origin)
+        DiagnosticsLog.event("auth", "token_import.verify.start originHash=\(resolvedOrigin.hashValue)")
         let client = RecappiAPIClient(origin: resolvedOrigin, bearerToken: normalized)
 
         do {
@@ -140,6 +154,7 @@ final class AuthSessionStore: ObservableObject {
             guard let session = lookup.userSession else {
                 discardPersistedCredentialStorage()
                 authStatus = .failed
+                DiagnosticsLog.warning("auth", "token_import.invalid_session originHash=\(resolvedOrigin.hashValue)")
                 throw RecappiSessionError.invalidSession
             }
 
@@ -152,16 +167,28 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .signedIn(session)
             authStatusDetail = nil
             authFlowPhase = nil
+            DiagnosticsLog.event(
+                "auth",
+                "token_import.succeeded userHash=\(session.userId.hashValue) originHash=\(resolvedOrigin.hashValue)"
+            )
             return session
         } catch let error as RecappiAPIError where error == .unauthorized {
             authStatus = .expired
             authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
+            DiagnosticsLog.warning(
+                "auth",
+                "token_import.unauthorized originHash=\(resolvedOrigin.hashValue) \(DiagnosticsLog.errorSummary(error))"
+            )
             throw error
         } catch {
             authStatus = .failed
             authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
+            DiagnosticsLog.error(
+                "auth",
+                "token_import.failed originHash=\(resolvedOrigin.hashValue) \(DiagnosticsLog.errorSummary(error))"
+            )
             throw error
         }
     }
@@ -176,10 +203,12 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .signedOut
             authStatusDetail = nil
             authFlowPhase = nil
+            DiagnosticsLog.warning("auth", "ensure.no_token")
             throw RecappiSessionError.notSignedIn
         }
 
         let resolvedOrigin = Self.normalizeOrigin(origin)
+        DiagnosticsLog.event("auth", "ensure.start originHash=\(resolvedOrigin.hashValue)")
         let client = RecappiAPIClient(origin: resolvedOrigin, bearerToken: bearerToken)
 
         do {
@@ -190,7 +219,7 @@ final class AuthSessionStore: ObservableObject {
                 // `.failed` — same semantic as a real 401, no need to flip
                 // the chip to "Needs attention" while the user is just
                 // browsing recordings.
-                NSLog("[Recappi] auth.ensureAuthorized: nil_userSession -> .expired")
+                DiagnosticsLog.warning("auth", "ensure.nil_user_session originHash=\(resolvedOrigin.hashValue)")
                 discardPersistedCredentialStorage()
                 authStatus = .expired
                 authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.unauthorized)
@@ -206,11 +235,19 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .signedIn(session)
             authStatusDetail = nil
             authFlowPhase = nil
+            DiagnosticsLog.event(
+                "auth",
+                "ensure.succeeded userHash=\(session.userId.hashValue) originHash=\(resolvedOrigin.hashValue)"
+            )
             return session
         } catch let error as RecappiAPIError where error == .unauthorized {
             authStatus = .expired
             authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
+            DiagnosticsLog.warning(
+                "auth",
+                "ensure.unauthorized originHash=\(resolvedOrigin.hashValue) \(DiagnosticsLog.errorSummary(error))"
+            )
             throw error
         } catch {
             // Transient network errors (timeout, 5xx, offline, DNS, etc.)
@@ -223,14 +260,18 @@ final class AuthSessionStore: ObservableObject {
             // We still throw so the caller (CloudLibraryStore) can surface
             // a cache-warning banner at its own layer, which is the right
             // semantic for "transient request failure".
-            NSLog("[Recappi] auth.ensureAuthorized: transient_error type=\(String(describing: type(of: error))) -> auth_status_unchanged")
             authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
+            DiagnosticsLog.warning(
+                "auth",
+                "ensure.transient_error originHash=\(resolvedOrigin.hashValue) statusUnchanged=\(Self.statusLabel(authStatus)) \(DiagnosticsLog.errorSummary(error))"
+            )
             throw error
         }
     }
 
     func handleUnauthorized(origin: String) async throws -> UserSession {
+        DiagnosticsLog.warning("auth", "handle_unauthorized originHash=\(Self.normalizeOrigin(origin).hashValue)")
         authStatus = .expired
         authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.unauthorized)
         authFlowPhase = nil
@@ -251,6 +292,7 @@ final class AuthSessionStore: ObservableObject {
 
     func signOut(origin: String) async {
         let resolvedOrigin = Self.normalizeOrigin(origin)
+        DiagnosticsLog.event("auth", "sign_out.start originHash=\(resolvedOrigin.hashValue)")
         authFlowPhase = .signingOut
         authStatusDetail = nil
 
@@ -260,13 +302,15 @@ final class AuthSessionStore: ObservableObject {
                 try await client.signOut()
             } catch let error as RecappiAPIError where error == .unauthorized {
                 // Treat an already-expired token as signed out and continue clearing local state.
+                DiagnosticsLog.warning("auth", "sign_out.remote_already_unauthorized")
             } catch {
                 // Remote revocation is best-effort; local sign-out still wins.
-                NSLog("[Recappi] signOut remote revoke failed: \(error.localizedDescription)")
+                DiagnosticsLog.warning("auth", "sign_out.remote_revoke_failed \(DiagnosticsLog.errorSummary(error))")
             }
         }
 
         clearSession()
+        DiagnosticsLog.event("auth", "sign_out.local_cleared")
     }
 
     func clearSession() {
@@ -303,6 +347,21 @@ final class AuthSessionStore: ObservableObject {
         }
         if let data = try? JSONEncoder().encode(session) {
             defaults.set(data, forKey: cachedUserKey)
+        }
+    }
+
+    private static func statusLabel(_ status: AuthStatus) -> String {
+        switch status {
+        case .signedOut:
+            return "signedOut"
+        case .authenticating:
+            return "authenticating"
+        case .signedIn:
+            return "signedIn"
+        case .expired:
+            return "expired"
+        case .failed:
+            return "failed"
         }
     }
 

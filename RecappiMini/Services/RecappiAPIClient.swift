@@ -273,12 +273,16 @@ struct RecappiAPIClient: Sendable {
                 return (data, response)
             } catch {
                 guard attempt < maxAttempts, Self.isRetryable(error) else {
+                    DiagnosticsLog.error(
+                        "network",
+                        "request.failed attempts=\(attempt) method=\(request.httpMethod ?? "GET") path=\(Self.safePath(for: request)) \(DiagnosticsLog.errorSummary(error))"
+                    )
                     throw error
                 }
 
                 DiagnosticsLog.warning(
                     "network",
-                    "request.retry attempt=\(attempt) method=\(request.httpMethod ?? "GET") path=\(request.url?.path ?? "unknown") \(DiagnosticsLog.errorSummary(error))"
+                    "request.retry attempt=\(attempt) method=\(request.httpMethod ?? "GET") path=\(Self.safePath(for: request)) \(DiagnosticsLog.errorSummary(error))"
                 )
                 try await Task.sleep(for: .milliseconds(300 * attempt))
                 attempt += 1
@@ -304,11 +308,15 @@ struct RecappiAPIClient: Sendable {
                 return fileURL
             } catch {
                 guard attempt < maxAttempts, Self.isRetryable(error) else {
+                    DiagnosticsLog.error(
+                        "network",
+                        "download.failed attempts=\(attempt) method=\(request.httpMethod ?? "GET") path=\(Self.safePath(for: request)) \(DiagnosticsLog.errorSummary(error))"
+                    )
                     throw error
                 }
                 DiagnosticsLog.warning(
                     "network",
-                    "download.retry attempt=\(attempt) method=\(request.httpMethod ?? "GET") path=\(request.url?.path ?? "unknown") \(DiagnosticsLog.errorSummary(error))"
+                    "download.retry attempt=\(attempt) method=\(request.httpMethod ?? "GET") path=\(Self.safePath(for: request)) \(DiagnosticsLog.errorSummary(error))"
                 )
                 try await Task.sleep(for: .milliseconds(300 * attempt))
                 attempt += 1
@@ -412,6 +420,10 @@ struct RecappiAPIClient: Sendable {
             NSURLErrorNotConnectedToInternet,
             NSURLErrorDNSLookupFailed,
         ].contains(nsError.code)
+    }
+
+    private static func safePath(for request: URLRequest) -> String {
+        DiagnosticsLog.sanitize(request.url?.path ?? "unknown", maxLength: 160)
     }
 
     static func extractErrorMessage(from data: Data) -> String {

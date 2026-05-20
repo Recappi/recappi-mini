@@ -18,17 +18,20 @@ actor CloudLibraryCache {
     func loadSnapshot(userId: String, backendOrigin: String) -> CloudLibrarySnapshot? {
         do {
             if let snapshot = try loadSQLiteSnapshot(userId: userId, backendOrigin: backendOrigin) {
+                DiagnosticsLog.event("cloud-cache", "snapshot.load.sqlite userHash=\(userId.hashValue) originHash=\(backendOrigin.hashValue)")
                 return snapshot
             }
         } catch {
-            NSLog("[Recappi] Cloud cache SQLite load failed: \(error.localizedDescription)")
+            DiagnosticsLog.warning("cloud-cache", "snapshot.load.sqlite_failed \(DiagnosticsLog.errorSummary(error))")
         }
 
         guard let snapshot = loadLegacySnapshot(userId: userId, backendOrigin: backendOrigin) else {
+            DiagnosticsLog.event("cloud-cache", "snapshot.load.miss userHash=\(userId.hashValue) originHash=\(backendOrigin.hashValue)")
             return nil
         }
         // One-way lazy migration: keep the old JSON file as a rollback
         // fallback, but make the next read hit SQLite.
+        DiagnosticsLog.event("cloud-cache", "snapshot.load.legacy userHash=\(userId.hashValue) originHash=\(backendOrigin.hashValue)")
         saveSnapshot(snapshot)
         return snapshot
     }
@@ -36,9 +39,13 @@ actor CloudLibraryCache {
     func saveSnapshot(_ snapshot: CloudLibrarySnapshot) {
         do {
             try saveSQLiteSnapshot(snapshot)
+            DiagnosticsLog.event(
+                "cloud-cache",
+                "snapshot.save.sqlite userHash=\(snapshot.userId.hashValue) count=\(snapshot.recordings.count)"
+            )
             return
         } catch {
-            NSLog("[Recappi] Cloud cache SQLite save failed: \(error.localizedDescription)")
+            DiagnosticsLog.warning("cloud-cache", "snapshot.save.sqlite_failed \(DiagnosticsLog.errorSummary(error))")
         }
 
         // Last-resort compatibility fallback. Normal builds should use the
@@ -50,7 +57,7 @@ actor CloudLibraryCache {
             let data = try JSONEncoder.cloudCache.encode(snapshot)
             try data.write(to: url, options: [.atomic])
         } catch {
-            NSLog("[Recappi] Cloud cache save failed: \(error.localizedDescription)")
+            DiagnosticsLog.error("cloud-cache", "snapshot.save.legacy_failed \(DiagnosticsLog.errorSummary(error))")
         }
     }
 

@@ -112,7 +112,7 @@ extension CloudLibraryStore {
                 limit: limit
             )
         } catch {
-            NSLog("[Recappi] Cloud cache search failed: \(error.localizedDescription)")
+            DiagnosticsLog.warning("cloud-cache", "search.failed \(DiagnosticsLog.errorSummary(error))")
             return []
         }
     }
