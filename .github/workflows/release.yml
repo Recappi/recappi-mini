@@ -36,6 +36,7 @@ jobs:
             echo "APP_VERSION=$APP_VERSION"
             echo "BUILD_NUMBER=${GITHUB_RUN_NUMBER}"
             echo "DMG_PATH=${GITHUB_WORKSPACE}/build/${APP_NAME}-${APP_VERSION}.dmg"
+            echo "APP_ZIP_PATH=${RUNNER_TEMP}/${APP_NAME}-${APP_VERSION}.zip"
             echo "CERTIFICATE_P12=${RUNNER_TEMP}/macos_signing_certificate.p12"
             echo "APPSTORE_KEY_P8=${RUNNER_TEMP}/AuthKey.p8"
             echo "KEYCHAIN_PATH=${RUNNER_TEMP}/recappi-release.keychain-db"
@@ -105,6 +106,27 @@ jobs:
           set -euo pipefail
 
           bash scripts/build-app.sh
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          bash scripts/verify-sparkle-signing.sh "$APP_PATH"
+
+      - name: Notarize and staple app bundle
+        shell: bash
+        env:
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_KEY_ISSUER_ID: ${{ secrets.APPSTORE_API_KEY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+
+          ditto -c -k --keepParent "$APP_PATH" "$APP_ZIP_PATH"
+          xcrun notarytool submit "$APP_ZIP_PATH" \
+            --key "$APPSTORE_KEY_P8" \
+            --key-id "$APPSTORE_API_KEY_ID" \
+            --issuer "$APPSTORE_API_KEY_ISSUER_ID" \
+            --wait
+
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          spctl --assess --type execute -vv "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           bash scripts/verify-sparkle-signing.sh "$APP_PATH"
 
