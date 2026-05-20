@@ -40,7 +40,7 @@ struct CloudDetailScrollableSections<Summary: View, Timeline: View, TranscriptHe
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
                     switch activeDetailSection {
                     case .summary:
                         CloudDetailSummarySection(
@@ -64,9 +64,9 @@ struct CloudDetailScrollableSections<Summary: View, Timeline: View, TranscriptHe
                     }
                 }
                 .id(activeDetailSection)
-                .padding(.horizontal, 22)
-                .padding(.top, 16)
-                .padding(.bottom, 20)
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .animation(DT.motionAware(DT.easeSpring(DT.Motion.cloudSectionSwap)), value: activeDetailSection)

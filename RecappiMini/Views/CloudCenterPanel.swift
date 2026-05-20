@@ -123,7 +123,7 @@ struct CloudCenterPanel: View {
         ToolbarItem(placement: .primaryAction) {
             CloudToolbarSearchInput(text: $cloudSearchQuery)
         }
-        ToolbarItem(placement: .automatic) {
+        ToolbarItemGroup(placement: .primaryAction) {
             if isCurrentMeetingActive {
                 Button {
                     appDelegate.setLiveCaptionPanelPresented(!appDelegate.isLiveCaptionPanelPresented)
@@ -136,8 +136,7 @@ struct CloudCenterPanel: View {
                 .help(appDelegate.isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionToggleButton)
             }
-        }
-        ToolbarItem(placement: .primaryAction) {
+
             Button {
                 Task { await store.refresh() }
             } label: {

@@ -10,8 +10,8 @@ struct CloudRecordingRow: View {
     var hasNewerVersion: Bool = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 4) {
-            CloudSourceIcon(recording: recording, size: 26)
+        HStack(alignment: .center, spacing: 7) {
+            CloudSourceIcon(recording: recording, size: 22)
 
             Text(recording.presentationTitle)
                 .font(.system(size: 13, weight: .regular))
@@ -26,21 +26,19 @@ struct CloudRecordingRow: View {
 
             if hasNewerVersion {
                 Text("New")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.92) : DT.systemBlue)
+                    .font(.system(size: 9, weight: .regular))
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, 5)
                     .frame(height: 16)
                     .background(
                         Capsule(style: .continuous)
-                            .fill((isSelected ? Color.white : DT.systemBlue).opacity(isSelected ? 0.18 : 0.13))
+                            .fill(.secondary.opacity(0.12))
                     )
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
         }
-        .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .animation(DT.motionAware(DT.ease(0.15)), value: isSelected)
         .animation(DT.motionAware(DT.ease(0.18)), value: hasNewerVersion)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingRowPrefix + recording.id)
     }

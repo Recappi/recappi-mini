@@ -21,6 +21,32 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
         try captureOnboardingStates()
     }
 
+    func testCloudTranscriptTextClickSelectsSegment() throws {
+        try prepareOutputDirectory()
+
+        let app = launchStateBoardApp(authToken: "state-board-token", openCloudWindowOnLaunch: true)
+
+        let cloudWindow = uiElement(app, id: UITestIDs.Cloud.window)
+        XCTAssertTrue(cloudWindow.waitForExistence(timeout: 15), "Expected Cloud window.")
+
+        let transcript = app.buttons[UITestIDs.Cloud.jumpToTranscriptButton]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 10), "Expected Transcription tab button.")
+        transcript.click()
+
+        let firstSegmentText = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.transcriptSegmentTextPrefix))
+            .firstMatch
+        XCTAssertTrue(firstSegmentText.waitForExistence(timeout: 5), "Expected transcript segment text.")
+
+        firstSegmentText.click()
+
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline, !firstSegmentText.isSelected {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertTrue(firstSegmentText.isSelected, "Clicking the transcript text body should select/jump to that segment.")
+    }
+
     private func captureRecordingPanelStates() throws {
         let suggestionApp = launchStateBoardApp(
             simulatedAutoPromptApp: (bundleID: "com.apple.Safari", name: "Safari"),
@@ -186,6 +212,16 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
         transcript.click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         try capture(largestWindow(in: app), named: "cloud_transcription")
+        let firstSegmentText = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.transcriptSegmentTextPrefix))
+            .firstMatch
+        XCTAssertTrue(firstSegmentText.waitForExistence(timeout: 5), "Expected transcript segment text.")
+        firstSegmentText.click()
+        let segmentSelectDeadline = Date().addingTimeInterval(3)
+        while Date() < segmentSelectDeadline, !firstSegmentText.isSelected {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTAssertTrue(firstSegmentText.isSelected, "Clicking the transcript text body should select/jump to that segment.")
         let speakerChip = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.speakerChipPrefix)
         ).firstMatch

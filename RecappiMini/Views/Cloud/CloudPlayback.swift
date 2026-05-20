@@ -14,6 +14,7 @@ struct CloudMeetingPlaybackStrip: View {
     let isLoadingWaveform: Bool
     let playbackRate: Float
     let onPlayPause: () -> Void
+    let onSyncToLocal: () -> Void
     let onSeek: (Double) -> Void
     let onSelectRate: (Float) -> Void
 
@@ -59,6 +60,17 @@ struct CloudMeetingPlaybackStrip: View {
                     .truncationMode(.tail)
             }
             .frame(width: 150, alignment: .leading)
+
+            if !hasAudio && !hasLocalSession {
+                Button("Sync") {
+                    onSyncToLocal()
+                }
+                .font(.system(size: 11, weight: .medium))
+                .buttonStyle(.borderless)
+                .disabled(isPreparingAudio)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.syncToLocalButton)
+                .help("Sync this recording to this Mac")
+            }
 
             CloudPlaybackWaveformScrubber(
                 progress: sliderProgress,
@@ -140,7 +152,7 @@ struct CloudMeetingPlaybackStrip: View {
 
     private var playbackStatusDetail: String {
         if !hasAudio && !hasLocalSession {
-            return "Use Sync in the header"
+            return "Sync this recording to this Mac"
         }
         if hasAudio && !isViewingLoadedAudio {
             return "Browsing another recording"

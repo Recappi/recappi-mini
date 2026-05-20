@@ -79,6 +79,7 @@ enum UITestIDs {
         static let loadMoreButton = "recappi.cloud.loadMoreButton"
         static let latestJobStatus = "recappi.cloud.latestJobStatus"
         static let transcriptText = "recappi.cloud.transcriptText"
+        static let transcriptSegmentTextPrefix = "recappi.cloud.transcriptSegmentText."
         static let searchField = "recappi.cloud.searchField"
         static let searchResults = "recappi.cloud.searchResults"
         static let searchResultRowPrefix = "recappi.cloud.searchResultRow."

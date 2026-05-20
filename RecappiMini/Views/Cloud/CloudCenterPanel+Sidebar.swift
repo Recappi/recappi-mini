@@ -5,61 +5,61 @@ extension CloudCenterPanel {
     // MARK: - Sidebar
 
     var sidebar: some View {
-        ScrollViewReader { proxy in
-            List(selection: selectionBinding) {
-                Section {
-                    accountHeaderMenu
- 
-                }
+        VStack(spacing: 0) {
+            accountHeaderMenu
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
 
-                ForEach(recordingDateSections) { section in
-                    Section(section.title) {
-                        ForEach(section.recordings) { recording in
-                            CloudRecordingRow(
-                                recording: recording,
-                                isSelected: store.selectedRecordingID == recording.id,
-                                hasNewerVersion: store.recordingIDsWithNewerVersions.contains(recording.id)
-                            )
-                            .tag(recording.id)
-                            .id(recording.id)
-                            .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
-                            .listRowSeparator(.hidden)
-                            .contextMenu {
-                                rowContextMenu(for: recording)
+            ScrollViewReader { proxy in
+                List(selection: selectionBinding) {
+                    ForEach(recordingDateSections) { section in
+                        Section(section.title) {
+                            ForEach(section.recordings) { recording in
+                                CloudRecordingRow(
+                                    recording: recording,
+                                    isSelected: store.selectedRecordingID == recording.id,
+                                    hasNewerVersion: store.recordingIDsWithNewerVersions.contains(recording.id)
+                                )
+                                .tag(recording.id)
+                                .id(recording.id)
+                                .contextMenu {
+                                    rowContextMenu(for: recording)
+                                }
                             }
                         }
                     }
-                }
 
-                if store.hasMorePages {
-                    loadMoreSentinel
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                    if store.hasMorePages {
+                        loadMoreSentinel
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    }
                 }
-            }
-            .listStyle(.sidebar)
-            // `navigationSplitViewColumnWidth` is the right knob for the
-            // production NSWindow flow, but it is only a *hint* that
-            // NavigationSplitView reconciles with the host. The Xcode
-            // Preview shell hosts at a fixed frame and ignores it, so
-            // pair it with a hard `frame(minWidth:)` below to keep the
-            // sidebar from collapsing in Canvas.
-            .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 400)
-            .frame(minWidth: 230)
-            .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingsList)
-            .onChange(of: pendingListScrollTargetID) { _, id in
-                guard let id else { return }
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(id, anchor: .center)
+                .listStyle(.sidebar)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingsList)
+                .onChange(of: pendingListScrollTargetID) { _, id in
+                    guard let id else { return }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                    DispatchQueue.main.async {
+                        pendingListScrollTargetID = nil
+                    }
                 }
-                DispatchQueue.main.async {
-                    pendingListScrollTargetID = nil
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    sidebarBottomBar
                 }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                sidebarBottomBar
             }
         }
+        // `navigationSplitViewColumnWidth` is the right knob for the
+        // production NSWindow flow, but it is only a *hint* that
+        // NavigationSplitView reconciles with the host. The Xcode
+        // Preview shell hosts at a fixed frame and ignores it, so
+        // pair it with a hard `frame(minWidth:)` below to keep the
+        // sidebar from collapsing in Canvas.
+        .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 400)
+        .frame(minWidth: 230)
     }
 
     @ViewBuilder
@@ -85,8 +85,6 @@ extension CloudCenterPanel {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-    
-         
     }
 
     var openRecappiCloudButton: some View {

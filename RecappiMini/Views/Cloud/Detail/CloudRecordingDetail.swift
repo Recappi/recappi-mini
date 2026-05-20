@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+private enum CloudTypography {
+    static let caption: Font = .system(size: 11, weight: .regular)
+    static let captionMono: Font = .system(size: 11, weight: .regular, design: .monospaced)
+    static let body: Font = .system(size: 14, weight: .regular)
+    static let label: Font = .system(size: 13, weight: .medium)
+    static let section: Font = .system(size: 15, weight: .semibold)
+    static let title: Font = .system(size: 22, weight: .semibold)
+}
+
 struct CloudRecordingDetail: View {
     @StateObject private var detailWaveform = CloudRecordingWaveformPreview()
     @ObservedObject private var config = AppConfig.shared
@@ -294,7 +303,7 @@ struct CloudRecordingDetail: View {
 
             HStack(spacing: 8) {
                 Text(recording.createdDateText)
-                    .font(.system(size: 11, weight: .regular))
+                    .font(CloudTypography.caption)
                     .foregroundStyle(Color.dtLabelTertiary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -309,11 +318,11 @@ struct CloudRecordingDetail: View {
         HStack(alignment: .center, spacing: 10) {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(CloudTypography.caption)
                 Text("Search results")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(CloudTypography.label)
                 Text("All recordings")
-                    .font(.system(size: 11, weight: .regular))
+                    .font(CloudTypography.caption)
                     .foregroundStyle(Color.dtLabelTertiary)
             }
             .foregroundStyle(Color.dtLabel)
@@ -321,25 +330,12 @@ struct CloudRecordingDetail: View {
             .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Palette.controlFillPress)
+                    .fill(Palette.controlFillHover)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(DT.appAccent.opacity(0.26), lineWidth: 0.6)
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
             )
-
-            HStack(spacing: 6) {
-                sourceCountChip(
-                    "Verbatim",
-                    systemImage: "text.quote",
-                    count: cloudSearchResults.filter { $0.source == .transcript }.count
-                )
-                sourceCountChip(
-                    "Notes",
-                    systemImage: "note.text",
-                    count: cloudSearchResults.filter { $0.source == .summary }.count
-                )
-            }
 
             Spacer(minLength: 0)
 
@@ -348,7 +344,7 @@ struct CloudRecordingDetail: View {
                 selectedSearchSpeakerRawName = nil
             } label: {
                 Text("Clear")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CloudTypography.caption)
                     .foregroundStyle(Color.dtLabelSecondary)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
@@ -359,7 +355,7 @@ struct CloudRecordingDetail: View {
     }
 
     private var detailJumpBar: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 6) {
             detailJumpSegment(
                 title: "Summary",
                 systemImage: "text.alignleft",
@@ -384,15 +380,6 @@ struct CloudRecordingDetail: View {
                 isDisabled: false
             )
         }
-        .padding(2)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Palette.controlFillHover)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
-        )
         .fixedSize(horizontal: true, vertical: false)
     }
 
@@ -409,18 +396,22 @@ struct CloudRecordingDetail: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(.system(size: 10.5, weight: .regular))
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(CloudTypography.caption)
             }
-            .foregroundStyle(isActive ? DT.appAccent : Color.dtLabelSecondary)
+            .foregroundStyle(Color.dtLabelSecondary)
             .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.vertical, 5)
             .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(Color.clear)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isActive ? Palette.controlFillPress : Palette.controlFillHover)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -676,9 +667,9 @@ struct CloudRecordingDetail: View {
                     )
                 }
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 16)
-            .padding(.bottom, 20)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 16)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .accessibilityIdentifier(AccessibilityIDs.Cloud.searchResults)
@@ -688,10 +679,10 @@ struct CloudRecordingDetail: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(cloudSearchResults.count) results")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(CloudTypography.label)
                     .foregroundStyle(Color.dtLabel)
                 Text("across all recordings")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(CloudTypography.caption)
                     .foregroundStyle(Color.dtLabelTertiary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -742,14 +733,13 @@ struct CloudRecordingDetail: View {
             Image(systemName: systemImage)
                 .font(.system(size: 8.5, weight: .medium))
             Text("\(count)")
-                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                .font(CloudTypography.captionMono)
             Text(title)
-                .font(.system(size: 10, weight: .regular))
+                .font(CloudTypography.caption)
         }
         .foregroundStyle(Color.dtLabelSecondary)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(Capsule(style: .continuous).fill(Palette.controlFillHover))
     }
 
     private func searchFilterChip(title: String, rawName: String?) -> some View {
@@ -758,17 +748,17 @@ struct CloudRecordingDetail: View {
             selectedSearchSpeakerRawName = rawName
         } label: {
             Text(title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isSelected ? Color.dtLabel : Color.dtLabelSecondary)
+                .font(CloudTypography.caption)
+                .foregroundStyle(Color.dtLabelSecondary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
                     Capsule(style: .continuous)
-                        .fill(isSelected ? DT.appAccent.opacity(0.16) : Color.clear)
+                        .fill(isSelected ? Palette.controlFillPress : Color.clear)
                 )
                 .overlay(
                     Capsule(style: .continuous)
-                        .strokeBorder(isSelected ? DT.appAccent.opacity(0.30) : Palette.borderHairline, lineWidth: 0.6)
+                        .strokeBorder(Palette.borderHairline, lineWidth: 0.6)
                 )
         }
         .buttonStyle(.plain)
@@ -780,7 +770,7 @@ struct CloudRecordingDetail: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color.dtLabelTertiary)
             Text("No transcript or note results yet.")
-                .font(.system(size: 12.5, weight: .medium))
+                .font(CloudTypography.label)
                 .foregroundStyle(Color.dtLabelSecondary)
             Spacer(minLength: 0)
         }
@@ -936,7 +926,7 @@ struct CloudRecordingDetail: View {
     }
 
     private func structuredSummaryContent(_ insights: TranscriptSummaryInsights) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             if let tldr = insights.summaryText {
                 summaryCalloutBlock(title: "TL;DR", text: tldr)
             }
@@ -1043,16 +1033,16 @@ struct CloudRecordingDetail: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Audio chapters")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(CloudTypography.section)
                         .foregroundStyle(Color.dtLabel)
                     Text("Jump through the recording")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(CloudTypography.caption)
                         .foregroundStyle(Color.dtLabelTertiary)
                 }
 
                 Spacer(minLength: 0)
                 Text("\(timelineEntries.count) chapters")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(CloudTypography.captionMono)
                     .foregroundStyle(Color.dtLabelTertiary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -1086,14 +1076,14 @@ struct CloudRecordingDetail: View {
     ) -> some View {
         let isActive = activeIndex == index
         let isPlayed = (activeIndex ?? -1) > index
-        let isPast = isPlayed
         let isFuture = currentTimelinePlaybackMs != nil && (activeIndex ?? Int.max) < index && !isActive
         let isLast = index == total - 1
 
-        let markerSize: CGFloat = isActive ? 14 : 10
+        let markerSize: CGFloat = 12
         let railWidth: CGFloat = 2
         let activeAccent = DT.statusReady
         let pastAccent = DT.statusReady.opacity(0.6)
+        let completedAccent = DT.statusReady.opacity(0.72)
         let futureAccent = Palette.labelTertiary.opacity(0.35)
 
         Button {
@@ -1105,17 +1095,9 @@ struct CloudRecordingDetail: View {
                     ZStack {
                         Circle()
                             .fill(
-                                isActive
-                                    ? activeAccent
-                                    : (isPast ? pastAccent : futureAccent)
+                                (isPlayed || isActive) ? completedAccent : futureAccent
                             )
                             .frame(width: markerSize, height: markerSize)
-
-                        if isActive {
-                            Circle()
-                                .strokeBorder(activeAccent.opacity(0.35), lineWidth: 3)
-                                .frame(width: markerSize + 8, height: markerSize + 8)
-                        }
                     }
                     .frame(width: 22, height: 22)
 
@@ -1135,21 +1117,21 @@ struct CloudRecordingDetail: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(entry.timeRange)
-                            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(isActive ? activeAccent : (isFuture ? Color.dtLabelTertiary : activeAccent.opacity(0.85)))
+                            .font(CloudTypography.captionMono)
+                            .foregroundStyle(isFuture ? Color.dtLabelTertiary : Color.dtLabelSecondary)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2.5)
                             .background(
                                 Capsule(style: .continuous)
-                                    .fill(activeAccent.opacity(isActive ? 0.18 : (isFuture ? 0.05 : 0.10)))
+                                    .fill(isFuture ? Palette.controlFillHover.opacity(0.55) : Palette.controlFillHover)
                             )
                             .overlay(
                                 Capsule(style: .continuous)
-                                    .strokeBorder(activeAccent.opacity(isActive ? 0.30 : (isFuture ? 0.10 : 0.18)), lineWidth: 0.5)
+                                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
                             )
 
                         Text(entry.title)
-                            .font(.system(size: 13, weight: isActive ? .bold : .semibold))
+                            .font(CloudTypography.label)
                             .foregroundStyle(isFuture ? Color.dtLabelSecondary : Color.dtLabel)
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1157,23 +1139,23 @@ struct CloudRecordingDetail: View {
                         Spacer(minLength: 0)
 
                         HStack(spacing: 4) {
-                            Image(systemName: isActive ? "speaker.wave.2.fill" : "play.fill")
-                                .font(.system(size: 8.5, weight: .bold))
-                            Text(isActive ? "Playing" : "Jump")
-                                .font(.system(size: 10, weight: .semibold))
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 8.5, weight: .medium))
+                            Text("Jump")
+                                .font(CloudTypography.caption)
                         }
-                        .foregroundStyle(isActive ? activeAccent : Color.dtLabelSecondary)
+                        .foregroundStyle(Color.dtLabelSecondary)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(
                             Capsule(style: .continuous)
-                                .fill(isActive ? activeAccent.opacity(0.16) : Palette.controlFillHover)
+                                .fill(Palette.controlFillHover)
                         )
                     }
-                    .padding(.top, isActive ? 3 : 4)
+                    .padding(.top, 4)
 
                     Text(entry.summary)
-                        .font(.system(size: 11.5))
+                        .font(CloudTypography.body)
                         .foregroundStyle(isFuture ? Color.dtLabelTertiary : Color.dtLabelSecondary)
                         .lineSpacing(2.5)
                         .lineLimit(2)
@@ -1186,10 +1168,6 @@ struct CloudRecordingDetail: View {
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(isActive ? activeAccent.opacity(0.045) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isActive ? activeAccent.opacity(0.13) : Color.clear, lineWidth: 0.6)
             )
         }
         .buttonStyle(.plain)
@@ -1230,7 +1208,7 @@ struct CloudRecordingDetail: View {
     private func summaryCalloutBlock(title: String, text: String) -> some View {
         summarySectionBlock(title: title, systemImage: "quote.opening", accent: summaryNeutralAccent) {
             markdownText(text)
-                .font(.system(size: 13.5, weight: .medium))
+                .font(CloudTypography.body)
                 .foregroundStyle(Color.dtLabel)
                 .lineSpacing(2.5)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1261,7 +1239,7 @@ struct CloudRecordingDetail: View {
                                 .frame(width: 5, height: 5)
                                 .padding(.top, 6.5)
                             markdownText(entry.element)
-                                .font(.system(size: 12.5))
+                                .font(CloudTypography.body)
                                 .foregroundStyle(Color.dtLabelSecondary)
                                 .lineSpacing(1.5)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -1286,14 +1264,14 @@ struct CloudRecordingDetail: View {
                 Text(identity.emoji)
                     .font(.system(size: 9.5))
                 Text(identity.displayName)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(CloudTypography.caption)
                     .lineLimit(1)
             }
-            .foregroundStyle(identity.color)
+            .foregroundStyle(Color.dtLabelSecondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2.5)
-            .background(Capsule(style: .continuous).fill(identity.color.opacity(0.11)))
-            .overlay(Capsule(style: .continuous).strokeBorder(identity.color.opacity(0.22), lineWidth: 0.5))
+            .background(Capsule(style: .continuous).fill(Palette.controlFillHover))
+            .overlay(Capsule(style: .continuous).strokeBorder(Palette.borderHairline, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
@@ -1322,10 +1300,10 @@ struct CloudRecordingDetail: View {
                 speakerAvatar(identity, size: 22)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(identity.displayName)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(CloudTypography.caption)
                         .foregroundStyle(Color.dtLabel)
                     Text("Source transcript segments")
-                        .font(.system(size: 11, weight: .regular))
+                        .font(CloudTypography.caption)
                         .foregroundStyle(Color.dtLabelTertiary)
                 }
             }
@@ -1334,11 +1312,11 @@ struct CloudRecordingDetail: View {
                 ForEach(summarySourceRows(for: identity).prefix(3)) { row in
                     HStack(alignment: .top, spacing: 8) {
                         Text(row.marker)
-                            .font(.system(size: 11, weight: .regular, design: .monospaced))
-                            .foregroundStyle(identity.color)
+                            .font(CloudTypography.captionMono)
+                            .foregroundStyle(Color.dtLabelSecondary)
                             .frame(width: 44, alignment: .leading)
                         Text(row.text)
-                            .font(.system(size: 11.2))
+                            .font(CloudTypography.caption)
                             .foregroundStyle(Color.dtLabelSecondary)
                             .lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1374,7 +1352,7 @@ struct CloudRecordingDetail: View {
 
     private func summaryTopicChip(_ text: String, accent: Color) -> some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium))
+            .font(CloudTypography.caption)
             .foregroundStyle(Color.dtLabelSecondary)
             .lineLimit(nil)
             .fixedSize(horizontal: true, vertical: true)
@@ -1391,7 +1369,7 @@ struct CloudRecordingDetail: View {
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(Array(items.enumerated()), id: \.offset) { entry in
                         markdownText(entry.element)
-                            .font(.system(size: 12.5))
+                            .font(CloudTypography.body)
                             .italic()
                             .foregroundStyle(Color.dtLabelSecondary)
                             .lineSpacing(1.5)
@@ -1418,12 +1396,12 @@ struct CloudRecordingDetail: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CloudTypography.caption)
                     .foregroundStyle(accent)
                     .frame(width: 14)
 
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(CloudTypography.section)
                     .foregroundStyle(Color.dtLabelSecondary)
             }
 
@@ -1460,19 +1438,19 @@ struct CloudRecordingDetail: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 7) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CloudTypography.caption)
                     .foregroundStyle(Color.dtLabelTertiary)
                     .frame(width: 13)
 
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(CloudTypography.section)
                     .foregroundStyle(Color.dtLabelSecondary)
 
                 Spacer(minLength: 0)
 
                 if let trailingText {
                     Text(trailingText)
-                        .font(.system(size: 11, weight: .regular))
+                        .font(CloudTypography.caption)
                         .foregroundStyle(Color.dtLabelTertiary)
                 }
             }
@@ -1596,7 +1574,7 @@ struct CloudRecordingDetail: View {
             CloudSourceIcon(recording: recording, size: 34)
 
             Text(recording.presentationTitle)
-                .font(.system(size: 19, weight: .medium))
+                .font(CloudTypography.title)
                 .foregroundStyle(Color.dtLabel)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -1642,19 +1620,19 @@ struct CloudRecordingDetail: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(DT.appAccent.opacity(0.14))
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(CloudTypography.section)
                     .foregroundStyle(DT.appAccentSoft)
             }
             .frame(width: 34, height: 34)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Search all recordings")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(CloudTypography.title)
                     .foregroundStyle(Color.dtLabel)
                     .lineLimit(1)
 
                 Text(searchModeSubtitle)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(CloudTypography.caption)
                     .foregroundStyle(Color.dtLabelTertiary)
                     .lineLimit(1)
             }
@@ -1788,18 +1766,6 @@ struct CloudRecordingDetail: View {
     @ToolbarContentBuilder
     private var detailToolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            toolbarLocalActionButton
-
-            if let recordingWebURL {
-                Button {
-                    NSWorkspace.shared.open(recordingWebURL)
-                } label: {
-                    Label("Open in browser", systemImage: "arrow.up.right.square")
-                }
-                .help("Open in browser")
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.openRecordingInBrowserButton)
-            }
-
             Button {
                 isShowingRecordingInfo.toggle()
             } label: {
@@ -1840,6 +1806,28 @@ struct CloudRecordingDetail: View {
 
     private var recordingActionsMenu: some View {
         Menu {
+            if localSessionURL == nil {
+                Button(isSyncingToLocal ? "Syncing audio…" : "Sync audio to this Mac", systemImage: "arrow.down.doc") {
+                    onSyncToLocal()
+                }
+                .disabled(isSyncingToLocal)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.syncToLocalButton)
+            } else {
+                Button("Open local session", systemImage: "folder") {
+                    onRevealLocalSession()
+                }
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.revealLocalSessionButton)
+            }
+
+            if let recordingWebURL {
+                Button("Open in browser", systemImage: "arrow.up.right.square") {
+                    NSWorkspace.shared.open(recordingWebURL)
+                }
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.openRecordingInBrowserButton)
+            }
+
+            Divider()
+
             Button("Copy transcript", systemImage: "doc.on.doc", action: copyVisibleTranscript)
                 .disabled(visibleTranscript?.text.isEmpty != false)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.copyTranscriptButton)
@@ -2283,9 +2271,9 @@ struct CloudRecordingDetail: View {
 
     private var speakerBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 7) {
+            HStack(spacing: 6) {
                 ForEach(visibleSpeakerIdentities) { speaker in
-                    speakerChip(speaker, showsHint: true)
+                    speakerChip(speaker)
                 }
             }
             .padding(.horizontal, 1)
@@ -2293,35 +2281,27 @@ struct CloudRecordingDetail: View {
         .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerBar)
     }
 
-    private func speakerChip(_ identity: CloudSpeakerIdentity, showsHint: Bool = false) -> some View {
+    private func speakerChip(_ identity: CloudSpeakerIdentity) -> some View {
         Button {
             presentSpeakerRenamePopover(for: identity)
         } label: {
-            HStack(spacing: 7) {
-                speakerAvatar(identity, size: 22)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(identity.displayName)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.dtLabel)
-                        .lineLimit(1)
-                    if showsHint {
-                        Text(identity.note?.isEmpty == false ? identity.note! : "Tap to rename")
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(Color.dtLabelTertiary)
-                            .lineLimit(1)
-                    }
-                }
+            HStack(spacing: 5) {
+                speakerAvatar(identity, size: 17)
+                Text(identity.displayName)
+                    .font(CloudTypography.caption)
+                    .foregroundStyle(Color.dtLabel)
+                    .lineLimit(1)
             }
-            .padding(.leading, 6)
-            .padding(.trailing, 9)
-            .padding(.vertical, 5)
+            .padding(.leading, 5)
+            .padding(.trailing, 7)
+            .padding(.vertical, 4)
             .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(identity.color.opacity(0.08))
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Palette.controlFillHover)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(identity.color.opacity(0.18), lineWidth: 0.7)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
@@ -2334,20 +2314,21 @@ struct CloudRecordingDetail: View {
         ) {
             speakerRenamePopover
         }
+        .help("Rename \(identity.displayName)")
         .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerChipPrefix + identity.rawName)
     }
 
     private func speakerAvatar(_ identity: CloudSpeakerIdentity, size: CGFloat) -> some View {
         ZStack {
             Circle()
-                .fill(identity.color.opacity(0.16))
+                .fill(Palette.controlFillPress)
             Text(identity.emoji)
                 .font(.system(size: size * 0.52))
         }
         .frame(width: size, height: size)
         .overlay(
             Circle()
-                .strokeBorder(identity.color.opacity(0.28), lineWidth: 0.7)
+                .strokeBorder(Palette.borderHairline, lineWidth: 0.7)
         )
     }
 
@@ -2473,6 +2454,7 @@ struct CloudRecordingDetail: View {
             isLoadingWaveform: isViewingLoadedAudio ? audioPlayer.isLoadingWaveform : detailWaveform.isLoadingWaveform,
             playbackRate: audioPlayer.playbackRate,
             onPlayPause: handlePlayPause,
+            onSyncToLocal: onSyncToLocal,
             onSeek: handlePlaybackSeek(_:),
             onSelectRate: audioPlayer.setPlaybackRate(_:)
         )
@@ -2578,7 +2560,6 @@ struct CloudRecordingDetail: View {
                         .id(row.id)
                     }
                 }
-                .textSelection(.enabled)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptText)
             } else {
@@ -2699,14 +2680,7 @@ private struct CloudSpeakerIdentity: Identifiable {
     }
 
     static func defaultColor(at index: Int) -> Color {
-        [
-            Color.dtLabelSecondary,
-            Color.dtLabelTertiary,
-            DT.appAccent,
-            Color.dtLabelSecondary,
-            Color.dtLabelTertiary,
-            DT.appAccentSoft,
-        ][index % 6]
+        Color.dtLabelSecondary
     }
 }
 
@@ -2795,12 +2769,12 @@ private struct CloudSearchResultRow: View {
                         sourceBadge
 
                         Text(result.recordingTitle)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(CloudTypography.label)
                             .foregroundStyle(Color.dtLabel)
                             .lineLimit(1)
 
                         Text(result.sectionBreadcrumb)
-                            .font(.system(size: 11, weight: .regular))
+                            .font(CloudTypography.caption)
                             .foregroundStyle(Color.dtLabelSecondary)
                             .lineLimit(1)
 
@@ -2813,23 +2787,23 @@ private struct CloudSearchResultRow: View {
                                 Text(speaker.emoji)
                                     .font(.system(size: 10))
                                 Text(speaker.displayName)
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(CloudTypography.caption)
                             }
-                            .foregroundStyle(speaker.color)
+                            .foregroundStyle(Color.dtLabelSecondary)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Capsule(style: .continuous).fill(speaker.color.opacity(0.10)))
+                            .background(Capsule(style: .continuous).fill(Palette.controlFillHover))
                         }
 
                         if let marker = result.marker {
                             Text(marker)
-                                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                .font(CloudTypography.captionMono)
                                 .foregroundStyle(Color.dtLabelSecondary)
                         }
 
                         if !result.isCurrentRecording {
                             Text("Different recording")
-                                .font(.system(size: 11, weight: .regular))
+                                .font(CloudTypography.caption)
                                 .foregroundStyle(Color.dtLabelSecondary)
                         }
 
@@ -2837,7 +2811,7 @@ private struct CloudSearchResultRow: View {
                     }
 
                     Text(result.text)
-                        .font(.system(size: 13.2))
+                        .font(CloudTypography.body)
                         .foregroundStyle(Color.dtLabel)
                         .lineSpacing(2)
                         .lineLimit(3)
@@ -2865,7 +2839,7 @@ private struct CloudSearchResultRow: View {
         case .transcript:
             result.speaker?.color ?? result.source.accent
         case .summary:
-            result.source.accent
+            Color.dtLabelTertiary
         }
     }
 
@@ -2874,16 +2848,11 @@ private struct CloudSearchResultRow: View {
             Image(systemName: result.source.systemImage)
                 .font(.system(size: 9, weight: .medium))
             Text(result.source.title)
-                .font(.system(size: 11, weight: .medium))
+                .font(CloudTypography.caption)
         }
-        .foregroundStyle(result.source.accent)
+        .foregroundStyle(Color.dtLabelTertiary)
         .padding(.horizontal, 6)
         .padding(.vertical, 2.5)
-        .background(Capsule(style: .continuous).fill(result.source.accent.opacity(0.10)))
-        .overlay(
-            Capsule(style: .continuous)
-                .strokeBorder(result.source.accent.opacity(0.18), lineWidth: 0.5)
-        )
     }
 }
 
@@ -2897,12 +2866,12 @@ private struct CloudTranscriptSegmentRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Capsule(style: .continuous)
-                .fill(speaker?.color.opacity(isActive ? 0.96 : 0.78) ?? (isActive ? DT.waveformLit.opacity(0.9) : Palette.controlFillHover))
-                .frame(width: isActive ? 4 : 3)
+                .fill(speaker?.color.opacity(0.78) ?? Palette.controlFillHover)
+                .frame(width: 3)
                 .padding(.vertical, 2)
 
             Text(row.marker)
-                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .font(CloudTypography.captionMono)
                 .foregroundStyle(Color.dtLabelSecondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
@@ -2916,22 +2885,32 @@ private struct CloudTranscriptSegmentRow: View {
                             Text(speaker.emoji)
                                 .font(.system(size: 9.5))
                             Text(speaker.displayName)
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(CloudTypography.caption)
                                 .lineLimit(1)
                         }
-                        .foregroundStyle(speaker.color)
+                        .foregroundStyle(Color.dtLabelSecondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Capsule(style: .continuous).fill(speaker.color.opacity(0.10)))
+                        .background(Capsule(style: .continuous).fill(Palette.controlFillHover))
                     }
                     .buttonStyle(.plain)
                 }
 
-                Text(row.text)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(Color.dtLabel)
-                    .lineSpacing(3)
-                    .fixedSize(horizontal: false, vertical: true)
+                Button(action: onSelect) {
+                    Text(row.text)
+                        .font(CloudTypography.body)
+                        .foregroundStyle(Color.dtLabel)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(row.text)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptSegmentTextPrefix + row.id)
+                .accessibilityValue(isActive ? "selected" : "not selected")
+                .accessibilityAddTraits(isActive ? .isSelected : [])
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -2943,7 +2922,7 @@ private struct CloudTranscriptSegmentRow: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(isActive ? DT.appAccent.opacity(0.30) : Palette.borderHairline, lineWidth: isActive ? 1.1 : 1)
+                .strokeBorder(Palette.borderHairline, lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .onTapGesture(perform: onSelect)
@@ -3037,7 +3016,7 @@ private struct CloudTranscriptVersionRow: View {
                 HStack(spacing: 6) {
                     if isCurrent {
                         Text("Current")
-                            .font(.system(size: 9.5, weight: .semibold))
+                            .font(CloudTypography.caption)
                             .foregroundStyle(Color.black.opacity(0.82))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -3045,20 +3024,20 @@ private struct CloudTranscriptVersionRow: View {
                     }
 
                     Text(job.versionTimestampText)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(CloudTypography.caption)
                         .foregroundStyle(Color.dtLabel)
                         .lineLimit(1)
                 }
 
                 Text(job.versionDetailText)
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(CloudTypography.caption)
                     .foregroundStyle(Color.dtLabelSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 if let promptPreview = job.promptPreviewText {
                     Text("Prompt: \(promptPreview)")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(CloudTypography.caption)
                         .foregroundStyle(Color.dtLabelTertiary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -3073,8 +3052,8 @@ private struct CloudTranscriptVersionRow: View {
                     .scaleEffect(0.68)
             } else {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "chevron.right")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(isSelected ? DT.systemBlue : Color.dtLabelTertiary)
+                    .font(CloudTypography.caption)
+                    .foregroundStyle(Color.dtLabelTertiary)
             }
         }
         .padding(.horizontal, 10)
@@ -3082,11 +3061,11 @@ private struct CloudTranscriptVersionRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isSelected ? DT.systemBlue.opacity(0.10) : Palette.surfaceCardSubtle)
+                .fill(isSelected ? Palette.controlFillPress : Palette.surfaceCardSubtle)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(isSelected ? DT.systemBlue.opacity(0.22) : Palette.borderHairline, lineWidth: 0.7)
+                .strokeBorder(Palette.borderHairline, lineWidth: 0.7)
         )
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
