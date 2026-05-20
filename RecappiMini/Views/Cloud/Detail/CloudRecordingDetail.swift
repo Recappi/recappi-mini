@@ -294,7 +294,7 @@ struct CloudRecordingDetail: View {
 
             HStack(spacing: 8) {
                 Text(recording.createdDateText)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(Color.dtLabelTertiary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -313,7 +313,7 @@ struct CloudRecordingDetail: View {
                 Text("Search results")
                     .font(.system(size: 12, weight: .semibold))
                 Text("All recordings")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(Color.dtLabelTertiary)
             }
             .foregroundStyle(Color.dtLabel)
@@ -348,7 +348,7 @@ struct CloudRecordingDetail: View {
                 selectedSearchSpeakerRawName = nil
             } label: {
                 Text("Clear")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Color.dtLabelSecondary)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
@@ -411,14 +411,14 @@ struct CloudRecordingDetail: View {
                 Image(systemName: systemImage)
                     .font(.system(size: 10.5, weight: .semibold))
                 Text(title)
-                    .font(.system(size: 11, weight: isActive ? .semibold : .medium))
+                    .font(.system(size: 11, weight: .semibold))
             }
-            .foregroundStyle(isActive ? Color.dtLabel : Color.dtLabelSecondary)
+            .foregroundStyle(isActive ? DT.appAccent : Color.dtLabelSecondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isActive ? Palette.controlFillPress : Color.clear)
+                    .fill(Color.clear)
             )
             .contentShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         }
@@ -740,11 +740,11 @@ struct CloudRecordingDetail: View {
     private func sourceCountChip(_ title: String, systemImage: String, count: Int) -> some View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
-                .font(.system(size: 8.5, weight: .semibold))
+                .font(.system(size: 8.5, weight: .medium))
             Text("\(count)")
-                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                .font(.system(size: 10, weight: .regular, design: .monospaced))
             Text(title)
-                .font(.system(size: 9.5, weight: .semibold))
+                .font(.system(size: 10, weight: .regular))
         }
         .foregroundStyle(Color.dtLabelSecondary)
         .padding(.horizontal, 7)
@@ -758,19 +758,18 @@ struct CloudRecordingDetail: View {
             selectedSearchSpeakerRawName = rawName
         } label: {
             Text(title)
-                .font(.system(size: 10.5, weight: isSelected ? .bold : .semibold))
-                .foregroundStyle(isSelected ? DT.appAccentSoft : Color.dtLabelSecondary)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(isSelected ? Color.dtLabel : Color.dtLabelSecondary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
                     Capsule(style: .continuous)
-                        .fill(isSelected ? DT.appAccent.opacity(0.24) : Palette.controlFillHover)
+                        .fill(isSelected ? DT.appAccent.opacity(0.16) : Color.clear)
                 )
                 .overlay(
                     Capsule(style: .continuous)
-                        .strokeBorder(isSelected ? DT.appAccent.opacity(0.70) : Palette.borderHairline, lineWidth: 0.7)
+                        .strokeBorder(isSelected ? DT.appAccent.opacity(0.30) : Palette.borderHairline, lineWidth: 0.6)
                 )
-                .shadow(color: isSelected ? DT.appAccent.opacity(0.12) : .clear, radius: 5, x: 0, y: 2)
         }
         .buttonStyle(.plain)
     }
@@ -921,7 +920,7 @@ struct CloudRecordingDetail: View {
                     ForEach(Array(visibleActionItems.enumerated()), id: \.offset) { entry in
                         HStack(alignment: .top, spacing: 8) {
                             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .strokeBorder(DT.statusReady.opacity(0.58), lineWidth: 1)
+                                .strokeBorder(DT.appAccent.opacity(0.42), lineWidth: 1)
                                 .frame(width: 13, height: 13)
                                 .padding(.top, 2)
                             Text(entry.element)
@@ -942,12 +941,16 @@ struct CloudRecordingDetail: View {
                 summaryCalloutBlock(title: "TL;DR", text: tldr)
             }
 
-            summaryBulletSection(title: "Key points", systemImage: "sparkles", items: insights.keyPoints, accent: DT.statusReady, sectionKey: "key")
+            summaryBulletSection(title: "Key points", systemImage: "sparkles", items: insights.keyPoints, accent: summaryNeutralAccent, sectionKey: "key")
             summaryTopicSection(items: insights.topics)
-            summaryBulletSection(title: "Decisions", systemImage: "checkmark.seal", items: insights.decisions, accent: DT.appAccentSoft, sectionKey: "decision")
-            summaryBulletSection(title: "Action items", systemImage: "checklist", items: insights.actionItemTexts, accent: DT.systemOrange, sectionKey: "action")
+            summaryBulletSection(title: "Decisions", systemImage: "checkmark.seal", items: insights.decisions, accent: summaryNeutralAccent, sectionKey: "decision")
+            summaryBulletSection(title: "Action items", systemImage: "checklist", items: insights.actionItemTexts, accent: DT.appAccent, sectionKey: "action", usesAccentSurface: true)
             summaryQuoteSection(items: insights.quoteTexts)
         }
+    }
+
+    private var summaryNeutralAccent: Color {
+        Color.dtLabelTertiary
     }
 
     private struct TimelineChapterDisplayEntry: Identifiable {
@@ -1225,7 +1228,7 @@ struct CloudRecordingDetail: View {
 
     @ViewBuilder
     private func summaryCalloutBlock(title: String, text: String) -> some View {
-        summarySectionBlock(title: title, systemImage: "quote.opening", accent: DT.statusReady) {
+        summarySectionBlock(title: title, systemImage: "quote.opening", accent: summaryNeutralAccent) {
             markdownText(text)
                 .font(.system(size: 13.5, weight: .medium))
                 .foregroundStyle(Color.dtLabel)
@@ -1235,14 +1238,26 @@ struct CloudRecordingDetail: View {
     }
 
     @ViewBuilder
-    private func summaryBulletSection(title: String, systemImage: String, items: [String], accent: Color, sectionKey: String) -> some View {
+    private func summaryBulletSection(
+        title: String,
+        systemImage: String,
+        items: [String],
+        accent: Color,
+        sectionKey: String,
+        usesAccentSurface: Bool = false
+    ) -> some View {
         if !items.isEmpty {
-            summarySectionBlock(title: title, systemImage: systemImage, accent: accent) {
+            summarySectionBlock(
+                title: title,
+                systemImage: systemImage,
+                accent: accent,
+                usesAccentSurface: usesAccentSurface
+            ) {
                 VStack(alignment: .leading, spacing: 5) {
                     ForEach(Array(items.enumerated()), id: \.offset) { entry in
                         HStack(alignment: .top, spacing: 7) {
                             Circle()
-                                .fill(accent.opacity(0.86))
+                                .fill(accent.opacity(0.72))
                                 .frame(width: 5, height: 5)
                                 .padding(.top, 6.5)
                             markdownText(entry.element)
@@ -1271,7 +1286,7 @@ struct CloudRecordingDetail: View {
                 Text(identity.emoji)
                     .font(.system(size: 9.5))
                 Text(identity.displayName)
-                    .font(.system(size: 9.5, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
             }
             .foregroundStyle(identity.color)
@@ -1307,10 +1322,10 @@ struct CloudRecordingDetail: View {
                 speakerAvatar(identity, size: 22)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(identity.displayName)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Color.dtLabel)
                     Text("Source transcript segments")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(Color.dtLabelTertiary)
                 }
             }
@@ -1319,7 +1334,7 @@ struct CloudRecordingDetail: View {
                 ForEach(summarySourceRows(for: identity).prefix(3)) { row in
                     HStack(alignment: .top, spacing: 8) {
                         Text(row.marker)
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
                             .foregroundStyle(identity.color)
                             .frame(width: 44, alignment: .leading)
                         Text(row.text)
@@ -1346,7 +1361,7 @@ struct CloudRecordingDetail: View {
     @ViewBuilder
     private func summaryTopicSection(items: [String]) -> some View {
         if !items.isEmpty {
-            let topicAccent = DT.statusUploading
+            let topicAccent = summaryNeutralAccent
             summarySectionBlock(title: "Topics", systemImage: "tag", accent: topicAccent) {
                 FlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
                     ForEach(Array(items.enumerated()), id: \.offset) { entry in
@@ -1397,19 +1412,19 @@ struct CloudRecordingDetail: View {
         title: String,
         systemImage: String,
         accent: Color,
+        usesAccentSurface: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(accent)
                     .frame(width: 14)
 
-                Text(title.uppercased())
-                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.dtLabelTertiary)
-                    .tracking(0.9)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.dtLabelSecondary)
             }
 
             content()
@@ -1419,11 +1434,11 @@ struct CloudRecordingDetail: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(accent.opacity(0.045))
+                .fill(usesAccentSurface ? accent.opacity(0.045) : Palette.surfaceCardSubtle.opacity(0.5))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(accent.opacity(0.10), lineWidth: 1)
+                .strokeBorder(usesAccentSurface ? accent.opacity(0.10) : Palette.borderHairline.opacity(0.5), lineWidth: 1)
         )
     }
 
@@ -1446,19 +1461,18 @@ struct CloudRecordingDetail: View {
             HStack(spacing: 7) {
                 Image(systemName: systemImage)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(DT.statusReady)
+                    .foregroundStyle(Color.dtLabelTertiary)
                     .frame(width: 13)
 
                 Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.dtLabelTertiary)
-                    .tracking(0.35)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.dtLabelSecondary)
 
                 Spacer(minLength: 0)
 
                 if let trailingText {
                     Text(trailingText)
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(Color.dtLabelTertiary)
                 }
             }
@@ -2287,12 +2301,12 @@ struct CloudRecordingDetail: View {
                 speakerAvatar(identity, size: 22)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(identity.displayName)
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Color.dtLabel)
                         .lineLimit(1)
                     if showsHint {
                         Text(identity.note?.isEmpty == false ? identity.note! : "Tap to rename")
-                            .font(.system(size: 9.2, weight: .medium))
+                            .font(.system(size: 11, weight: .regular))
                             .foregroundStyle(Color.dtLabelTertiary)
                             .lineLimit(1)
                     }
@@ -2356,7 +2370,7 @@ struct CloudRecordingDetail: View {
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(Color.dtLabel)
                     Text("Applies to every matching segment in this meeting.")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(Color.dtLabelTertiary)
                 }
             }
@@ -2402,7 +2416,7 @@ struct CloudRecordingDetail: View {
 
             HStack(spacing: 8) {
                 Label("Apply to all \(renamingSpeakerRawName ?? "speaker") segments", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(DT.appAccent)
                 Spacer(minLength: 0)
                 Button("Cancel") {
@@ -2686,12 +2700,12 @@ private struct CloudSpeakerIdentity: Identifiable {
 
     static func defaultColor(at index: Int) -> Color {
         [
-            Color(red: 168/255, green: 139/255, blue: 250/255),
-            Color(red: 96/255, green: 165/255, blue: 250/255),
-            Color(red: 244/255, green: 114/255, blue: 182/255),
-            Color(red: 52/255, green: 211/255, blue: 153/255),
-            Color(red: 251/255, green: 191/255, blue: 36/255),
-            Color(red: 45/255, green: 212/255, blue: 191/255),
+            Color.dtLabelSecondary,
+            Color.dtLabelTertiary,
+            DT.appAccent,
+            Color.dtLabelSecondary,
+            Color.dtLabelTertiary,
+            DT.appAccentSoft,
         ][index % 6]
     }
 }
@@ -2781,13 +2795,13 @@ private struct CloudSearchResultRow: View {
                         sourceBadge
 
                         Text(result.recordingTitle)
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(Color.dtLabel)
                             .lineLimit(1)
 
                         Text(result.sectionBreadcrumb)
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(Color.dtLabelTertiary)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(Color.dtLabelSecondary)
                             .lineLimit(1)
 
                         Spacer(minLength: 0)
@@ -2799,7 +2813,7 @@ private struct CloudSearchResultRow: View {
                                 Text(speaker.emoji)
                                     .font(.system(size: 10))
                                 Text(speaker.displayName)
-                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .font(.system(size: 11, weight: .semibold))
                             }
                             .foregroundStyle(speaker.color)
                             .padding(.horizontal, 6)
@@ -2809,14 +2823,14 @@ private struct CloudSearchResultRow: View {
 
                         if let marker = result.marker {
                             Text(marker)
-                                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(Color.dtLabelTertiary)
+                                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                .foregroundStyle(Color.dtLabelSecondary)
                         }
 
                         if !result.isCurrentRecording {
                             Text("Different recording")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(DT.appAccentSoft)
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundStyle(Color.dtLabelSecondary)
                         }
 
                         Spacer(minLength: 0)
@@ -2858,9 +2872,9 @@ private struct CloudSearchResultRow: View {
     private var sourceBadge: some View {
         HStack(spacing: 4) {
             Image(systemName: result.source.systemImage)
-                .font(.system(size: 8.5, weight: .semibold))
+                .font(.system(size: 9, weight: .medium))
             Text(result.source.title)
-                .font(.system(size: 9.8, weight: .semibold))
+                .font(.system(size: 11, weight: .medium))
         }
         .foregroundStyle(result.source.accent)
         .padding(.horizontal, 6)
@@ -2888,8 +2902,8 @@ private struct CloudTranscriptSegmentRow: View {
                 .padding(.vertical, 2)
 
             Text(row.marker)
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(isActive ? Color.dtLabelSecondary : Color.dtLabelTertiary)
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .foregroundStyle(Color.dtLabelSecondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .frame(width: 82, alignment: .leading)
@@ -2902,7 +2916,7 @@ private struct CloudTranscriptSegmentRow: View {
                             Text(speaker.emoji)
                                 .font(.system(size: 9.5))
                             Text(speaker.displayName)
-                                .font(.system(size: 10.5, weight: .semibold))
+                                .font(.system(size: 11, weight: .semibold))
                                 .lineLimit(1)
                         }
                         .foregroundStyle(speaker.color)

@@ -2193,6 +2193,10 @@ enum RealtimeAudioEncoder {
     }
 
     static func pcm16Data(from sampleBuffer: CMSampleBuffer) -> Data? {
+        if let direct = directHalfRatePCM16Data(from: sampleBuffer) {
+            return direct
+        }
+
         guard let source = floatingPCMBuffer(from: sampleBuffer),
               let targetFormat = AVAudioFormat(
                 commonFormat: .pcmFormatInt16,
@@ -2225,6 +2229,165 @@ enum RealtimeAudioEncoder {
 
         let byteCount = Int(converted.frameLength) * Int(converted.format.streamDescription.pointee.mBytesPerFrame)
         return Data(bytes: data[0], count: byteCount)
+    }
+
+    /// Fast path for the dominant ScreenCaptureKit format: 48 kHz PCM
+    /// into the 24 kHz mono PCM16 stream expected by Realtime. This
+    /// keeps recording responsive by avoiding an `AVAudioConverter`
+    /// allocation on every audio callback. Non-48 kHz or uncommon
+    /// formats still fall back to the converter path above.
+    private static func directHalfRatePCM16Data(from sampleBuffer: CMSampleBuffer) -> Data? {
+        guard sampleBuffer.isValid,
+              let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
+              let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let asbdPointer = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else {
+            return nil
+        }
+
+        let asbd = asbdPointer.pointee
+        guard abs(asbd.mSampleRate - (targetSampleRate * 2)) < 1 else {
+            return nil
+        }
+
+        let channelCount = max(Int(asbd.mChannelsPerFrame), 1)
+        let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
+        let outputFrameCount = frameCount / 2
+        guard outputFrameCount > 0 else { return nil }
+
+        var totalLength = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        let status = CMBlockBufferGetDataPointer(
+            blockBuffer,
+            atOffset: 0,
+            lengthAtOffsetOut: nil,
+            totalLengthOut: &totalLength,
+            dataPointerOut: &dataPointer
+        )
+        guard status == kCMBlockBufferNoErr, let raw = dataPointer else {
+            return nil
+        }
+
+        let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+
+        if isFloat, asbd.mBitsPerChannel == 32 {
+            let sampleCount = min(totalLength / MemoryLayout<Float>.size, frameCount * channelCount)
+            return raw.withMemoryRebound(to: Float.self, capacity: sampleCount) { source in
+                var output = Data(count: outputFrameCount * MemoryLayout<Int16>.size)
+                output.withUnsafeMutableBytes { rawOutput in
+                    guard let target = rawOutput.bindMemory(to: Int16.self).baseAddress else { return }
+                    var outputFrame = 0
+                    if isNonInterleaved {
+                        while outputFrame < outputFrameCount {
+                            let firstFrame = outputFrame * 2
+                            let secondFrame = firstFrame + 1
+                            var mixed: Float = 0
+                            var channel = 0
+                            while channel < channelCount {
+                                let channelBase = channel * frameCount
+                                let firstIndex = channelBase + firstFrame
+                                let secondIndex = channelBase + secondFrame
+                                let first = firstIndex < sampleCount ? source[firstIndex] : 0
+                                let second = secondIndex < sampleCount ? source[secondIndex] : 0
+                                mixed += (first + second) * 0.5
+                                channel += 1
+                            }
+                            target[outputFrame] = pcm16Sample(mixed / Float(channelCount))
+                            outputFrame += 1
+                        }
+                    } else {
+                        while outputFrame < outputFrameCount {
+                            let firstBase = (outputFrame * 2) * channelCount
+                            let secondBase = firstBase + channelCount
+                            var mixed: Float = 0
+                            var channel = 0
+                            while channel < channelCount {
+                                let firstIndex = firstBase + channel
+                                let secondIndex = secondBase + channel
+                                let first = firstIndex < sampleCount ? source[firstIndex] : 0
+                                let second = secondIndex < sampleCount ? source[secondIndex] : 0
+                                mixed += (first + second) * 0.5
+                                channel += 1
+                            }
+                            target[outputFrame] = pcm16Sample(mixed / Float(channelCount))
+                            outputFrame += 1
+                        }
+                    }
+                }
+                return output
+            }
+        }
+
+        if asbd.mBitsPerChannel == 16 {
+            let sampleCount = min(totalLength / MemoryLayout<Int16>.size, frameCount * channelCount)
+            return raw.withMemoryRebound(to: Int16.self, capacity: sampleCount) { source in
+                var output = Data(count: outputFrameCount * MemoryLayout<Int16>.size)
+                output.withUnsafeMutableBytes { rawOutput in
+                    guard let target = rawOutput.bindMemory(to: Int16.self).baseAddress else { return }
+                    var outputFrame = 0
+                    if isNonInterleaved {
+                        while outputFrame < outputFrameCount {
+                            let firstFrame = outputFrame * 2
+                            let secondFrame = firstFrame + 1
+                            var mixed = 0
+                            var observedSamples = 0
+                            var channel = 0
+                            while channel < channelCount {
+                                let channelBase = channel * frameCount
+                                let firstIndex = channelBase + firstFrame
+                                if firstIndex < sampleCount {
+                                    mixed += Int(source[firstIndex])
+                                    observedSamples += 1
+                                }
+                                let secondIndex = channelBase + secondFrame
+                                if secondIndex < sampleCount {
+                                    mixed += Int(source[secondIndex])
+                                    observedSamples += 1
+                                }
+                                channel += 1
+                            }
+                            target[outputFrame] = observedSamples > 0
+                                ? Int16(clamping: mixed / observedSamples)
+                                : 0
+                            outputFrame += 1
+                        }
+                    } else {
+                        while outputFrame < outputFrameCount {
+                            let firstBase = (outputFrame * 2) * channelCount
+                            let secondBase = firstBase + channelCount
+                            var mixed = 0
+                            var observedSamples = 0
+                            var channel = 0
+                            while channel < channelCount {
+                                let firstIndex = firstBase + channel
+                                if firstIndex < sampleCount {
+                                    mixed += Int(source[firstIndex])
+                                    observedSamples += 1
+                                }
+                                let secondIndex = secondBase + channel
+                                if secondIndex < sampleCount {
+                                    mixed += Int(source[secondIndex])
+                                    observedSamples += 1
+                                }
+                                channel += 1
+                            }
+                            target[outputFrame] = observedSamples > 0
+                                ? Int16(clamping: mixed / observedSamples)
+                                : 0
+                            outputFrame += 1
+                        }
+                    }
+                }
+                return output
+            }
+        }
+
+        return nil
+    }
+
+    private static func pcm16Sample(_ value: Float) -> Int16 {
+        let clamped = min(max(value, -1), 1)
+        return Int16(clamping: Int((clamped * 32_767).rounded()))
     }
 
     private static func floatingPCMBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {

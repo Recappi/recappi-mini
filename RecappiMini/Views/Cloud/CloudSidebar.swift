@@ -14,7 +14,7 @@ struct CloudRecordingRow: View {
             CloudSourceIcon(recording: recording, size: 26)
 
             Text(recording.presentationTitle)
-                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .font(.system(size: 13, weight: .regular))
                 // Leave foregroundStyle unspecified so macOS's sidebar
                 // List inverts the label to white over the selection
                 // capsule automatically. Setting an explicit colour here
@@ -26,7 +26,7 @@ struct CloudRecordingRow: View {
 
             if hasNewerVersion {
                 Text("New")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(isSelected ? Color.white.opacity(0.92) : DT.systemBlue)
                     .padding(.horizontal, 5)
                     .frame(height: 16)

@@ -160,7 +160,7 @@ struct LiveCaptionFloatingPanel: View {
                         .shadow(color: Color.white.opacity(0.40), radius: 0.6, x: 0, y: 0)
                         .lineSpacing(Self.compactCaptionLineSpacing)
                         .multilineTextAlignment(.leading)
-                        .lineLimit(2)
+                        .lineLimit(2, reservesSpace: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .accessibilityElement(children: .ignore)
@@ -327,17 +327,17 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var compactLiveBadge: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             Circle()
                 .fill(DT.systemRed)
-                .frame(width: 6, height: 6)
+                .frame(width: 5, height: 5)
                 .modifier(PulsingModifier())
             Text("Live")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(glassTextPrimary)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
         .background(
             Capsule(style: .continuous)
                 .fill(DT.systemRed.opacity(0.12))

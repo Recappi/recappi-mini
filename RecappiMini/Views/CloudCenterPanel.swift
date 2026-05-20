@@ -41,7 +41,7 @@ struct CloudCenterPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle("Recappi Cloud")
+        .navigationTitle("Cloud")
         .navigationSubtitle(headerSubtitle)
         .toolbar { toolbarContent }
         .containerBackground(.regularMaterial, for: .window)

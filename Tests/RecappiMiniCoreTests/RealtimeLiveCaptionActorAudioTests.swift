@@ -1,3 +1,5 @@
+import AVFoundation
+import CoreMedia
 import XCTest
 @testable import RecappiMini
 
@@ -20,6 +22,26 @@ import XCTest
 /// rather than constructing real CMSampleBuffers — cheaper to set up and
 /// lets the assertions focus on routing, ordering, and back-pressure.
 final class RealtimeLiveCaptionActorAudioTests: XCTestCase {
+    func testRealtimeAudioEncoderDownsamplesCommonFloatBufferWithoutConverterFallback() throws {
+        let sampleBuffer = try Self.makeInterleavedFloatSampleBuffer(
+            sampleRate: 48_000,
+            channelCount: 2,
+            frames: [
+                0.2, 0.4,
+                0.6, 0.8,
+                -0.2, -0.4,
+                -0.6, -0.8,
+            ]
+        )
+
+        let payload = try XCTUnwrap(RealtimeAudioEncoder.pcm16Data(from: sampleBuffer))
+        let samples = payload.withUnsafeBytes { rawBuffer in
+            Array(rawBuffer.bindMemory(to: Int16.self))
+        }
+
+        XCTAssertEqual(samples, [16_384, -16_384])
+    }
+
     // MARK: - Buffered → flushed on .live
 
     /// Audio submitted while the actor is still `.claiming` must be
@@ -348,5 +370,90 @@ final class RealtimeLiveCaptionActorAudioTests: XCTestCase {
             return Data()
         }
         return payload
+    }
+
+    private static func makeInterleavedFloatSampleBuffer(
+        sampleRate: Double,
+        channelCount: Int,
+        frames: [Float]
+    ) throws -> CMSampleBuffer {
+        let frameCount = frames.count / channelCount
+        var data = Data(count: frames.count * MemoryLayout<Float>.size)
+        data.withUnsafeMutableBytes { rawBuffer in
+            let target = rawBuffer.bindMemory(to: Float.self)
+            for (index, sample) in frames.enumerated() {
+                target[index] = sample
+            }
+        }
+
+        var blockBuffer: CMBlockBuffer?
+        var status = CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault,
+            memoryBlock: nil,
+            blockLength: data.count,
+            blockAllocator: kCFAllocatorDefault,
+            customBlockSource: nil,
+            offsetToData: 0,
+            dataLength: data.count,
+            flags: 0,
+            blockBufferOut: &blockBuffer
+        )
+        XCTAssertEqual(status, kCMBlockBufferNoErr)
+        let buffer = try XCTUnwrap(blockBuffer)
+
+        status = data.withUnsafeBytes { rawBuffer in
+            CMBlockBufferReplaceDataBytes(
+                with: rawBuffer.baseAddress!,
+                blockBuffer: buffer,
+                offsetIntoDestination: 0,
+                dataLength: data.count
+            )
+        }
+        XCTAssertEqual(status, kCMBlockBufferNoErr)
+
+        var asbd = AudioStreamBasicDescription(
+            mSampleRate: sampleRate,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: UInt32(MemoryLayout<Float>.size * channelCount),
+            mFramesPerPacket: 1,
+            mBytesPerFrame: UInt32(MemoryLayout<Float>.size * channelCount),
+            mChannelsPerFrame: UInt32(channelCount),
+            mBitsPerChannel: 32,
+            mReserved: 0
+        )
+
+        var formatDescription: CMAudioFormatDescription?
+        status = CMAudioFormatDescriptionCreate(
+            allocator: kCFAllocatorDefault,
+            asbd: &asbd,
+            layoutSize: 0,
+            layout: nil,
+            magicCookieSize: 0,
+            magicCookie: nil,
+            extensions: nil,
+            formatDescriptionOut: &formatDescription
+        )
+        XCTAssertEqual(status, noErr)
+
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(value: 1, timescale: CMTimeScale(sampleRate)),
+            presentationTimeStamp: .zero,
+            decodeTimeStamp: .invalid
+        )
+        var sampleBuffer: CMSampleBuffer?
+        status = CMSampleBufferCreateReady(
+            allocator: kCFAllocatorDefault,
+            dataBuffer: buffer,
+            formatDescription: try XCTUnwrap(formatDescription),
+            sampleCount: frameCount,
+            sampleTimingEntryCount: 1,
+            sampleTimingArray: &timing,
+            sampleSizeEntryCount: 0,
+            sampleSizeArray: nil,
+            sampleBufferOut: &sampleBuffer
+        )
+        XCTAssertEqual(status, noErr)
+        return try XCTUnwrap(sampleBuffer)
     }
 }

@@ -11,6 +11,92 @@ struct AudioMeterFrame: Sendable {
 
 enum AudioSpectrumConfiguration {
     static let bucketCount = 40
+    static let fftSize = 2_048
+}
+
+private final class AudioSpectrumAnalysisPlan: @unchecked Sendable {
+    struct Bucket {
+        let bins: [Int]
+        let tilt: Float
+    }
+
+    private struct Key: Hashable {
+        let sampleRate: Int
+        let bucketCount: Int
+    }
+
+    private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static var cache: [Key: AudioSpectrumAnalysisPlan] = [:]
+
+    let window: [Float]
+    let buckets: [Bucket]
+    private let fft: vDSP.FFT<DSPSplitComplex>
+    private let fftLock = NSLock()
+
+    static func plan(sampleRate: Double, bucketCount: Int) -> AudioSpectrumAnalysisPlan? {
+        let key = Key(sampleRate: Int(sampleRate.rounded()), bucketCount: bucketCount)
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let cached = cache[key] {
+            return cached
+        }
+        guard let created = AudioSpectrumAnalysisPlan(sampleRate: sampleRate, bucketCount: bucketCount) else {
+            return nil
+        }
+        cache[key] = created
+        return created
+    }
+
+    private init?(sampleRate: Double, bucketCount: Int) {
+        let fftSize = AudioSpectrumConfiguration.fftSize
+        let log2n = vDSP_Length(log2(Float(fftSize)))
+        guard let fft = vDSP.FFT(log2n: log2n, radix: .radix2, ofType: DSPSplitComplex.self) else {
+            return nil
+        }
+        self.fft = fft
+
+        var window = [Float](repeating: 0, count: fftSize)
+        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+        self.window = window
+
+        let halfCount = fftSize / 2
+        let nyquist = sampleRate / 2
+        let minFrequency = max(90.0, sampleRate / Double(fftSize))
+        // This view is a compact "player-style" spectrum, not a lab-grade
+        // analyzer. Cap the displayed range so typical music / speech spreads
+        // across the whole width instead of leaving the right edge empty.
+        let maxFrequency = max(min(nyquist, 8_000), minFrequency * 2)
+        let minLogFrequency = log(minFrequency)
+        let maxLogFrequency = log(maxFrequency)
+
+        self.buckets = (0..<bucketCount).map { bucketIndex in
+            let startT = Double(bucketIndex) / Double(bucketCount)
+            let endT = Double(bucketIndex + 1) / Double(bucketCount)
+            let lower = exp(minLogFrequency + ((maxLogFrequency - minLogFrequency) * startT))
+            let upper = exp(minLogFrequency + ((maxLogFrequency - minLogFrequency) * endT))
+            let center = sqrt(lower * upper)
+
+            var bins: [Int] = []
+            bins.reserveCapacity(halfCount / max(bucketCount, 1))
+            for bin in 1..<halfCount {
+                let frequency = (Double(bin) * sampleRate) / Double(fftSize)
+                if frequency >= lower, frequency < upper {
+                    bins.append(bin)
+                }
+            }
+
+            return Bucket(
+                bins: bins,
+                tilt: Float(pow(max(center, 140) / 140, 0.42))
+            )
+        }
+    }
+
+    func forward(input: DSPSplitComplex, output: inout DSPSplitComplex) {
+        fftLock.lock()
+        fft.forward(input: input, output: &output)
+        fftLock.unlock()
+    }
 }
 
 /// Peak amplitude + frequency buckets of a PCM `CMSampleBuffer`,
@@ -67,7 +153,7 @@ enum AudioLevelExtractor {
         }
 
         let declaredFrames = CMSampleBufferGetNumSamples(sampleBuffer)
-        let maxMeterFrames = 4_096
+        let maxMeterFrames = AudioSpectrumConfiguration.fftSize
 
         if isFloat, asbd.mBitsPerChannel == 32 {
             let rawSampleCount = totalLength / MemoryLayout<Float>.size
@@ -120,13 +206,15 @@ enum AudioLevelExtractor {
         sampleAt: (_ frame: Int, _ channel: Int) -> Float
     ) -> [Float] {
         guard frameCount > 0 else { return [] }
-        return (0..<frameCount).map { frame in
+        var mono = [Float](repeating: 0, count: frameCount)
+        for frame in 0..<frameCount {
             var sum: Float = 0
             for channel in 0..<channels {
                 sum += sampleAt(frame, channel)
             }
-            return sum / Float(channels)
+            mono[frame] = sum / Float(channels)
         }
+        return mono
     }
 
     private static func analyze(samples: [Float], sampleRate: Double, bucketCount: Int) -> AudioMeterFrame {
@@ -146,25 +234,21 @@ enum AudioLevelExtractor {
             peak = max(peak, abs(sample))
         }
 
-        let fftSize = 2048
+        let fftSize = AudioSpectrumConfiguration.fftSize
         guard samples.count >= 32 else {
             let clampedPeak = min(peak, 1)
             return AudioMeterFrame(peak: clampedPeak, bands: Array(repeating: clampedPeak, count: bucketCount))
         }
-
-        let truncated = Array(samples.suffix(fftSize))
-        let paddedSamples = truncated + Array(repeating: 0, count: max(0, fftSize - truncated.count))
-
-        var window = [Float](repeating: 0, count: fftSize)
-        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
-        let windowed = zip(paddedSamples, window).map(*)
-
-        let log2n = vDSP_Length(log2(Float(fftSize)))
-        guard let fft = vDSP.FFT(log2n: log2n, radix: .radix2, ofType: DSPSplitComplex.self) else {
+        guard let plan = AudioSpectrumAnalysisPlan.plan(sampleRate: sampleRate, bucketCount: bucketCount) else {
             return AudioMeterFrame(peak: min(peak, 1), bands: Array(repeating: 0, count: bucketCount))
         }
 
-        var inReal = windowed
+        var inReal = [Float](repeating: 0, count: fftSize)
+        let inputCount = min(samples.count, fftSize)
+        let sourceStart = samples.count - inputCount
+        for index in 0..<inputCount {
+            inReal[index] = samples[sourceStart + index] * plan.window[index]
+        }
         var inImag = [Float](repeating: 0, count: fftSize)
         var outReal = [Float](repeating: 0, count: fftSize)
         var outImag = [Float](repeating: 0, count: fftSize)
@@ -175,50 +259,30 @@ enum AudioLevelExtractor {
                     outImag.withUnsafeMutableBufferPointer { outImagPtr in
                         let input = DSPSplitComplex(realp: inRealPtr.baseAddress!, imagp: inImagPtr.baseAddress!)
                         var output = DSPSplitComplex(realp: outRealPtr.baseAddress!, imagp: outImagPtr.baseAddress!)
-                        fft.forward(input: input, output: &output)
+                        plan.forward(input: input, output: &output)
                     }
                 }
             }
         }
 
-        let halfCount = fftSize / 2
-        let nyquist = sampleRate / 2
-        let minFrequency = max(90.0, sampleRate / Double(fftSize))
-        // This view is a compact "player-style" spectrum, not a lab-grade
-        // analyzer. Cap the displayed range so typical music / speech spreads
-        // across the whole width instead of leaving the right edge empty.
-        let maxFrequency = max(min(nyquist, 8_000), minFrequency * 2)
-        let minLogFrequency = log(minFrequency)
-        let maxLogFrequency = log(maxFrequency)
-
         var bandMagnitudes = [Float](repeating: 0, count: bucketCount)
 
-        for bucketIndex in 0..<bucketCount {
-            let startT = Double(bucketIndex) / Double(bucketCount)
-            let endT = Double(bucketIndex + 1) / Double(bucketCount)
-            let lower = exp(minLogFrequency + ((maxLogFrequency - minLogFrequency) * startT))
-            let upper = exp(minLogFrequency + ((maxLogFrequency - minLogFrequency) * endT))
-            let center = sqrt(lower * upper)
-
+        for (bucketIndex, bucket) in plan.buckets.enumerated() {
             var strongest: Float = 0
             var energySum: Float = 0
-            var count: Int = 0
 
-            for bin in 1..<halfCount {
-                let frequency = (Double(bin) * sampleRate) / Double(fftSize)
-                guard frequency >= lower, frequency < upper else { continue }
+            for bin in bucket.bins {
                 let magnitude = hypot(outReal[bin], outImag[bin])
                 strongest = max(strongest, magnitude)
                 energySum += magnitude * magnitude
-                count += 1
             }
 
+            let count = bucket.bins.count
             let rms = count > 0 ? sqrt(energySum / Float(count)) : 0
             let bucketEnergy = (rms * 0.78) + (strongest * 0.22)
             // Counterbalance the natural low-frequency bias of music / voice
             // so the compact visualizer behaves more like a traditional player.
-            let spectralTiltCompensation = Float(pow(max(center, 140) / 140, 0.42))
-            bandMagnitudes[bucketIndex] = bucketEnergy * spectralTiltCompensation
+            bandMagnitudes[bucketIndex] = bucketEnergy * bucket.tilt
         }
 
         var smoothedBands = [Float]()

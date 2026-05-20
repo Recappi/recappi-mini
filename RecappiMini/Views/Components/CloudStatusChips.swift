@@ -28,7 +28,7 @@ struct CloudStatusChip: View {
 
     var body: some View {
         Text(displayStatus.displayName)
-            .font(.system(size: prominent ? 11 : 9, weight: .medium))
+            .font(.system(size: prominent ? 11 : 10, weight: .medium))
             .foregroundStyle(color)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
@@ -69,7 +69,7 @@ struct CloudJobStatusChip: View {
 
     var body: some View {
         Text(status.displayName)
-            .font(.system(size: compact ? 9.5 : 10.5, weight: .semibold))
+            .font(.system(size: compact ? 10 : 11, weight: .medium))
             .foregroundStyle(status.detailColor)
             .padding(.horizontal, compact ? 6 : 7)
             .padding(.vertical, compact ? 2 : 3)

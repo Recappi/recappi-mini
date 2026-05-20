@@ -903,8 +903,10 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// high-frequency silent system stream can consume the 30 Hz throttle
     /// window and starve microphone frames from the visible waveform.
     nonisolated func ingestMeterFrame(_ frame: AudioMeterFrame) {
+        RecordingPerformanceProbe.shared.noteMeterTaskScheduled()
         Task { @MainActor [weak self] in
             guard let self else { return }
+            RecordingPerformanceProbe.shared.noteMeterFrameOnMain()
             self.ingestMeterFrame(frame, now: CACurrentMediaTime())
         }
     }
@@ -933,6 +935,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             audioSpectrumLevels = zip(decayed, pendingMeterBands).map(max)
             pendingMeterPeak = 0
             pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
+            RecordingPerformanceProbe.shared.noteLevelPublish()
         }
 
         if now - lastHistoryPublish >= Self.historySampleInterval {
@@ -944,6 +947,7 @@ final class AudioRecorder: NSObject, ObservableObject {
                 history.removeFirst(history.count - Self.spectrumBucketCount)
             }
             audioLevelHistory = history
+            RecordingPerformanceProbe.shared.noteHistoryPublish()
         }
     }
 
@@ -1892,6 +1896,13 @@ final class AudioRecorder: NSObject, ObservableObject {
     private func makeSystemAudioConfiguration() -> SCStreamConfiguration {
         let config = SCStreamConfiguration()
         config.capturesAudio = true
+        // Recappi only consumes the `.audio` output from this SCStream.
+        // Keep the video side tiny so ScreenCaptureKit does not maintain a
+        // default 1920x1080 / 60fps surface while recording audio.
+        config.width = 2
+        config.height = 2
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+        config.queueDepth = 1
         // Keep ScreenCaptureKit on a conservative app-friendly format.
         // Some output devices report 6/8/16-channel layouts or unusual
         // sample rates; forwarding those directly into realtime AAC encoding

@@ -47,14 +47,14 @@ struct CloudMeetingPlaybackStrip: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(playbackStatusTitle)
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(playbackStatusColor)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 Text(playbackStatusDetail)
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.dtLabelTertiary)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(Color.dtLabelSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -126,11 +126,11 @@ struct CloudMeetingPlaybackStrip: View {
     }
 
     private var playbackStatusTitle: String {
-        if let errorMessage, !errorMessage.isEmpty {
-            return errorMessage
-        }
         if !hasAudio && !hasLocalSession {
             return "Audio not local yet"
+        }
+        if let errorMessage, !errorMessage.isEmpty {
+            return errorMessage
         }
         if !hasAudio {
             return "Audio unavailable"
@@ -149,7 +149,7 @@ struct CloudMeetingPlaybackStrip: View {
     }
 
     private var playbackStatusColor: Color {
-        if errorMessage != nil || !hasAudio {
+        if errorMessage != nil && hasAudio {
             return DT.systemOrange
         }
         return Color.dtLabelSecondary

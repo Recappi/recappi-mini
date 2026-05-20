@@ -2099,17 +2099,6 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(litRows.allSatisfy { $0 == 0 })
     }
 
-    func testDotMatrixReleaseFrameSnapsUpAndAnimatesDown() {
-        let frame = DotMatrixWaveformModel.releaseFrame(
-            displayed: [0.2, 0.8, 0.4],
-            incoming: [0.7, 0.3, 0.5]
-        )
-
-        XCTAssertEqual(frame.attack, [0.7, 0.8, 0.5])
-        XCTAssertEqual(frame.target, [0.7, 0.3, 0.5])
-        XCTAssertTrue(frame.needsRelease)
-    }
-
     @MainActor
     func testSpectrumConfigurationMatchesRecorderDisplayWidth() {
         XCTAssertEqual(AudioSpectrumConfiguration.bucketCount, AudioRecorder.spectrumBucketCount)
@@ -2142,6 +2131,17 @@ final class RecappiMiniCoreTests: XCTestCase {
 
         XCTAssertGreaterThan(recorder.audioLevel, 0.8)
         XCTAssertGreaterThan(recorder.audioSpectrumLevels.max() ?? 0, 0.8)
+    }
+
+    func testAudioMeterFrameGateThrottlesVisualizationWork() {
+        var gate = AudioMeterFrameGate(minimumInterval: 0.1)
+
+        XCTAssertTrue(gate.shouldEmit(at: 10.0))
+        XCTAssertFalse(gate.shouldEmit(at: 10.03))
+        XCTAssertFalse(gate.shouldEmit(at: 10.09))
+        XCTAssertTrue(gate.shouldEmit(at: 10.11))
+        XCTAssertFalse(gate.shouldEmit(at: 10.16))
+        XCTAssertTrue(gate.shouldEmit(at: 10.22))
     }
 
     @MainActor

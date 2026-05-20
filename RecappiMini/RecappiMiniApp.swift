@@ -697,7 +697,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             spec: WindowFactory.WindowSpec(
                 contentRect: NSRect(x: 0, y: 0, width: 1080, height: 760),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                title: "Recappi Cloud",
+                title: "Cloud",
                 contentMinSize: NSSize(width: 880, height: 600)
             ),
             delegate: self
@@ -1009,11 +1009,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func hideLiveCaptionWindow() {
-        // Hide keeps the warm panel instance around. The panel hosts live ASR
-        // text and mode state, so transient app-state changes should not close
-        // and recreate it unless we are truly tearing the app/window down.
-        managedWindows.liveCaptionWindow?.orderOut(nil)
-        isLiveCaptionPanelPresented = false
+        closeLiveCaptionWindow()
     }
 
     private func dismissLiveCaptionWindow(for sessionID: String) {
@@ -1028,8 +1024,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         }
         managedWindows.clear(.liveCaptions)
         isLiveCaptionPanelPresented = false
+        window.orderOut(nil)
+        window.contentView = nil
         window.delegate = nil
         window.close()
+        restoreAccessoryActivationPolicyIfPossible()
     }
 
     private func resizeLiveCaptionWindowToContent(animated: Bool = false, usesFittingSize: Bool = true) {
