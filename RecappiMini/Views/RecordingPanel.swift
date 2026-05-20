@@ -128,6 +128,7 @@ struct RecordingPanel: View {
                 message: message,
                 onShow: { if let dir = recorder.lastSessionDir { onOpenFolder(dir) } },
                 onSettings: presentSettings,
+                onOpenLogs: openLogsFolder,
                 onRetry: { retryProcessing(message) },
                 onDismiss: { recorder.reset() }
             )
@@ -141,6 +142,11 @@ struct RecordingPanel: View {
     private func presentSettings() {
         AppDelegate.shared.prepareForSettingsScenePresentation()
         openSettings()
+    }
+
+    private func openLogsFolder() {
+        DiagnosticsLog.event("diagnostics", "open_logs_folder source=error_state")
+        onOpenFolder(DiagnosticsLog.logsDirectoryURL)
     }
 
     private func startRecording() {

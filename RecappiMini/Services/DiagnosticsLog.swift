@@ -4,6 +4,7 @@ import os
 enum DiagnosticsLog {
     private static let logger = Logger(subsystem: "recappi.diagnostics", category: "runtime")
     private static let writer = DiagnosticsFileWriter(fileName: "diagnostics.log")
+    private static let crashHandlerInstaller = DiagnosticsCrashHandlerInstaller()
 
     static var fileURL: URL { writer.fileURL }
     static var logsDirectoryURL: URL { writer.logsDirectoryURL }
@@ -18,6 +19,24 @@ enum DiagnosticsLog {
 
     static func error(_ category: String, _ message: String) {
         append(level: "error", category: category, message: message)
+    }
+
+    static func critical(_ category: String, _ message: String) {
+        append(level: "error", category: category, message: message, synchronously: true)
+    }
+
+    static func installCrashHandlers() {
+        crashHandlerInstaller.install()
+    }
+
+    static func createLogArchive() throws -> URL {
+        writer.flush()
+        let archiveURL = try DiagnosticsLogArchive.create(
+            logsDirectory: logsDirectoryURL,
+            currentLogURL: fileURL
+        )
+        event("diagnostics", "archive.created file=\(archiveURL.lastPathComponent)")
+        return archiveURL
     }
 
     static func errorSummary(_ error: Error) -> String {
@@ -37,7 +56,12 @@ enum DiagnosticsLog {
         return String(collapsed.prefix(maxLength)) + "..."
     }
 
-    private static func append(level: String, category: String, message: String) {
+    private static func append(
+        level: String,
+        category: String,
+        message: String,
+        synchronously: Bool = false
+    ) {
         let safeCategory = sanitize(category, maxLength: 48)
         let safeMessage = sanitize(message, maxLength: 1_200)
         let line = "level=\(level) category=\(safeCategory) \(safeMessage)"
@@ -49,7 +73,7 @@ enum DiagnosticsLog {
         default:
             logger.info("\(line, privacy: .public)")
         }
-        writer.append(line)
+        writer.append(line, synchronously: synchronously)
     }
 
     #if DEBUG
@@ -83,9 +107,9 @@ final class DiagnosticsFileWriter: @unchecked Sendable {
         self.fileURL = logsDirectory.appendingPathComponent(fileName)
     }
 
-    func append(_ body: String) {
+    func append(_ body: String, synchronously: Bool = false) {
         let line = "\(Self.timestamp()) \(body)\n"
-        queue.async { [fileURL, maxBytes, maxRotatedFiles] in
+        let work: @Sendable () -> Void = { [fileURL, maxBytes, maxRotatedFiles] in
             Self.rotateIfNeeded(
                 fileURL: fileURL,
                 maxBytes: maxBytes,
@@ -100,6 +124,11 @@ final class DiagnosticsFileWriter: @unchecked Sendable {
             } else {
                 try? data.write(to: fileURL, options: .atomic)
             }
+        }
+        if synchronously {
+            queue.sync(execute: work)
+        } else {
+            queue.async(execute: work)
         }
     }
 
@@ -163,6 +192,132 @@ final class DiagnosticsFileWriter: @unchecked Sendable {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: Date())
+    }
+}
+
+private final class DiagnosticsCrashHandlerInstaller: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didInstall = false
+
+    func install() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didInstall else { return }
+        didInstall = true
+        NSSetUncaughtExceptionHandler(recappiUncaughtExceptionHandler)
+        DiagnosticsLog.event("crash", "objc_exception_handler.installed")
+    }
+}
+
+private let recappiUncaughtExceptionHandler: @convention(c) (NSException) -> Void = { exception in
+    let stack = exception.callStackSymbols
+        .prefix(12)
+        .joined(separator: " | ")
+    DiagnosticsLog.critical(
+        "crash",
+        "uncaught_exception name=\(DiagnosticsLog.sanitize(exception.name.rawValue, maxLength: 80)) reason='\(DiagnosticsLog.sanitize(exception.reason ?? "none", maxLength: 300))' stack='\(DiagnosticsLog.sanitize(stack, maxLength: 1_200))'"
+    )
+}
+
+enum DiagnosticsLogArchive {
+    static func create(logsDirectory: URL, currentLogURL: URL, now: Date = Date()) throws -> URL {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
+
+        let logFiles = try fileManager.contentsOfDirectory(
+            at: logsDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        .filter { url in
+            let name = url.lastPathComponent
+            return name == currentLogURL.lastPathComponent
+                || (name.hasPrefix("diagnostics.") && name.hasSuffix(".log"))
+        }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        guard !logFiles.isEmpty else {
+            throw DiagnosticsLogArchiveError.noLogFiles
+        }
+
+        let stamp = archiveTimestamp(now)
+        let staging = logsDirectory.appendingPathComponent(".RecappiMiniLogs-\(stamp)", isDirectory: true)
+        let archive = logsDirectory.appendingPathComponent("RecappiMiniLogs-\(stamp).zip")
+        try? fileManager.removeItem(at: staging)
+        try? fileManager.removeItem(at: archive)
+        try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: staging) }
+
+        for file in logFiles {
+            try fileManager.copyItem(
+                at: file,
+                to: staging.appendingPathComponent(file.lastPathComponent)
+            )
+        }
+
+        let manifest = supportBundleManifest(
+            generatedAt: ISO8601DateFormatter().string(from: now),
+            logFiles: logFiles.map(\.lastPathComponent)
+        )
+        try manifest.write(
+            to: staging.appendingPathComponent("README.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        process.arguments = ["-c", "-k", "--keepParent", staging.lastPathComponent, archive.lastPathComponent]
+        process.currentDirectoryURL = logsDirectory
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0,
+              fileManager.fileExists(atPath: archive.path) else {
+            throw DiagnosticsLogArchiveError.archiveFailed(status: process.terminationStatus)
+        }
+
+        return archive
+    }
+
+    private static func archiveTimestamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: date)
+    }
+
+    private static func supportBundleManifest(generatedAt: String, logFiles: [String]) -> String {
+        let bundle = Bundle.main
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        return """
+        Recappi Mini diagnostics logs
+        Generated: \(generatedAt)
+        App: \(version) (\(build))
+        OS: \(ProcessInfo.processInfo.operatingSystemVersionString)
+
+        Files:
+        \(logFiles.map { "- \($0)" }.joined(separator: "\n"))
+
+        Send this zip file to Recappi support when reporting recording, upload, auth, Cloud, or update issues.
+        """
+    }
+}
+
+enum DiagnosticsLogArchiveError: LocalizedError, Equatable {
+    case noLogFiles
+    case archiveFailed(status: Int32)
+
+    var errorDescription: String? {
+        switch self {
+        case .noLogFiles:
+            return "No diagnostics log files were found."
+        case .archiveFailed(let status):
+            return "Could not create the diagnostics archive (ditto exited with status \(status))."
+        }
     }
 }
 

@@ -29,6 +29,7 @@ enum AccessibilityIDs {
         static let themePicker = "recappi.settings.themePicker"
         static let openLogsFolderButton = "recappi.settings.openLogsFolderButton"
         static let copyLogsPathButton = "recappi.settings.copyLogsPathButton"
+        static let createLogsArchiveButton = "recappi.settings.createLogsArchiveButton"
     }
 
     enum Panel {
@@ -79,6 +80,7 @@ enum AccessibilityIDs {
         static let promptDisclosureButton = "recappi.panel.promptDisclosureButton"
         static let promptField = "recappi.panel.promptField"
         static let showButton = "recappi.panel.showButton"
+        static let openLogsButton = "recappi.panel.openLogsButton"
     }
 
     enum Onboarding {

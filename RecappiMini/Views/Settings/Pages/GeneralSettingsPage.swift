@@ -3,6 +3,7 @@ import SwiftUI
 
 struct GeneralSettingsPage: View {
     @EnvironmentObject private var config: AppConfig
+    @State private var diagnosticsArchiveMessage: String?
 
     var body: some View {
         Form {
@@ -49,6 +50,8 @@ struct GeneralSettingsPage: View {
             Section {
                 LabeledContent("Diagnostics logs") {
                     HStack(spacing: 8) {
+                        Button("Create Log Archive", action: createLogArchive)
+                            .accessibilityIdentifier(AccessibilityIDs.Settings.createLogsArchiveButton)
                         Button("Open Logs Folder", action: openLogsFolder)
                             .accessibilityIdentifier(AccessibilityIDs.Settings.openLogsFolderButton)
                         Button("Copy Path", action: copyLogsPath)
@@ -68,8 +71,14 @@ struct GeneralSettingsPage: View {
                         .help(DiagnosticsLog.logsDirectoryURL.path)
                 }
                 .padding(.vertical, 4)
+
+                if let diagnosticsArchiveMessage {
+                    Text(diagnosticsArchiveMessage)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.labelSecondary)
+                }
             } footer: {
-                Text("When reporting an issue, send diagnostics.log plus any diagnostics.*.log files from this folder.")
+                Text("When reporting an issue, create a log archive and send the generated zip file to Recappi support.")
                     .foregroundStyle(Palette.labelSecondary)
                     .font(.footnote)
             }
@@ -120,6 +129,18 @@ struct GeneralSettingsPage: View {
         DiagnosticsLog.event("diagnostics", "copy_logs_path source=settings")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(DiagnosticsLog.logsDirectoryURL.path, forType: .string)
+        diagnosticsArchiveMessage = "Copied logs folder path."
+    }
+
+    private func createLogArchive() {
+        do {
+            let archive = try DiagnosticsLog.createLogArchive()
+            diagnosticsArchiveMessage = "Created \(archive.lastPathComponent)."
+            NSWorkspace.shared.activateFileViewerSelecting([archive])
+        } catch {
+            diagnosticsArchiveMessage = "Could not create log archive: \(error.localizedDescription)"
+            DiagnosticsLog.error("diagnostics", "archive.failed \(DiagnosticsLog.errorSummary(error))")
+        }
     }
 
     private func restartOnboarding() {

@@ -40,4 +40,29 @@ final class DiagnosticsLogTests: XCTestCase {
         )
         XCTAssertTrue(DiagnosticsLog.fileURL.lastPathComponent.hasPrefix("diagnostics"))
     }
+
+    func testDiagnosticsLogArchiveIncludesCurrentAndRotatedLogs() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RecappiDiagnosticsArchive-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let current = directory.appendingPathComponent("diagnostics.log")
+        let rotated = directory.appendingPathComponent("diagnostics.1.log")
+        try "current".write(to: current, atomically: true, encoding: .utf8)
+        try "rotated".write(to: rotated, atomically: true, encoding: .utf8)
+
+        let archive = try DiagnosticsLogArchive.create(
+            logsDirectory: directory,
+            currentLogURL: current,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(archive.lastPathComponent, "RecappiMiniLogs-19700101-000000.zip")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: archive.path))
+        XCTAssertGreaterThan(
+            ((try? FileManager.default.attributesOfItem(atPath: archive.path)[.size] as? NSNumber)?.intValue ?? 0),
+            0
+        )
+    }
 }

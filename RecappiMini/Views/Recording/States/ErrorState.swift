@@ -5,6 +5,7 @@ struct ErrorState: View {
     let message: String
     var onShow: () -> Void
     var onSettings: () -> Void
+    var onOpenLogs: () -> Void
     var onRetry: () -> Void
     var onDismiss: () -> Void
 
@@ -73,6 +74,9 @@ struct ErrorState: View {
                     Button("Show in Finder", action: onShow)
                         .buttonStyle(PanelPushButtonStyle())
                         .accessibilityIdentifier(AccessibilityIDs.Panel.showButton)
+                    Button("Open Logs", action: onOpenLogs)
+                        .buttonStyle(PanelPushButtonStyle())
+                        .accessibilityIdentifier(AccessibilityIDs.Panel.openLogsButton)
                 }
             }
         } else if isConfigRelated {
@@ -80,6 +84,9 @@ struct ErrorState: View {
                 Button("Settings…", action: onSettings)
                     .buttonStyle(ErrorRetryButtonStyle())
                     .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
+                Button("Open Logs", action: onOpenLogs)
+                    .buttonStyle(PanelPushButtonStyle())
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.openLogsButton)
             }
         }
     }
@@ -92,6 +99,8 @@ struct ErrorState: View {
                 Button("Settings…", action: onSettings)
                     .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
             }
+            Button("Open Logs", action: onOpenLogs)
+                .accessibilityIdentifier(AccessibilityIDs.Panel.openLogsButton)
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 12, weight: .bold))

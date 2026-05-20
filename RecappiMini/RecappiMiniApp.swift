@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Combine
 import SwiftUI
 @preconcurrency import UserNotifications
@@ -150,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     func finishLaunchingIfNeeded() {
         guard !didFinishLaunching else { return }
         didFinishLaunching = true
+        DiagnosticsLog.installCrashHandlers()
         logAppLaunch()
         // Apply the user's theme before any window is created so the very
         // first surface (status item, floating panel, onboarding) comes up
@@ -528,10 +530,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         let process = ProcessInfo.processInfo
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        let screenCaptureAccess = CapturePermissionPrimer.shared.hasScreenCaptureAccess()
         DiagnosticsLog.event(
             "app",
-            "launch version=\(version) build=\(build) pid=\(process.processIdentifier) os='\(DiagnosticsLog.sanitize(process.operatingSystemVersionString, maxLength: 80))' uiTest=\(uiTestMode.isEnabled) logs=\(DiagnosticsLog.fileURL.path)"
+            "launch version=\(version) build=\(build) pid=\(process.processIdentifier) os='\(DiagnosticsLog.sanitize(process.operatingSystemVersionString, maxLength: 80))' arch=\(Self.processArchitecture) uiTest=\(uiTestMode.isEnabled) micStatus=\(micStatus.rawValue) screenCapture=\(screenCaptureAccess) logs=\(DiagnosticsLog.fileURL.path)"
         )
+    }
+
+    private static var processArchitecture: String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "unknown"
+        #endif
     }
 
     @objc private func togglePanelFromStatusMenu() {
