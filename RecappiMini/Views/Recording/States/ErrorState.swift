@@ -25,8 +25,22 @@ struct ErrorState: View {
                     Text(message)
                         .font(.system(size: 11.5))
                         .foregroundStyle(Color.dtLabelSecondary)
-                        .lineLimit(2)
+                        .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let technicalDetails {
+                        Text(technicalDetails)
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(Color.dtLabelTertiary)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(Color.dtLabel.opacity(0.035))
+                            )
+                            .padding(.top, 3)
+                    }
                 }
 
                 Spacer(minLength: 0)
@@ -99,6 +113,29 @@ struct ErrorState: View {
 
     private var isRetryable: Bool {
         !isMissingCapturedAudio
+    }
+
+    private var technicalDetails: String? {
+        guard isMissingCapturedAudio else { return nil }
+        guard let sessionDir = recorder.lastSessionDir else {
+            return "capture=no-audio\nrecording.m4a=missing"
+        }
+        let recordingURL = RecordingStore.audioFileURL(in: sessionDir)
+        let systemURL = sessionDir.appendingPathComponent("system.m4a")
+        let micURL = sessionDir.appendingPathComponent("mic.m4a")
+        return [
+            "session=\(sessionDir.lastPathComponent)",
+            "recording.m4a=\(fileDetail(recordingURL))",
+            "system.m4a=\(fileDetail(systemURL)) mic.m4a=\(fileDetail(micURL))",
+        ].joined(separator: "\n")
+    }
+
+    private func fileDetail(_ url: URL) -> String {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else { return "missing" }
+        let size = (try? fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?
+            .int64Value ?? -1
+        return size >= 0 ? "\(size)b" : "exists"
     }
 
     private var isMissingCapturedAudio: Bool {

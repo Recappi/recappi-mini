@@ -699,7 +699,7 @@ enum SessionProcessorError: LocalizedError {
         case .jobTimedOut:
             return "转写仍在后台处理中，请稍后刷新云端记录"
         case .recordingAudioMissing:
-            return "Recorded audio is missing. If the meeting app was closed before stopping, start a new recording."
+            return "Recorded audio is missing or empty before upload: recording.m4a was not created for this session. This usually means no system or microphone audio was captured, or the meeting app was closed before stopping."
         }
     }
 }

@@ -1943,6 +1943,49 @@ final class RecappiMiniCoreTests: XCTestCase {
         }
     }
 
+    func testAudioCaptureDiagnosticsWritesCaptureHealthAndByteCounts() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let source = temp.appendingPathComponent("system.m4a")
+        try Data([1, 2, 3]).write(to: source)
+        let health = [
+            CaptureAudioHealth(
+                source: "system",
+                bufferCount: 0,
+                includedBufferCount: nil,
+                firstBufferUptime: nil,
+                lastBufferUptime: nil,
+                secondsSinceLastBuffer: nil
+            ),
+            CaptureAudioHealth(
+                source: "mic",
+                bufferCount: 12,
+                includedBufferCount: 12,
+                firstBufferUptime: 100,
+                lastBufferUptime: 104,
+                secondsSinceLastBuffer: 0.25
+            ),
+        ]
+
+        AudioCaptureDiagnostics.write(
+            sources: [source],
+            output: nil,
+            to: temp,
+            captureHealth: health
+        )
+
+        let diagnosticsURL = temp.appendingPathComponent("audio-capture.json")
+        let data = try Data(contentsOf: diagnosticsURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let diagnostics = try decoder.decode(AudioCaptureDiagnostics.self, from: data)
+
+        XCTAssertEqual(diagnostics.sources.first?.byteCount, 3)
+        XCTAssertEqual(diagnostics.captureHealth, health)
+    }
+
     func testAudioMixerAveragesHotMicAndSystemSources() async throws {
         XCTAssertEqual(AudioMixer.outputHeadroom(forSourceCount: 1), 1.0)
         XCTAssertEqual(AudioMixer.outputHeadroom(forSourceCount: 2), 0.5)

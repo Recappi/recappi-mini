@@ -272,6 +272,7 @@ struct AudioCaptureDiagnostics: Codable {
         let role: String
         let fileName: String
         let exists: Bool
+        let byteCount: Int64?
         let sampleRate: Double?
         let channelCount: UInt32?
         let durationSeconds: Double?
@@ -281,6 +282,8 @@ struct AudioCaptureDiagnostics: Codable {
             self.role = role
             self.fileName = url.lastPathComponent
             self.exists = FileManager.default.fileExists(atPath: url.path)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            byteCount = attributes?[.size] as? Int64
 
             do {
                 let file = try AVAudioFile(forReading: url)
@@ -302,12 +305,19 @@ struct AudioCaptureDiagnostics: Codable {
     let createdAt: Date
     let sources: [FileInfo]
     let output: FileInfo?
+    let captureHealth: [CaptureAudioHealth]
 
-    static func write(sources: [URL], output: URL?, to sessionDir: URL) {
+    static func write(
+        sources: [URL],
+        output: URL?,
+        to sessionDir: URL,
+        captureHealth: [CaptureAudioHealth] = []
+    ) {
         let diagnostics = AudioCaptureDiagnostics(
             createdAt: Date(),
             sources: sources.map { FileInfo(role: role(for: $0), url: $0) },
-            output: output.map { FileInfo(role: "mixed", url: $0) }
+            output: output.map { FileInfo(role: "mixed", url: $0) },
+            captureHealth: captureHealth
         )
 
         do {

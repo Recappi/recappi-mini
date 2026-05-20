@@ -194,11 +194,24 @@ struct AudioMeterFrameGate {
     }
 }
 
+struct CaptureAudioHealth: Codable, Equatable {
+    let source: String
+    let bufferCount: Int
+    let includedBufferCount: Int?
+    let firstBufferUptime: TimeInterval?
+    let lastBufferUptime: TimeInterval?
+    let secondsSinceLastBuffer: TimeInterval?
+}
+
 // MARK: - System audio receiver
 
 final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     private let writer: SegmentedAudioWriter
+    private let stateQueue = DispatchQueue(label: "RecappiMini.SystemAudioOutput.state")
     private var meterGate = AudioMeterFrameGate()
+    private var bufferCount = 0
+    private var firstBufferUptime: TimeInterval?
+    private var lastBufferUptime: TimeInterval?
 
     /// Called on the capture queue for each buffer with a peak + spectrum
     /// snapshot. Recording and live captions still receive every audio buffer;
@@ -218,9 +231,22 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     ) {
         guard type == .audio else { return }
         guard sampleBuffer.isValid else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let shouldLogFirstBuffer = stateQueue.sync {
+            bufferCount += 1
+            if firstBufferUptime == nil {
+                firstBufferUptime = now
+                lastBufferUptime = now
+                return true
+            }
+            lastBufferUptime = now
+            return false
+        }
+        if shouldLogFirstBuffer {
+            DiagnosticsLog.event("recording", "system.first_buffer")
+        }
         writer.append(sampleBuffer)
         onLiveCaptionSampleBuffer?(sampleBuffer)
-        let now = ProcessInfo.processInfo.systemUptime
         RecordingPerformanceProbe.shared.noteAudioBuffer(source: .system, at: now)
         if meterGate.shouldEmit(at: now) {
             let frame = RecordingPerformanceProbe.shared.measureMeterExtraction(source: .system) {
@@ -235,6 +261,19 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     func finishWriting() async throws -> URL? {
         try await writer.finishWriting()
     }
+
+    func healthSnapshot(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> CaptureAudioHealth {
+        stateQueue.sync {
+            CaptureAudioHealth(
+                source: "system",
+                bufferCount: bufferCount,
+                includedBufferCount: nil,
+                firstBufferUptime: firstBufferUptime,
+                lastBufferUptime: lastBufferUptime,
+                secondsSinceLastBuffer: lastBufferUptime.map { max(now - $0, 0) }
+            )
+        }
+    }
 }
 
 // MARK: - Microphone receiver
@@ -246,6 +285,10 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     private var includesAudio = true
     private var didLogFirstBuffer = false
     private var didLogFirstIncludedBuffer = false
+    private var bufferCount = 0
+    private var includedBufferCount = 0
+    private var firstBufferUptime: TimeInterval?
+    private var lastBufferUptime: TimeInterval?
 
     var onMeterFrame: ((AudioMeterFrame) -> Void)?
 
@@ -265,17 +308,40 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         from connection: AVCaptureConnection
     ) {
         guard sampleBuffer.isValid else { return }
-        let included = stateQueue.sync { includesAudio }
-        if !didLogFirstBuffer {
-            didLogFirstBuffer = true
+        let now = ProcessInfo.processInfo.systemUptime
+        let state = stateQueue.sync {
+            let included = includesAudio
+            bufferCount += 1
+            if firstBufferUptime == nil {
+                firstBufferUptime = now
+            }
+            lastBufferUptime = now
+
+            var shouldLogFirstBuffer = false
+            if !didLogFirstBuffer {
+                didLogFirstBuffer = true
+                shouldLogFirstBuffer = true
+            }
+
+            var shouldLogFirstIncludedBuffer = false
+            if included {
+                includedBufferCount += 1
+                if !didLogFirstIncludedBuffer {
+                    didLogFirstIncludedBuffer = true
+                    shouldLogFirstIncludedBuffer = true
+                }
+            }
+
+            return (included, shouldLogFirstBuffer, shouldLogFirstIncludedBuffer)
+        }
+        let included = state.0
+        if state.1 {
             DiagnosticsLog.event("recording", "mic.first_buffer included=\(included)")
         }
-        if included, !didLogFirstIncludedBuffer {
-            didLogFirstIncludedBuffer = true
+        if state.2 {
             DiagnosticsLog.event("recording", "mic.first_included_buffer")
         }
         writer.append(sampleBuffer, muted: !included)
-        let now = ProcessInfo.processInfo.systemUptime
         RecordingPerformanceProbe.shared.noteAudioBuffer(source: .mic, at: now)
         if included, meterGate.shouldEmit(at: now) {
             let frame = RecordingPerformanceProbe.shared.measureMeterExtraction(source: .mic) {
@@ -289,5 +355,18 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
 
     func finishWriting() async throws -> URL? {
         try await writer.finishWriting()
+    }
+
+    func healthSnapshot(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> CaptureAudioHealth {
+        stateQueue.sync {
+            CaptureAudioHealth(
+                source: "mic",
+                bufferCount: bufferCount,
+                includedBufferCount: includedBufferCount,
+                firstBufferUptime: firstBufferUptime,
+                lastBufferUptime: lastBufferUptime,
+                secondsSinceLastBuffer: lastBufferUptime.map { max(now - $0, 0) }
+            )
+        }
     }
 }

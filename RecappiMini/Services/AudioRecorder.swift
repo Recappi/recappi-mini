@@ -831,10 +831,15 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         let finishedSystemURL = try await systemOutput?.finishWriting()
         let finishedMicURL = try await micOutput?.finishWriting()
+        let captureHealth = Self.captureHealthSnapshots(
+            systemOutput: systemOutput,
+            micOutput: micOutput
+        )
         DiagnosticsLog.event(
             "recording",
             "writers.finished system=\(Self.fileSummary(finishedSystemURL)) mic=\(Self.fileSummary(finishedMicURL))"
         )
+        DiagnosticsLog.event("recording", Self.captureHealthSummary(captureHealth))
 
         if hasIncludedMicrophoneAudioInCurrentRecording, finishedMicURL == nil {
             DiagnosticsLog.error(
@@ -866,7 +871,8 @@ final class AudioRecorder: NSObject, ObservableObject {
             AudioCaptureDiagnostics.write(
                 sources: [],
                 output: nil,
-                to: sessionDir
+                to: sessionDir,
+                captureHealth: captureHealth
             )
             throw RecorderError.noCapturedAudio
         }
@@ -883,7 +889,8 @@ final class AudioRecorder: NSObject, ObservableObject {
             AudioCaptureDiagnostics.write(
                 sources: sourceURLs,
                 output: mergedURL,
-                to: sessionDir
+                to: sessionDir,
+                captureHealth: captureHealth
             )
             // Only delete intermediates on success; on failure the caller
             // (stop/retry flow) can still inspect the two raw files.
@@ -898,7 +905,8 @@ final class AudioRecorder: NSObject, ObservableObject {
             AudioCaptureDiagnostics.write(
                 sources: sourceURLs,
                 output: nil,
-                to: sessionDir
+                to: sessionDir,
+                captureHealth: captureHealth
             )
             // Merge failed — leave intermediates for debugging and surface the
             // error to the caller. Transcription downstream needs recording.m4a
@@ -1529,6 +1537,36 @@ final class AudioRecorder: NSObject, ObservableObject {
             .attributesOfItem(atPath: url.path)[.size] as? NSNumber)?
             .int64Value ?? -1
         return "\(url.lastPathComponent):\(size)"
+    }
+
+    private nonisolated static func captureHealthSnapshots(
+        systemOutput: SystemAudioOutput?,
+        micOutput: MicAudioOutput?
+    ) -> [CaptureAudioHealth] {
+        let now = ProcessInfo.processInfo.systemUptime
+        return [
+            systemOutput?.healthSnapshot(now: now),
+            micOutput?.healthSnapshot(now: now),
+        ].compactMap { $0 }
+    }
+
+    private nonisolated static func captureHealthSummary(_ health: [CaptureAudioHealth]) -> String {
+        guard !health.isEmpty else {
+            return "capture.health none"
+        }
+        let details = health.map { item in
+            var parts = ["\(item.source)Buffers=\(item.bufferCount)"]
+            if let includedBufferCount = item.includedBufferCount {
+                parts.append("\(item.source)Included=\(includedBufferCount)")
+            }
+            if let secondsSinceLastBuffer = item.secondsSinceLastBuffer {
+                parts.append("\(item.source)LastAgo=\(String(format: "%.2f", secondsSinceLastBuffer))s")
+            } else {
+                parts.append("\(item.source)LastAgo=never")
+            }
+            return parts.joined(separator: " ")
+        }
+        return "capture.health \(details.joined(separator: " "))"
     }
 
     private func liveCaptionRecordingConfiguration() -> LiveCaptionRecordingConfiguration {
