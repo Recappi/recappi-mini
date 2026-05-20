@@ -3,15 +3,15 @@
     <channel>
         <title>Recappi Mini</title>
         <item>
-            <title>1.0.105</title>
-            <pubDate>Wed, 20 May 2026 15:42:02 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.105</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.105</sparkle:fullReleaseNotesLink>
-            <sparkle:version>116</sparkle:version>
-            <sparkle:shortVersionString>1.0.105</sparkle:shortVersionString>
+            <title>1.0.106</title>
+            <pubDate>Wed, 20 May 2026 16:10:02 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.106</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.106</sparkle:fullReleaseNotesLink>
+            <sparkle:version>117</sparkle:version>
+            <sparkle:shortVersionString>1.0.106</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<ul><li>Refined the Cloud Summary briefing layout.</li><li>Reworked Transcription into reader-style speaker turns.</li><li>Removed extra Summary/Transcription wrapper chrome.</li></ul>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.105/RecappiMini-1.0.105.dmg" length="5590662" type="application/octet-stream" sparkle:edSignature="yBR9Sks8GVWLwWI1aAH6i8MvHE+qU+ZKdeD5vFvraR882JrBWtEfUccy9vA7suJuoEq7b2NVOKhVklBNMnb8AA=="/>
+            <description><![CDATA[<pre>Automated release for v1.0.106.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.106/RecappiMini-1.0.106.dmg" length="5610272" type="application/octet-stream" sparkle:edSignature="1Zgj/5YndfXWfLfwkNe69al0IN2NP2eGDFBrkszoNeR8natE3+mr7TeMBGU+AbR5FtD7m2zI2Gh+BnrDMaY5Cg=="/>
         </item>
     </channel>
 </rss>
