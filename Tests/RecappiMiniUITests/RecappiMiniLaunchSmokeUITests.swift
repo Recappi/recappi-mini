@@ -579,6 +579,56 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         )
     }
 
+    func testDiscardingActiveMeetingRecordingReturnsToIdleWithoutPrepare() throws {
+        let app = launchRecappiApp(
+            authToken: "invalid-test-token",
+            simulatedAutoPromptApp: (bundleID: "com.hnc.Discord", name: "Discord"),
+            detectedMeetingAutoStopGraceSeconds: 99
+        )
+
+        let suggestion = uiElement(app, id: UITestIDs.Panel.recordingSuggestion)
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 15), "Expected Discord auto-prompt suggestion banner.")
+        suggestion.click()
+        completeRecordingPreflight(in: app)
+
+        let more = uiElement(app, id: UITestIDs.Panel.recordingMoreButton)
+        XCTAssertTrue(more.waitForExistence(timeout: 15), "Expected More menu while recording.")
+        more.click()
+
+        let discardMenuItem = app.menuItems[UITestIDs.Panel.discardMenuItem]
+        XCTAssertTrue(discardMenuItem.waitForExistence(timeout: 5), "Expected discard menu item.")
+        discardMenuItem.click()
+
+        let discardButton = app.buttons[UITestIDs.Panel.discardButton]
+        XCTAssertTrue(discardButton.waitForExistence(timeout: 5), "Expected discard confirmation.")
+        discardButton.click()
+
+        let processingTitle = uiElement(app, id: UITestIDs.Panel.processingTitle)
+        XCTAssertFalse(
+            processingTitle.waitForExistence(timeout: 0.5),
+            "Discard should abort directly instead of flashing the save/preparing flow."
+        )
+
+        let recordButton = app.buttons[UITestIDs.Panel.recordButton]
+        XCTAssertTrue(recordButton.waitForExistence(timeout: 10), "Expected panel to return directly to idle.")
+
+        postSimulatedAutoPrompt(
+            bundleID: "com.hnc.Discord",
+            appName: "Discord",
+            active: true
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+
+        XCTAssertFalse(
+            uiElement(app, id: UITestIDs.Panel.recordingSuggestion).exists,
+            "Discarding the active meeting source should not immediately prepare the same active audio again."
+        )
+        XCTAssertFalse(
+            uiElement(app, id: UITestIDs.Panel.meetingPrompt).exists,
+            "Discarding the active meeting source should stay quiet until that source goes inactive."
+        )
+    }
+
     func testCloudCenterSignedOutLaunchSmoke() throws {
         let app = launchRecappiApp(authToken: "", openCloudWindowOnLaunch: true)
 

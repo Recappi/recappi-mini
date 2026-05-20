@@ -897,6 +897,86 @@ final class AudioRecorder: NSObject, ObservableObject {
         return sessionDir
     }
 
+    func discardRecording() async {
+        guard state == .recording else {
+            reset()
+            return
+        }
+
+        DiagnosticsLog.event(
+            "recording",
+            "discard.request dir=\(sessionDir?.lastPathComponent ?? "none") elapsedSeconds=\(elapsedSeconds)"
+        )
+
+        let scStream = self.stream
+        let systemOutput = self.systemOutput
+        let micOutput = self.micOutput
+        let micSession = self.micSession
+        let sessionDirToDelete = self.sessionDir
+
+        detectedMeetingRecordingContext = nil
+        activeLiveCaptionConfiguration = nil
+        timer?.invalidate()
+        timer = nil
+        stopMonitoringOutputDeviceChanges()
+        endRecordingProcessActivity()
+
+        stream = nil
+        self.systemOutput = nil
+        self.micSession = nil
+        self.micOutput = nil
+        micSession?.stopRunning()
+
+        clearDiscardedRecordingState()
+
+        do {
+            try await scStream?.stopCapture()
+        } catch {
+            DiagnosticsLog.error("recording", "discard.screen_capture.stop.failed \(DiagnosticsLog.errorSummary(error))")
+        }
+
+        await finalizeLiveCaptionsForStop(saveTo: nil)
+        liveCaptionStore.clear()
+        pendingRestartTask?.cancel()
+        pendingRestartTask = nil
+        liveCaptionState = .none
+
+        _ = try? await systemOutput?.finishWriting()
+        _ = try? await micOutput?.finishWriting()
+
+        if let sessionDirToDelete {
+            try? FileManager.default.removeItem(at: sessionDirToDelete)
+        }
+    }
+
+    private func clearDiscardedRecordingState() {
+        state = .idle
+        elapsedSeconds = 0
+        audioLevel = 0
+        audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
+        audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
+        lastLevelPublish = 0
+        lastHistoryPublish = 0
+        pendingMeterPeak = 0
+        pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
+        liveCaptionSegments = []
+        liveCaptionCarryoverSegments = []
+        liveCaptionMessage = nil
+        liveCaptionStatusPhase = nil
+        activeLiveCaptionConfiguration = nil
+        liveCaptionIsFinal = false
+        activeRecordingID = nil
+        sessionDir = nil
+        lastSessionDir = nil
+        recordingSuggestion = nil
+        meetingPrompt = nil
+        currentOutputAudioDeviceID = nil
+        recordingAppName = nil
+        detectedMeetingRecordingContext = nil
+        pendingDetectedMeetingRecordingContext = nil
+        autoStopRequest = nil
+    }
+
     /// Merge the latest peak + spectrum from either audio source into the
     /// live recording meter. Called from the capture queues. We accumulate
     /// the max of system + mic frames between UI publishes; otherwise a

@@ -93,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private let uiTestMode = UITestModeConfiguration.shared
     private var activityObserver: AnyCancellable?
     private var promptedAutoPromptKeyByBundleID: [String: String] = [:]
+    private var autoPromptSuppressedUntilInactiveBundleIDs: Set<String> = []
     private var activePromptRefreshTask: Task<Void, Never>?
     private var browserAutoPromptTask: Task<Void, Never>?
     private var hiddenPanelAutoPromptTask: Task<Void, Never>?
@@ -1236,8 +1237,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func handleActiveAudioChanged(_ active: Set<String>) {
+        let canonicalActive = Set(active.map(BundleCollapser.parent(of:)))
+        autoPromptSuppressedUntilInactiveBundleIDs.formIntersection(canonicalActive)
         handleDetectedMeetingRecordingActivity(active)
-        promptedAutoPromptKeyByBundleID = promptedAutoPromptKeyByBundleID.filter { active.contains($0.key) }
+        promptedAutoPromptKeyByBundleID = promptedAutoPromptKeyByBundleID.filter {
+            canonicalActive.contains(BundleCollapser.parent(of: $0.key))
+        }
 
         guard AppConfig.shared.autoPromptForActiveAudioApps else {
             browserAutoPromptTask?.cancel()
@@ -1275,6 +1280,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             }
             self.scheduleBrowserMeetingAutoPromptIfNeeded(latestActive)
         }
+    }
+
+    func suppressAutoPromptForCurrentRecordingSourceUntilInactive() {
+        let explicitSources = [
+            recorder.selectedApp?.id,
+            recorder.detectedMeetingRecordingContext?.appID,
+        ].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let sourceIDs = explicitSources.isEmpty ? Array(effectiveActiveAudioBundleIDs) : explicitSources
+        let canonicalSources = sourceIDs.map(BundleCollapser.parent(of:))
+        guard !canonicalSources.isEmpty else { return }
+
+        autoPromptSuppressedUntilInactiveBundleIDs.formUnion(canonicalSources)
+        browserAutoPromptTask?.cancel()
+        hiddenPanelAutoPromptTask?.cancel()
+        hiddenPanelAutoPromptTask = nil
     }
 
     private func handleDetectedMeetingRecordingActivity(_ active: Set<String>) {
@@ -1339,6 +1361,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private func promptForMeetingAudioIfNeeded(_ active: Set<String>) -> Bool {
         guard recorder.state == .idle else { return false }
         guard let app = AudioRecorder.autoPromptCandidate(from: recorder.runningApps, active: active) else { return false }
+        guard !autoPromptSuppressedUntilInactiveBundleIDs.contains(BundleCollapser.parent(of: app.id)) else {
+            return false
+        }
         let target = AutoPromptTarget(app: app, promptKey: "meeting:\(app.id)", promptTitle: nil)
         return presentAutoPromptIfNeeded(target)
     }
@@ -1404,6 +1429,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             .sorted(by: AudioRecorder.sortOrder)
 
         for app in candidates {
+            guard !autoPromptSuppressedUntilInactiveBundleIDs.contains(BundleCollapser.parent(of: app.id)) else {
+                continue
+            }
+
             if let promptTitle = meetingLabelOverride(for: app.id) {
                 return AutoPromptTarget(
                     app: app,

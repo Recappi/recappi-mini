@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import SwiftUI
 import XCTest
 @testable import RecappiMini
@@ -2142,6 +2143,31 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(gate.shouldEmit(at: 10.11))
         XCTAssertFalse(gate.shouldEmit(at: 10.16))
         XCTAssertTrue(gate.shouldEmit(at: 10.22))
+    }
+
+    @MainActor
+    func testDiscardRecordingReturnsIdleWithoutProcessingPhase() async {
+        let recorder = AudioRecorder()
+        var observedStates: [RecorderState] = []
+        let cancellable = recorder.$state.sink { observedStates.append($0) }
+        defer { cancellable.cancel() }
+
+        recorder.state = .recording
+        recorder.elapsedSeconds = 12
+
+        await recorder.discardRecording()
+
+        XCTAssertEqual(recorder.state, .idle)
+        XCTAssertEqual(recorder.elapsedSeconds, 0)
+        XCTAssertFalse(
+            observedStates.contains { state in
+                if case .processing = state {
+                    return true
+                }
+                return false
+            },
+            "Discarding a recording must not reuse the stop/save path that shows a preparing/processing state."
+        )
     }
 
     @MainActor

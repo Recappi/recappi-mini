@@ -243,8 +243,8 @@ struct RecordingPanel: View {
 
     private func discardRecording() {
         Task {
-            _ = try? await recorder.stopRecording()
-            recorder.reset()
+            AppDelegate.shared.suppressAutoPromptForCurrentRecordingSourceUntilInactive()
+            await recorder.discardRecording()
         }
     }
 
