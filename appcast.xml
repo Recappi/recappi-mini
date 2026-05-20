@@ -12,7 +12,7 @@
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <description><![CDATA[<pre>重要：v1.0.101 及之前版本用户需要手动安装一次本版本。
 
-由于这几个版本的自动更新组件 (Sparkle) 签名有问题，App 内的“检查更新”无法升级到本版本及以后。
+由于旧版本的自动更新组件 (Sparkle) 签名有问题，App 内的“检查更新”可能无法升级到本版本及以后。
 
 操作：从下方 RecappiMini-1.0.102.dmg 下载安装一次，之后所有自动更新会恢复正常。
 
