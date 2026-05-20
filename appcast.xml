@@ -3,22 +3,15 @@
     <channel>
         <title>Recappi Mini</title>
         <item>
-            <title>1.0.104</title>
-            <pubDate>Wed, 20 May 2026 12:06:27 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.104</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.104</sparkle:fullReleaseNotesLink>
-            <sparkle:version>115</sparkle:version>
-            <sparkle:shortVersionString>1.0.104</sparkle:shortVersionString>
+            <title>1.0.105</title>
+            <pubDate>Wed, 20 May 2026 15:42:02 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.105</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.105</sparkle:fullReleaseNotesLink>
+            <sparkle:version>116</sparkle:version>
+            <sparkle:shortVersionString>1.0.105</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>Recappi Mini v1.0.104
-
-Cloud polish:
-- Refined the Cloud panel toward a more native macOS sidebar/reader feel.
-- Kept the account profile fixed at the top of the Cloud sidebar.
-- Simplified speaker labels and active states to reduce visual noise.
-- Added an inline Sync action to the Cloud audio bar when audio is not local yet.
-- Fixed transcript text clicks so they jump to the corresponding audio segment.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.104/RecappiMini-1.0.104.dmg" length="5728819" type="application/octet-stream" sparkle:edSignature="A6Q5LHgjIickRiP6ctqM7RxS9acAPD9w2TrAfCzgSAW0WlxeJDA9eHOC2r3l0eyrucZQPLtG7wiSvQQwVHCGCw=="/>
+            <description><![CDATA[<pre>Automated release for v1.0.105.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.105/RecappiMini-1.0.105.dmg" length="5590662" type="application/octet-stream" sparkle:edSignature="yBR9Sks8GVWLwWI1aAH6i8MvHE+qU+ZKdeD5vFvraR882JrBWtEfUccy9vA7suJuoEq7b2NVOKhVklBNMnb8AA=="/>
         </item>
     </channel>
 </rss>
