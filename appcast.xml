@@ -10,7 +10,19 @@
             <sparkle:version>118</sparkle:version>
             <sparkle:shortVersionString>1.0.107</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>Automated release for v1.0.107.</pre>]]></description>
+            <description><![CDATA[<pre>## Recappi Mini v1.0.107
+
+### Diagnostics and support logs
+
+- Added a diagnostics log archive export in Settings &gt; General so users can create a `RecappiMiniLogs-*.zip` bundle and send it when reporting issues.
+- Added Open Logs Folder actions in the status menu and recording error panel.
+- Expanded diagnostics coverage across app launch, macOS permission state, auth, updater, network failures, Cloud cache, recording, upload, and live-caption paths.
+- Improved log rotation: Recappi now keeps the current `diagnostics.log` plus up to five rotated log files.
+- Added a best-effort uncaught Objective-C exception log entry before crash termination.
+
+### Notes
+
+Some process-level failures, such as Swift fatal errors, SIGKILL, or kernel-level termination, may still require macOS crash reports or future Sentry reporting.</pre>]]></description>
             <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.107/RecappiMini-1.0.107.dmg" length="5641579" type="application/octet-stream" sparkle:edSignature="pexzwF3nCxC1QGWAf8tNPcT3nJ3Amw8nt3l2qZ1aPicLb8tvgYwbUwI7WbciHGiq/vjus/qC6mRReYzTLl2UAA=="/>
         </item>
     </channel>
