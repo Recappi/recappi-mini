@@ -30,6 +30,22 @@ enum SentryReporter {
             options.maxBreadcrumbs = 150
             options.attachStacktrace = true
             options.attachAllThreads = false
+            options.enableAutoSessionTracking = true
+            options.enableAppHangTracking = true
+            options.appHangTimeoutInterval = 2.0
+            options.swiftAsyncStacktraces = true
+            options.enableCaptureFailedRequests = false
+            options.enableMetrics = false
+            #if os(macOS)
+            options.enableUncaughtNSExceptionReporting = true
+            #endif
+            #if !os(watchOS)
+            options.enableSigtermReporting = true
+            #endif
+            #if canImport(MetricKit) && !os(tvOS)
+            options.enableMetricKit = true
+            options.enableMetricKitRawPayload = false
+            #endif
 
             // Keep this crash/error focused. Recappi already writes local
             // diagnostics for high-volume runtime details, so we avoid Sentry
@@ -98,37 +114,51 @@ enum SentryReporter {
     static func safeTelemetryFields(from message: String) -> [String: String] {
         let safeKeys: Set<String> = [
             "attempts",
+            "appearance",
             "bilingual",
             "build",
+            "backend",
             "cloudCaptions",
+            "code",
             "contentType",
+            "deviceHash",
+            "diskFreeMb",
             "dir",
+            "domain",
             "durationMs",
             "elapsedSeconds",
             "file",
             "includeMic",
             "job",
+            "jobID",
             "language",
+            "lowPower",
             "method",
             "micBuffers",
             "micIncluded",
             "micLastAgo",
+            "mode",
             "outputDevice",
+            "originHash",
             "partCount",
             "partSize",
             "path",
             "pid",
             "provider",
             "recording",
+            "recordingID",
             "screenCapture",
             "selectedBundle",
+            "section",
             "size",
             "stage",
             "status",
+            "statusCode",
             "systemBuffers",
             "systemLastAgo",
             "transcript",
             "uiTest",
+            "userHash",
             "version",
         ]
         var fields: [String: String] = [:]
@@ -285,7 +315,22 @@ private struct DiagnosticTelemetry {
 
     var searchableTags: [String: String] {
         var tags: [String: String] = [:]
-        for key in ["dir", "recording", "job", "stage", "status", "file", "provider"] {
+        for key in [
+            "dir",
+            "recording",
+            "recordingID",
+            "job",
+            "jobID",
+            "stage",
+            "status",
+            "file",
+            "provider",
+            "backend",
+            "domain",
+            "code",
+            "statusCode",
+            "mode",
+        ] {
             guard let value = fields[key], !value.isEmpty else { continue }
             tags["diag.\(key)"] = value
         }

@@ -90,6 +90,10 @@ final class AuthSessionStore: ObservableObject {
         } catch {
             // Keep the seeded credential around so UI tests can intentionally
             // cover invalid / expired token states without surprise mutation.
+            DiagnosticsLog.warning(
+                "auth",
+                "startup.ensure_failed originHash=\(Self.normalizeOrigin(origin).hashValue) \(DiagnosticsLog.errorSummary(error))"
+            )
         }
     }
 

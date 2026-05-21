@@ -151,6 +151,10 @@ extension CloudLibraryStore {
         do {
             try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript)
         } catch {
+            DiagnosticsLog.error(
+                "cloud",
+                "transcript.sync_local.failed recordingID=\(recording.id) \(DiagnosticsLog.errorSummary(error))"
+            )
             playbackErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
         }
     }

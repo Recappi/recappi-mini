@@ -149,6 +149,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         finishLaunchingIfNeeded()
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        DiagnosticsLog.event("app", "lifecycle.active")
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        DiagnosticsLog.event("app", "lifecycle.inactive")
+    }
+
     func finishLaunchingIfNeeded() {
         guard !didFinishLaunching else { return }
         didFinishLaunching = true
@@ -318,6 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        DiagnosticsLog.event("app", "lifecycle.terminate")
         activePromptRefreshTask?.cancel()
         browserAutoPromptTask?.cancel()
         hiddenPanelAutoPromptTask?.cancel()
@@ -538,8 +547,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let screenCaptureAccess = CapturePermissionPrimer.shared.hasScreenCaptureAccess()
         DiagnosticsLog.event(
             "app",
-            "launch version=\(version) build=\(build) pid=\(process.processIdentifier) os='\(DiagnosticsLog.sanitize(process.operatingSystemVersionString, maxLength: 80))' arch=\(Self.processArchitecture) uiTest=\(uiTestMode.isEnabled) micStatus=\(micStatus.rawValue) screenCapture=\(screenCaptureAccess) logs=\(DiagnosticsLog.fileURL.path)"
+            "launch version=\(version) build=\(build) pid=\(process.processIdentifier) os='\(DiagnosticsLog.sanitize(process.operatingSystemVersionString, maxLength: 80))' arch=\(Self.processArchitecture) uiTest=\(uiTestMode.isEnabled) micStatus=\(micStatus.rawValue) screenCapture=\(screenCaptureAccess) lowPower=\(process.isLowPowerModeEnabled) appearance=\(Self.effectiveAppearanceName) locale=\(Locale.current.identifier) diskFreeMb=\(Self.availableDiskMegabytes ?? -1) logs=\(DiagnosticsLog.fileURL.path)"
         )
+    }
+
+    private static var effectiveAppearanceName: String {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? "dark" : "light"
+    }
+
+    private static var availableDiskMegabytes: Int? {
+        let values = try? FileManager.default.homeDirectoryForCurrentUser.resourceValues(
+            forKeys: [.volumeAvailableCapacityForImportantUsageKey]
+        )
+        guard let bytes = values?.volumeAvailableCapacityForImportantUsage else { return nil }
+        return Int(bytes / 1_048_576)
     }
 
     private static var processArchitecture: String {
@@ -716,6 +737,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func showCloudCenter() {
+        DiagnosticsLog.event("cloud", "window.open")
         if let cloudWindow = managedWindows.cloudWindow {
             activateForegroundWindowPresentation()
             cloudWindow.makeKeyAndOrderFront(nil)

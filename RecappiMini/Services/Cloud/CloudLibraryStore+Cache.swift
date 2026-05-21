@@ -8,6 +8,10 @@ extension CloudLibraryStore {
     }
 
     func handleRefreshFailure(_ error: Error, preserveVisibleData: Bool) {
+        DiagnosticsLog.error(
+            "cloud",
+            "refresh.failed preserveVisibleData=\(preserveVisibleData) hasVisibleData=\(hasVisibleLibraryData) \(DiagnosticsLog.errorSummary(error))"
+        )
         guard preserveVisibleData, hasVisibleLibraryData else {
             apply(error: error)
             return

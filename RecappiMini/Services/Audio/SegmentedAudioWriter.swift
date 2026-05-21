@@ -473,7 +473,10 @@ struct AudioCaptureDiagnostics: Codable {
             let data = try encoder.encode(diagnostics)
             try data.write(to: sessionDir.appendingPathComponent("audio-capture.json"))
         } catch {
-            print("Failed to write audio capture diagnostics: \(error.localizedDescription)")
+            DiagnosticsLog.error(
+                "recording",
+                "audio_capture_diagnostics.write.failed dir=\(sessionDir.lastPathComponent) \(DiagnosticsLog.errorSummary(error))"
+            )
         }
     }
 

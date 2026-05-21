@@ -187,6 +187,10 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
                 if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 216 {
                     return
                 }
+                DiagnosticsLog.error(
+                    "live-caption",
+                    "local_speech.recognition.failed locale=\(recognizer.locale.identifier) \(DiagnosticsLog.errorSummary(error))"
+                )
                 self?.publishFromRecognitionCallback(.statusOnly(
                     phase: .failed,
                     message: error.localizedDescription
@@ -344,6 +348,10 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
                 if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 216 {
                     return
                 }
+                DiagnosticsLog.error(
+                    "live-caption",
+                    "local_speech.recognition.failed locale=\(recognizer.locale.identifier) \(DiagnosticsLog.errorSummary(error))"
+                )
                 self?.publishFromRecognitionCallback(.statusOnly(
                     phase: .failed,
                     message: error.localizedDescription

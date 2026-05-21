@@ -2146,7 +2146,10 @@ final class AudioRecorder: NSObject, ObservableObject {
         do {
             try await stream.updateConfiguration(makeSystemAudioConfiguration())
         } catch {
-            print("Failed to update output audio configuration: \(error.localizedDescription)")
+            DiagnosticsLog.error(
+                "recording",
+                "screen_capture.output_reconfigure.failed outputDevice=\(deviceID) \(DiagnosticsLog.errorSummary(error))"
+            )
         }
     }
 
@@ -2176,9 +2179,15 @@ final class AudioRecorder: NSObject, ObservableObject {
                 micSession.addInput(oldInput)
             }
             micSession.commitConfiguration()
-            print("Failed to switch microphone input: capture session rejected the new device")
+            DiagnosticsLog.error(
+                "recording",
+                "microphone.input_reconfigure.rejected deviceHash=\(newDevice.uniqueID.hashValue)"
+            )
         } catch {
-            print("Failed to switch microphone input: \(error.localizedDescription)")
+            DiagnosticsLog.error(
+                "recording",
+                "microphone.input_reconfigure.failed deviceHash=\(newDevice.uniqueID.hashValue) \(DiagnosticsLog.errorSummary(error))"
+            )
         }
     }
 }

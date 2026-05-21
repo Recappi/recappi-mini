@@ -154,6 +154,7 @@ struct RecordingPanel: View {
     }
 
     private func startRecording(kind: RecordingStartKind) {
+        DiagnosticsLog.event("recording-panel", "start.click kind=\(kind.rawValue)")
         recorder.setIncludesMicrophoneAudio(config.recordingIncludeMicrophoneAudio)
 
         Task {
@@ -166,6 +167,10 @@ struct RecordingPanel: View {
                 NSLog("[Recappi] startRecording() returned, state now = \(recorder.state)")
             } catch {
                 NSLog("[Recappi] startRecording() error: \(error)")
+                DiagnosticsLog.error(
+                    "recording-panel",
+                    "start.failed kind=\(kind.rawValue) \(DiagnosticsLog.errorSummary(error))"
+                )
                 recorder.state = .error(message: NetworkErrorPresenter.userFacingMessage(for: error))
             }
         }
@@ -176,18 +181,24 @@ struct RecordingPanel: View {
     }
 
     private func stopRecording() {
+        DiagnosticsLog.event("recording-panel", "stop.click")
         Task {
             do {
                 let duration = recorder.elapsedSeconds
                 let sessionDir = try await recorder.stopRecording()
                 await processSession(sessionDir, duration: duration)
             } catch {
+                DiagnosticsLog.error(
+                    "recording-panel",
+                    "stop.failed \(DiagnosticsLog.errorSummary(error))"
+                )
                 recorder.state = .error(message: NetworkErrorPresenter.userFacingMessage(for: error))
             }
         }
     }
 
     private func retryProcessing(_ message: String) {
+        DiagnosticsLog.event("recording-panel", "retry_processing.click hasSession=\(recorder.lastSessionDir != nil)")
         guard let sessionDir = recorder.lastSessionDir else {
             recorder.state = .error(message: "No session to retry")
             return
@@ -227,6 +238,10 @@ struct RecordingPanel: View {
                 postBackgroundProcessingNotification(for: result)
             }
         } catch {
+            DiagnosticsLog.error(
+                "recording-panel",
+                "process_session.failed visible=\(visibleProcessingSessionID == sessionID) \(DiagnosticsLog.errorSummary(error))"
+            )
             if visibleProcessingSessionID == sessionID {
                 recorder.state = .error(message: NetworkErrorPresenter.userFacingMessage(for: error))
                 visibleProcessingSessionID = nil
@@ -237,6 +252,7 @@ struct RecordingPanel: View {
     }
 
     private func detachCurrentProcessingToBackground() {
+        DiagnosticsLog.event("recording-panel", "detach_processing.click visibleSession=\(visibleProcessingSessionID != nil)")
         if visibleProcessingSessionID == nil {
             detachProcessingWhenReady = true
         } else {
@@ -248,6 +264,7 @@ struct RecordingPanel: View {
     }
 
     private func discardRecording() {
+        DiagnosticsLog.event("recording-panel", "discard.click")
         Task {
             AppDelegate.shared.suppressAutoPromptForCurrentRecordingSourceUntilInactive()
             await recorder.discardRecording()

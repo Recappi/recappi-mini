@@ -22,6 +22,10 @@ extension CloudLibraryStore {
             // + GET /api/jobs/:id.
             transcriptionJobsByRecordingID[recording.id] = transcriptionJobsByRecordingID[recording.id] ?? []
         } catch {
+            DiagnosticsLog.error(
+                "cloud",
+                "job_history.load.failed recordingID=\(recording.id) \(DiagnosticsLog.errorSummary(error))"
+            )
             if selectedRecordingID == recording.id {
                 cacheWarningMessage = "Showing cached data · Job status refresh failed"
                 isShowingCachedData = true
@@ -132,6 +136,10 @@ extension CloudLibraryStore {
             apply(error: error)
         } catch {
             PerfLog.end("loadTranscript", extra: "result=error type=\(String(describing: type(of: error)))")
+            DiagnosticsLog.error(
+                "cloud",
+                "transcript.load.failed recordingID=\(loadingRecordingID) \(DiagnosticsLog.errorSummary(error))"
+            )
             if selectedRecordingID == loadingRecordingID {
                 transcriptErrorMessage = transcriptMessage(for: error)
             }
@@ -189,6 +197,10 @@ extension CloudLibraryStore {
                 apply(error: error)
                 return
             } catch {
+                DiagnosticsLog.error(
+                    "cloud",
+                    "job.refresh.failed recordingID=\(recordingID) jobID=\(jobID) \(DiagnosticsLog.errorSummary(error))"
+                )
                 cacheWarningMessage = "Showing cached data · Job status refresh failed"
                 isShowingCachedData = true
             }
@@ -283,6 +295,10 @@ extension CloudLibraryStore {
             // The transcript is already refreshed; a detail refresh failure
             // should not resurrect the newer-version banner. Surface it as
             // cache-warning noise instead of blocking the current content.
+            DiagnosticsLog.warning(
+                "cloud",
+                "recording.detail.refresh_after_transcript.failed recordingID=\(recordingID) \(DiagnosticsLog.errorSummary(error))"
+            )
             cacheWarningMessage = "Showing refreshed transcript · Detail metadata refresh failed"
             isShowingCachedData = true
         }

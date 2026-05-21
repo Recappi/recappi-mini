@@ -24,10 +24,12 @@ extension CloudLibraryStore {
                 // Free-tier accounts do not have a Stripe customer yet.
                 openPlansPage()
             default:
+                DiagnosticsLog.error("cloud", "billing.portal.failed \(DiagnosticsLog.errorSummary(error))")
                 billingErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
                 openPlansPage()
             }
         } catch {
+            DiagnosticsLog.error("cloud", "billing.portal.failed \(DiagnosticsLog.errorSummary(error))")
             billingErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
             openPlansPage()
         }
@@ -62,6 +64,10 @@ extension CloudLibraryStore {
             if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
                 handleRefreshFailure(error, preserveVisibleData: hasVisibleLibraryData)
             } else {
+                DiagnosticsLog.error(
+                    "cloud",
+                    "recording.delete.failed recordingID=\(recording.id) \(DiagnosticsLog.errorSummary(error))"
+                )
                 cacheWarningMessage = "Delete failed · Current list kept"
                 state = recordings.isEmpty ? .empty : .loaded
             }
@@ -148,6 +154,7 @@ extension CloudLibraryStore {
         }
         state = .failed(NetworkErrorPresenter.userFacingMessage(for: error))
         cacheWarningMessage = nil
+        DiagnosticsLog.error("cloud", "state.failed \(DiagnosticsLog.errorSummary(error))")
     }
 
 

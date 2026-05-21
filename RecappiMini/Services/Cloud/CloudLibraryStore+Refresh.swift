@@ -106,6 +106,10 @@ extension CloudLibraryStore {
                 count += page.items.count
                 cursor = page.nextCursor
             } catch {
+                DiagnosticsLog.warning(
+                    "cloud",
+                    "total_count.page.failed cursorHash=\(currentCursor.hashValue) \(DiagnosticsLog.errorSummary(error))"
+                )
                 return nil
             }
         }
@@ -138,6 +142,10 @@ extension CloudLibraryStore {
             if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
                 handleRefreshFailure(error, preserveVisibleData: hasVisibleLibraryData)
             } else {
+                DiagnosticsLog.error(
+                    "cloud",
+                    "load_more.failed cursorHash=\(cursor.hashValue) \(DiagnosticsLog.errorSummary(error))"
+                )
                 cacheWarningMessage = "Load more failed · Current list kept"
                 state = recordings.isEmpty ? .empty : .loaded
             }

@@ -7,6 +7,7 @@ extension CloudLibraryStore {
 
     func select(_ recording: CloudRecording) {
         PerfLog.event("select", extra: "id=\(recording.id.prefix(8))")
+        DiagnosticsLog.event("cloud", "recording.select recordingID=\(recording.id)")
         PerfLog.start("select.until.firstRender")
         selectedRecordingID = recording.id
         transcriptErrorMessage = nil
@@ -201,6 +202,10 @@ extension CloudLibraryStore {
             if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
                 handleRefreshFailure(error, preserveVisibleData: hasVisibleLibraryData)
             } else {
+                DiagnosticsLog.error(
+                    "cloud",
+                    "selected_detail.refresh.failed recordingID=\(recordingID) \(DiagnosticsLog.errorSummary(error))"
+                )
                 cacheWarningMessage = "Showing cached data · Detail refresh failed"
                 isShowingCachedData = true
             }

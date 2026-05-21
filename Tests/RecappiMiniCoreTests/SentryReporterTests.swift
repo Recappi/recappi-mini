@@ -21,12 +21,14 @@ final class SentryReporterTests: XCTestCase {
 
     func testTelemetryFieldsKeepSafeDiagnosticsOnly() {
         let fields = SentryReporter.safeTelemetryFields(
-            from: "process.failed dir=2026-05-21_120000 recording=rec_123 file=recording.m4a prompt='raw prompt' text='hello' summary='private' systemBuffers=42 systemLastAgo=0.04s"
+            from: "process.failed dir=2026-05-21_120000 recording=rec_123 file=recording.m4a domain=NSURLErrorDomain code=-1001 prompt='raw prompt' text='hello' summary='private' systemBuffers=42 systemLastAgo=0.04s"
         )
 
         XCTAssertEqual(fields["dir"], "2026-05-21_120000")
         XCTAssertEqual(fields["recording"], "rec_123")
         XCTAssertEqual(fields["file"], "recording.m4a")
+        XCTAssertEqual(fields["domain"], "NSURLErrorDomain")
+        XCTAssertEqual(fields["code"], "-1001")
         XCTAssertEqual(fields["systemBuffers"], "42")
         XCTAssertEqual(fields["systemLastAgo"], "0.04s")
         XCTAssertNil(fields["prompt"])

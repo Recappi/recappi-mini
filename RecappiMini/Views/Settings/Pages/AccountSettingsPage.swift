@@ -427,6 +427,10 @@ struct AccountSettingsPage: View {
                 _ = try await sessionStore.startOAuth(provider: provider, origin: origin)
                 await refreshBillingStatus(force: true)
             } catch {
+                DiagnosticsLog.error(
+                    "settings",
+                    "account.sign_in.failed provider=\(provider.rawValue) \(DiagnosticsLog.errorSummary(error))"
+                )
                 NSSound.beep()
             }
         }
@@ -439,6 +443,7 @@ struct AccountSettingsPage: View {
                 _ = try await sessionStore.reconnect(origin: origin)
                 await refreshBillingStatus(force: true)
             } catch {
+                DiagnosticsLog.error("settings", "account.reconnect.failed \(DiagnosticsLog.errorSummary(error))")
                 NSSound.beep()
             }
         }
@@ -495,10 +500,12 @@ struct AccountSettingsPage: View {
                 _ = try await sessionStore.handleUnauthorized(origin: origin)
             } catch {
                 // `handleUnauthorized` already updates the visible auth state.
+                DiagnosticsLog.warning("settings", "billing.handle_unauthorized.failed \(DiagnosticsLog.errorSummary(error))")
             }
             billingStatus = nil
             billingErrorMessage = nil
         } catch {
+            DiagnosticsLog.error("settings", "billing.refresh.failed \(DiagnosticsLog.errorSummary(error))")
             billingStatus = nil
             billingErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
         }

@@ -85,6 +85,7 @@ struct CloudDetailScrollableSections<Summary: View, Timeline: View, TranscriptHe
                 }
             }
             .onChange(of: activeDetailSection) { _, section in
+                DiagnosticsLog.event("cloud", "detail.section.changed section=\(section)")
                 guard section == .transcript,
                       isPlaybackActive,
                       let activeSegmentID else { return }

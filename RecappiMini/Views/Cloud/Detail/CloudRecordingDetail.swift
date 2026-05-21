@@ -847,6 +847,10 @@ struct CloudRecordingDetail: View {
             } catch is CancellationError {
                 // Selection changes cancel silently.
             } catch {
+                DiagnosticsLog.error(
+                    "cloud",
+                    "transcript_version.load.failed recordingID=\(recording.id) jobID=\(job.id) \(DiagnosticsLog.errorSummary(error))"
+                )
                 if selectedTranscriptVersionJobID == job.id {
                     transcriptVersionErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
                 }

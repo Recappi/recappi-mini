@@ -27,6 +27,10 @@ extension CloudLibraryStore {
                 apply(error: error)
                 return
             } catch {
+                DiagnosticsLog.error(
+                    "cloud",
+                    "process_recording.lookup.failed recordingID=\(trimmedID) \(DiagnosticsLog.errorSummary(error))"
+                )
                 transcriptErrorMessage = transcriptMessage(for: error)
                 return
             }
@@ -83,6 +87,10 @@ extension CloudLibraryStore {
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)
         } catch {
+            DiagnosticsLog.error(
+                "cloud",
+                "transcription.start.failed recordingID=\(recording.id) action=\(action.rawValue) \(DiagnosticsLog.errorSummary(error))"
+            )
             transcriptErrorMessage = transcriptMessage(for: error)
         }
     }

@@ -29,7 +29,7 @@ struct DevelopmentAuthStore {
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
             return true
         } catch {
-            NSLog("[Recappi] failed to persist debug auth token: \(error.localizedDescription)")
+            DiagnosticsLog.error("auth", "debug_token.save.failed \(DiagnosticsLog.errorSummary(error))")
             return false
         }
     }
@@ -40,9 +40,8 @@ struct DevelopmentAuthStore {
             try fileManager.removeItem(at: fileURL)
             return true
         } catch {
-            NSLog("[Recappi] failed to remove debug auth token: \(error.localizedDescription)")
+            DiagnosticsLog.error("auth", "debug_token.delete.failed \(DiagnosticsLog.errorSummary(error))")
             return false
         }
     }
 }
-

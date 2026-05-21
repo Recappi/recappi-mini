@@ -20,6 +20,10 @@ extension CloudLibraryStore {
             }
             playbackAudioURLsByRecordingID[recording.id] = lastDownloadedAudioURL
         } catch {
+            DiagnosticsLog.error(
+                "cloud",
+                "audio.download.failed recordingID=\(recording.id) \(DiagnosticsLog.errorSummary(error))"
+            )
             apply(error: error)
         }
 
@@ -44,6 +48,10 @@ extension CloudLibraryStore {
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)
         } catch {
+            DiagnosticsLog.error(
+                "cloud",
+                "playback_audio.prepare.failed recordingID=\(recording.id) \(DiagnosticsLog.errorSummary(error))"
+            )
             playbackErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
         }
 
@@ -81,6 +89,10 @@ extension CloudLibraryStore {
         } catch let error as RecappiAPIError where error == .unauthorized {
             apply(error: error)
         } catch {
+            DiagnosticsLog.error(
+                "cloud",
+                "recording.sync_local.failed recordingID=\(recording.id) \(DiagnosticsLog.errorSummary(error))"
+            )
             playbackErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
         }
 
