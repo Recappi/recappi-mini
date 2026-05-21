@@ -3,15 +3,15 @@
     <channel>
         <title>Recappi Mini</title>
         <item>
-            <title>1.0.110</title>
-            <pubDate>Thu, 21 May 2026 07:53:11 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.110</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.110</sparkle:fullReleaseNotesLink>
-            <sparkle:version>121</sparkle:version>
-            <sparkle:shortVersionString>1.0.110</sparkle:shortVersionString>
+            <title>1.0.111</title>
+            <pubDate>Thu, 21 May 2026 08:16:35 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.111</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.111</sparkle:fullReleaseNotesLink>
+            <sparkle:version>122</sparkle:version>
+            <sparkle:shortVersionString>1.0.111</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>Fixes\n- Cloud Transcription now keeps each transcript segment as its own block instead of merging adjacent segments from the same speaker.\n- Speaker names remain clickable per segment for quick rename/edit flows.\n\nBackend\n- New recordings now use transcript segments when deciding whether to auto-generate a summary, so provider-generated short overview text no longer causes long recordings to skip summary generation.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.110/RecappiMini-1.0.110.dmg" length="6711210" type="application/octet-stream" sparkle:edSignature="R+dmDDWeGZsyzSjlwyS1LjY52x07+PhURoTnNI3G6nS8ipYHDoOA+RsKpqrgTzvjc3LtrdgkWOG/D5DNfwRtDA=="/>
+            <description><![CDATA[<pre>Fixes\n- Ignore benign cancelled network requests (, code ) in Sentry error capture.\n- Keeps real network failures such as timeouts, offline errors, and server errors reportable while reducing noisy Sentry alerts during Cloud refresh/navigation.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.111/RecappiMini-1.0.111.dmg" length="6711323" type="application/octet-stream" sparkle:edSignature="CS9mhG/eU9qXNURzae96B8wc8Az3azRoI5PAJGZAyS0F7ca9OZSM0TUfJkfVI3YuqdGddvF7ag3zdhlkR0uQDw=="/>
         </item>
     </channel>
 </rss>
