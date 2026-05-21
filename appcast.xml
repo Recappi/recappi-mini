@@ -10,7 +10,19 @@
             <sparkle:version>119</sparkle:version>
             <sparkle:shortVersionString>1.0.108</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>Automated release for v1.0.108.</pre>]]></description>
+            <description><![CDATA[<pre>## Recappi Mini v1.0.108 — CoreAudio recording capture
+
+### Fixes
+- Replaces the default system-audio recording path with a CoreAudio process tap instead of ScreenCaptureKit.
+- Reduces the WindowServer/coreaudiod load that could make macOS feel lower-FPS while recording.
+- Avoids the old ScreenCaptureKit-driven permission prompt loop during recording.
+- Captures broad system audio while excluding Recappi Mini itself, so meeting apps with helper processes are less likely to go silent mid-call.
+
+### Validation
+- `swift test`: 250 tests, 1 explicit local probe skipped by default, 0 failures.
+- `./scripts/build-app.sh`: passed.
+- Local CoreAudio tap probe captured real system playback and wrote a non-empty CAF file.
+- Local CPU samples no longer showed the previous ScreenCaptureKit-style WindowServer spike.</pre>]]></description>
             <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.108/RecappiMini-1.0.108.dmg" length="5667785" type="application/octet-stream" sparkle:edSignature="SPi+zgrfl/1Mj7bZ/GFpZluQIdj5/Bb6lGzvvDKAKjDDJ985JdAwLMBhOOnBlWPXly8N6CW+r+SEk/ttb85nAg=="/>
         </item>
     </channel>
