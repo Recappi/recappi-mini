@@ -237,6 +237,10 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
         of type: SCStreamOutputType
     ) {
         guard type == .audio else { return }
+        handleAudioSampleBuffer(sampleBuffer)
+    }
+
+    func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
         guard sampleBuffer.isValid else { return }
         let now = ProcessInfo.processInfo.systemUptime
         let state = stateQueue.sync {

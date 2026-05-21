@@ -66,6 +66,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     private let liveCaptionStore = RecordingCaptionStore()
     private var liveCaptionCarryoverSegments: [LiveCaptionSegment] = []
     private let systemCaptureQueue = DispatchQueue(label: "RecappiMini.SystemCapture")
+    private var coreAudioTapCapture: CoreAudioProcessTapCapture?
     private var audioDeviceMonitor: DefaultAudioDeviceMonitor?
     private var currentOutputAudioDeviceID: AudioDeviceID?
 
@@ -632,15 +633,26 @@ final class AudioRecorder: NSObject, ObservableObject {
         do {
             try await requestMicrophoneAccessIfNeeded()
             DiagnosticsLog.event("permissions", "microphone.authorized")
-            guard CapturePermissionPrimer.shared.hasScreenCaptureAccess() else {
-                DiagnosticsLog.warning("permissions", "screen_capture.denied_or_missing")
-                throw RecorderError.screenCaptureDenied
-            }
-            DiagnosticsLog.event("permissions", "screen_capture.authorized")
+            let systemAudioBackend = SystemAudioCaptureBackend.current
+            let content: SCShareableContent?
+            let display: SCDisplay?
+            if systemAudioBackend == .screenCaptureKit {
+                guard CapturePermissionPrimer.shared.hasScreenCaptureAccess() else {
+                    DiagnosticsLog.warning("permissions", "screen_capture.denied_or_missing")
+                    throw RecorderError.screenCaptureDenied
+                }
+                DiagnosticsLog.event("permissions", "screen_capture.authorized")
 
-            let content = try await SCShareableContent.current
-            guard let display = content.displays.first else {
-                throw RecorderError.noDisplay
+                let shareableContent = try await SCShareableContent.current
+                guard let firstDisplay = shareableContent.displays.first else {
+                    throw RecorderError.noDisplay
+                }
+                content = shareableContent
+                display = firstDisplay
+            } else {
+                DiagnosticsLog.event("permissions", "system_audio.core_audio_tap requested")
+                content = nil
+                display = nil
             }
 
             let sessionDir = try RecordingStore.createSessionDirectory()
@@ -665,28 +677,45 @@ final class AudioRecorder: NSObject, ObservableObject {
             await startLiveCaptions(for: sysOut)
             self.systemOutput = sysOut
 
-            let filter: SCContentFilter
-            if let app = selectedApp {
-                let liveApps = content.applications.filter {
-                    BundleCollapser.matches($0.bundleIdentifier, selected: app.id)
-                }
-                if !liveApps.isEmpty {
-                    filter = SCContentFilter(display: display, including: liveApps, exceptingWindows: [])
-                    recordingAppName = app.name
+            switch systemAudioBackend {
+            case .screenCaptureKit:
+                guard let content, let display else { throw RecorderError.noDisplay }
+                let filter: SCContentFilter
+                if let app = selectedApp {
+                    let liveApps = content.applications.filter {
+                        BundleCollapser.matches($0.bundleIdentifier, selected: app.id)
+                    }
+                    if !liveApps.isEmpty {
+                        filter = SCContentFilter(display: display, including: liveApps, exceptingWindows: [])
+                        recordingAppName = app.name
+                    } else {
+                        filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                        recordingAppName = nil
+                    }
                 } else {
                     filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
                     recordingAppName = nil
                 }
-            } else {
-                filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-                recordingAppName = nil
+
+                let config = makeSystemAudioConfiguration()
+
+                let scStream = SCStream(filter: filter, configuration: config, delegate: nil)
+                try scStream.addStreamOutput(sysOut, type: .audio, sampleHandlerQueue: systemCaptureQueue)
+                self.stream = scStream
+                DiagnosticsLog.event("recording", "system_audio.backend screen_capture_kit")
+
+            case .coreAudioProcessTap:
+                let tapCapture = CoreAudioProcessTapCapture(
+                    selectedBundleID: selectedApp?.id,
+                    selfBundleID: Bundle.main.bundleIdentifier ?? "com.recappi.mini",
+                    output: sysOut,
+                    captureQueue: systemCaptureQueue
+                )
+                try tapCapture.start()
+                self.coreAudioTapCapture = tapCapture
+                recordingAppName = selectedApp?.name
+                DiagnosticsLog.event("recording", "system_audio.backend core_audio_process_tap")
             }
-
-            let config = makeSystemAudioConfiguration()
-
-            let scStream = SCStream(filter: filter, configuration: config, delegate: nil)
-            try scStream.addStreamOutput(sysOut, type: .audio, sampleHandlerQueue: systemCaptureQueue)
-            self.stream = scStream
 
             // --- Microphone pipeline ---
             let captureSession = AVCaptureSession()
@@ -728,7 +757,12 @@ final class AudioRecorder: NSObject, ObservableObject {
 
             // --- Start both pipelines ---
             try startMonitoringOutputDeviceChanges()
-            try await scStream.startCapture()
+            switch systemAudioBackend {
+            case .screenCaptureKit:
+                try await stream?.startCapture()
+            case .coreAudioProcessTap:
+                break
+            }
             captureSession.startRunning()
             mcOut.setIncludesAudio(includesMicrophoneAudio)
             DiagnosticsLog.event(
@@ -760,6 +794,8 @@ final class AudioRecorder: NSObject, ObservableObject {
             stopMonitoringOutputDeviceChanges()
             self.micSession?.stopRunning()
             self.stream = nil
+            self.coreAudioTapCapture?.stop()
+            self.coreAudioTapCapture = nil
             self.systemOutput = nil
             self.micSession = nil
             self.micOutput = nil
@@ -813,15 +849,18 @@ final class AudioRecorder: NSObject, ObservableObject {
         // If any async stop/finalize step throws, the microphone should still
         // be released immediately instead of staying captured until app quit.
         let scStream = self.stream
+        let coreAudioTapCapture = self.coreAudioTapCapture
         let systemOutput = self.systemOutput
         let micOutput = self.micOutput
         let micSession = self.micSession
         self.stream = nil
+        self.coreAudioTapCapture = nil
         self.systemOutput = nil
         self.micSession = nil
         self.micOutput = nil
 
         micSession?.stopRunning()
+        coreAudioTapCapture?.stop()
 
         var stopCaptureError: Error?
         do {
@@ -943,6 +982,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         )
 
         let scStream = self.stream
+        let coreAudioTapCapture = self.coreAudioTapCapture
         let systemOutput = self.systemOutput
         let micOutput = self.micOutput
         let micSession = self.micSession
@@ -956,10 +996,12 @@ final class AudioRecorder: NSObject, ObservableObject {
         endRecordingProcessActivity()
 
         stream = nil
+        self.coreAudioTapCapture = nil
         self.systemOutput = nil
         self.micSession = nil
         self.micOutput = nil
         micSession?.stopRunning()
+        coreAudioTapCapture?.stop()
 
         clearDiscardedRecordingState()
 
@@ -1091,6 +1133,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         meetingPrompt = nil
         micSession?.stopRunning()
         stream = nil
+        coreAudioTapCapture?.stop()
+        coreAudioTapCapture = nil
         systemOutput = nil
         stopLiveCaptions(saveTo: nil)
         liveCaptionSnapshotTask?.cancel()
@@ -2088,6 +2132,10 @@ final class AudioRecorder: NSObject, ObservableObject {
     private func handleOutputDeviceChange(_ deviceID: AudioDeviceID) async {
         guard state == .recording else { return }
         guard currentOutputAudioDeviceID != deviceID else { return }
+        guard SystemAudioCaptureBackend.current == .screenCaptureKit else {
+            currentOutputAudioDeviceID = deviceID
+            return
+        }
         guard let stream else {
             currentOutputAudioDeviceID = deviceID
             return
