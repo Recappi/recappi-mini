@@ -132,6 +132,30 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           bash scripts/verify-sparkle-signing.sh "$APP_PATH"
 
+      - name: Upload debug symbols to Sentry
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${SENTRY_AUTH_TOKEN:-}" ]]; then
+            echo "SENTRY_AUTH_TOKEN is not configured." >&2
+            exit 1
+          fi
+
+          DSYM_PATH="${RUNNER_TEMP}/${APP_NAME}.dSYM"
+          xcrun dsymutil "$APP_PATH/Contents/MacOS/${APP_NAME}" -o "$DSYM_PATH"
+          if [[ ! -d "$DSYM_PATH" ]]; then
+            echo "Expected dSYM not found at $DSYM_PATH" >&2
+            exit 1
+          fi
+
+          npx --yes @sentry/cli debug-files upload \
+            --org recappi \
+            --project apple-macos \
+            "$DSYM_PATH"
+
       - name: Package DMG
         shell: bash
         run: |
