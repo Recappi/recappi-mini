@@ -2636,7 +2636,7 @@ struct CloudRecordingDetail: View {
         .popover(
             isPresented: Binding(
                 get: { renamingSpeakerRawName == identity.rawName },
-                set: { isPresented in if !isPresented { renamingSpeakerRawName = nil } }
+                set: { isPresented in if !isPresented { dismissSpeakerRenamePopover() } }
             ),
             arrowEdge: .top
         ) {
@@ -2703,6 +2703,7 @@ struct CloudRecordingDetail: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 TextField("Speaker name", text: $speakerRenameDraft)
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerRenameNameField)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .padding(.horizontal, 8)
@@ -2729,19 +2730,24 @@ struct CloudRecordingDetail: View {
                     .foregroundStyle(DT.appAccent)
                 Spacer(minLength: 0)
                 Button("Cancel") {
-                    renamingSpeakerRawName = nil
+                    dismissSpeakerRenamePopover()
                 }
                 .buttonStyle(PanelPushButtonStyle())
                 Button("Save") {
                     saveSpeakerRename()
                 }
                 .buttonStyle(PanelPushButtonStyle(primary: true))
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerRenameSaveButton)
             }
         }
         .padding(14)
         .frame(width: 348, alignment: .leading)
         .background(DT.recordingShell)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerRenamePopover)
+    }
+
+    private func dismissSpeakerRenamePopover() {
+        renamingSpeakerRawName = nil
     }
 
     private func saveSpeakerRename() {
@@ -2755,7 +2761,7 @@ struct CloudRecordingDetail: View {
             emoji: normalizedEmoji.isEmpty ? CloudSpeakerIdentity.defaultEmoji(at: 0) : normalizedEmoji,
             note: normalizedNote.isEmpty ? nil : normalizedNote
         )
-        renamingSpeakerRawName = nil
+        dismissSpeakerRenamePopover()
     }
 
     private var transcriptDurationSeconds: Double? {
@@ -2877,7 +2883,9 @@ struct CloudRecordingDetail: View {
                                     presentSpeakerRenamePopover(for: identity)
                                 }
                             },
-                            onSelect: { jumpToSegment(row) }
+                            onSelect: { jumpToSegment(row) },
+                            renamingSpeakerRawName: $renamingSpeakerRawName,
+                            renamePopover: { speakerRenamePopover }
                         )
                         .id(row.id)
                     }
@@ -3186,24 +3194,47 @@ private struct CloudSearchResultRow: View {
     }
 }
 
-private struct CloudTranscriptSegmentRow: View {
+private struct CloudTranscriptSegmentRow<PopoverContent: View>: View {
     let row: CloudTranscriptSegmentDisplayRow
     let isActive: Bool
     let speaker: CloudSpeakerIdentity?
     let onSpeakerSelect: () -> Void
     let onSelect: () -> Void
+    @Binding var renamingSpeakerRawName: String?
+    let renamePopover: () -> PopoverContent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if let speaker {
                     Button(action: onSpeakerSelect) {
-                        Text(speaker.displayName)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color.dtLabelSecondary)
-                            .lineLimit(1)
+                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                            Text(speaker.displayName)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color.dtLabelSecondary)
+                                .lineLimit(1)
+
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 7, weight: .semibold))
+                                .foregroundStyle(Color.dtLabelTertiary)
+                                .baselineOffset(1)
+                        }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .help("Rename \(speaker.displayName)")
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerNameButtonPrefix + speaker.rawName)
+                    .accessibilityLabel("Speaker \(speaker.displayName)")
+                    .accessibilityHint("Rename speaker")
+                    .popover(
+                        isPresented: Binding(
+                            get: { renamingSpeakerRawName == speaker.rawName },
+                            set: { isPresented in if !isPresented { renamingSpeakerRawName = nil } }
+                        ),
+                        arrowEdge: .top
+                    ) {
+                        renamePopover()
+                    }
                 }
 
                 Text(row.marker)
@@ -3232,7 +3263,6 @@ private struct CloudTranscriptSegmentRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .help(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
-        .disabled(row.startMs == nil && row.endMs == nil)
     }
 }
 

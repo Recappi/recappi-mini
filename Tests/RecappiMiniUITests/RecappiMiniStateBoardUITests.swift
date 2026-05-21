@@ -47,6 +47,29 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
         XCTAssertTrue(firstSegmentText.isSelected, "Clicking the transcript text body should select/jump to that segment.")
     }
 
+    func testCloudTranscriptSpeakerNameOpensRenamePopover() throws {
+        try prepareOutputDirectory()
+
+        let app = launchStateBoardApp(authToken: "state-board-token", openCloudWindowOnLaunch: true)
+
+        let cloudWindow = uiElement(app, id: UITestIDs.Cloud.window)
+        XCTAssertTrue(cloudWindow.waitForExistence(timeout: 15), "Expected Cloud window.")
+
+        let transcript = app.buttons[UITestIDs.Cloud.jumpToTranscriptButton]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 10), "Expected Transcription tab button.")
+        transcript.click()
+
+        let speakerButton = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.speakerNameButtonPrefix)
+        ).firstMatch
+        XCTAssertTrue(speakerButton.waitForExistence(timeout: 5), "Expected transcript speaker name to be a clickable rename entry.")
+
+        speakerButton.click()
+
+        let renamePopover = uiElement(app, id: UITestIDs.Cloud.speakerRenamePopover)
+        XCTAssertTrue(renamePopover.waitForExistence(timeout: 5), "Expected clicking speaker name to open rename popover.")
+    }
+
     private func captureRecordingPanelStates() throws {
         let suggestionApp = launchStateBoardApp(
             simulatedAutoPromptApp: (bundleID: "com.apple.Safari", name: "Safari"),
@@ -222,11 +245,11 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         XCTAssertTrue(firstSegmentText.isSelected, "Clicking the transcript text body should select/jump to that segment.")
-        let speakerChip = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.speakerChipPrefix)
+        let speakerRenameButton = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", UITestIDs.Cloud.speakerNameButtonPrefix)
         ).firstMatch
-        if speakerChip.waitForExistence(timeout: 5) {
-            speakerChip.click()
+        if speakerRenameButton.waitForExistence(timeout: 5) {
+            speakerRenameButton.click()
             let renamePopover = uiElement(app, id: UITestIDs.Cloud.speakerRenamePopover)
             XCTAssertTrue(renamePopover.waitForExistence(timeout: 5), "Expected speaker rename popover.")
             try captureScreenRegion(
