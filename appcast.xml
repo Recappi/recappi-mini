@@ -3,20 +3,25 @@
     <channel>
         <title>Recappi Mini</title>
         <item>
-            <title>1.0.112</title>
-            <pubDate>Thu, 21 May 2026 08:25:25 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.112</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.112</sparkle:fullReleaseNotesLink>
-            <sparkle:version>123</sparkle:version>
-            <sparkle:shortVersionString>1.0.112</sparkle:shortVersionString>
+            <title>1.0.113</title>
+            <pubDate>Thu, 21 May 2026 12:54:24 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.113</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.113</sparkle:fullReleaseNotesLink>
+            <sparkle:version>124</sparkle:version>
+            <sparkle:shortVersionString>1.0.113</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>Fixes
-- Ignores benign cancelled network requests (`NSURLErrorCancelled`, code `-999`) in Sentry error capture.
-- Uploads Recappi Mini debug symbols to Sentry during release builds so future macOS stack traces can be symbolicated.
+            <description><![CDATA[<pre>## Recappi Mini v1.0.113
 
-Diagnostics
-- Keeps real network failures such as timeouts, offline errors, and server errors reportable while reducing noisy Sentry alerts during Cloud refresh/navigation.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.112/RecappiMini-1.0.112.dmg" length="6711310" type="application/octet-stream" sparkle:edSignature="wljSauypZueq8b3V2Ar1bi7Vx0fL0Voa7X8+w/lNn8pd9Suks07ZpNGwRZeILhh2dTRcaXa6VBAVzmpqnJS8DQ=="/>
+### Fixed
+- Restored the speaker rename entry in Cloud Transcription.
+- Clicking a speaker name now opens the rename popover anchored to the exact speaker row that was clicked.
+- Speaker renames continue to apply to all matching segments in the current recording.
+
+### Validation
+- `swift test`: 254 tests passed, 1 skipped.
+- `./scripts/build-app.sh` completed successfully.
+- Targeted Cloud UI tests passed for speaker rename and transcript segment clicking.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.113/RecappiMini-1.0.113.dmg" length="6759267" type="application/octet-stream" sparkle:edSignature="y6TYUau7R2YJEan2/qui/AKPQbcOqUopDiPY/1gSUayAoUF2sKEaDhAnBpwRCnBfedcrRCsr9tEXzxzwJXVhDg=="/>
         </item>
     </channel>
 </rss>
