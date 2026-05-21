@@ -2864,27 +2864,22 @@ struct CloudRecordingDetail: View {
     private var transcriptCard: some View {
         let segmentRows = computeSegmentRowsWithPerfLogging()
         let activeSegmentID = activeSegmentID(in: segmentRows)
-        let turnGroups = groupTranscriptRowsBySpeaker(segmentRows)
-        let activeGroupID = turnGroups.first(where: { group in
-            group.segments.contains(where: { $0.id == activeSegmentID })
-        })?.id
         Group {
-            if !turnGroups.isEmpty {
+            if !segmentRows.isEmpty {
                 LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(turnGroups) { group in
-                        CloudTranscriptTurnGroupView(
-                            group: group,
-                            isActive: group.id == activeGroupID,
-                            activeSegmentID: activeSegmentID,
-                            speaker: speakerIdentity(for: group.speaker),
+                    ForEach(segmentRows) { row in
+                        CloudTranscriptSegmentRow(
+                            row: row,
+                            isActive: row.id == activeSegmentID,
+                            speaker: speakerIdentity(for: row.speaker),
                             onSpeakerSelect: {
-                                if let identity = speakerIdentity(for: group.speaker) {
+                                if let identity = speakerIdentity(for: row.speaker) {
                                     presentSpeakerRenamePopover(for: identity)
                                 }
                             },
-                            onSelect: { segmentRow in jumpToSegment(segmentRow) }
+                            onSelect: { jumpToSegment(row) }
                         )
-                        .id(group.id)
+                        .id(row.id)
                     }
                 }
                 .accessibilityElement(children: .contain)
@@ -2988,37 +2983,6 @@ private struct CloudTranscriptSegmentDisplayRow: Identifiable {
     let endMs: Int?
     let speaker: String?
     let text: String
-}
-
-private struct CloudTranscriptTurnGroup: Identifiable {
-    let id: String
-    let speaker: String?
-    let segments: [CloudTranscriptSegmentDisplayRow]
-
-    var firstMarker: String { segments.first?.marker ?? "" }
-}
-
-private func groupTranscriptRowsBySpeaker(_ rows: [CloudTranscriptSegmentDisplayRow]) -> [CloudTranscriptTurnGroup] {
-    var groups: [CloudTranscriptTurnGroup] = []
-    var current: [CloudTranscriptSegmentDisplayRow] = []
-    var currentSpeaker: String? = nil
-    var seeded = false
-    for row in rows {
-        if seeded, row.speaker == currentSpeaker {
-            current.append(row)
-        } else {
-            if let first = current.first {
-                groups.append(CloudTranscriptTurnGroup(id: first.id, speaker: currentSpeaker, segments: current))
-            }
-            current = [row]
-            currentSpeaker = row.speaker
-            seeded = true
-        }
-    }
-    if let first = current.first {
-        groups.append(CloudTranscriptTurnGroup(id: first.id, speaker: currentSpeaker, segments: current))
-    }
-    return groups
 }
 
 private struct CloudSpeakerIdentity: Identifiable {
@@ -3230,70 +3194,6 @@ private struct CloudTranscriptSegmentRow: View {
     let onSelect: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            Rectangle()
-                .fill(speaker?.color.opacity(0.72) ?? Color.clear)
-                .frame(width: 2)
-
-            HStack(alignment: .firstTextBaseline, spacing: 18) {
-                VStack(alignment: .leading, spacing: 3) {
-                    if let speaker {
-                        Button(action: onSpeakerSelect) {
-                            Text(speaker.displayName)
-                                .font(CloudTypography.label)
-                                .foregroundStyle(Color.dtLabel)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Text(row.marker)
-                        .font(CloudTypography.captionTinyMono)
-                        .foregroundStyle(Color.dtLabelTertiary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                }
-                .frame(width: 76, alignment: .leading)
-
-                Button(action: onSelect) {
-                    Text(row.text)
-                        .font(CloudTypography.body)
-                        .foregroundStyle(Color.dtLabel)
-                        .lineSpacing(5)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(row.text)
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptSegmentTextPrefix + row.id)
-                .accessibilityValue(isActive ? "selected" : "not selected")
-                .accessibilityAddTraits(isActive ? .isSelected : [])
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onSelect)
-        }
-        .padding(.vertical, 12)
-        .background(
-            Rectangle()
-                .fill(isActive ? Color.dtLabel.opacity(0.04) : Color.clear)
-        )
-        .help(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
-        .disabled(row.startMs == nil && row.endMs == nil)
-    }
-}
-
-private struct CloudTranscriptTurnGroupView: View {
-    let group: CloudTranscriptTurnGroup
-    let isActive: Bool
-    let activeSegmentID: String?
-    let speaker: CloudSpeakerIdentity?
-    let onSpeakerSelect: () -> Void
-    let onSelect: (CloudTranscriptSegmentDisplayRow) -> Void
-
-    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if let speaker {
@@ -3306,25 +3206,21 @@ private struct CloudTranscriptTurnGroupView: View {
                     .buttonStyle(.plain)
                 }
 
-                Text(group.firstMarker)
+                Text(row.marker)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Color.dtLabelTertiary)
                     .lineLimit(1)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(group.segments) { seg in
-                    Text(seg.text)
-                        .font(CloudTypography.body)
-                        .foregroundStyle(Color.dtLabel)
-                        .lineSpacing(5)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptSegmentTextPrefix + seg.id)
-                        .accessibilityValue(seg.id == activeSegmentID ? "selected" : "not selected")
-                        .accessibilityAddTraits(seg.id == activeSegmentID ? .isSelected : [])
-                }
-            }
+            Text(row.text)
+                .font(.body)
+                .foregroundStyle(Color.dtLabel)
+                .lineSpacing(5)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptSegmentTextPrefix + row.id)
+                .accessibilityValue(isActive ? "selected" : "not selected")
+                .accessibilityAddTraits(isActive ? .isSelected : [])
         }
         .padding(.vertical, 14)
         .padding(.horizontal, 12)
@@ -3334,12 +3230,9 @@ private struct CloudTranscriptTurnGroupView: View {
                 .fill(isActive ? Color.dtLabel.opacity(0.04) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture {
-            if let first = group.segments.first {
-                onSelect(first)
-            }
-        }
-        .help("Jump audio to this turn")
+        .onTapGesture(perform: onSelect)
+        .help(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
+        .disabled(row.startMs == nil && row.endMs == nil)
     }
 }
 
