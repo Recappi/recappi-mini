@@ -32,6 +32,7 @@ struct CloudRecordingDetail: View {
     @State private var retranscribeSceneDraft = RecordingSceneTemplate.meeting.rawValue
     @State private var retranscribePromptDraft = ""
     @State private var renamingSpeakerRawName: String?
+    @State private var renamingSpeakerAnchorID: String?
     @State private var speakerRenameDraft = ""
     @State private var speakerNoteDraft = ""
     @State private var speakerEmojiDraft = ""
@@ -2635,7 +2636,7 @@ struct CloudRecordingDetail: View {
         .buttonStyle(.plain)
         .popover(
             isPresented: Binding(
-                get: { renamingSpeakerRawName == identity.rawName },
+                get: { renamingSpeakerRawName == identity.rawName && renamingSpeakerAnchorID == nil },
                 set: { isPresented in if !isPresented { dismissSpeakerRenamePopover() } }
             ),
             arrowEdge: .top
@@ -2660,10 +2661,11 @@ struct CloudRecordingDetail: View {
         )
     }
 
-    private func presentSpeakerRenamePopover(for identity: CloudSpeakerIdentity) {
+    private func presentSpeakerRenamePopover(for identity: CloudSpeakerIdentity, anchorID: String? = nil) {
         speakerRenameDraft = identity.displayName
         speakerNoteDraft = identity.note ?? ""
         speakerEmojiDraft = identity.emoji
+        renamingSpeakerAnchorID = anchorID
         renamingSpeakerRawName = identity.rawName
     }
 
@@ -2748,6 +2750,7 @@ struct CloudRecordingDetail: View {
 
     private func dismissSpeakerRenamePopover() {
         renamingSpeakerRawName = nil
+        renamingSpeakerAnchorID = nil
     }
 
     private func saveSpeakerRename() {
@@ -2880,11 +2883,12 @@ struct CloudRecordingDetail: View {
                             speaker: speakerIdentity(for: row.speaker),
                             onSpeakerSelect: {
                                 if let identity = speakerIdentity(for: row.speaker) {
-                                    presentSpeakerRenamePopover(for: identity)
+                                    presentSpeakerRenamePopover(for: identity, anchorID: row.id)
                                 }
                             },
                             onSelect: { jumpToSegment(row) },
                             renamingSpeakerRawName: $renamingSpeakerRawName,
+                            renamingSpeakerAnchorID: $renamingSpeakerAnchorID,
                             renamePopover: { speakerRenamePopover }
                         )
                         .id(row.id)
@@ -3201,6 +3205,7 @@ private struct CloudTranscriptSegmentRow<PopoverContent: View>: View {
     let onSpeakerSelect: () -> Void
     let onSelect: () -> Void
     @Binding var renamingSpeakerRawName: String?
+    @Binding var renamingSpeakerAnchorID: String?
     let renamePopover: () -> PopoverContent
 
     var body: some View {
@@ -3228,8 +3233,18 @@ private struct CloudTranscriptSegmentRow<PopoverContent: View>: View {
                     .accessibilityHint("Rename speaker")
                     .popover(
                         isPresented: Binding(
-                            get: { renamingSpeakerRawName == speaker.rawName },
-                            set: { isPresented in if !isPresented { renamingSpeakerRawName = nil } }
+                            get: {
+                                renamingSpeakerRawName == speaker.rawName
+                                    && renamingSpeakerAnchorID == row.id
+                            },
+                            set: { isPresented in
+                                guard !isPresented else { return }
+                                if renamingSpeakerRawName == speaker.rawName,
+                                   renamingSpeakerAnchorID == row.id {
+                                    renamingSpeakerRawName = nil
+                                    renamingSpeakerAnchorID = nil
+                                }
+                            }
                         ),
                         arrowEdge: .top
                     ) {
