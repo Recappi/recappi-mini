@@ -181,6 +181,10 @@ enum SentryReporter {
         return sanitizedTelemetryValue(firstToken, maxLength: 80)
     }
 
+    static func shouldCaptureDiagnosticError(level: String, category: String, message: String) -> Bool {
+        DiagnosticTelemetry(level: level, category: category, message: message).shouldCaptureError
+    }
+
     private static func addBreadcrumb(_ telemetry: DiagnosticTelemetry) {
         let breadcrumb = Breadcrumb(
             level: sentryLevel(for: telemetry.level),
@@ -310,7 +314,14 @@ private struct DiagnosticTelemetry {
         if category == "crash", operation == "uncaught_exception" {
             return false
         }
+        if isCancelledNetworkRequest {
+            return false
+        }
         return true
+    }
+
+    private var isCancelledNetworkRequest: Bool {
+        fields["domain"] == NSURLErrorDomain && fields["code"] == String(NSURLErrorCancelled)
     }
 
     var searchableTags: [String: String] {

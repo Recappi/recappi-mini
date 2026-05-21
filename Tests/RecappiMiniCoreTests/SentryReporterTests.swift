@@ -42,4 +42,22 @@ final class SentryReporterTests: XCTestCase {
             "upload.attempt.failed"
         )
     }
+
+    func testCancelledNetworkRequestsDoNotCaptureSentryErrors() {
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=GET path=/api/recordings domain=NSURLErrorDomain code=-999 message=cancelled"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=GET path=/api/recordings domain=NSURLErrorDomain code=-1001 message=timed-out"
+            )
+        )
+    }
 }
