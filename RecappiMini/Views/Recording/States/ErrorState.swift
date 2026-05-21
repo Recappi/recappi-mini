@@ -130,12 +130,12 @@ struct ErrorState: View {
             return "capture=no-audio\nrecording.m4a=missing"
         }
         let recordingURL = RecordingStore.audioFileURL(in: sessionDir)
-        let systemURL = sessionDir.appendingPathComponent("system.m4a")
-        let micURL = sessionDir.appendingPathComponent("mic.m4a")
+        let systemURL = sessionDir.appendingPathComponent("system.caf")
+        let micURL = sessionDir.appendingPathComponent("mic.caf")
         return [
             "session=\(sessionDir.lastPathComponent)",
             "recording.m4a=\(fileDetail(recordingURL))",
-            "system.m4a=\(fileDetail(systemURL)) mic.m4a=\(fileDetail(micURL))",
+            "system.caf=\(fileDetail(systemURL)) mic.caf=\(fileDetail(micURL))",
         ].joined(separator: "\n")
     }
 

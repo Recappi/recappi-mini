@@ -98,6 +98,17 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     var currentSessionDir: URL? { sessionDir }
 
+    func setRecordingMeterVisible(_ visible: Bool) {
+        systemOutput?.setMeteringEnabled(visible)
+        micOutput?.setMeteringEnabled(visible)
+        guard !visible else { return }
+        audioLevel = 0
+        audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
+        audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
+        pendingMeterPeak = 0
+        pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
+    }
+
 #if DEBUG
     /// Test seam: tests install a slow / scripted "stop" callback to
     /// hold the detached restart Task suspended past the moment a
@@ -639,8 +650,8 @@ final class AudioRecorder: NSObject, ObservableObject {
             DiagnosticsLog.event("recording", "session.created dir=\(sessionDir.lastPathComponent)")
 
             // Intermediate files; merged into recording.m4a at stop.
-            let systemURL = sessionDir.appendingPathComponent("system.m4a")
-            let micURL = sessionDir.appendingPathComponent("mic.m4a")
+            let systemURL = sessionDir.appendingPathComponent("system.caf")
+            let micURL = sessionDir.appendingPathComponent("mic.caf")
 
             let outputAudioDeviceID = try OutputDeviceAudioFormat.currentDefaultOutputDeviceID()
             self.currentOutputAudioDeviceID = outputAudioDeviceID

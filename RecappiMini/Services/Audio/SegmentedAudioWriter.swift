@@ -131,13 +131,9 @@ final class SegmentedAudioWriter: @unchecked Sendable {
         let segmentURL = makeSegmentURL(index: segmentIndex)
         segmentIndex += 1
 
-        let writer = try AVAssetWriter(url: segmentURL, fileType: .m4a)
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: format.sampleRate,
-            AVNumberOfChannelsKey: format.channelCount,
-            AVEncoderBitRateKey: format.recommendedBitRate,
-        ]
+        let fileType = Self.fileType(for: segmentURL)
+        let settings = Self.outputSettings(for: format, fileType: fileType)
+        let writer = try AVAssetWriter(url: segmentURL, fileType: fileType)
         let input = AVAssetWriterInput(
             mediaType: .audio,
             outputSettings: settings,
@@ -222,6 +218,15 @@ final class SegmentedAudioWriter: @unchecked Sendable {
             return finalURL
         }
 
+        let outputFileType = Self.fileType(for: finalURL)
+        if outputFileType == .caf {
+            try Self.concatenateCAFSegments(segmentURLs, to: finalURL)
+            for segmentURL in segmentURLs {
+                try? fileManager.removeItem(at: segmentURL)
+            }
+            return finalURL
+        }
+
         let composition = AVMutableComposition()
         guard let track = composition.addMutableTrack(
             withMediaType: .audio,
@@ -251,7 +256,7 @@ final class SegmentedAudioWriter: @unchecked Sendable {
             throw RecorderError.exportFailed
         }
 
-        try await exporter.export(to: finalURL, as: .m4a)
+        try await exporter.export(to: finalURL, as: outputFileType)
 
         for segmentURL in segmentURLs {
             try? fileManager.removeItem(at: segmentURL)
@@ -262,8 +267,149 @@ final class SegmentedAudioWriter: @unchecked Sendable {
 
     private func makeSegmentURL(index: Int) -> URL {
         let baseName = finalURL.deletingPathExtension().lastPathComponent
-        let segmentName = "\(baseName)-segment-\(String(format: "%03d", index)).m4a"
+        let ext = finalURL.pathExtension.isEmpty ? "m4a" : finalURL.pathExtension
+        let segmentName = "\(baseName)-segment-\(String(format: "%03d", index)).\(ext)"
         return finalURL.deletingLastPathComponent().appendingPathComponent(segmentName)
+    }
+
+    private static func fileType(for url: URL) -> AVFileType {
+        url.pathExtension.lowercased() == "caf" ? .caf : .m4a
+    }
+
+    private static func outputSettings(
+        for format: CaptureStreamFormat,
+        fileType: AVFileType
+    ) -> [String: Any] {
+        if fileType == .caf {
+            return [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: format.sampleRate,
+                AVNumberOfChannelsKey: format.channelCount,
+                AVLinearPCMBitDepthKey: 32,
+                AVLinearPCMIsFloatKey: true,
+                AVLinearPCMIsNonInterleaved: false,
+            ]
+        }
+
+        return [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: format.sampleRate,
+            AVNumberOfChannelsKey: format.channelCount,
+            AVEncoderBitRateKey: format.recommendedBitRate,
+        ]
+    }
+
+    private static func concatenateCAFSegments(_ segmentURLs: [URL], to finalURL: URL) throws {
+        guard let firstURL = segmentURLs.first else { return }
+        let firstFile = try AVAudioFile(forReading: firstURL)
+        guard let fileFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: firstFile.fileFormat.sampleRate,
+            channels: firstFile.fileFormat.channelCount,
+            interleaved: true
+        ),
+            let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: firstFile.fileFormat.sampleRate,
+            channels: firstFile.fileFormat.channelCount,
+            interleaved: false
+        ) else {
+            throw RecorderError.exportFailed
+        }
+        let output = try AVAudioFile(
+            forWriting: finalURL,
+            settings: fileFormat.settings,
+            commonFormat: targetFormat.commonFormat,
+            interleaved: targetFormat.isInterleaved
+        )
+        for segmentURL in segmentURLs {
+            try appendAudioFile(at: segmentURL, to: output, targetFormat: targetFormat)
+        }
+    }
+
+    private static func appendAudioFile(
+        at url: URL,
+        to output: AVAudioFile,
+        targetFormat: AVAudioFormat
+    ) throws {
+        let input = try AVAudioFile(forReading: url)
+        let sourceFormat = input.processingFormat
+        let chunkSize: AVAudioFrameCount = 4_096
+
+        while input.framePosition < input.length {
+            let remaining = input.length - input.framePosition
+            let frameCount = AVAudioFrameCount(min(Int64(chunkSize), remaining))
+            guard let sourceBuffer = AVAudioPCMBuffer(
+                pcmFormat: sourceFormat,
+                frameCapacity: frameCount
+            ) else {
+                throw RecorderError.exportFailed
+            }
+            try input.read(into: sourceBuffer, frameCount: frameCount)
+            guard sourceBuffer.frameLength > 0 else { continue }
+
+            if sourceFormat.recappiMatches(targetFormat) {
+                try output.write(from: sourceBuffer)
+                continue
+            }
+
+            guard let converter = AVAudioConverter(from: sourceFormat, to: targetFormat) else {
+                throw RecorderError.exportFailed
+            }
+            let convertedCapacity = AVAudioFrameCount(
+                ceil(Double(sourceBuffer.frameLength) * targetFormat.sampleRate / sourceFormat.sampleRate) + 32
+            )
+            guard let converted = AVAudioPCMBuffer(
+                pcmFormat: targetFormat,
+                frameCapacity: max(convertedCapacity, 1)
+            ) else {
+                throw RecorderError.exportFailed
+            }
+
+            let inputState = AudioFileConverterInputState(source: sourceBuffer)
+            var conversionError: NSError?
+            let status = converter.convert(to: converted, error: &conversionError) { _, inputStatus in
+                inputState.next(status: inputStatus)
+            }
+            guard conversionError == nil, status != .error else {
+                throw RecorderError.exportFailed
+            }
+            if converted.frameLength > 0 {
+                try output.write(from: converted)
+            }
+        }
+    }
+}
+
+private final class AudioFileConverterInputState: @unchecked Sendable {
+    private let source: AVAudioPCMBuffer
+    private let lock = NSLock()
+    private var didProvideInput = false
+
+    init(source: AVAudioPCMBuffer) {
+        self.source = source
+    }
+
+    func next(status: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !didProvideInput else {
+            status.pointee = .noDataNow
+            return nil
+        }
+        didProvideInput = true
+        status.pointee = .haveData
+        return source
+    }
+}
+
+private extension AVAudioFormat {
+    func recappiMatches(_ other: AVAudioFormat) -> Bool {
+        commonFormat == other.commonFormat
+            && abs(sampleRate - other.sampleRate) < 0.1
+            && channelCount == other.channelCount
+            && isInterleaved == other.isInterleaved
     }
 }
 

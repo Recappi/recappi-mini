@@ -209,6 +209,7 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     private let writer: SegmentedAudioWriter
     private let stateQueue = DispatchQueue(label: "RecappiMini.SystemAudioOutput.state")
     private var meterGate = AudioMeterFrameGate()
+    private var isMeteringEnabled = true
     private var bufferCount = 0
     private var firstBufferUptime: TimeInterval?
     private var lastBufferUptime: TimeInterval?
@@ -224,6 +225,12 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
         self.writer = writer
     }
 
+    func setMeteringEnabled(_ enabled: Bool) {
+        stateQueue.sync {
+            isMeteringEnabled = enabled
+        }
+    }
+
     func stream(
         _ stream: SCStream,
         didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
@@ -232,22 +239,27 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
         guard type == .audio else { return }
         guard sampleBuffer.isValid else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        let shouldLogFirstBuffer = stateQueue.sync {
+        let state = stateQueue.sync {
             bufferCount += 1
+            let meteringEnabled = isMeteringEnabled
             if firstBufferUptime == nil {
                 firstBufferUptime = now
                 lastBufferUptime = now
-                return true
+                return (true, meteringEnabled)
             }
             lastBufferUptime = now
-            return false
+            return (false, meteringEnabled)
         }
-        if shouldLogFirstBuffer {
+        if state.0 {
             DiagnosticsLog.event("recording", "system.first_buffer")
         }
         writer.append(sampleBuffer)
         onLiveCaptionSampleBuffer?(sampleBuffer)
         RecordingPerformanceProbe.shared.noteAudioBuffer(source: .system, at: now)
+        guard state.1 else {
+            RecordingPerformanceProbe.shared.noteMeterSkipped(source: .system, at: now)
+            return
+        }
         if meterGate.shouldEmit(at: now) {
             let frame = RecordingPerformanceProbe.shared.measureMeterExtraction(source: .system) {
                 AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount)
@@ -282,6 +294,7 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     private let writer: SegmentedAudioWriter
     private let stateQueue = DispatchQueue(label: "RecappiMini.MicAudioOutput.state")
     private var meterGate = AudioMeterFrameGate()
+    private var isMeteringEnabled = true
     private var includesAudio = true
     private var didLogFirstBuffer = false
     private var didLogFirstIncludedBuffer = false
@@ -299,6 +312,12 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     func setIncludesAudio(_ included: Bool) {
         stateQueue.sync {
             includesAudio = included
+        }
+    }
+
+    func setMeteringEnabled(_ enabled: Bool) {
+        stateQueue.sync {
+            isMeteringEnabled = enabled
         }
     }
 
@@ -332,7 +351,7 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
                 }
             }
 
-            return (included, shouldLogFirstBuffer, shouldLogFirstIncludedBuffer)
+            return (included, shouldLogFirstBuffer, shouldLogFirstIncludedBuffer, isMeteringEnabled)
         }
         let included = state.0
         if state.1 {
@@ -343,6 +362,10 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         }
         writer.append(sampleBuffer, muted: !included)
         RecordingPerformanceProbe.shared.noteAudioBuffer(source: .mic, at: now)
+        guard state.3 else {
+            RecordingPerformanceProbe.shared.noteMeterSkipped(source: .mic, at: now)
+            return
+        }
         if included, meterGate.shouldEmit(at: now) {
             let frame = RecordingPerformanceProbe.shared.measureMeterExtraction(source: .mic) {
                 AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount)

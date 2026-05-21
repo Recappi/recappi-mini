@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var panelTargetVisible = true {
         didSet {
             panelVisible = panelTargetVisible
+            recorder.setRecordingMeterVisible(panelTargetVisible)
         }
     }
 
@@ -297,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                 if self.isRecording != isRecording {
                     self.isRecording = isRecording
                     self.updateStatusItemRecordingState(isRecording)
+                    self.recorder.setRecordingMeterVisible(self.panelTargetVisible && isRecording)
                 }
 
                 self.notifyHiddenProcessingTransitionIfNeeded(from: previous, to: state)
