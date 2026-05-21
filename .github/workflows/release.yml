@@ -102,6 +102,8 @@ jobs:
           BUILD_CONFIG: release
           RELEASE: "1"
           CODESIGN_IDENTITY: ${{ env.DEVELOPER_ID_IDENTITY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_ENVIRONMENT: production
         run: |
           set -euo pipefail
 

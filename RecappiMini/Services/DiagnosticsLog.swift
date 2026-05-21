@@ -73,6 +73,7 @@ enum DiagnosticsLog {
         default:
             logger.info("\(line, privacy: .public)")
         }
+        SentryReporter.recordDiagnostic(level: level, category: safeCategory, message: safeMessage)
         writer.append(line, synchronously: synchronously)
     }
 
@@ -204,9 +205,14 @@ private final class DiagnosticsCrashHandlerInstaller: @unchecked Sendable {
         defer { lock.unlock() }
         guard !didInstall else { return }
         didInstall = true
+        DiagnosticsExceptionHandlerState.previousHandler = NSGetUncaughtExceptionHandler()
         NSSetUncaughtExceptionHandler(recappiUncaughtExceptionHandler)
         DiagnosticsLog.event("crash", "objc_exception_handler.installed")
     }
+}
+
+private enum DiagnosticsExceptionHandlerState {
+    nonisolated(unsafe) static var previousHandler: NSUncaughtExceptionHandler?
 }
 
 private let recappiUncaughtExceptionHandler: @convention(c) (NSException) -> Void = { exception in
@@ -217,6 +223,7 @@ private let recappiUncaughtExceptionHandler: @convention(c) (NSException) -> Voi
         "crash",
         "uncaught_exception name=\(DiagnosticsLog.sanitize(exception.name.rawValue, maxLength: 80)) reason='\(DiagnosticsLog.sanitize(exception.reason ?? "none", maxLength: 300))' stack='\(DiagnosticsLog.sanitize(stack, maxLength: 1_200))'"
     )
+    DiagnosticsExceptionHandlerState.previousHandler?(exception)
 }
 
 enum DiagnosticsLogArchive {

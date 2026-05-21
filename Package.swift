@@ -8,12 +8,14 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.8.1"),
+        .package(url: "https://github.com/getsentry/sentry-cocoa.git", exact: "9.13.0"),
     ],
     targets: [
         .executableTarget(
             name: "RecappiMini",
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "Sentry", package: "sentry-cocoa"),
             ],
             path: "RecappiMini",
             exclude: ["Info.plist", "RecappiMini.entitlements", "Resources"],

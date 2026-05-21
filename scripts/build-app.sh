@@ -14,6 +14,14 @@ CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-RecappiMini Dev}"
 ENTITLEMENTS_PATH="$PROJECT_DIR/RecappiMini/RecappiMini.entitlements"
 SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://raw.githubusercontent.com/Recappi/recappi-mini/sparkle-appcast/appcast.xml}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-/1OzWfoXSQ2w+rIi6pKRn8X8egyv+T/dQGOyG7QJj0M=}"
+SENTRY_DSN="${SENTRY_DSN:-${RECAPPI_SENTRY_DSN:-}}"
+if [ "${SENTRY_ENVIRONMENT:-}" = "" ]; then
+    if [ "$RELEASE_MODE" = "1" ]; then
+        SENTRY_ENVIRONMENT="production"
+    else
+        SENTRY_ENVIRONMENT="development"
+    fi
+fi
 
 if [ "$CODESIGN_IDENTITY" = "-" ] && [ "${CI:-}" != "true" ] && [ "${ALLOW_ADHOC_CODESIGN:-0}" != "1" ]; then
     cat >&2 <<'EOF'
@@ -130,6 +138,11 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
 </dict>
 </plist>
 EOF
+
+if [ -n "$SENTRY_DSN" ]; then
+    /usr/libexec/PlistBuddy -c "Add :SentryDSN string $SENTRY_DSN" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SentryEnvironment string $SENTRY_ENVIRONMENT" "$APP_BUNDLE/Contents/Info.plist"
+fi
 
 # Compile the Icon Composer bundle (RecappiMini/Resources/Recappi.icon) via
 # actool. The .icon file is passed directly as actool's document argument

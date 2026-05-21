@@ -152,7 +152,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     func finishLaunchingIfNeeded() {
         guard !didFinishLaunching else { return }
         didFinishLaunching = true
+        SentryReporter.start()
         DiagnosticsLog.installCrashHandlers()
+        DiagnosticsLog.event("sentry", "sdk.enabled=\(SentryReporter.isEnabledForCurrentProcess)")
         logAppLaunch()
         // Apply the user's theme before any window is created so the very
         // first surface (status item, floating panel, onboarding) comes up
