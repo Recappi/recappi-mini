@@ -3,27 +3,15 @@
     <channel>
         <title>Recappi Mini</title>
         <item>
-            <title>1.0.108</title>
-            <pubDate>Thu, 21 May 2026 04:58:54 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.108</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.108</sparkle:fullReleaseNotesLink>
-            <sparkle:version>119</sparkle:version>
-            <sparkle:shortVersionString>1.0.108</sparkle:shortVersionString>
+            <title>1.0.109</title>
+            <pubDate>Thu, 21 May 2026 06:25:33 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.109</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.109</sparkle:fullReleaseNotesLink>
+            <sparkle:version>120</sparkle:version>
+            <sparkle:shortVersionString>1.0.109</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>## Recappi Mini v1.0.108 — CoreAudio recording capture
-
-### Fixes
-- Replaces the default system-audio recording path with a CoreAudio process tap instead of ScreenCaptureKit.
-- Reduces the WindowServer/coreaudiod load that could make macOS feel lower-FPS while recording.
-- Avoids the old ScreenCaptureKit-driven permission prompt loop during recording.
-- Captures broad system audio while excluding Recappi Mini itself, so meeting apps with helper processes are less likely to go silent mid-call.
-
-### Validation
-- `swift test`: 250 tests, 1 explicit local probe skipped by default, 0 failures.
-- `./scripts/build-app.sh`: passed.
-- Local CoreAudio tap probe captured real system playback and wrote a non-empty CAF file.
-- Local CPU samples no longer showed the previous ScreenCaptureKit-style WindowServer spike.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.108/RecappiMini-1.0.108.dmg" length="5667785" type="application/octet-stream" sparkle:edSignature="SPi+zgrfl/1Mj7bZ/GFpZluQIdj5/Bb6lGzvvDKAKjDDJ985JdAwLMBhOOnBlWPXly8N6CW+r+SEk/ttb85nAg=="/>
+            <description><![CDATA[<pre>Automated release for v1.0.109.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.109/RecappiMini-1.0.109.dmg" length="6717884" type="application/octet-stream" sparkle:edSignature="Kh/Y1IkhsR4cCOyKu+WzV4UnJRuR48HGzG002XxiDkTktk0V+z2DrpyzHYETin4SfL24j0hfNwp7xt+dE0zxCw=="/>
         </item>
     </channel>
 </rss>
