@@ -25,13 +25,12 @@ struct RecappiMiniApp: App {
 
     var body: some Scene {
         // Standalone Settings window — opened via ⌘, or the gear in the panel.
-        // The sidebar+detail layout has no intrinsic width, so we constrain
-        // resizability with `.contentMinSize` and let the NavigationSplitView
-        // hold its 720×520 minimum from inside the SwiftUI tree.
+        // Use the native Settings scene so macOS renders preference-style
+        // icon tabs in the toolbar instead of our fallback hosted window.
         Settings {
             settingsRoot
         }
-        .windowResizability(.contentMinSize)
+        .windowResizability(.contentSize)
         .commands {
             // Replace the system's standard "About Recappi Mini" menu item
             // (which opens `orderFrontStandardAboutPanel(_:)`) so the menu
@@ -91,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private let cloudStore = CloudLibraryStore()
     private let recorder = AudioRecorder()
     private let appUpdater = AppUpdater.shared
+    private var openSettingsAction: (() -> Void)?
     private let uiTestMode = UITestModeConfiguration.shared
     private var activityObserver: AnyCancellable?
     private var promptedAutoPromptKeyByBundleID: [String: String] = [:]
@@ -186,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         Task { @MainActor in
             await AuthSessionStore.shared.bootstrapForUITestsIfNeeded()
             if self.uiTestMode.openSettingsWindowOnLaunch {
+                try? await Task.sleep(nanoseconds: 250_000_000)
                 self.showSettingsWindow()
             }
             if self.uiTestMode.openCloudWindowOnLaunch {
@@ -403,16 +404,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         )
         settings.target = self
         menu.addItem(settings)
-
-        let openLogs = NSMenuItem(
-            title: "Open Logs Folder",
-            action: #selector(openLogsFolderFromStatusMenu),
-            keyEquivalent: ""
-        )
-        openLogs.target = self
-        menu.addItem(openLogs)
-
-        menu.addItem(.separator())
 
         let about = NSMenuItem(
             title: "About Recappi Mini",
@@ -706,13 +697,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func showSettingsWindow() {
+        prepareForSettingsScenePresentation()
+
+        if let openSettingsAction {
+            openSettingsAction()
+            return
+        }
+
+        if openNativeSettingsScene() {
+            Task { @MainActor in
+                // The native Settings command can be registered a tick after
+                // app launch; resend once so UI-test startup lands on the
+                // preference-style scene instead of the hosted fallback.
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                _ = self.openNativeSettingsScene()
+            }
+            return
+        }
+
         if let settingsWindow = managedWindows.settingsWindow {
             activateForegroundWindowPresentation()
             settingsWindow.makeKeyAndOrderFront(nil)
             return
         }
-
-        prepareForForegroundWindowPresentation()
 
         let hostingView = NSHostingView(
             rootView: ThemedHost {
@@ -722,18 +729,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                     .environmentObject(AppUpdater.shared)
             }
         )
+        hostingView.sizingOptions = [.preferredContentSize, .intrinsicContentSize]
+        let initialContentSize = NSSize(
+            width: settingsWindowContentWidth,
+            height: SettingsItem.general.fallbackContentHeight
+        )
         let window = WindowFactory.createWindow(
             contentView: hostingView,
             spec: WindowFactory.WindowSpec(
-                contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                contentRect: NSRect(origin: .zero, size: initialContentSize),
+                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                 title: "Recappi Mini Settings",
-                contentMinSize: NSSize(width: 720, height: 520)
+                titlebarAppearsTransparent: false,
+                contentMinSize: initialContentSize,
+                contentMaxSize: initialContentSize
             ),
             delegate: self
         )
+        window.toolbarStyle = .preference
+        window.standardWindowButton(.zoomButton)?.isEnabled = false
         window.makeKeyAndOrderFront(nil)
         managedWindows.settingsWindow = window
+    }
+
+    func registerOpenSettingsAction(_ action: @escaping () -> Void) {
+        openSettingsAction = action
+    }
+
+    @discardableResult
+    private func openNativeSettingsScene() -> Bool {
+        for selectorName in ["showSettingsWindow:", "showPreferencesWindow:", "showSettings:"] {
+            if NSApp.sendAction(Selector(selectorName), to: nil, from: nil) {
+                return true
+            }
+        }
+        return false
     }
 
     func showCloudCenter() {

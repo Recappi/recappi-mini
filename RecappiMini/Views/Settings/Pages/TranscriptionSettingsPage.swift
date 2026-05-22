@@ -56,6 +56,7 @@ struct TranscriptionSettingsPage: View {
             }
         }
         .formStyle(.grouped)
+        .scrollDisabled(true)
         .scrollContentBackground(.hidden)
     }
 

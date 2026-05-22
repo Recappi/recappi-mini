@@ -38,6 +38,11 @@ struct RecordingPanel: View {
             .onReceive(recorder.$autoStopRequest.compactMap { $0 }) { _ in
                 stopRecording()
             }
+            .onAppear {
+                AppDelegate.shared.registerOpenSettingsAction {
+                    openSettings()
+                }
+            }
     }
 
     private var panelPadding: EdgeInsets {

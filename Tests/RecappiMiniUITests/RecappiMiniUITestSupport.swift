@@ -16,6 +16,11 @@ enum UITestIDs {
         static let speechLanguagePicker = "recappi.settings.speechLanguagePicker"
         static let accountSidebarRow = "recappi.settings.sidebar.account"
         static let transcriptionSidebarRow = "recappi.settings.sidebar.transcription"
+        static let generalTab = "recappi.settings.tab.general"
+        static let accountTab = "recappi.settings.tab.account"
+        static let permissionsTab = "recappi.settings.tab.permissions"
+        static let transcriptionTab = "recappi.settings.tab.transcription"
+        static let updatesTab = "recappi.settings.tab.updates"
     }
 
     enum Panel {

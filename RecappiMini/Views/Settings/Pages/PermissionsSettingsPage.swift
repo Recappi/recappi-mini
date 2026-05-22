@@ -46,6 +46,7 @@ struct PermissionsSettingsPage: View {
             }
         }
         .formStyle(.grouped)
+        .scrollDisabled(true)
         .scrollContentBackground(.hidden)
     }
 

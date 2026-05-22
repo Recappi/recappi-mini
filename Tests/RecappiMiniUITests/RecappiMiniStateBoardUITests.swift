@@ -285,16 +285,31 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
     private func captureSettingsStates() throws {
         let app = launchStateBoardApp(authToken: "", openSettingsWindowOnLaunch: true)
 
-        let account = uiElement(app, id: UITestIDs.Settings.accountSidebarRow)
-        XCTAssertTrue(account.waitForExistence(timeout: 15), "Expected Account settings sidebar item.")
+        let account = settingsTab(in: app, title: "Account", id: UITestIDs.Settings.accountTab)
+        XCTAssertTrue(account.waitForExistence(timeout: 15), "Expected Account settings tab.")
         account.click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         try capture(largestWindow(in: app), named: "settings_account_default")
 
-        let transcription = uiElement(app, id: UITestIDs.Settings.transcriptionSidebarRow)
-        XCTAssertTrue(transcription.waitForExistence(timeout: 10), "Expected Transcription settings sidebar item.")
+        let transcription = settingsTab(in: app, title: "Transcription", id: UITestIDs.Settings.transcriptionTab)
+        XCTAssertTrue(transcription.waitForExistence(timeout: 10), "Expected Transcription settings tab.")
         transcription.click()
         try capture(largestWindow(in: app), named: "settings_transcription_captions")
+    }
+
+    private func settingsTab(in app: XCUIApplication, title: String, id: String) -> XCUIElement {
+        let identified = uiElement(app, id: id)
+        if identified.exists { return identified }
+
+        let button = app.buttons[title]
+        if button.exists { return button }
+
+        let radioButton = app.radioButtons[title]
+        if radioButton.exists { return radioButton }
+
+        return app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@ OR identifier == %@", title, title))
+            .firstMatch
     }
 
     private func captureOnboardingStates() throws {

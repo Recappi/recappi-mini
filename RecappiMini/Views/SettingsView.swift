@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// MARK: - Sidebar item
+// MARK: - Settings tab
 
 enum SettingsItem: Hashable {
     case general
@@ -9,15 +9,29 @@ enum SettingsItem: Hashable {
     case permissions
     case transcription
     case updates
+
+    var fallbackContentHeight: CGFloat {
+        switch self {
+        case .general:
+            560
+        case .account:
+            440
+        case .permissions:
+            320
+        case .transcription:
+            440
+        case .updates:
+            320
+        }
+    }
 }
+
+let settingsWindowContentWidth: CGFloat = 560
+private let settingsContentWidth: CGFloat = 520
 
 // MARK: - Root settings view
 
 struct SettingsView: View {
-    @EnvironmentObject private var config: AppConfig
-    @EnvironmentObject private var sessionStore: AuthSessionStore
-    @EnvironmentObject private var appUpdater: AppUpdater
-
     @State private var selection: SettingsItem = .general
     @State private var capturePermissions = CapturePermissionSnapshot.placeholder
     @State private var permissionsBusy = false
@@ -29,52 +43,59 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selection) {
-                Section {
-                    accountSidebarRow
-                        .tag(SettingsItem.account)
-                        .accessibilityIdentifier(AccessibilityIDs.Settings.accountSidebarRow)
+        TabView(selection: $selection) {
+            GeneralSettingsPage()
+                .settingsPane(height: SettingsItem.general.fallbackContentHeight)
+                .tabItem {
+                    Label("General", systemImage: "gear")
+                        .accessibilityIdentifier(AccessibilityIDs.Settings.generalTab)
                 }
+                .tag(SettingsItem.general)
 
-                Section {
-                    SettingsSidebarRow(title: "General", systemImage: "gear", color: .gray)
-                        .tag(SettingsItem.general)
-
-                    SettingsSidebarRow(
-                        title: "Permissions",
-                        systemImage: "lock.shield",
-                        color: .orange,
-                        statusDot: permissionsStatusDot
-                    )
-                    .tag(SettingsItem.permissions)
-
-                    SettingsSidebarRow(
-                        title: "Transcription",
-                        systemImage: "text.bubble",
-                        color: .green
-                    )
-                    .tag(SettingsItem.transcription)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.transcriptionSidebarRow)
+            AccountSettingsPage()
+                .settingsPane(height: SettingsItem.account.fallbackContentHeight)
+                .tabItem {
+                    Label("Account", systemImage: "person.crop.circle")
+                        .accessibilityIdentifier(AccessibilityIDs.Settings.accountTab)
                 }
+                .tag(SettingsItem.account)
 
-                Section {
-                    SettingsSidebarRow(
-                        title: "Updates",
-                        systemImage: "arrow.down.circle",
-                        color: .indigo
-                    )
-                    .tag(SettingsItem.updates)
-                }
+            PermissionsSettingsPage(
+                snapshot: $capturePermissions,
+                permissionsBusy: $permissionsBusy,
+                onRefresh: refreshPermissionStatus
+            )
+            .settingsPane(height: SettingsItem.permissions.fallbackContentHeight)
+            .tabItem {
+                Label("Permissions", systemImage: "lock.shield")
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.permissionsTab)
             }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
-        } detail: {
-            detailView
-                .containerBackground(Palette.surfaceWindow, for: .window)
+            .tag(SettingsItem.permissions)
+
+            TranscriptionSettingsPage()
+                .settingsPane(height: SettingsItem.transcription.fallbackContentHeight)
+                .tabItem {
+                    Label("Transcription", systemImage: "text.bubble")
+                        .accessibilityIdentifier(AccessibilityIDs.Settings.transcriptionTab)
+                }
+                .tag(SettingsItem.transcription)
+
+            UpdatesSettingsPage()
+                .settingsPane(height: SettingsItem.updates.fallbackContentHeight)
+                .tabItem {
+                    Label("About", systemImage: "info.circle")
+                        .accessibilityIdentifier(AccessibilityIDs.Settings.updatesTab)
+                }
+                .tag(SettingsItem.updates)
         }
+        .frame(width: settingsWindowContentWidth)
         .navigationTitle("Recappi Mini Settings")
-        .frame(minWidth: 720, idealWidth: 720, minHeight: 520, idealHeight: 520)
+        .background(
+            SettingsWindowConfigurator(
+                selection: selection,
+                contentHeight: selection.fallbackContentHeight
+            )
+        )
         .task {
             refreshPermissionStatus()
         }
@@ -85,117 +106,73 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private var detailView: some View {
-        switch selection {
-        case .general:
-            GeneralSettingsPage()
-        case .account:
-            AccountSettingsPage()
-        case .permissions:
-            PermissionsSettingsPage(
-                snapshot: $capturePermissions,
-                permissionsBusy: $permissionsBusy,
-                onRefresh: refreshPermissionStatus
-            )
-        case .transcription:
-            TranscriptionSettingsPage()
-        case .updates:
-            UpdatesSettingsPage()
-        }
-    }
-
-    // MARK: - Account sidebar row
-
-    /// Apple-Account-style sidebar entry: shows the user's avatar (or a
-    /// signed-out placeholder), name + connection state on two lines, and the
-    /// existing connected/needs-attention status dot. Placing it at the top of
-    /// the sidebar matches macOS System Settings' affordance for Apple Account.
-    @ViewBuilder
-    private var accountSidebarRow: some View {
-        HStack(spacing: 10) {
-            AccountAvatar(session: sessionStore.currentSession, size: 40)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(accountSidebarTitle)
-                    .font(.body.weight(.semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(accountSidebarSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(Palette.labelSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-
-            Spacer()
-
-            if let dot = accountStatusDot {
-                Circle()
-                    .fill(dot)
-                    .frame(width: 8, height: 8)
-            }
-        }
-        .padding(.vertical, 6)
-    }
-
-    private var accountSidebarTitle: String {
-        if let session = sessionStore.currentSession {
-            let name = session.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            return name.isEmpty ? session.email : name
-        }
-        return "Account"
-    }
-
-    private var accountSidebarSubtitle: String {
-        if let session = sessionStore.currentSession {
-            if let provider = sessionStore.lastOAuthProvider {
-                return "Recappi Cloud · \(provider.displayName)"
-            }
-            return session.email
-        }
-        switch sessionStore.authStatus {
-        case .expired:
-            return "Session expired"
-        case .failed:
-            return "Sign in needed"
-        default:
-            return "Sign in to Recappi Cloud"
-        }
-    }
-
-    // MARK: - Sidebar status dots
-
-    private var accountStatusDot: Color? {
-        if sessionStore.authFlowPhase != nil {
-            return DT.waveformLit
-        }
-        switch sessionStore.authStatus {
-        case .signedIn:
-            return config.cloudEnabled ? DT.systemGreen : nil
-        case .expired, .failed:
-            return config.cloudEnabled ? DT.systemOrange : nil
-        case .signedOut, .authenticating:
-            return nil
-        }
-    }
-
-    private var permissionsStatusDot: Color? {
-        let mic = capturePermissions.microphone == .authorized
-        let screen = capturePermissions.screenCapture == .authorized
-        switch (mic, screen) {
-        case (true, true):
-            return DT.systemGreen
-        case (false, false):
-            return DT.systemOrange
-        default:
-            return DT.systemOrange
-        }
-    }
-
-    // MARK: - Permissions snapshot (lifted so the sidebar dot stays in sync with the detail page)
+    // MARK: - Permissions snapshot
 
     private func refreshPermissionStatus() {
         capturePermissions = CapturePermissionPrimer.shared.snapshot()
+    }
+}
+
+private struct SettingsWindowConfigurator: NSViewRepresentable {
+    let selection: SettingsItem
+    let contentHeight: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            applyChrome(to: window)
+            resize(window, contentSize: NSSize(width: settingsWindowContentWidth, height: contentHeight))
+        }
+    }
+
+    private func applyChrome(to window: NSWindow) {
+        window.title = "Recappi Mini Settings"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.toolbarStyle = .preference
+        window.styleMask.remove(.resizable)
+        window.standardWindowButton(.zoomButton)?.isEnabled = false
+
+        Task { @MainActor [weak window] in
+            await Task.yield()
+            window?.title = "Recappi Mini Settings"
+        }
+    }
+
+    private func resize(_ window: NSWindow, contentSize: NSSize) {
+        let targetContentSize = NSSize(
+            width: settingsWindowContentWidth,
+            height: max(120, ceil(contentSize.height))
+        )
+        let frameSize = window.frameRect(
+            forContentRect: NSRect(origin: .zero, size: targetContentSize)
+        ).size
+        let current = window.frame
+        let target = NSRect(
+            x: current.midX - frameSize.width / 2,
+            y: current.maxY - frameSize.height,
+            width: frameSize.width,
+            height: frameSize.height
+        )
+
+        window.contentMinSize = .zero
+        window.contentMaxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        window.setFrame(target, display: true, animate: false)
+        window.contentMinSize = targetContentSize
+        window.contentMaxSize = targetContentSize
+    }
+}
+
+private extension View {
+    func settingsPane(height: CGFloat) -> some View {
+        self
+            .frame(width: settingsContentWidth, height: height, alignment: .top)
     }
 }

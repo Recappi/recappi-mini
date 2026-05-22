@@ -3,7 +3,6 @@ import SwiftUI
 
 struct GeneralSettingsPage: View {
     @EnvironmentObject private var config: AppConfig
-    @State private var diagnosticsArchiveMessage: String?
 
     var body: some View {
         Form {
@@ -48,42 +47,6 @@ struct GeneralSettingsPage: View {
             }
 
             Section {
-                LabeledContent("Diagnostics logs") {
-                    HStack(spacing: 8) {
-                        Button("Create Log Archive", action: createLogArchive)
-                            .accessibilityIdentifier(AccessibilityIDs.Settings.createLogsArchiveButton)
-                        Button("Open Logs Folder", action: openLogsFolder)
-                            .accessibilityIdentifier(AccessibilityIDs.Settings.openLogsFolderButton)
-                        Button("Copy Path", action: copyLogsPath)
-                            .accessibilityIdentifier(AccessibilityIDs.Settings.copyLogsPathButton)
-                    }
-                }
-
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Path")
-                        .foregroundStyle(Palette.labelPrimary)
-                    Spacer(minLength: 12)
-                    Text(DiagnosticsLog.logsDirectoryURL.path)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(Palette.labelSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(DiagnosticsLog.logsDirectoryURL.path)
-                }
-                .padding(.vertical, 4)
-
-                if let diagnosticsArchiveMessage {
-                    Text(diagnosticsArchiveMessage)
-                        .font(.footnote)
-                        .foregroundStyle(Palette.labelSecondary)
-                }
-            } footer: {
-                Text("When reporting an issue, create a log archive and send the generated zip file to Recappi support.")
-                    .foregroundStyle(Palette.labelSecondary)
-                    .font(.footnote)
-            }
-
-            Section {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Restart onboarding")
@@ -99,6 +62,7 @@ struct GeneralSettingsPage: View {
             }
         }
         .formStyle(.grouped)
+        .scrollDisabled(true)
         .scrollContentBackground(.hidden)
     }
 
@@ -118,29 +82,6 @@ struct GeneralSettingsPage: View {
 
     private func openRecordingsFolder() {
         NSWorkspace.shared.open(RecordingStore.baseDirectory)
-    }
-
-    private func openLogsFolder() {
-        DiagnosticsLog.event("diagnostics", "open_logs_folder source=settings")
-        NSWorkspace.shared.open(DiagnosticsLog.logsDirectoryURL)
-    }
-
-    private func copyLogsPath() {
-        DiagnosticsLog.event("diagnostics", "copy_logs_path source=settings")
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(DiagnosticsLog.logsDirectoryURL.path, forType: .string)
-        diagnosticsArchiveMessage = "Copied logs folder path."
-    }
-
-    private func createLogArchive() {
-        do {
-            let archive = try DiagnosticsLog.createLogArchive()
-            diagnosticsArchiveMessage = "Created \(archive.lastPathComponent)."
-            NSWorkspace.shared.activateFileViewerSelecting([archive])
-        } catch {
-            diagnosticsArchiveMessage = "Could not create log archive: \(error.localizedDescription)"
-            DiagnosticsLog.error("diagnostics", "archive.failed \(DiagnosticsLog.errorSummary(error))")
-        }
     }
 
     private func restartOnboarding() {
