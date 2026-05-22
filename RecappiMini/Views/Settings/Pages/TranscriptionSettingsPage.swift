@@ -5,13 +5,6 @@ struct TranscriptionSettingsPage: View {
 
     var body: some View {
         Form {
-            SettingsPageHeader(
-                title: "Transcription",
-                subtitle: "Live captions while recording, and the language used by Apple Speech and the cloud.",
-                systemImage: "text.bubble",
-                color: .green
-            )
-
             Section {
                 Toggle("Show Live Captions while recording", isOn: liveCaptionsDisplayBinding)
                     .accessibilityIdentifier(AccessibilityIDs.Settings.liveCaptionsDisplayToggle)

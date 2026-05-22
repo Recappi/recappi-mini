@@ -7,13 +7,6 @@ struct PermissionsSettingsPage: View {
 
     var body: some View {
         Form {
-            SettingsPageHeader(
-                title: "Permissions",
-                subtitle: "Recappi Mini needs Microphone and Screen Recording access to capture meetings.",
-                systemImage: "lock.shield",
-                color: .orange
-            )
-
             Section {
                 permissionRow(
                     title: "Microphone",

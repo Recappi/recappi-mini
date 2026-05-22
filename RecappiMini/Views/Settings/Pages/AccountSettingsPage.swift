@@ -20,13 +20,6 @@ struct AccountSettingsPage: View {
 
     var body: some View {
         Form {
-            SettingsPageHeader(
-                title: "Account",
-                subtitle: "Sign in to Recappi Cloud, manage usage, and toggle cloud transcription.",
-                systemImage: "person.crop.circle",
-                color: DT.appAccent
-            )
-
             Section {
                 if let session = sessionStore.currentSession {
                     accountIdentityRow(session: session)

@@ -6,13 +6,6 @@ struct GeneralSettingsPage: View {
 
     var body: some View {
         Form {
-            SettingsPageHeader(
-                title: "General",
-                subtitle: "App-wide preferences — appearance, recording suggestions, where files live.",
-                systemImage: "gear",
-                color: .gray
-            )
-
             Section {
                 Picker("Theme", selection: themeBinding) {
                     ForEach(AppTheme.allCases) { option in
