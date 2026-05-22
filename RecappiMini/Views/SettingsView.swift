@@ -13,13 +13,13 @@ enum SettingsItem: Hashable {
     var fallbackContentHeight: CGFloat {
         switch self {
         case .general:
-            560
+            430
         case .account:
-            440
+            360
         case .permissions:
-            320
+            250
         case .transcription:
-            440
+            420
         case .updates:
             320
         }
@@ -27,7 +27,7 @@ enum SettingsItem: Hashable {
 }
 
 let settingsWindowContentWidth: CGFloat = 560
-private let settingsContentWidth: CGFloat = 520
+private let settingsContentWidth: CGFloat = settingsWindowContentWidth
 
 // MARK: - Root settings view
 
@@ -35,6 +35,7 @@ struct SettingsView: View {
     @State private var selection: SettingsItem = .general
     @State private var capturePermissions = CapturePermissionSnapshot.placeholder
     @State private var permissionsBusy = false
+    @State private var paneHeights: [SettingsItem: CGFloat] = [:]
 
     let ownsForegroundWindowDemand: Bool
 
@@ -45,7 +46,7 @@ struct SettingsView: View {
     var body: some View {
         TabView(selection: $selection) {
             GeneralSettingsPage()
-                .settingsPane(height: SettingsItem.general.fallbackContentHeight)
+                .settingsPane(item: .general)
                 .tabItem {
                     Label("General", systemImage: "gear")
                         .accessibilityIdentifier(AccessibilityIDs.Settings.generalTab)
@@ -53,7 +54,7 @@ struct SettingsView: View {
                 .tag(SettingsItem.general)
 
             AccountSettingsPage()
-                .settingsPane(height: SettingsItem.account.fallbackContentHeight)
+                .settingsPane(item: .account)
                 .tabItem {
                     Label("Account", systemImage: "person.crop.circle")
                         .accessibilityIdentifier(AccessibilityIDs.Settings.accountTab)
@@ -65,7 +66,7 @@ struct SettingsView: View {
                 permissionsBusy: $permissionsBusy,
                 onRefresh: refreshPermissionStatus
             )
-            .settingsPane(height: SettingsItem.permissions.fallbackContentHeight)
+            .settingsPane(item: .permissions)
             .tabItem {
                 Label("Permissions", systemImage: "lock.shield")
                     .accessibilityIdentifier(AccessibilityIDs.Settings.permissionsTab)
@@ -73,7 +74,7 @@ struct SettingsView: View {
             .tag(SettingsItem.permissions)
 
             TranscriptionSettingsPage()
-                .settingsPane(height: SettingsItem.transcription.fallbackContentHeight)
+                .settingsPane(item: .transcription)
                 .tabItem {
                     Label("Transcription", systemImage: "text.bubble")
                         .accessibilityIdentifier(AccessibilityIDs.Settings.transcriptionTab)
@@ -81,7 +82,7 @@ struct SettingsView: View {
                 .tag(SettingsItem.transcription)
 
             UpdatesSettingsPage()
-                .settingsPane(height: SettingsItem.updates.fallbackContentHeight)
+                .settingsPane(item: .updates)
                 .tabItem {
                     Label("About", systemImage: "info.circle")
                         .accessibilityIdentifier(AccessibilityIDs.Settings.updatesTab)
@@ -93,9 +94,16 @@ struct SettingsView: View {
         .background(
             SettingsWindowConfigurator(
                 selection: selection,
-                contentHeight: selection.fallbackContentHeight
+                contentHeight: currentContentHeight
             )
         )
+        .onPreferenceChange(SettingsPaneHeightKey.self) { values in
+            var next = paneHeights
+            for (item, height) in values where height > 0 {
+                next[item] = height.rounded(.up)
+            }
+            paneHeights = next
+        }
         .task {
             refreshPermissionStatus()
         }
@@ -104,6 +112,13 @@ struct SettingsView: View {
                 AppDelegate.shared.releaseSettingsSceneForegroundDemand()
             }
         }
+    }
+
+    private var currentContentHeight: CGFloat {
+        if let measured = paneHeights[selection], measured > 0 {
+            return measured
+        }
+        return selection.fallbackContentHeight
     }
 
     // MARK: - Permissions snapshot
@@ -170,9 +185,23 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
     }
 }
 
+struct SettingsPaneHeightKey: PreferenceKey {
+    static let defaultValue: [SettingsItem: CGFloat] = [:]
+    static func reduce(value: inout [SettingsItem: CGFloat], nextValue: () -> [SettingsItem: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: max)
+    }
+}
+
 private extension View {
-    func settingsPane(height: CGFloat) -> some View {
+    func settingsPane(item: SettingsItem) -> some View {
         self
-            .frame(width: settingsContentWidth, height: height, alignment: .top)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: settingsContentWidth, alignment: .top)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .preference(key: SettingsPaneHeightKey.self, value: [item: proxy.size.height])
+                }
+            )
     }
 }
