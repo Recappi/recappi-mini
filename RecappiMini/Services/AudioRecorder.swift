@@ -69,6 +69,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var coreAudioTapCapture: CoreAudioProcessTapCapture?
     private var audioDeviceMonitor: DefaultAudioDeviceMonitor?
     private var currentOutputAudioDeviceID: AudioDeviceID?
+    private var microphoneDeviceNotificationTokens: [NSObjectProtocol] = []
 
     // --- Microphone (AVCaptureSession) pipeline ---
     private var micSession: AVCaptureSession?
@@ -339,12 +340,13 @@ final class AudioRecorder: NSObject, ObservableObject {
         suggestRecording(for: app, promptTitle: app.name)
     }
 
-    func suggestRecording(for app: AudioApp, promptTitle: String) {
+    func suggestRecording(for app: AudioApp, promptTitle: String, browserSessionKey: String? = nil) {
         meetingPrompt = nil
         recordingSuggestion = RecordingSuggestion(
             appID: app.id,
             appName: app.name,
-            promptTitle: promptTitle
+            promptTitle: promptTitle,
+            browserSessionKey: browserSessionKey
         )
     }
 
@@ -352,12 +354,13 @@ final class AudioRecorder: NSObject, ObservableObject {
         recordingSuggestion = nil
     }
 
-    func showMeetingPrompt(for app: AudioApp, promptTitle: String) {
+    func showMeetingPrompt(for app: AudioApp, promptTitle: String, browserSessionKey: String? = nil) {
         recordingSuggestion = nil
         meetingPrompt = MeetingPrompt(
             appID: app.id,
             appName: app.name,
-            promptTitle: promptTitle
+            promptTitle: promptTitle,
+            browserSessionKey: browserSessionKey
         )
     }
 
@@ -399,20 +402,23 @@ final class AudioRecorder: NSObject, ObservableObject {
         pendingDetectedMeetingRecordingContext = DetectedMeetingRecordingContext(
             appID: suggestion.appID,
             appName: suggestion.appName,
-            promptTitle: suggestion.promptTitle
+            promptTitle: suggestion.promptTitle,
+            browserSessionKey: suggestion.browserSessionKey
         )
         recordingSuggestion = nil
         meetingPrompt = nil
         return true
     }
 
-    func updateRecordingSuggestion(promptTitle: String, forAppID appID: String) {
+    func updateRecordingSuggestion(promptTitle: String, forAppID appID: String, browserSessionKey: String? = nil) {
         guard var suggestion = recordingSuggestion, suggestion.appID == appID else { return }
-        guard suggestion.promptTitle != promptTitle else { return }
+        let nextBrowserSessionKey = browserSessionKey ?? suggestion.browserSessionKey
+        guard suggestion.promptTitle != promptTitle || suggestion.browserSessionKey != nextBrowserSessionKey else { return }
         suggestion = RecordingSuggestion(
             appID: suggestion.appID,
             appName: suggestion.appName,
-            promptTitle: promptTitle
+            promptTitle: promptTitle,
+            browserSessionKey: nextBrowserSessionKey
         )
         recordingSuggestion = suggestion
     }
@@ -719,12 +725,12 @@ final class AudioRecorder: NSObject, ObservableObject {
 
             // --- Microphone pipeline ---
             let captureSession = AVCaptureSession()
-            guard let micDevice = AVCaptureDevice.default(for: .audio) else {
+            guard let micDevice = preferredMicrophoneDevice() else {
                 throw RecorderError.noMicrophone
             }
             DiagnosticsLog.event(
                 "recording",
-                "mic.device name=\(DiagnosticsLog.sanitize(micDevice.localizedName, maxLength: 80)) uniqueIDHash=\(micDevice.uniqueID.hashValue)"
+                "mic.device name=\(DiagnosticsLog.sanitize(micDevice.localizedName, maxLength: 80)) uniqueIDHash=\(micDevice.uniqueID.hashValue) selection=\(microphoneSelectionLogValue)"
             )
             let deviceInput = try AVCaptureDeviceInput(device: micDevice)
             guard captureSession.canAddInput(deviceInput) else {
@@ -767,7 +773,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             mcOut.setIncludesAudio(includesMicrophoneAudio)
             DiagnosticsLog.event(
                 "recording",
-                "capture.started dir=\(sessionDir.lastPathComponent) selectedBundle=\(selectedApp?.id ?? "all-system-audio") includeMic=\(includesMicrophoneAudio) outputDevice=\(outputAudioDeviceID)"
+                "capture.started dir=\(sessionDir.lastPathComponent) selectedBundle=\(selectedApp?.id ?? "all-system-audio") includeMic=\(includesMicrophoneAudio) microphone=\(microphoneSelectionLogValue) outputDevice=\(outputAudioDeviceID)"
             )
 
             self.audioLevel = 0
@@ -2066,7 +2072,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         return DetectedMeetingRecordingContext(
             appID: prompt.appID,
             appName: prompt.appName,
-            promptTitle: prompt.promptTitle
+            promptTitle: prompt.promptTitle,
+            browserSessionKey: prompt.browserSessionKey
         )
     }
 
@@ -2113,11 +2120,47 @@ final class AudioRecorder: NSObject, ObservableObject {
             }
         }
         self.audioDeviceMonitor = monitor
+        startMonitoringMicrophoneDeviceConnections()
     }
 
     private func stopMonitoringOutputDeviceChanges() {
         audioDeviceMonitor?.stop()
         audioDeviceMonitor = nil
+        stopMonitoringMicrophoneDeviceConnections()
+    }
+
+    private func startMonitoringMicrophoneDeviceConnections() {
+        stopMonitoringMicrophoneDeviceConnections()
+
+        let center = NotificationCenter.default
+        let connected = center.addObserver(
+            forName: AVCaptureDevice.wasConnectedNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reconfigureMicrophoneForConfiguredInput()
+            }
+        }
+
+        let disconnected = center.addObserver(
+            forName: AVCaptureDevice.wasDisconnectedNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reconfigureMicrophoneForConfiguredInput()
+            }
+        }
+
+        microphoneDeviceNotificationTokens = [connected, disconnected]
+    }
+
+    private func stopMonitoringMicrophoneDeviceConnections() {
+        guard !microphoneDeviceNotificationTokens.isEmpty else { return }
+        let center = NotificationCenter.default
+        microphoneDeviceNotificationTokens.forEach { center.removeObserver($0) }
+        microphoneDeviceNotificationTokens = []
     }
 
     private func handleAudioDeviceChange(_ change: DefaultAudioDeviceMonitor.Change) async {
@@ -2125,7 +2168,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         case .output(let deviceID):
             await handleOutputDeviceChange(deviceID)
         case .input:
-            reconfigureMicrophoneForDefaultInput()
+            reconfigureMicrophoneForConfiguredInput()
         }
     }
 
@@ -2153,10 +2196,29 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
-    private func reconfigureMicrophoneForDefaultInput() {
+    private var microphoneSelectionLogValue: String {
+        let selected = AppConfig.shared.recordingMicrophoneDeviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return selected.isEmpty ? "system-default" : "configured:\(selected.hashValue)"
+    }
+
+    private func preferredMicrophoneDevice() -> AVCaptureDevice? {
+        let selected = AppConfig.shared.recordingMicrophoneDeviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let device = MicrophoneInputDevice.captureDevice(preferredUniqueID: selected)
+
+        if !selected.isEmpty, device?.uniqueID != selected {
+            DiagnosticsLog.warning(
+                "recording",
+                "microphone.selected_unavailable selectionHash=\(selected.hashValue) fallback=\(DiagnosticsLog.sanitize(device?.localizedName ?? "none", maxLength: 80))"
+            )
+        }
+
+        return device
+    }
+
+    private func reconfigureMicrophoneForConfiguredInput() {
         guard state == .recording else { return }
         guard let micSession else { return }
-        guard let newDevice = AVCaptureDevice.default(for: .audio) else { return }
+        guard let newDevice = preferredMicrophoneDevice() else { return }
 
         let existingInputs = micSession.inputs.compactMap { $0 as? AVCaptureDeviceInput }
         if existingInputs.contains(where: { $0.device.uniqueID == newDevice.uniqueID }) {
@@ -2172,6 +2234,10 @@ final class AudioRecorder: NSObject, ObservableObject {
             if micSession.canAddInput(newInput) {
                 micSession.addInput(newInput)
                 micSession.commitConfiguration()
+                DiagnosticsLog.event(
+                    "recording",
+                    "microphone.input_reconfigured name=\(DiagnosticsLog.sanitize(newDevice.localizedName, maxLength: 80)) selection=\(microphoneSelectionLogValue)"
+                )
                 return
             }
 

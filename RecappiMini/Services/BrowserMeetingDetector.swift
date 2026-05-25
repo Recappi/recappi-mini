@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 struct BrowserMeetingMatch: Equatable, Sendable {
@@ -8,6 +9,14 @@ struct BrowserMeetingMatch: Equatable, Sendable {
 
     var suggestionTitle: String {
         "\(meetingName) in \(browserName)"
+    }
+
+    var sessionKey: String {
+        BrowserMeetingSessionKey.make(
+            meetingName: meetingName,
+            pageTitle: pageTitle,
+            pageURL: pageURL
+        )
     }
 }
 
@@ -35,10 +44,14 @@ enum BrowserMeetingDetector {
     }
 
     static func inferMeetingSuggestion(bundleID: String, browserName: String) async -> String? {
+        await inferMeetingMatch(bundleID: bundleID, browserName: browserName)?.suggestionTitle
+    }
+
+    static func inferMeetingMatch(bundleID: String, browserName: String) async -> BrowserMeetingMatch? {
         let canonicalBundleID = BundleCollapser.parent(of: bundleID)
         for output in await readBrowserContextOutputs(bundleID: canonicalBundleID) {
-            if let suggestion = meetingSuggestion(fromScriptOutput: output, browserName: browserName) {
-                return suggestion
+            if let match = meetingMatch(fromScriptOutput: output, browserName: browserName) {
+                return match
             }
         }
 
@@ -101,13 +114,17 @@ enum BrowserMeetingDetector {
     }
 
     static func meetingSuggestion(fromScriptOutput output: String, browserName: String) -> String? {
+        meetingMatch(fromScriptOutput: output, browserName: browserName)?.suggestionTitle
+    }
+
+    static func meetingMatch(fromScriptOutput output: String, browserName: String) -> BrowserMeetingMatch? {
         for context in BrowserTabContext.parseMany(output: output) {
             if let match = classify(
                 urlString: context.urlString,
                 title: context.pageTitle,
                 browserName: browserName
             ) {
-                return match.suggestionTitle
+                return match
             }
         }
 
@@ -440,6 +457,68 @@ enum BrowserMeetingDetector {
         }
 
         return combined
+    }
+}
+
+private enum BrowserMeetingSessionKey {
+    static func make(meetingName: String, pageTitle: String?, pageURL: String?) -> String {
+        let meetingSlug = slug(meetingName)
+        let identity = normalizedURL(pageURL)
+            ?? normalizedTitle(pageTitle)
+            ?? meetingSlug
+        return "\(meetingSlug):\(digest(identity))"
+    }
+
+    private static func normalizedURL(_ urlString: String?) -> String? {
+        guard let raw = urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return nil
+        }
+        guard var components = URLComponents(string: raw),
+              let host = components.host?.lowercased(),
+              !host.isEmpty else {
+            return raw.lowercased()
+        }
+
+        components.scheme = components.scheme?.lowercased()
+        components.host = host
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+
+        var normalized = components.string ?? raw
+        while normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+        return normalized.lowercased()
+    }
+
+    private static func normalizedTitle(_ title: String?) -> String? {
+        let normalized = title?
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .lowercased()
+        return normalized?.isEmpty == false ? normalized : nil
+    }
+
+    private static func slug(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics
+        let scalars = value.lowercased().unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let collapsed = String(scalars)
+            .split(separator: "-")
+            .joined(separator: "-")
+        return collapsed.isEmpty ? "meeting" : collapsed
+    }
+
+    private static func digest(_ value: String) -> String {
+        let hash = SHA256.hash(data: Data(value.utf8))
+        return hash.prefix(12)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }
 

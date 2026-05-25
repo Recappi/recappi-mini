@@ -2374,6 +2374,7 @@ final class RecappiMiniCoreTests: XCTestCase {
 
         XCTAssertEqual(match?.meetingName, "Google Meet")
         XCTAssertEqual(match?.suggestionTitle, "Google Meet in Safari")
+        XCTAssertNotNil(match?.sessionKey)
     }
 
     func testBrowserMeetingDetectorSupportsArc() {
@@ -2392,6 +2393,27 @@ final class RecappiMiniCoreTests: XCTestCase {
             BrowserMeetingDetector.meetingSuggestion(fromScriptOutput: output, browserName: "Arc"),
             "Google Meet in Arc"
         )
+    }
+
+    func testBrowserMeetingDetectorSessionKeyTracksMeetingURLNotJustTitle() {
+        let first = BrowserMeetingDetector.classify(
+            urlString: "https://meet.google.com/abc-defg-hij?pli=1",
+            title: "Daily sync - Google Meet",
+            browserName: "Google Chrome"
+        )
+        let sameWithoutQuery = BrowserMeetingDetector.classify(
+            urlString: "https://meet.google.com/abc-defg-hij",
+            title: "Different visible title",
+            browserName: "Google Chrome"
+        )
+        let second = BrowserMeetingDetector.classify(
+            urlString: "https://meet.google.com/xyz-uvwx-rst",
+            title: "Daily sync - Google Meet",
+            browserName: "Google Chrome"
+        )
+
+        XCTAssertEqual(first?.sessionKey, sameWithoutQuery?.sessionKey)
+        XCTAssertNotEqual(first?.sessionKey, second?.sessionKey)
     }
 
     func testBrowserMeetingDetectorKeepsLegacyTwoLineOutputCompatible() {

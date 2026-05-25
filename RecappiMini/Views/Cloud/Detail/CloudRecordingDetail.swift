@@ -282,9 +282,23 @@ struct CloudRecordingDetail: View {
         hasSummarySection || visibleTranscript == nil || isVisibleTranscriptLoading
     }
 
+    private var isTranscriptUnavailableMessage: Bool {
+        visibleTranscriptErrorMessage == "Transcript is not available for this recording yet."
+    }
+
+    private var shouldShowTranscriptGenerationEmptyState: Bool {
+        guard !isViewingHistoricalVersion else { return false }
+        guard !isVisibleTranscriptLoading else { return false }
+        guard visibleTranscript == nil else { return false }
+        return latestJob?.status.isActive == true
+            || recording.activeTranscriptId == nil
+            || isTranscriptUnavailableMessage
+    }
+
     private var shouldShowProcessingContextStrip: Bool {
         guard !isViewingHistoricalVersion else { return false }
         guard latestJob?.status.isActive != true else { return false }
+        guard !shouldShowTranscriptGenerationEmptyState else { return false }
         // First-run cloud recordings need an obvious Transcribe entry.
         // Existing transcripts use the Re-Transcribe popover from the
         // actions menu, so the detail surface does not permanently grow.
@@ -898,6 +912,14 @@ struct CloudRecordingDetail: View {
                     .font(.system(size: 12.5))
                     .foregroundStyle(Color.dtLabelSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        } else if shouldShowTranscriptGenerationEmptyState {
+            transcriptInsightCard(
+                title: "Summary",
+                systemImage: transcriptGenerationIconName,
+                accessibilityID: AccessibilityIDs.Cloud.summaryText
+            ) {
+                transcriptGenerationEmptyState(showsAction: true)
             }
         }
 
@@ -2896,6 +2918,19 @@ struct CloudRecordingDetail: View {
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptText)
+            } else if shouldShowTranscriptGenerationEmptyState {
+                transcriptGenerationEmptyState(showsAction: false)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Palette.surfaceCardSubtle)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Palette.borderHairline, lineWidth: 1)
+                    )
             } else {
                 HStack(alignment: .center, spacing: 10) {
                     Image(systemName: "doc.text")
@@ -2977,6 +3012,91 @@ struct CloudRecordingDetail: View {
             .min()
         let end = max(row.endMs ?? nextStart ?? (start + 60_000), start + 500)
         return timeMs >= start - 750 && timeMs < end
+    }
+
+    private var transcriptGenerationIconName: String {
+        if latestJob?.status.isActive == true {
+            return "clock"
+        }
+        if recording.activeTranscriptId == nil {
+            return "text.badge.plus"
+        }
+        return "arrow.triangle.2.circlepath"
+    }
+
+    private var transcriptGenerationTitle: String {
+        if latestJob?.status.isActive == true {
+            return "Transcription is in progress"
+        }
+        if recording.activeTranscriptId == nil {
+            return "No transcript yet"
+        }
+        return "Transcript needs to be regenerated"
+    }
+
+    private var transcriptGenerationDescription: String {
+        if latestJob?.status.isActive == true {
+            return "Transcript and summary will appear here when processing finishes."
+        }
+        if recording.activeTranscriptId == nil {
+            return "Start transcription to generate transcript, summary, and speaker labels."
+        }
+        return "The saved transcript is unavailable. Re-run transcription to rebuild it."
+    }
+
+    private var transcriptGenerationActionTitle: String {
+        recording.activeTranscriptId == nil
+            ? CloudRecordingProcessingAction.transcriptAndSummary.title(hasExistingTranscript: false)
+            : "Re-Transcribe"
+    }
+
+    @ViewBuilder
+    private func transcriptGenerationEmptyState(showsAction: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: transcriptGenerationIconName)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .frame(width: 18, height: 18)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(transcriptGenerationTitle)
+                        .font(CloudTypography.label)
+                        .foregroundStyle(Color.dtLabel)
+
+                    Text(transcriptGenerationDescription)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Color.dtLabelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            if showsAction {
+                if latestJob?.status.isActive == true {
+                    HStack(spacing: 7) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(latestJob?.status.displayName ?? "Processing")
+                            .font(CloudTypography.caption)
+                            .foregroundStyle(Color.dtLabelSecondary)
+                    }
+                } else {
+                    Button(transcriptGenerationActionTitle) {
+                        if recording.activeTranscriptId == nil {
+                            onProcessRecording(.transcriptAndSummary)
+                        } else {
+                            presentRetranscribeContextPopover()
+                        }
+                    }
+                    .buttonStyle(PanelPushButtonStyle(primary: recording.activeTranscriptId == nil))
+                    .frame(width: recording.activeTranscriptId == nil ? 156 : 126)
+                    .disabled(isProcessingActionDisabled(.transcriptAndSummary))
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
+                }
+            }
+        }
     }
 
     private var transcriptPlaceholderText: String {

@@ -78,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let app: AudioApp
         let promptKey: String
         let promptTitle: String?
+        let browserSessionKey: String?
     }
 
     private var statusItem: NSStatusItem?
@@ -163,6 +164,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         SentryReporter.start()
         DiagnosticsLog.installCrashHandlers()
         DiagnosticsLog.event("sentry", "sdk.enabled=\(SentryReporter.isEnabledForCurrentProcess)")
+        if let session = AuthSessionStore.shared.currentSession {
+            SentryReporter.setUserIdentity(session)
+        } else {
+            SentryReporter.clearUserIdentity()
+        }
         logAppLaunch()
         // Apply the user's theme before any window is created so the very
         // first surface (status item, floating panel, onboarding) comes up
@@ -313,6 +319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                 }
 
                 self.notifyHiddenProcessingTransitionIfNeeded(from: previous, to: state)
+                self.handleDetectedMeetingRecordingActivity(self.effectiveActiveAudioBundleIDs)
                 self.reconcileLiveCaptionPanelPresentation()
             }
 
@@ -1403,7 +1410,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         }
 
         let targetID = BundleCollapser.parent(of: context.appID)
-        guard !active.contains(targetID) else {
+        let isBrowserContext = BrowserMeetingDetector.supports(bundleID: targetID)
+        guard isBrowserContext || !active.contains(targetID) else {
             detectedMeetingAutoStopTask?.cancel()
             detectedMeetingAutoStopTask = nil
             return
@@ -1413,25 +1421,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let grace = detectedMeetingAutoStopGraceDuration
         detectedMeetingAutoStopTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            var sleepDuration = grace
+            var browserContextMissCount = 0
 
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(grace))
+                try? await Task.sleep(for: .seconds(sleepDuration))
                 guard !Task.isCancelled else { return }
                 guard self.recorder.state == .recording,
                       let current = self.recorder.detectedMeetingRecordingContext,
-                      current.appID == context.appID else {
+                      current == context else {
                     self.detectedMeetingAutoStopTask = nil
                     return
                 }
 
                 let latestActive = self.effectiveActiveAudioBundleIDs
-                guard !latestActive.contains(targetID) else {
-                    self.detectedMeetingAutoStopTask = nil
-                    return
-                }
+                if isBrowserContext {
+                    sleepDuration = self.browserMeetingPollInterval
+                    if await self.browserMeetingStillLooksActive(current) {
+                        browserContextMissCount = 0
+                        continue
+                    }
 
-                if await self.browserMeetingStillLooksActive(current) {
-                    continue
+                    if latestActive.contains(targetID) {
+                        browserContextMissCount += 1
+                        guard browserContextMissCount >= 2 else { continue }
+                    }
+                } else {
+                    guard !latestActive.contains(targetID) else {
+                        self.detectedMeetingAutoStopTask = nil
+                        return
+                    }
                 }
 
                 self.recorder.requestAutoStopForDetectedMeetingIfNeeded()
@@ -1443,13 +1462,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private func browserMeetingStillLooksActive(_ context: DetectedMeetingRecordingContext) async -> Bool {
         guard BrowserMeetingDetector.supports(bundleID: context.appID) else { return false }
-        if meetingLabelOverride(for: context.appID) != nil {
-            return true
+        if let promptTitle = meetingLabelOverride(for: context.appID) {
+            return context.browserSessionKey == nil ||
+                context.browserSessionKey == uiTestBrowserMeetingSessionKey(promptTitle: promptTitle)
         }
-        return await BrowserMeetingDetector.inferMeetingSuggestion(
+        guard let match = await BrowserMeetingDetector.inferMeetingMatch(
             bundleID: context.appID,
             browserName: context.appName
-        ) != nil
+        ) else { return false }
+        guard let browserSessionKey = context.browserSessionKey else {
+            return match.suggestionTitle == context.promptTitle
+        }
+        return match.sessionKey == browserSessionKey
     }
 
     @discardableResult
@@ -1459,7 +1483,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         guard !autoPromptSuppressedUntilInactiveBundleIDs.contains(BundleCollapser.parent(of: app.id)) else {
             return false
         }
-        let target = AutoPromptTarget(app: app, promptKey: "meeting:\(app.id)", promptTitle: nil)
+        let target = AutoPromptTarget(
+            app: app,
+            promptKey: "meeting:\(app.id)",
+            promptTitle: nil,
+            browserSessionKey: nil
+        )
         return presentAutoPromptIfNeeded(target)
     }
 
@@ -1479,10 +1508,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             recorder.clearRecordingSuggestion()
             recorder.showMeetingPrompt(
                 for: target.app,
-                promptTitle: target.promptTitle ?? target.app.name
+                promptTitle: target.promptTitle ?? target.app.name,
+                browserSessionKey: target.browserSessionKey
             )
         } else if let promptTitle = target.promptTitle {
-            recorder.suggestRecording(for: target.app, promptTitle: promptTitle)
+            recorder.suggestRecording(
+                for: target.app,
+                promptTitle: promptTitle,
+                browserSessionKey: target.browserSessionKey
+            )
         } else {
             recorder.suggestRecording(for: target.app)
         }
@@ -1529,23 +1563,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             }
 
             if let promptTitle = meetingLabelOverride(for: app.id) {
+                let browserSessionKey = uiTestBrowserMeetingSessionKey(promptTitle: promptTitle)
                 return AutoPromptTarget(
                     app: app,
-                    promptKey: "browser:\(app.id):\(promptTitle)",
-                    promptTitle: promptTitle
+                    promptKey: "browser:\(app.id):\(browserSessionKey)",
+                    promptTitle: promptTitle,
+                    browserSessionKey: browserSessionKey
                 )
             }
 
             guard BrowserMeetingDetector.supports(bundleID: app.id) else { continue }
-            guard let promptTitle = await BrowserMeetingDetector.inferMeetingSuggestion(
+            guard let match = await BrowserMeetingDetector.inferMeetingMatch(
                 bundleID: app.id,
                 browserName: app.name
             ) else { continue }
 
             return AutoPromptTarget(
                 app: app,
-                promptKey: "browser:\(app.id):\(promptTitle)",
-                promptTitle: promptTitle
+                promptKey: "browser:\(app.id):\(match.sessionKey)",
+                promptTitle: match.suggestionTitle,
+                browserSessionKey: match.sessionKey
             )
         }
 
@@ -1560,6 +1597,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         guard effectiveActiveAudioBundleIDs.contains(bundleID) else { return nil }
         guard let override = uiTestMode.simulatedAutoPromptMeetingLabel, !override.isEmpty else { return nil }
         return override
+    }
+
+    private func uiTestBrowserMeetingSessionKey(promptTitle: String) -> String {
+        "uitest:\(promptTitle.lowercased())"
     }
 
     private func consumeUITestCommandIfNeeded(at url: URL) {
@@ -1617,9 +1658,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let activeAtHide = effectiveActiveAudioBundleIDs
         guard !activeAtHide.isEmpty else { return }
 
-        for bundleID in activeAtHide {
-            promptedAutoPromptKeyByBundleID.removeValue(forKey: bundleID)
-        }
         let snoozeDuration = hiddenAutoPromptSnoozeDuration
 
         hiddenPanelAutoPromptTask = Task { @MainActor [weak self] in

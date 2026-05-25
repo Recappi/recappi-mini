@@ -188,6 +188,23 @@ final class RealtimeLiveCaptionLifecycleTests: XCTestCase {
         XCTAssertEqual(connector.claimCallCount, 2, "Claim must have been attempted twice (one failure + one success).")
     }
 
+    func testSubscriptionRenewalClaimFailureIsWarningTelemetry() {
+        XCTAssertEqual(
+            RealtimeLiveCaptionActor.claimFailureDiagnosticLevel(for: RecappiAPIError.http(
+                statusCode: 503,
+                message: "Subscription is renewing — quota window is between periods. Retry in a few seconds."
+            )),
+            "warning"
+        )
+        XCTAssertEqual(
+            RealtimeLiveCaptionActor.claimFailureDiagnosticLevel(for: RecappiAPIError.http(
+                statusCode: 503,
+                message: "upstream down"
+            )),
+            "error"
+        )
+    }
+
     // MARK: - Stop during reconnect
 
     /// `.reconnecting → .stopping → .stopped` when stop is invoked

@@ -135,6 +135,7 @@ final class AppConfig: ObservableObject {
     @AppStorage("recordingUseExtraPrompt") var recordingUseExtraPrompt: Bool = true
     @AppStorage("recordingExtraPrompt") var recordingExtraPrompt: String = ""
     @AppStorage("recordingIncludeMicrophoneAudio") var recordingIncludeMicrophoneAudio: Bool = true
+    @AppStorage("recordingMicrophoneDeviceID") var recordingMicrophoneDeviceID: String = MicrophoneInputDevice.systemDefaultID
     @Published var recordingTemplatePromptExpanded: Bool = false
     @AppStorage("appTheme") var theme: AppTheme = .light
 

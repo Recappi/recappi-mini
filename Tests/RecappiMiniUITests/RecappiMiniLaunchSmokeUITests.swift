@@ -554,8 +554,14 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         let app = launchRecappiApp(
             authToken: "invalid-test-token",
             simulatedAutoPromptApp: (bundleID: "com.google.Chrome", name: "Google Chrome"),
-            simulatedAutoPromptMeetingLabel: "Google Meet in Chrome",
             detectedMeetingAutoStopGraceSeconds: 0.1
+        )
+
+        postSimulatedAutoPrompt(
+            bundleID: "com.google.Chrome",
+            appName: "Google Chrome",
+            meetingLabel: "Google Meet in Chrome",
+            active: true
         )
 
         let suggestion = uiElement(app, id: UITestIDs.Panel.recordingSuggestion)
@@ -576,6 +582,40 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForNonExistence(of: stopButton, timeout: 15),
             "Expected suggested meeting recording to auto-stop after meeting audio ended."
+        )
+    }
+
+    func testDetectedBrowserMeetingAutoStopsWhenTabEndsButBrowserAudioStaysActive() throws {
+        let app = launchRecappiApp(
+            authToken: "invalid-test-token",
+            simulatedAutoPromptApp: (bundleID: "com.google.Chrome", name: "Google Chrome"),
+            detectedMeetingAutoStopGraceSeconds: 0.1
+        )
+
+        postSimulatedAutoPrompt(
+            bundleID: "com.google.Chrome",
+            appName: "Google Chrome",
+            meetingLabel: "Google Meet in Chrome",
+            active: true
+        )
+
+        let suggestion = uiElement(app, id: UITestIDs.Panel.recordingSuggestion)
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 15), "Expected auto-prompt suggestion banner.")
+        suggestion.click()
+        completeRecordingPreflight(in: app)
+
+        let stopButton = app.buttons[UITestIDs.Panel.stopButton]
+        XCTAssertTrue(stopButton.waitForExistence(timeout: 15), "Expected suggested browser recording to start.")
+
+        postSimulatedAutoPrompt(
+            bundleID: "com.google.Chrome",
+            appName: "Google Chrome",
+            active: true
+        )
+
+        XCTAssertTrue(
+            waitForNonExistence(of: stopButton, timeout: 15),
+            "Expected browser meeting recording to auto-stop when the meeting tab disappears even if Chrome remains active."
         )
     }
 
@@ -872,7 +912,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         XCTAssertFalse(meetingPrompt.exists, "Expected no meeting prompt for non-meeting browser audio.")
     }
 
-    func testHiddenPanelRepromptsForSameBrowserAfterSnooze() throws {
+    func testHiddenPanelDismissKeepsSameBrowserPromptQuietUntilInactive() throws {
         let app = launchRecappiApp(
             authToken: "",
             simulatedAutoPromptApp: (bundleID: "com.google.Chrome", name: "Google Chrome"),
@@ -906,8 +946,33 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         hidePanel(in: app)
 
         XCTAssertTrue(
+            waitForNonExistence(of: sourcePicker, timeout: 1.5),
+            "Expected dismissing a browser meeting prompt to stay quiet while the same browser remains active."
+        )
+        XCTAssertFalse(
+            uiElement(app, id: UITestIDs.Panel.recordingSuggestion).exists,
+            "Expected the dismissed browser meeting suggestion to stay hidden while Chrome remains active."
+        )
+        XCTAssertFalse(
+            uiElement(app, id: UITestIDs.Panel.meetingPrompt).exists,
+            "Expected the dismissed browser meeting prompt to stay hidden while Chrome remains active."
+        )
+
+        postSimulatedAutoPrompt(
+            bundleID: "com.google.Chrome",
+            appName: "Google Chrome",
+            active: false
+        )
+        postSimulatedAutoPrompt(
+            bundleID: "com.google.Chrome",
+            appName: "Google Chrome",
+            meetingLabel: "Google Meet in Chrome",
+            active: true
+        )
+
+        XCTAssertTrue(
             sourcePicker.waitForExistence(timeout: 15),
-            "Expected hidden panel to reappear for the same active browser after the snooze window."
+            "Expected the same browser meeting prompt to be allowed again after Chrome goes inactive."
         )
 
         let sourceText = [sourcePicker.label, sourcePicker.value as? String]

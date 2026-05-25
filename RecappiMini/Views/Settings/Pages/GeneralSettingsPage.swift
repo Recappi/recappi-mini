@@ -21,6 +21,18 @@ struct GeneralSettingsPage: View {
             }
 
             Section {
+                MicrophoneInputPicker(
+                    title: "Microphone input",
+                    selection: microphoneDeviceBinding,
+                    accessibilityIdentifier: AccessibilityIDs.Settings.microphoneInputPicker
+                )
+            } footer: {
+                Text("Used when Include microphone is on. If the selected microphone is unavailable, Recappi falls back to the macOS default input.")
+                    .foregroundStyle(Palette.labelSecondary)
+                    .font(.footnote)
+            }
+
+            Section {
                 Toggle("Suggest recording when app audio starts", isOn: autoPromptBinding)
                     .accessibilityIdentifier(AccessibilityIDs.Settings.autoPromptToggle)
             } footer: {
@@ -70,6 +82,13 @@ struct GeneralSettingsPage: View {
         Binding(
             get: { config.theme },
             set: { config.theme = $0 }
+        )
+    }
+
+    private var microphoneDeviceBinding: Binding<String> {
+        Binding(
+            get: { config.recordingMicrophoneDeviceID },
+            set: { config.recordingMicrophoneDeviceID = $0 }
         )
     }
 

@@ -606,6 +606,14 @@ actor RealtimeLiveCaptionActor {
         }
     }
 
+    static func claimFailureDiagnosticLevel(for error: Error) -> String {
+        guard case RecappiAPIError.http(let statusCode, let message) = error,
+              statusCode == 503
+        else { return "error" }
+
+        return message.localizedCaseInsensitiveContains("Subscription is renewing") ? "warning" : "error"
+    }
+
     /// Force a reconnect from `.live`. No-op from other states (a
     /// caller racing against `stop()` must not be able to resurrect
     /// a torn-down session).
@@ -1046,10 +1054,13 @@ actor RealtimeLiveCaptionActor {
             } else {
                 trace("claim.error", "status=-1 err=\(DiagnosticsLog.errorSummary(error))")
             }
-            DiagnosticsLog.error(
-                "live-caption",
+            let claimFailureMessage =
                 "claim.failed mode=\(Self.modeLabel(mode)) attempt=\(attempt) \(DiagnosticsLog.errorSummary(error))"
-            )
+            if Self.claimFailureDiagnosticLevel(for: error) == "warning" {
+                DiagnosticsLog.warning("live-caption", claimFailureMessage)
+            } else {
+                DiagnosticsLog.error("live-caption", claimFailureMessage)
+            }
             publishSnapshot(.statusOnly(phase: .failed, message: "Live captions are reconnecting…"))
             await scheduleReconnect(after: error, attempt: attempt)
         }

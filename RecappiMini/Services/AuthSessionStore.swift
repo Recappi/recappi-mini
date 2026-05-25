@@ -35,10 +35,12 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .signedIn(session)
             authStatusDetail = nil
             authFlowPhase = nil
+            SentryReporter.setUserIdentity(session)
         } else {
             authStatus = .signedOut
             authStatusDetail = nil
             authFlowPhase = nil
+            SentryReporter.clearUserIdentity()
         }
         DiagnosticsLog.event(
             "auth",
@@ -117,6 +119,7 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .signedIn(bootstrap.session)
             authStatusDetail = nil
             authFlowPhase = nil
+            SentryReporter.setUserIdentity(bootstrap.session)
             DiagnosticsLog.event(
                 "auth",
                 "oauth.succeeded provider=\(provider.rawValue) userHash=\(bootstrap.session.userId.hashValue) originHash=\(resolvedOrigin.hashValue)"
@@ -171,6 +174,7 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .signedIn(session)
             authStatusDetail = nil
             authFlowPhase = nil
+            SentryReporter.setUserIdentity(session)
             DiagnosticsLog.event(
                 "auth",
                 "token_import.succeeded userHash=\(session.userId.hashValue) originHash=\(resolvedOrigin.hashValue)"
@@ -207,6 +211,7 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .signedOut
             authStatusDetail = nil
             authFlowPhase = nil
+            SentryReporter.clearUserIdentity()
             DiagnosticsLog.warning("auth", "ensure.no_token")
             throw RecappiSessionError.notSignedIn
         }
@@ -227,6 +232,7 @@ final class AuthSessionStore: ObservableObject {
                 discardPersistedCredentialStorage()
                 authStatus = .expired
                 authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.unauthorized)
+                SentryReporter.clearUserIdentity()
                 throw RecappiSessionError.invalidSession
             }
 
@@ -239,6 +245,7 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .signedIn(session)
             authStatusDetail = nil
             authFlowPhase = nil
+            SentryReporter.setUserIdentity(session)
             DiagnosticsLog.event(
                 "auth",
                 "ensure.succeeded userHash=\(session.userId.hashValue) originHash=\(resolvedOrigin.hashValue)"
@@ -248,6 +255,7 @@ final class AuthSessionStore: ObservableObject {
             authStatus = .expired
             authStatusDetail = NetworkErrorPresenter.userFacingMessage(for: error)
             authFlowPhase = nil
+            SentryReporter.clearUserIdentity()
             DiagnosticsLog.warning(
                 "auth",
                 "ensure.unauthorized originHash=\(resolvedOrigin.hashValue) \(DiagnosticsLog.errorSummary(error))"
@@ -282,6 +290,7 @@ final class AuthSessionStore: ObservableObject {
         _ = deletePersistedBearerToken()
         defaults.removeObject(forKey: cachedUserKey)
         defaults.removeObject(forKey: lastVerifiedKey)
+        SentryReporter.clearUserIdentity()
 
         if uiTestMode.isEnabled {
             throw RecappiSessionError.reauthenticationUnavailableInUITests
@@ -323,6 +332,7 @@ final class AuthSessionStore: ObservableObject {
         authStatus = .signedOut
         authStatusDetail = nil
         authFlowPhase = nil
+        SentryReporter.clearUserIdentity()
     }
 
     private func discardPersistedCredentialStorage() {

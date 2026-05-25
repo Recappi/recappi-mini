@@ -77,6 +77,16 @@ struct RecordingOptionsButton: View {
                     .accessibilityIdentifier(AccessibilityIDs.Panel.sharedLanguageButton)
                 }
 
+                optionsPickerRow("Microphone") {
+                    MicrophoneInputPicker(
+                        title: "Microphone",
+                        selection: microphoneDeviceBinding,
+                        hidesLabel: true,
+                        accessibilityIdentifier: AccessibilityIDs.Panel.microphoneInputPicker
+                    )
+                    .controlSize(.small)
+                }
+
                 optionsToggleRow(
                     "Include microphone",
                     subtitle: "Mix your microphone into the recording",
@@ -323,6 +333,13 @@ struct RecordingOptionsButton: View {
         Binding(
             get: { SpeechLanguageOption.option(for: config.cloudLanguage).id },
             set: { config.cloudLanguage = SpeechLanguageOption.option(for: $0).id }
+        )
+    }
+
+    private var microphoneDeviceBinding: Binding<String> {
+        Binding(
+            get: { config.recordingMicrophoneDeviceID },
+            set: { config.recordingMicrophoneDeviceID = $0 }
         )
     }
 

@@ -31,18 +31,42 @@ struct RecordingSuggestion: Equatable, Sendable {
     let appID: String
     let appName: String
     let promptTitle: String
+    let browserSessionKey: String?
+
+    init(appID: String, appName: String, promptTitle: String, browserSessionKey: String? = nil) {
+        self.appID = appID
+        self.appName = appName
+        self.promptTitle = promptTitle
+        self.browserSessionKey = browserSessionKey
+    }
 }
 
 struct MeetingPrompt: Equatable, Sendable {
     let appID: String
     let appName: String
     let promptTitle: String
+    let browserSessionKey: String?
+
+    init(appID: String, appName: String, promptTitle: String, browserSessionKey: String? = nil) {
+        self.appID = appID
+        self.appName = appName
+        self.promptTitle = promptTitle
+        self.browserSessionKey = browserSessionKey
+    }
 }
 
 struct DetectedMeetingRecordingContext: Equatable, Sendable {
     let appID: String
     let appName: String
     let promptTitle: String
+    let browserSessionKey: String?
+
+    init(appID: String, appName: String, promptTitle: String, browserSessionKey: String? = nil) {
+        self.appID = appID
+        self.appName = appName
+        self.promptTitle = promptTitle
+        self.browserSessionKey = browserSessionKey
+    }
 }
 
 struct AutoStopRecordingRequest: Equatable, Identifiable, Sendable {

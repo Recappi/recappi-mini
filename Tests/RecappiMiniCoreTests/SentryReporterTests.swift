@@ -60,4 +60,64 @@ final class SentryReporterTests: XCTestCase {
             )
         )
     }
+
+    func testMissingTranscript404DoesNotCaptureSentryErrors() {
+        let errorSummary = "domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 404): Transcript not found"
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=GET path=/api/recordings/rec_123/transcript \(errorSummary)"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "cloud",
+                message: "transcript.load.failed recordingID=rec_123 \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=GET path=/api/recordings domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 404): Recording not found"
+            )
+        )
+    }
+
+    func testSentryUserUsesBackendUserIDWithoutPII() {
+        let session = UserSession(
+            userId: "user_123",
+            email: "friend@example.com",
+            name: "Friendly User",
+            imageURL: nil,
+            expiresAt: "2026-05-23T00:00:00Z",
+            backendOrigin: "https://recordmeet.ing"
+        )
+
+        let user = SentryReporter.sentryUser(for: session)
+
+        XCTAssertEqual(user.userId, "user_123")
+        XCTAssertNil(user.email)
+        XCTAssertNil(user.name)
+        XCTAssertNil(user.username)
+    }
+
+    func testUserIdentityHelpersAreSafeBeforeSDKStart() {
+        let session = UserSession(
+            userId: "user_123",
+            email: "friend@example.com",
+            name: "Friendly User",
+            imageURL: nil,
+            expiresAt: "2026-05-23T00:00:00Z",
+            backendOrigin: "https://recordmeet.ing"
+        )
+
+        SentryReporter.setUserIdentity(session)
+        SentryReporter.clearUserIdentity()
+    }
 }

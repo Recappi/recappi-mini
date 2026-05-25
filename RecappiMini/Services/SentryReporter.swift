@@ -81,6 +81,28 @@ enum SentryReporter {
         captureDiagnosticError(telemetry, recordingContext: state.recordingContextSnapshot())
     }
 
+    static func setUserIdentity(_ session: UserSession) {
+        let user = sentryUser(for: session)
+        if state.isEnabledForCurrentProcess, SentrySDK.isEnabled {
+            SentrySDK.setUser(user)
+        }
+        DiagnosticsLog.event("sentry", "user.set userHash=\(session.userId.hashValue)")
+    }
+
+    static func clearUserIdentity() {
+        if state.isEnabledForCurrentProcess, SentrySDK.isEnabled {
+            SentrySDK.setUser(nil)
+        }
+        DiagnosticsLog.event("sentry", "user.cleared")
+    }
+
+    static func sentryUser(for session: UserSession) -> User {
+        // Keep `sendDefaultPii = false` meaningful: attach the stable backend
+        // user id for support/debugging, but don't send email/name unless the
+        // product explicitly opts into that later.
+        User(userId: session.userId)
+    }
+
     static func sanitizedTelemetryMessage(_ message: String, maxLength: Int = 1_200) -> String {
         var value = message
             .split(whereSeparator: \.isWhitespace)
@@ -317,11 +339,29 @@ private struct DiagnosticTelemetry {
         if isCancelledNetworkRequest {
             return false
         }
+        if isExpectedMissingTranscript {
+            return false
+        }
         return true
     }
 
     private var isCancelledNetworkRequest: Bool {
         fields["domain"] == NSURLErrorDomain && fields["code"] == String(NSURLErrorCancelled)
+    }
+
+    private var isExpectedMissingTranscript: Bool {
+        let message = safeMessage.lowercased()
+        let isTranscript404 = message.contains("status 404")
+            && message.contains("transcript not found")
+        guard isTranscript404 else { return false }
+
+        if category == "network", operation == "request.failed" {
+            return fields["path"]?.contains("/transcript") == true
+        }
+        if category == "cloud", operation == "transcript.load.failed" {
+            return true
+        }
+        return false
     }
 
     var searchableTags: [String: String] {
