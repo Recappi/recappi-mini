@@ -228,8 +228,7 @@ extension CloudLibraryStore {
         cachedUpdatedAt: Date?,
         freshUpdatedAt: Date?
     ) -> Bool {
-        guard let fresh = freshUpdatedAt else { return false }
-        guard let cached = cachedUpdatedAt else { return false }
+        guard let fresh = freshUpdatedAt, let cached = cachedUpdatedAt else { return false }
         return fresh > cached
     }
 

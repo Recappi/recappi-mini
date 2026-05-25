@@ -229,10 +229,7 @@ enum AudioLevelExtractor {
             return AudioMeterFrame(peak: peak, bands: Array(repeating: peak, count: bucketCount))
         }
 
-        var peak: Float = 0
-        for sample in samples {
-            peak = max(peak, abs(sample))
-        }
+        let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
 
         let fftSize = AudioSpectrumConfiguration.fftSize
         guard samples.count >= 32 else {

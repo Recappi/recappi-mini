@@ -20,10 +20,6 @@ struct CloudMeetingPlaybackStrip: View {
 
     @State private var rateSelectionFeedbackID = 0
 
-    /// Allowed playback rates surfaced in the menu. Order matters -
-    /// the menu renders top-to-bottom in this order.
-    private static let rateOptions: [Float] = [0.5, 1.0, 1.5, 2.0, 3.0]
-
     private var sliderUpperBound: Double {
         max(duration, currentTime, 1)
     }
@@ -103,21 +99,21 @@ struct CloudMeetingPlaybackStrip: View {
 
     private var playbackRateMenu: some View {
         Menu {
-            ForEach(Self.rateOptions, id: \.self) { rate in
+            ForEach(CloudPlaybackRateMenu.options, id: \.self) { rate in
                 Button {
                     onSelectRate(rate)
                     rateSelectionFeedbackID += 1
                 } label: {
                     if rate == playbackRate {
-                        Label(Self.rateLabel(rate), systemImage: "checkmark")
+                        Label(CloudPlaybackRateMenu.label(for: rate), systemImage: "checkmark")
                     } else {
-                        Text(Self.rateLabel(rate))
+                        Text(CloudPlaybackRateMenu.label(for: rate))
                     }
                 }
             }
         } label: {
             PlaybackRatePillLabel(
-                text: Self.rateLabel(playbackRate),
+                text: CloudPlaybackRateMenu.label(for: playbackRate),
                 isActive: playbackRate != 1.0,
                 isEnabled: hasAudio,
                 feedbackID: rateSelectionFeedbackID
@@ -128,13 +124,6 @@ struct CloudMeetingPlaybackStrip: View {
         .fixedSize()
         .disabled(!hasAudio)
         .help("Playback speed")
-    }
-
-    private static func rateLabel(_ rate: Float) -> String {
-        if rate == rate.rounded() {
-            return "\(Int(rate))×"
-        }
-        return String(format: "%.1f×", rate)
     }
 
     private var playbackStatusTitle: String {
@@ -191,8 +180,6 @@ struct CloudNowPlayingMiniPane: View {
 
     @State private var rateSelectionFeedbackID = 0
 
-    private static let rateOptions: [Float] = [0.5, 1.0, 1.5, 2.0, 3.0]
-
     var body: some View {
         HStack(spacing: 8) {
             Button(action: onPlayPause) {
@@ -233,21 +220,21 @@ struct CloudNowPlayingMiniPane: View {
 
     private var playbackRateMenu: some View {
         Menu {
-            ForEach(Self.rateOptions, id: \.self) { rate in
+            ForEach(CloudPlaybackRateMenu.options, id: \.self) { rate in
                 Button {
                     onSelectRate(rate)
                     rateSelectionFeedbackID += 1
                 } label: {
                     if rate == playbackRate {
-                        Label(Self.rateLabel(rate), systemImage: "checkmark")
+                        Label(CloudPlaybackRateMenu.label(for: rate), systemImage: "checkmark")
                     } else {
-                        Text(Self.rateLabel(rate))
+                        Text(CloudPlaybackRateMenu.label(for: rate))
                     }
                 }
             }
         } label: {
             PlaybackRatePillLabel(
-                text: Self.rateLabel(playbackRate),
+                text: CloudPlaybackRateMenu.label(for: playbackRate),
                 isActive: playbackRate != 1.0,
                 isEnabled: true,
                 feedbackID: rateSelectionFeedbackID
@@ -258,8 +245,14 @@ struct CloudNowPlayingMiniPane: View {
         .fixedSize()
         .help("Playback speed")
     }
+}
 
-    private static func rateLabel(_ rate: Float) -> String {
+private enum CloudPlaybackRateMenu {
+    /// Allowed playback rates surfaced in the menu. Order matters -
+    /// the menu renders top-to-bottom in this order.
+    static let options: [Float] = [0.5, 1.0, 1.5, 2.0, 3.0]
+
+    static func label(for rate: Float) -> String {
         if rate == rate.rounded() {
             return "\(Int(rate))×"
         }

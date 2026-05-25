@@ -829,9 +829,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let sourcePicker = uiElement(app, id: UITestIDs.Panel.audioSourcePicker)
         XCTAssertTrue(sourcePicker.waitForExistence(timeout: 15), "Expected panel to reappear after hidden auto-prompt.")
-        let sourceText = [sourcePicker.label, sourcePicker.value as? String]
-            .compactMap { $0 }
-            .joined(separator: " ")
+        let sourceText = elementText(sourcePicker)
         XCTAssertTrue(
             sourceText.localizedCaseInsensitiveContains("Safari"),
             "Expected hidden auto-prompt to preselect Safari, got: \(sourceText)"
@@ -842,9 +840,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let meetingPrompt = uiElement(app, id: UITestIDs.Panel.meetingPrompt)
         XCTAssertTrue(meetingPrompt.waitForExistence(timeout: 5), "Expected hidden auto-prompt to explain that a Safari meeting was detected.")
-        let promptText = [meetingPrompt.label, meetingPrompt.value as? String]
-            .compactMap { $0 }
-            .joined(separator: " ")
+        let promptText = elementText(meetingPrompt)
         XCTAssertTrue(
             promptText.localizedCaseInsensitiveContains("Google Meet detected in Safari"),
             "Expected meeting prompt copy, got: \(promptText)"
@@ -870,9 +866,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let sourcePicker = uiElement(app, id: UITestIDs.Panel.audioSourcePicker)
         XCTAssertTrue(sourcePicker.waitForExistence(timeout: 15), "Expected panel to reappear for an Arc meeting.")
-        let sourceText = [sourcePicker.label, sourcePicker.value as? String]
-            .compactMap { $0 }
-            .joined(separator: " ")
+        let sourceText = elementText(sourcePicker)
         XCTAssertTrue(
             sourceText.localizedCaseInsensitiveContains("Arc"),
             "Expected hidden auto-prompt to preselect Arc, got: \(sourceText)"
@@ -880,9 +874,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let meetingPrompt = uiElement(app, id: UITestIDs.Panel.meetingPrompt)
         XCTAssertTrue(meetingPrompt.waitForExistence(timeout: 5), "Expected hidden auto-prompt to explain that an Arc meeting was detected.")
-        let promptText = [meetingPrompt.label, meetingPrompt.value as? String]
-            .compactMap { $0 }
-            .joined(separator: " ")
+        let promptText = elementText(meetingPrompt)
         XCTAssertTrue(
             promptText.localizedCaseInsensitiveContains("Google Meet detected in Arc"),
             "Expected Arc meeting prompt copy, got: \(promptText)"
@@ -925,9 +917,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let launchSuggestion = uiElement(app, id: UITestIDs.Panel.recordingSuggestion)
         XCTAssertTrue(launchSuggestion.waitForExistence(timeout: 10), "Expected launch-time browser meeting prompt to use the suggestion banner.")
-        let suggestionText = [launchSuggestion.label, launchSuggestion.value as? String]
-            .compactMap { $0 }
-            .joined(separator: " ")
+        let suggestionText = elementText(launchSuggestion)
         XCTAssertTrue(
             suggestionText.localizedCaseInsensitiveContains("Google Meet detected in Chrome"),
             "Expected launch-time suggestion to mention Chrome meeting context, got: \(suggestionText)"
@@ -935,9 +925,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
 
         let sourcePicker = uiElement(app, id: UITestIDs.Panel.audioSourcePicker)
         XCTAssertTrue(sourcePicker.waitForExistence(timeout: 10), "Expected source picker to be visible before hiding the panel.")
-        let initialSourceText = [sourcePicker.label, sourcePicker.value as? String]
-            .compactMap { $0 }
-            .joined(separator: " ")
+        let initialSourceText = elementText(sourcePicker)
         XCTAssertTrue(
             initialSourceText.localizedCaseInsensitiveContains("All system audio"),
             "Expected launch-time prompt to preserve the current manual source, got: \(initialSourceText)"
@@ -975,9 +963,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             "Expected the same browser meeting prompt to be allowed again after Chrome goes inactive."
         )
 
-        let sourceText = [sourcePicker.label, sourcePicker.value as? String]
-            .compactMap { $0 }
-            .joined(separator: " ")
+        let sourceText = elementText(sourcePicker)
         XCTAssertTrue(
             sourceText.localizedCaseInsensitiveContains("Chrome"),
             "Expected reprompted hidden panel to stay focused on Chrome, got: \(sourceText)"

@@ -79,7 +79,6 @@ struct CloudRecordingDetail: View {
     var body: some View {
         readerPane
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .toolbar { detailToolbarContent }
         .sheet(isPresented: $isShowingTranscriptVersions) {
             transcriptVersionsSheet
@@ -92,12 +91,7 @@ struct CloudRecordingDetail: View {
             detailWaveform.load(url: url)
             if let pendingSeekAfterPrepare, url != nil {
                 self.pendingSeekAfterPrepare = nil
-                audioPlayer.load(
-                    recordingID: recording.id,
-                    url: url,
-                    title: recording.presentationTitle,
-                    artwork: recording.nowPlayingArtwork
-                )
+                loadPlaybackAudio(url: url)
                 audioPlayer.seek(to: pendingSeekAfterPrepare)
             }
             if let pendingPinnedSegmentIDAfterPrepare, url != nil {
@@ -106,12 +100,7 @@ struct CloudRecordingDetail: View {
             }
             if pendingAutoplayAfterPrepare, url != nil {
                 pendingAutoplayAfterPrepare = false
-                audioPlayer.load(
-                    recordingID: recording.id,
-                    url: url,
-                    title: recording.presentationTitle,
-                    artwork: recording.nowPlayingArtwork
-                )
+                loadPlaybackAudio(url: url)
                 audioPlayer.play()
             }
             refreshPlayerMetadataIfNeeded()
@@ -1084,102 +1073,6 @@ struct CloudRecordingDetail: View {
         }
     }
 
-
-    @ViewBuilder
-    private func summaryDecisions(items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            summaryCardTitle(label: "Decisions", systemImage: "checkmark.seal")
-
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(items.prefix(5).enumerated()), id: \.offset) { _, item in
-                    markdownText(item)
-                        .font(.body)
-                        .foregroundStyle(Color.dtLabel)
-                        .lineSpacing(4)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(summaryCardBackground)
-    }
-
-    @ViewBuilder
-    private func summaryTopicsCard(items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            summaryCardTitle(label: "Topics", systemImage: "tag")
-
-            FlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
-                ForEach(Array(items.enumerated()), id: \.offset) { entry in
-                    summaryTopicChip(entry.element, accent: summaryNeutralAccent)
-                }
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(summaryCardBackground)
-    }
-
-    @ViewBuilder
-    private func summaryQuotesCard(items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            summaryCardTitle(label: "Notable quotes", systemImage: "quote.bubble")
-
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(items.enumerated()), id: \.offset) { entry in
-                    markdownText(entry.element)
-                        .font(.body)
-                        .italic()
-                        .foregroundStyle(Color.dtLabel)
-                        .lineSpacing(4)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 12)
-                        .overlay(alignment: .leading) {
-                            Rectangle()
-                                .fill(Palette.borderSubtle)
-                                .frame(width: 2)
-                        }
-                }
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(summaryCardBackground)
-    }
-
-    private func splitLeadIn(_ text: String) -> (String, String?) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let separators: Set<Character> = ["。", ".", "！", "!", "？", "?", "：", ":"]
-        guard let idx = trimmed.firstIndex(where: { separators.contains($0) }) else {
-            return (trimmed, nil)
-        }
-        let leadEnd = trimmed.index(after: idx)
-        let lead = String(trimmed[..<leadEnd])
-        let rest = trimmed[leadEnd...].trimmingCharacters(in: .whitespacesAndNewlines)
-        if rest.isEmpty {
-            return (lead, nil)
-        }
-        return (lead, String(rest))
-    }
-
-    @ViewBuilder
-    private func summaryLede(text: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            summaryCardTitle(label: "Summary", systemImage: "text.alignleft")
-            markdownText(text)
-                .font(.body)
-                .foregroundStyle(Color.dtLabel)
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(summaryCardBackground)
-    }
-
     private var summaryCardBackground: some View {
         RoundedRectangle(cornerRadius: 14, style: .continuous)
             .fill(Color.dtLabel.opacity(0.04))
@@ -1187,142 +1080,6 @@ struct CloudRecordingDetail: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(Color.dtLabel.opacity(0.06), lineWidth: 0.5)
             )
-    }
-
-    @ViewBuilder
-    private func summaryCardTitle(label: String, systemImage: String) -> some View {
-        Text(label)
-            .font(.headline)
-            .foregroundStyle(Color.dtLabel)
-    }
-
-    @ViewBuilder
-    private func summaryInsights(items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            summaryCardTitle(label: "Key insights", systemImage: "sparkles")
-
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(items.prefix(5).enumerated()), id: \.offset) { _, item in
-                    insightParagraph(item)
-                }
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(summaryCardBackground)
-    }
-
-    @ViewBuilder
-    private func insightParagraph(_ text: String) -> some View {
-        markdownText(text)
-            .font(.body)
-            .foregroundStyle(Color.dtLabel)
-            .lineSpacing(4)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func summaryNextSteps(items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            summaryCardTitle(label: "Next steps", systemImage: "checklist")
-
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(items.prefix(5).enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "circle")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(DT.appAccent)
-                            .padding(.top, 3)
-                        markdownText(item)
-                            .font(.body)
-                            .foregroundStyle(Color.dtLabel)
-                            .lineSpacing(4)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(summaryCardBackground)
-    }
-
-    @ViewBuilder
-    private func summaryMoreDetail(topics: [String], decisions: [String], quotes: [String]) -> some View {
-        let hasContent = !topics.isEmpty || !decisions.isEmpty || !quotes.isEmpty
-        if hasContent {
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 20) {
-                    if !topics.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Topics")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color.dtLabelTertiary)
-                                .textCase(.uppercase)
-                                .tracking(0.5)
-                            FlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
-                                ForEach(Array(topics.enumerated()), id: \.offset) { entry in
-                                    summaryTopicChip(entry.element, accent: summaryNeutralAccent)
-                                }
-                            }
-                        }
-                    }
-
-                    if !decisions.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Decisions")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color.dtLabelTertiary)
-                                .textCase(.uppercase)
-                                .tracking(0.5)
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(Array(decisions.enumerated()), id: \.offset) { _, item in
-                                    markdownText(item)
-                                        .font(CloudTypography.body)
-                                        .foregroundStyle(Color.dtLabel)
-                                        .lineSpacing(4)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                            }
-                        }
-                    }
-
-                    if !quotes.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Notable quotes")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color.dtLabelTertiary)
-                                .textCase(.uppercase)
-                                .tracking(0.5)
-                            VStack(alignment: .leading, spacing: 12) {
-                                ForEach(Array(quotes.enumerated()), id: \.offset) { _, quote in
-                                    markdownText(quote)
-                                        .font(CloudTypography.body)
-                                        .italic()
-                                        .foregroundStyle(Color.dtLabel)
-                                        .lineSpacing(4)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .padding(.leading, 12)
-                                        .overlay(alignment: .leading) {
-                                            Rectangle()
-                                                .fill(Palette.borderSubtle)
-                                                .frame(width: 2)
-                                        }
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.top, 14)
-            } label: {
-                Text("More detail")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.dtLabelSecondary)
-            }
-        }
     }
 
     private var summaryNeutralAccent: Color {
@@ -2879,9 +2636,13 @@ struct CloudRecordingDetail: View {
     private func refreshPlayerMetadataIfNeeded() {
         guard audioPlayer.currentRecordingID == recording.id else { return }
         let resolvedURL = playbackAudioURL ?? audioPlayer.currentURL
+        loadPlaybackAudio(url: resolvedURL)
+    }
+
+    private func loadPlaybackAudio(url: URL?) {
         audioPlayer.load(
             recordingID: recording.id,
-            url: resolvedURL,
+            url: url,
             title: recording.presentationTitle,
             artwork: recording.nowPlayingArtwork
         )

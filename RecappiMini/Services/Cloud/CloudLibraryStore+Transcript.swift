@@ -173,11 +173,7 @@ extension CloudLibraryStore {
     ) -> Bool {
         guard !alreadyAttempted else { return false }
         guard recordingStatus == .ready else { return false }
-        let hasSummaryText = (cachedTranscript.summary?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty == false)
-        let hasSummaryInsights = cachedTranscript.summaryInsights?.isEmpty == false
-        return !hasSummaryText && !hasSummaryInsights
+        return !hasSummaryContent(cachedTranscript)
     }
 
 

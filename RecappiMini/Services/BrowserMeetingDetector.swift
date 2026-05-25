@@ -118,17 +118,16 @@ enum BrowserMeetingDetector {
     }
 
     static func meetingMatch(fromScriptOutput output: String, browserName: String) -> BrowserMeetingMatch? {
-        for context in BrowserTabContext.parseMany(output: output) {
-            if let match = classify(
-                urlString: context.urlString,
-                title: context.pageTitle,
-                browserName: browserName
-            ) {
-                return match
+        BrowserTabContext.parseMany(output: output)
+            .lazy
+            .compactMap { context in
+                classify(
+                    urlString: context.urlString,
+                    title: context.pageTitle,
+                    browserName: browserName
+                )
             }
-        }
-
-        return nil
+            .first
     }
 
     private static func readBrowserContextOutputs(bundleID: String) async -> [String] {
@@ -537,11 +536,7 @@ struct BrowserTabContext: Equatable, Sendable {
     let pageTitle: String?
 
     init?(output: String) {
-        let lines = output
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
+        let lines = Self.nonEmptyTrimmedRows(from: output)
         guard let first = lines.first else { return nil }
         urlString = first
         pageTitle = lines.dropFirst().first
@@ -553,11 +548,7 @@ struct BrowserTabContext: Equatable, Sendable {
     }
 
     static func parseMany(output: String) -> [BrowserTabContext] {
-        let rows = output
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
+        let rows = nonEmptyTrimmedRows(from: output)
         let tabSeparated = rows.compactMap { row -> BrowserTabContext? in
             guard row.contains("\t") else { return nil }
             let parts = row.components(separatedBy: "\t")
@@ -577,6 +568,13 @@ struct BrowserTabContext: Equatable, Sendable {
         }
 
         return BrowserTabContext(output: output).map { [$0] } ?? []
+    }
+
+    private static func nonEmptyTrimmedRows(from output: String) -> [String] {
+        output
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 }
 

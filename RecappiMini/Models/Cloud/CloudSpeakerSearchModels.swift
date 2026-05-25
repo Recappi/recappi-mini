@@ -53,14 +53,14 @@ enum CloudSpeakerModel {
     ) -> CloudSpeakerDescriptor {
         let id = speakerID(forRawName: rawName)
         let override = overrides[id]
-        let displayName = clean(override?.displayName) ?? rawName
+        let displayName = cleanCloudText(override?.displayName) ?? rawName
         return CloudSpeakerDescriptor(
             id: id,
             rawName: rawName,
             displayName: displayName,
-            emoji: clean(override?.emoji) ?? defaultEmoji(at: index),
+            emoji: cleanCloudText(override?.emoji) ?? defaultEmoji(at: index),
             colorIndex: index % 6,
-            note: clean(override?.note)
+            note: cleanCloudText(override?.note)
         )
     }
 
@@ -68,19 +68,11 @@ enum CloudSpeakerModel {
         var seen: Set<String> = []
         var result: [String] = []
         for name in names {
-            guard let cleaned = clean(name), !seen.contains(cleaned) else { continue }
+            guard let cleaned = cleanCloudText(name), !seen.contains(cleaned) else { continue }
             seen.insert(cleaned)
             result.append(cleaned)
         }
         return result
-    }
-
-    private static func clean(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
     }
 }
 
@@ -158,7 +150,7 @@ enum CloudSearchIndexBuilder {
 
     static func summaryEntries(transcript: TranscriptResponse) -> [(section: String, text: String)] {
         guard let insights = transcript.summaryInsights else {
-            if let summary = clean(transcript.summary) {
+            if let summary = cleanCloudText(transcript.summary) {
                 return [("Overview", summary)]
             }
             return []
@@ -210,11 +202,12 @@ enum CloudSearchIndexBuilder {
         return String(value, radix: 16)
     }
 
-    private static func clean(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
+}
+
+private func cleanCloudText(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+        return nil
     }
+    return trimmed
 }

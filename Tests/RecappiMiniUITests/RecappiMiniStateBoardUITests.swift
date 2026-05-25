@@ -399,10 +399,7 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
             return
         }
         try element.screenshot().pngRepresentation.write(to: url, options: [.atomic])
-        let attachment = XCTAttachment(contentsOfFile: url)
-        attachment.name = name
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        attachImageArtifact(at: url, named: name)
     }
 
     private func captureRecordingPanel(in app: XCUIApplication, named name: String, overwrite: Bool = true) throws {
@@ -541,11 +538,15 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
             return false
         }
 
+        attachImageArtifact(at: url, named: name)
+        return true
+    }
+
+    private func attachImageArtifact(at url: URL, named name: String) {
         let attachment = XCTAttachment(contentsOfFile: url)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
-        return true
     }
 
     private func largestWindow(in app: XCUIApplication) -> XCUIElement {

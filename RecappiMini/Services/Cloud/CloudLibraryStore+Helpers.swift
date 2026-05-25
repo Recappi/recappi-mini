@@ -75,21 +75,24 @@ extension CloudLibraryStore {
     }
 
     func setTranscriptLoading(_ loading: Bool, for recordingID: String) {
-        if loading {
-            transcriptLoadingRecordingIDs.insert(recordingID)
-        } else {
-            transcriptLoadingRecordingIDs.remove(recordingID)
-        }
-        isTranscriptLoading = !transcriptLoadingRecordingIDs.isEmpty
+        isTranscriptLoading = updateLoadingIDs(&transcriptLoadingRecordingIDs, loading, recordingID: recordingID)
     }
 
     func setJobHistoryLoading(_ loading: Bool, for recordingID: String) {
+        isJobHistoryLoading = updateLoadingIDs(&jobHistoryLoadingRecordingIDs, loading, recordingID: recordingID)
+    }
+
+    private func updateLoadingIDs(
+        _ ids: inout Set<String>,
+        _ loading: Bool,
+        recordingID: String
+    ) -> Bool {
         if loading {
-            jobHistoryLoadingRecordingIDs.insert(recordingID)
+            ids.insert(recordingID)
         } else {
-            jobHistoryLoadingRecordingIDs.remove(recordingID)
+            ids.remove(recordingID)
         }
-        isJobHistoryLoading = !jobHistoryLoadingRecordingIDs.isEmpty
+        return !ids.isEmpty
     }
 
 

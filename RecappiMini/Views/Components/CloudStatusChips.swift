@@ -34,14 +34,7 @@ struct CloudStatusChip: View {
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, prominent ? Self.prominentHorizontalInset : Self.nonProminentHorizontalInset)
             .padding(.vertical, prominent ? 5 : 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(color.opacity(0.13))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(color.opacity(0.22), lineWidth: 0.5)
-            )
+            .statusChipBackground(color: color, fillOpacity: 0.13)
     }
 
     private var color: Color {
@@ -73,14 +66,20 @@ struct CloudJobStatusChip: View {
             .foregroundStyle(status.detailColor)
             .padding(.horizontal, compact ? 6 : 7)
             .padding(.vertical, compact ? 2 : 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(status.detailColor.opacity(0.12))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(status.detailColor.opacity(0.22), lineWidth: 0.5)
-            )
+            .statusChipBackground(color: status.detailColor, fillOpacity: 0.12)
+    }
+}
+
+private extension View {
+    func statusChipBackground(color: Color, fillOpacity: Double) -> some View {
+        background(
+            Capsule(style: .continuous)
+                .fill(color.opacity(fillOpacity))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(color.opacity(0.22), lineWidth: 0.5)
+        )
     }
 }
 

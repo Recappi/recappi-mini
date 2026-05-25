@@ -269,7 +269,7 @@ extension XCTestCase {
         while Date() < deadline {
             dismissSecurityAgentIfPresent(timeout: 0.2)
 
-            let statusText = authStatusSnapshot(from: status)
+            let statusText = elementText(status)
             if statusText.localizedCaseInsensitiveContains("expires") {
                 return
             }
@@ -294,7 +294,7 @@ extension XCTestCase {
         while Date() < deadline {
             dismissSecurityAgentIfPresent(timeout: 0.2)
 
-            let statusText = authStatusSnapshot(from: status)
+            let statusText = elementText(status)
             if failureMarkers.contains(where: statusText.localizedCaseInsensitiveContains) {
                 return
             }
@@ -318,7 +318,7 @@ extension XCTestCase {
         while Date() < deadline {
             dismissSecurityAgentIfPresent(timeout: 0.2)
 
-            let statusText = authStatusSnapshot(from: status)
+            let statusText = elementText(status)
             if statusText.localizedCaseInsensitiveContains("expires") {
                 return
             }
@@ -356,7 +356,7 @@ extension XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
 
-        XCTFail("Expected signed-in auth status after interactive login, got: \(authStatusSnapshot(from: status))")
+        XCTFail("Expected signed-in auth status after interactive login, got: \(elementText(status))")
     }
 
     func signOut(in app: XCUIApplication) {
@@ -567,9 +567,4 @@ extension XCTestCase {
         return chromeSentinel.exists
     }
 
-    private func authStatusSnapshot(from element: XCUIElement) -> String {
-        [element.label, element.value as? String]
-            .compactMap { $0 }
-            .joined(separator: " ")
-    }
 }

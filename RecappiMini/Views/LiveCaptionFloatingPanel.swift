@@ -484,10 +484,14 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var captionPlaceholderText: String {
-        "正在听..."
+        listeningPlaceholderText
     }
 
     private var translationPlaceholderText: String {
+        listeningPlaceholderText
+    }
+
+    private var listeningPlaceholderText: String {
         "正在听..."
     }
 
@@ -651,23 +655,22 @@ struct LiveCaptionFloatingPanel: View {
         case .captionOnly:
             return "Original"
         case .translationOnly:
-            let lockedConfig = recorder.activeLiveCaptionConfiguration
-            let target = LiveCaptionTranslationTargetLanguageOption
-                .option(for: lockedConfig?.targetLanguage ?? config.liveCaptionsTranslationTargetLanguage)
-                .shortTitle
-            return target
+            return liveCaptionTargetLanguageShortTitle
         }
     }
 
     private var liveCaptionModeStatusText: String {
-        let lockedConfig = recorder.activeLiveCaptionConfiguration
         guard liveCaptionShowsTranslation else {
             return "Original"
         }
-        let target = LiveCaptionTranslationTargetLanguageOption
+        return "Caption + \(liveCaptionTargetLanguageShortTitle)"
+    }
+
+    private var liveCaptionTargetLanguageShortTitle: String {
+        let lockedConfig = recorder.activeLiveCaptionConfiguration
+        return LiveCaptionTranslationTargetLanguageOption
             .option(for: lockedConfig?.targetLanguage ?? config.liveCaptionsTranslationTargetLanguage)
             .shortTitle
-        return "Caption + \(target)"
     }
 
     private var bilingualViewportSegments: [LiveCaptionSegment] {
@@ -781,7 +784,19 @@ struct LiveCaptionFloatingPanel: View {
     /// has to insert a "…" indicator. The expanded panel renders the
     /// full transcript via `LiveCaptionAppKitTextView`.
     private var compactCaptionLine: String {
-        let normalized = captionLine
+        compactLine(from: captionLine)
+    }
+
+    private var compactDisplayLine: String {
+        guard liveCaptionShowsTranslation, !paneVisibility.showsCaption else {
+            return compactCaptionLine
+        }
+        let compactTranslation = compactLine(from: translationStreamText)
+        return compactTranslation.isEmpty ? "Waiting for translation" : compactTranslation
+    }
+
+    private func compactLine(from text: String) -> String {
+        let normalized = text
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
         let containsCJK = normalized.contains(where: \.isCompactCJK)
@@ -797,27 +812,6 @@ struct LiveCaptionFloatingPanel: View {
         // ASCII / mixed: advance to the next whitespace so the visible
         // tail starts on a fresh word instead of mid-token. Fall back
         // to the raw cut for a single very long token.
-        guard let firstSpace = tail.firstIndex(where: \.isWhitespace) else { return tail }
-        let afterSpace = tail.index(after: firstSpace)
-        guard afterSpace < tail.endIndex else { return tail }
-        return String(tail[afterSpace...])
-    }
-
-    private var compactDisplayLine: String {
-        guard liveCaptionShowsTranslation, !paneVisibility.showsCaption else {
-            return compactCaptionLine
-        }
-        let normalized = translationStreamText
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-        guard !normalized.isEmpty else { return "Waiting for translation" }
-        let containsCJK = normalized.contains(where: \.isCompactCJK)
-        let budget = containsCJK
-            ? Self.compactCaptionMaxCJKCharacters
-            : Self.compactCaptionMaxASCIICharacters
-        guard normalized.count > budget else { return normalized }
-        let tail = String(normalized.suffix(budget))
-        if containsCJK { return tail }
         guard let firstSpace = tail.firstIndex(where: \.isWhitespace) else { return tail }
         let afterSpace = tail.index(after: firstSpace)
         guard afterSpace < tail.endIndex else { return tail }

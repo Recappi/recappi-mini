@@ -40,7 +40,7 @@ struct TranscriptResponse: Decodable, Equatable, Sendable {
         let decodedSummaryInsights = try container.decodeIfPresent(TranscriptSummaryInsights.self, forKey: .summaryInsights)
             ?? Self.decodeSummaryJSON(try container.decodeIfPresent(String.self, forKey: .summaryJson))
         summaryInsights = decodedSummaryInsights?.isEmpty == false ? decodedSummaryInsights : nil
-        summary = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .summary))
+        summary = cleanedTranscriptText(try container.decodeIfPresent(String.self, forKey: .summary))
             ?? summaryInsights?.summaryText
 
         let directActionItems = try container.decodeIfPresent([String].self, forKey: .actionItems)
@@ -78,14 +78,6 @@ struct TranscriptResponse: Decodable, Equatable, Sendable {
             return nil
         }
         return try? JSONDecoder().decode(TranscriptSummaryInsights.self, from: data)
-    }
-
-    private static func cleanText(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
     }
 
     private static func nonEmpty(_ values: [String]?) -> [String]? {
@@ -179,9 +171,9 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
         quotes: [TranscriptSummaryQuote] = [],
         timeline: [TranscriptSummaryTimelineChapter] = []
     ) {
-        self.title = Self.cleanText(title)
-        self.tldr = Self.cleanText(tldr)
-        self.summary = Self.cleanText(summary)
+        self.title = cleanedTranscriptText(title)
+        self.tldr = cleanedTranscriptText(tldr)
+        self.summary = cleanedTranscriptText(summary)
         self.keyPoints = Self.normalizeStrings(keyPoints)
         self.topics = Self.normalizeStrings(topics)
         self.decisions = Self.normalizeStrings(decisions)
@@ -192,9 +184,9 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        title = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .title))
-        tldr = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .tldr))
-        summary = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .summary))
+        title = cleanedTranscriptText(try container.decodeIfPresent(String.self, forKey: .title))
+        tldr = cleanedTranscriptText(try container.decodeIfPresent(String.self, forKey: .tldr))
+        summary = cleanedTranscriptText(try container.decodeIfPresent(String.self, forKey: .summary))
         keyPoints = Self.decodeStringList(from: container, forKey: .keyPoints)
         topics = Self.decodeStringList(from: container, forKey: .topics)
         decisions = Self.decodeStringList(from: container, forKey: .decisions)
@@ -240,19 +232,11 @@ struct TranscriptSummaryInsights: Codable, Equatable, Sendable {
     }
 
     private static func normalizeStrings(_ values: [String]) -> [String] {
-        values.compactMap { cleanText($0) }
+        values.compactMap { cleanedTranscriptText($0) }
     }
 
     private static func firstNonEmpty(_ values: [String?]) -> String? {
-        values.lazy.compactMap { cleanText($0) }.first
-    }
-
-    private static func cleanText(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
+        values.lazy.compactMap { cleanedTranscriptText($0) }.first
     }
 }
 
@@ -278,16 +262,16 @@ struct TranscriptSummaryTimelineChapter: Codable, Equatable, Sendable {
     init(startMs: Int, endMs: Int, title: String, summary: String) {
         self.startMs = max(0, startMs)
         self.endMs = max(0, endMs)
-        self.title = Self.cleanText(title) ?? ""
-        self.summary = Self.cleanText(summary) ?? ""
+        self.title = cleanedTranscriptText(title) ?? ""
+        self.summary = cleanedTranscriptText(summary) ?? ""
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        startMs = max(0, Self.decodeMilliseconds(from: container, keys: [.startMs, .start]) ?? 0)
-        endMs = max(0, Self.decodeMilliseconds(from: container, keys: [.endMs, .end]) ?? 0)
-        title = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .title)) ?? ""
-        summary = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .summary)) ?? ""
+        startMs = max(0, container.decodeMilliseconds(forKeys: [.startMs, .start]) ?? 0)
+        endMs = max(0, container.decodeMilliseconds(forKeys: [.endMs, .end]) ?? 0)
+        title = cleanedTranscriptText(try container.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        summary = cleanedTranscriptText(try container.decodeIfPresent(String.self, forKey: .summary)) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
@@ -298,29 +282,6 @@ struct TranscriptSummaryTimelineChapter: Codable, Equatable, Sendable {
         try container.encode(summary, forKey: .summary)
     }
 
-    private static func decodeMilliseconds(
-        from container: KeyedDecodingContainer<CodingKeys>,
-        keys: [CodingKeys]
-    ) -> Int? {
-        for key in keys {
-            if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
-                return Int(value.rounded())
-            }
-            if let raw = try? container.decodeIfPresent(String.self, forKey: key),
-               let value = Double(raw) {
-                return Int(value.rounded())
-            }
-        }
-        return nil
-    }
-
-    private static func cleanText(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
-    }
 }
 
 struct TranscriptSummaryActionItem: Codable, Equatable, Sendable {
@@ -339,22 +300,14 @@ struct TranscriptSummaryActionItem: Codable, Equatable, Sendable {
     }
 
     init(what: String, who: String?) {
-        self.what = Self.cleanText(what) ?? ""
-        self.who = Self.cleanText(who)
+        self.what = cleanedTranscriptText(what) ?? ""
+        self.who = cleanedTranscriptText(who)
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        what = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .what)) ?? ""
-        who = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .who))
-    }
-
-    private static func cleanText(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
+        what = cleanedTranscriptText(try container.decodeIfPresent(String.self, forKey: .what)) ?? ""
+        who = cleanedTranscriptText(try container.decodeIfPresent(String.self, forKey: .who))
     }
 }
 
@@ -376,22 +329,14 @@ struct TranscriptSummaryQuote: Codable, Equatable, Sendable {
     }
 
     init(speaker: String?, text: String) {
-        self.speaker = Self.cleanText(speaker)
-        self.text = Self.cleanText(text) ?? ""
+        self.speaker = cleanedTranscriptText(speaker)
+        self.text = cleanedTranscriptText(text) ?? ""
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        speaker = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .speaker))
-        text = Self.cleanText(try container.decodeIfPresent(String.self, forKey: .text)) ?? ""
-    }
-
-    private static func cleanText(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
+        speaker = cleanedTranscriptText(try container.decodeIfPresent(String.self, forKey: .speaker))
+        text = cleanedTranscriptText(try container.decodeIfPresent(String.self, forKey: .text)) ?? ""
     }
 }
 
@@ -415,8 +360,8 @@ struct TranscriptSegment: Decodable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        startMs = Self.decodeMilliseconds(from: container, keys: [.startMs, .startTimeMs, .start])
-        endMs = Self.decodeMilliseconds(from: container, keys: [.endMs, .endTimeMs, .end])
+        startMs = container.decodeMilliseconds(forKeys: [.startMs, .startTimeMs, .start])
+        endMs = container.decodeMilliseconds(forKeys: [.endMs, .endTimeMs, .end])
         text = (try container.decodeIfPresent(String.self, forKey: .text)) ?? ""
         speaker = container.decodeFirstString(forKeys: [.speaker, .speakerLabel])
     }
@@ -437,15 +382,23 @@ struct TranscriptSegment: Decodable, Equatable, Sendable {
         )
     }
 
-    private static func decodeMilliseconds(
-        from container: KeyedDecodingContainer<CodingKeys>,
-        keys: [CodingKeys]
-    ) -> Int? {
+}
+
+private func cleanedTranscriptText(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+        return nil
+    }
+    return trimmed
+}
+
+private extension KeyedDecodingContainer {
+    func decodeMilliseconds(forKeys keys: [Key]) -> Int? {
         for key in keys {
-            if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
+            if let value = try? decodeIfPresent(Double.self, forKey: key) {
                 return Int(value.rounded())
             }
-            if let raw = try? container.decodeIfPresent(String.self, forKey: key),
+            if let raw = try? decodeIfPresent(String.self, forKey: key),
                let value = Double(raw) {
                 return Int(value.rounded())
             }
