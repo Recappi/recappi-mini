@@ -22,7 +22,14 @@ extension CloudLibraryStore {
             isRefreshing = false
         }
 
-        guard await prepareForAuthenticatedRequest() else { return }
+        let hasLocalOnlyRecordings = await mergeLocalOnlyRecordingsFromDisk()
+        guard await prepareForAuthenticatedRequest() else {
+            if hasLocalOnlyRecordings || !recordings.isEmpty {
+                state = .loaded
+                cacheWarningMessage = "Showing local recordings · Sign in to upload"
+            }
+            return
+        }
         isRefreshing = hasVisibleLibraryData
         if recordings.isEmpty {
             state = .loading

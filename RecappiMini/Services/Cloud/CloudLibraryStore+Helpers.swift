@@ -59,6 +59,21 @@ extension CloudLibraryStore {
         }.value
     }
 
+    @discardableResult
+    func mergeLocalOnlyRecordingsFromDisk() async -> Bool {
+        let localOnlyRecordings = await loadLocalOnlyRecordings()
+        guard !localOnlyRecordings.isEmpty else { return false }
+
+        recordings = mergeWithLocalOnlyRecordings(
+            recordings,
+            localOnlyRecordings: localOnlyRecordings
+        )
+        selectDefaultRecordingIfNeeded()
+        await refreshLocalSessionLinks()
+        state = recordings.isEmpty ? .empty : .loaded
+        return true
+    }
+
     func setTranscriptLoading(_ loading: Bool, for recordingID: String) {
         if loading {
             transcriptLoadingRecordingIDs.insert(recordingID)
