@@ -1899,6 +1899,9 @@ struct CloudRecordingDetail: View {
         if processingAction != nil || isTranscriptLoading {
             return true
         }
+        if recording.isLocalOnlyRecording {
+            return true
+        }
         return latestJob?.status.isActive == true
             || retranscriptionLimitMessage != nil
             || !recording.status.allowsTranscriptionRequest
@@ -1919,6 +1922,9 @@ struct CloudRecordingDetail: View {
         }
         if latestJob?.status.isActive == true {
             return "A transcription job is already in progress."
+        }
+        if recording.isLocalOnlyRecording {
+            return "This recording is saved locally but has not uploaded to Recappi Cloud yet."
         }
         return action.helpText
     }

@@ -97,6 +97,7 @@ extension CloudLibraryStore {
         // are currently rendering. Reading these after `replaceRecording` would
         // see the freshly fetched values and never produce a diff.
         let cachedRecording = recordings.first(where: { $0.id == recordingID })
+        guard cachedRecording?.isLocalOnlyRecording != true else { return }
         let cachedActiveTranscriptId = cachedRecording?.activeTranscriptId
         // Use the transcript-cache-time snapshot of `recording.updatedAt`
         // rather than the live `recordings[id].updatedAt`. The live value is

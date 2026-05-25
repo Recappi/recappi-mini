@@ -244,6 +244,13 @@ struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {
             updatedAt: updatedAt ?? cached.updatedAt
         )
     }
+
+    var isLocalOnlyRecording: Bool {
+        id.hasPrefix("local-") &&
+            userId == nil &&
+            r2Key == nil &&
+            r2UploadId == nil
+    }
 }
 
 private struct CloudRecordingMetadata: Decodable, Equatable, Sendable {

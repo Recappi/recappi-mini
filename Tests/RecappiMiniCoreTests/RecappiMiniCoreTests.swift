@@ -264,6 +264,98 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testCreateRecordingRetriesSubscriptionRenewal503() async throws {
+        StubConnectorURLProtocol.clearStubs()
+        defer { StubConnectorURLProtocol.clearStubs() }
+
+        let url = URL(string: "https://recordmeet.ing/api/recordings")!
+        let callCounter = StubCallCounter()
+        StubConnectorURLProtocol.stub(url: url) { _ in
+            let currentCall = callCounter.increment()
+
+            if currentCall == 1 {
+                return (
+                    Data(#"{"message":"Subscription is renewing — plan state is between periods. Retry in a few seconds."}"#.utf8),
+                    503
+                )
+            }
+
+            return (
+                Data(#"{"id":"rec_123","partSize":5242880,"maxPartBytes":99614720,"r2Key":"users/u/rec_123.m4a"}"#.utf8),
+                200
+            )
+        }
+
+        let client = Self.makeStubbedAPIClient(subscriptionRenewalRetryDelays: [.milliseconds(1)])
+        let response = try await client.createRecording(
+            title: "Renewal retry test",
+            contentType: "audio/aac",
+            durationMs: 5_000
+        )
+
+        XCTAssertEqual(response.id, "rec_123")
+        XCTAssertEqual(callCounter.value, 2)
+    }
+
+    func testCreateRecordingDoesNotRetryGeneric503Post() async {
+        StubConnectorURLProtocol.clearStubs()
+        defer { StubConnectorURLProtocol.clearStubs() }
+
+        let url = URL(string: "https://recordmeet.ing/api/recordings")!
+        let callCounter = StubCallCounter()
+        StubConnectorURLProtocol.stub(url: url) { _ in
+            _ = callCounter.increment()
+            return (Data(#"{"message":"upstream unavailable"}"#.utf8), 503)
+        }
+
+        let client = Self.makeStubbedAPIClient(subscriptionRenewalRetryDelays: [.milliseconds(1)])
+
+        do {
+            _ = try await client.createRecording(
+                title: "Generic 503 test",
+                contentType: "audio/aac",
+                durationMs: 5_000
+            )
+            XCTFail("Expected generic POST 503 to fail without retry.")
+        } catch {
+            // Expected.
+        }
+
+        XCTAssertEqual(callCounter.value, 1)
+    }
+
+    func testStartTranscriptionRetriesSubscriptionRenewal503() async throws {
+        StubConnectorURLProtocol.clearStubs()
+        defer { StubConnectorURLProtocol.clearStubs() }
+
+        let url = URL(string: "https://recordmeet.ing/api/recordings/rec_123/transcribe")!
+        let callCounter = StubCallCounter()
+        StubConnectorURLProtocol.stub(url: url) { _ in
+            let currentCall = callCounter.increment()
+
+            if currentCall == 1 {
+                return (
+                    Data(#"{"message":"Subscription is renewing — quota window is between periods. Retry in a few seconds."}"#.utf8),
+                    503
+                )
+            }
+
+            return (
+                Data(#"{"jobId":"job_123","status":"queued","transcriptId":null}"#.utf8),
+                200
+            )
+        }
+
+        let client = Self.makeStubbedAPIClient(subscriptionRenewalRetryDelays: [.milliseconds(1)])
+        let response = try await client.startTranscription(
+            recordingId: "rec_123",
+            language: "en"
+        )
+
+        XCTAssertEqual(response.jobId, "job_123")
+        XCTAssertEqual(callCounter.value, 2)
+    }
+
     func testCloudDetailSectionDefaultsToSummaryBeforeSummaryContentLoads() {
         XCTAssertEqual(
             CloudDetailSection.resolveVisibleSection(
@@ -1816,6 +1908,157 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testCloudLibraryIndexesLocalSessionsWithoutRemoteManifestByLocalID() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let session = temp.appendingPathComponent("2026-05-25_111500", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let links = CloudLibraryStore.localSessionLinks(in: temp)
+
+        XCTAssertEqual(
+            links["local-2026-05-25_111500"]?.standardizedFileURL,
+            session.standardizedFileURL
+        )
+    }
+
+    func testLocalFailedRecordingPlaceholderKeepsUploadFailureVisible() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let session = temp.appendingPathComponent("2026-05-25_111500", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        try Data(repeating: 1, count: 128).write(to: RecordingStore.audioFileURL(in: session))
+        RecordingStore.saveSessionMetadata(
+            .capture(
+                sourceTitle: "Design sync",
+                sourceAppName: "Google Meet",
+                sourceBundleID: "com.google.Chrome",
+                includesMicrophoneAudio: true
+            ),
+            in: session
+        )
+
+        let recording = try XCTUnwrap(SessionProcessor.localFailedRecordingPlaceholder(
+            sessionDir: session,
+            duration: 12,
+            error: RecappiAPIError.http(
+                statusCode: 503,
+                message: "Subscription is renewing — plan state is between periods. Retry in a few seconds."
+            )
+        ))
+
+        XCTAssertEqual(recording.id, "local-2026-05-25_111500")
+        XCTAssertEqual(recording.status, .failed)
+        XCTAssertEqual(recording.title, "Design sync")
+        XCTAssertEqual(recording.sourceAppName, "Google Meet")
+        XCTAssertEqual(recording.durationMs, 12_000)
+        XCTAssertEqual(recording.sizeBytes, 128)
+        XCTAssertEqual(recording.contentType, "audio/aac")
+    }
+
+    func testLocalRecordingPlaceholderIsCreatedImmediatelyAfterStop() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let session = temp.appendingPathComponent("2026-05-25_112000", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        try Data(repeating: 2, count: 256).write(to: RecordingStore.audioFileURL(in: session))
+
+        let recording = try XCTUnwrap(SessionProcessor.localRecordingPlaceholder(
+            sessionDir: session,
+            duration: 9,
+            status: .uploading
+        ))
+
+        XCTAssertEqual(recording.id, "local-2026-05-25_112000")
+        XCTAssertEqual(recording.status, .uploading)
+        XCTAssertEqual(recording.durationMs, 9_000)
+        XCTAssertEqual(recording.sizeBytes, 256)
+    }
+
+    func testCloudLibraryFindsLocalOnlyRecordingsFromDisk() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let session = temp.appendingPathComponent("2026-05-25_112500", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        try Data(repeating: 3, count: 64).write(to: RecordingStore.audioFileURL(in: session))
+        var manifest = RemoteSessionManifest.stage("uploadFailed")
+        manifest.errorMessage = "Subscription is renewing"
+        RecordingStore.saveRemoteManifest(manifest, in: session)
+
+        let recordings = CloudLibraryStore.localOnlyRecordings(in: temp)
+
+        XCTAssertEqual(recordings.map(\.id), ["local-2026-05-25_112500"])
+        XCTAssertEqual(recordings.first?.status, .failed)
+        XCTAssertEqual(recordings.first?.sizeBytes, 64)
+    }
+
+    func testCloudLibrarySkipsLocalOnlyRecordingAfterRemoteManifestAppears() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let session = temp.appendingPathComponent("2026-05-25_113000", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        try Data(repeating: 4, count: 64).write(to: RecordingStore.audioFileURL(in: session))
+        var manifest = RemoteSessionManifest.stage("creatingRecording")
+        manifest.recordingId = "rec_remote"
+        RecordingStore.saveRemoteManifest(manifest, in: session)
+
+        XCTAssertTrue(CloudLibraryStore.localOnlyRecordings(in: temp).isEmpty)
+    }
+
+    @MainActor
+    func testCloudLibraryMergesLocalOnlyRecordingsIntoRemoteRefreshResults() {
+        let store = CloudLibraryStore()
+        let remote = CloudRecording(
+            id: "rec_remote",
+            userId: "user_123",
+            title: "Remote recording",
+            summaryTitle: nil,
+            sourceTitle: nil,
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: "recordings/user/rec_remote.m4a",
+            r2UploadId: nil,
+            status: .ready,
+            sizeBytes: 1024,
+            durationMs: 30_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        let local = CloudRecording(
+            id: "local-2026-05-25_113500",
+            userId: nil,
+            title: "Local only",
+            summaryTitle: nil,
+            sourceTitle: "All system audio",
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .failed,
+            sizeBytes: 2048,
+            durationMs: nil,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: Date(timeIntervalSince1970: 200),
+            updatedAt: Date(timeIntervalSince1970: 200)
+        )
+
+        let merged = store.mergeWithLocalOnlyRecordings([remote], localOnlyRecordings: [local])
+
+        XCTAssertEqual(merged.map(\.id), ["local-2026-05-25_113500", "rec_remote"])
+        XCTAssertEqual(merged.first?.status, .failed)
+    }
+
     func testFloatingPanelHitTestMatchesVisiblePillOnly() {
         let bounds = NSRect(
             x: 0,
@@ -2959,4 +3202,32 @@ final class RecappiMiniCoreTests: XCTestCase {
         ))
     }
 
+    private static func makeStubbedAPIClient(
+        subscriptionRenewalRetryDelays: [Duration] = []
+    ) -> RecappiAPIClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubConnectorURLProtocol.self]
+        return RecappiAPIClient(
+            origin: "https://recordmeet.ing",
+            bearerToken: "token_123",
+            session: URLSession(configuration: config),
+            subscriptionRenewalRetryDelays: subscriptionRenewalRetryDelays
+        )
+    }
+}
+
+private final class StubCallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.withLock { count }
+    }
+
+    func increment() -> Int {
+        lock.withLock {
+            count += 1
+            return count
+        }
+    }
 }

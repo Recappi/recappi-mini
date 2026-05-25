@@ -35,6 +35,30 @@ extension CloudLibraryStore {
         }
     }
 
+    func mergeWithLocalOnlyRecordings(
+        _ incoming: [CloudRecording],
+        localOnlyRecordings: [CloudRecording]
+    ) -> [CloudRecording] {
+        let cachedByID = Dictionary(uniqueKeysWithValues: recordings.map { ($0.id, $0) })
+        var merged = incoming
+        var mergedIDs = Set(merged.map(\.id))
+
+        for localRecording in localOnlyRecordings where !mergedIDs.contains(localRecording.id) {
+            merged.append(cachedByID[localRecording.id] ?? localRecording)
+            mergedIDs.insert(localRecording.id)
+        }
+
+        return merged.sorted {
+            ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast)
+        }
+    }
+
+    func loadLocalOnlyRecordings() async -> [CloudRecording] {
+        await Task.detached(priority: .utility) {
+            Self.localOnlyRecordings(in: RecordingStore.baseDirectory)
+        }.value
+    }
+
     func setTranscriptLoading(_ loading: Bool, for recordingID: String) {
         if loading {
             transcriptLoadingRecordingIDs.insert(recordingID)
@@ -76,16 +100,65 @@ extension CloudLibraryStore {
         var links: [String: URL] = [:]
         for sessionDir in sessionDirs.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }) {
             let values = try? sessionDir.resourceValues(forKeys: [.isDirectoryKey])
-            guard values?.isDirectory == true,
-                  let recordingId = RecordingStore.loadRemoteManifest(in: sessionDir)?.recordingId?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !recordingId.isEmpty,
-                  links[recordingId] == nil else {
+            guard values?.isDirectory == true else {
                 continue
             }
+
+            let remoteID = RecordingStore.loadRemoteManifest(in: sessionDir)?.recordingId?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let recordingId = remoteID?.isEmpty == false
+                ? remoteID!
+                : "local-\(sessionDir.lastPathComponent)"
+            guard links[recordingId] == nil else { continue }
             links[recordingId] = sessionDir
         }
         return links
+    }
+
+    nonisolated static func localOnlyRecordings(
+        in baseDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> [CloudRecording] {
+        guard let sessionDirs = try? fileManager.contentsOfDirectory(
+            at: baseDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return sessionDirs
+            .sorted(by: { $0.lastPathComponent > $1.lastPathComponent })
+            .compactMap { sessionDir -> CloudRecording? in
+                let values = try? sessionDir.resourceValues(forKeys: [.isDirectoryKey])
+                guard values?.isDirectory == true else { return nil }
+
+                let manifest = RecordingStore.loadRemoteManifest(in: sessionDir)
+                let remoteID = manifest?.recordingId?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard remoteID?.isEmpty != false else { return nil }
+
+                return SessionProcessor.localRecordingPlaceholder(
+                    sessionDir: sessionDir,
+                    duration: 0,
+                    status: localOnlyRecordingStatus(from: manifest)
+                )
+            }
+    }
+
+    private nonisolated static func localOnlyRecordingStatus(
+        from manifest: RemoteSessionManifest?
+    ) -> CloudRecordingStatus {
+        guard let manifest else { return .failed }
+
+        switch manifest.stage {
+        case "uploadFailed", "transcriptionFailed":
+            return .failed
+        case "done", "synced":
+            return .ready
+        default:
+            return .uploading
+        }
     }
 
     func localRecordingAudioURL(for recording: CloudRecording) -> URL? {

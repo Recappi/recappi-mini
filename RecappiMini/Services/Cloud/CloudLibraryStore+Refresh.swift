@@ -37,7 +37,12 @@ extension CloudLibraryStore {
                 try await client.listRecordings(limit: pageLimit)
             }
             let previousSelection = selectedRecordingID
-            recordings = mergeWithCachedRecordingDetails(page.items)
+            let remoteRecordings = mergeWithCachedRecordingDetails(page.items)
+            let localOnlyRecordings = await loadLocalOnlyRecordings()
+            recordings = mergeWithLocalOnlyRecordings(
+                remoteRecordings,
+                localOnlyRecordings: localOnlyRecordings
+            )
             nextCursor = page.nextCursor
             totalRecordingCount = await resolvedTotalRecordingCount(from: page)
             if let previousSelection, recordings.contains(where: { $0.id == previousSelection }) {

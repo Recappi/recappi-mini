@@ -49,6 +49,56 @@ final class SessionProcessor {
         }
     }
 
+    nonisolated static func localRecordingID(for sessionDir: URL) -> String {
+        "local-\(sessionDir.lastPathComponent)"
+    }
+
+    nonisolated static func localRecordingPlaceholder(
+        sessionDir: URL,
+        duration: Int,
+        status: CloudRecordingStatus
+    ) -> CloudRecording? {
+        let audioURL = RecordingStore.audioFileURL(in: sessionDir)
+        guard (try? FileManager.default.attributesOfItem(atPath: audioURL.path)[.size] as? NSNumber)?
+            .int64Value ?? 0 > 0 else {
+            return nil
+        }
+
+        let metadata = RecordingStore.loadSessionMetadata(in: sessionDir)
+        return CloudRecording(
+            id: localRecordingID(for: sessionDir),
+            userId: nil,
+            title: metadata?.cloudRecordingTitle ?? sessionDir.lastPathComponent,
+            summaryTitle: metadata?.summaryTitle,
+            sourceTitle: metadata?.sourceTitle,
+            sourceAppName: metadata?.sourceAppName,
+            sourceAppBundleID: metadata?.sourceBundleID,
+            r2Key: nil,
+            r2UploadId: nil,
+            status: status,
+            sizeBytes: Self.fileSize(audioURL),
+            durationMs: duration > 0 ? duration * 1000 : nil,
+            sampleRate: nil,
+            channels: nil,
+            contentType: Self.cloudUploadContentType(for: audioURL),
+            activeTranscriptId: nil,
+            createdAt: metadata.flatMap { ISO8601DateFormatter().date(from: $0.startedAt) } ?? Date(),
+            updatedAt: Date()
+        )
+    }
+
+    nonisolated static func localFailedRecordingPlaceholder(
+        sessionDir: URL,
+        duration: Int,
+        error _: Error
+    ) -> CloudRecording? {
+        localRecordingPlaceholder(
+            sessionDir: sessionDir,
+            duration: duration,
+            status: .failed
+        )
+    }
+
     private func processOnce(
         sessionDir: URL,
         duration: Int,
@@ -333,7 +383,8 @@ final class SessionProcessor {
                 manifest: manifest,
                 duration: duration,
                 updatePhase: updatePhase,
-                onCloudRecordingUpdated: onCloudRecordingUpdated
+                onCloudRecordingUpdated: onCloudRecordingUpdated,
+                onCloudRecordingDeleted: onCloudRecordingDeleted
             )
         } catch {
             let failure = Self.unwrapUploadAttemptFailure(error)
@@ -360,7 +411,8 @@ final class SessionProcessor {
         manifest: RemoteSessionManifest,
         duration: Int,
         updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
-        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
+        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void,
+        onCloudRecordingDeleted: @escaping @MainActor @Sendable (String) -> Void
     ) async throws -> UploadedRecordingAsset {
         let fileURL = uploadAsset.url
         var nextManifest = manifest
@@ -390,6 +442,7 @@ final class SessionProcessor {
         nextManifest.transcriptId = nil
         nextManifest.stage = "creatingRecording"
         nextManifest = RecordingStore.saveRemoteManifest(nextManifest, in: fileURL.deletingLastPathComponent())
+        onCloudRecordingDeleted(Self.localRecordingID(for: sessionDir))
         var localRecording = Self.localCloudRecording(
             id: created.id,
             title: recordingTitle,

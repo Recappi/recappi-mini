@@ -5,6 +5,10 @@ import Foundation
 extension CloudLibraryStore {
     func loadJobHistoryForSelection() async {
         guard let recording = selectedRecording else { return }
+        guard !recording.isLocalOnlyRecording else {
+            transcriptionJobsByRecordingID[recording.id] = transcriptionJobsByRecordingID[recording.id] ?? []
+            return
+        }
         setJobHistoryLoading(true, for: recording.id)
 
         do {
@@ -49,6 +53,7 @@ extension CloudLibraryStore {
 
     func loadTranscriptForSelection() async {
         guard let recording = selectedRecording else { return }
+        guard !recording.isLocalOnlyRecording else { return }
         // Shape-based fallback: when the cache holds a transcript with no
         // summary content but the recording itself is in a state where the
         // backend should have produced one by now, the cache is almost

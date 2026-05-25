@@ -221,6 +221,14 @@ struct RecordingPanel: View {
             recorder.reset()
         }
 
+        if let placeholder = SessionProcessor.localRecordingPlaceholder(
+            sessionDir: sessionDir,
+            duration: duration,
+            status: .uploading
+        ) {
+            onCloudRecordingUpdated(placeholder, nil)
+        }
+
         do {
             let result = try await SessionProcessor.shared.process(
                 sessionDir: sessionDir,
@@ -247,6 +255,16 @@ struct RecordingPanel: View {
                 "recording-panel",
                 "process_session.failed visible=\(visibleProcessingSessionID == sessionID) \(DiagnosticsLog.errorSummary(error))"
             )
+            if let placeholder = SessionProcessor.localFailedRecordingPlaceholder(
+                sessionDir: sessionDir,
+                duration: duration,
+                error: error
+            ) {
+                onCloudRecordingUpdated(
+                    placeholder,
+                    TranscriptionJob.failedRecordingPlaceholder(recordingID: placeholder.id)
+                )
+            }
             if visibleProcessingSessionID == sessionID {
                 recorder.state = .error(message: NetworkErrorPresenter.userFacingMessage(for: error))
                 visibleProcessingSessionID = nil

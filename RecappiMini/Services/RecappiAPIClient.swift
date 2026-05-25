@@ -14,14 +14,28 @@ enum RecappiNetworking {
 }
 
 struct RecappiAPIClient: Sendable {
+    private static let defaultSubscriptionRenewalRetryDelays: [Duration] = [
+        .seconds(1),
+        .seconds(2),
+        .seconds(4),
+        .seconds(8),
+    ]
+
     let origin: String
     let bearerToken: String
     let session: URLSession
+    let subscriptionRenewalRetryDelays: [Duration]
 
-    init(origin: String, bearerToken: String, session: URLSession = RecappiNetworking.bearerSession) {
+    init(
+        origin: String,
+        bearerToken: String,
+        session: URLSession = RecappiNetworking.bearerSession,
+        subscriptionRenewalRetryDelays: [Duration] = Self.defaultSubscriptionRenewalRetryDelays
+    ) {
         self.origin = origin.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
         self.bearerToken = bearerToken
         self.session = session
+        self.subscriptionRenewalRetryDelays = subscriptionRenewalRetryDelays
     }
 
     func getSession() async throws -> SessionLookup {
@@ -49,7 +63,7 @@ struct RecappiAPIClient: Sendable {
                 durationMs: durationMs
             )
         )
-        let (data, _) = try await performValidated(request)
+        let (data, _) = try await performValidated(request, retriesSubscriptionRenewal: true)
         return try JSONDecoder().decode(CreateRecordingResponse.self, from: data)
     }
 
@@ -115,7 +129,7 @@ struct RecappiAPIClient: Sendable {
                 prompt: prompt
             )
         )
-        let (data, _) = try await performValidated(request)
+        let (data, _) = try await performValidated(request, retriesSubscriptionRenewal: true)
         return try JSONDecoder().decode(StartTranscriptionResponse.self, from: data)
     }
 
@@ -260,10 +274,14 @@ struct RecappiAPIClient: Sendable {
 
     func performValidated(
         _ request: URLRequest,
-        allowsRetry explicitAllowsRetry: Bool? = nil
+        allowsRetry explicitAllowsRetry: Bool? = nil,
+        retriesSubscriptionRenewal: Bool = false
     ) async throws -> (Data, URLResponse) {
         let allowsRetry = explicitAllowsRetry ?? Self.isIdempotent(request)
-        let maxAttempts = allowsRetry ? 3 : 1
+        let maxAttempts = max(
+            allowsRetry ? 3 : 1,
+            retriesSubscriptionRenewal ? subscriptionRenewalRetryDelays.count + 1 : 1
+        )
         var attempt = 1
 
         while true {
@@ -272,7 +290,16 @@ struct RecappiAPIClient: Sendable {
                 try Self.validate(response: response, data: data)
                 return (data, response)
             } catch {
-                guard attempt < maxAttempts, Self.isRetryable(error) else {
+                let shouldRetrySubscriptionRenewal =
+                    retriesSubscriptionRenewal
+                    && attempt <= subscriptionRenewalRetryDelays.count
+                    && Self.isSubscriptionRenewalError(error)
+                let shouldRetryGeneric =
+                    allowsRetry
+                    && attempt < maxAttempts
+                    && Self.isRetryable(error)
+
+                guard shouldRetrySubscriptionRenewal || shouldRetryGeneric else {
                     DiagnosticsLog.error(
                         "network",
                         "request.failed attempts=\(attempt) method=\(request.httpMethod ?? "GET") path=\(Self.safePath(for: request)) \(DiagnosticsLog.errorSummary(error))"
@@ -280,11 +307,19 @@ struct RecappiAPIClient: Sendable {
                     throw error
                 }
 
-                DiagnosticsLog.warning(
-                    "network",
-                    "request.retry attempt=\(attempt) method=\(request.httpMethod ?? "GET") path=\(Self.safePath(for: request)) \(DiagnosticsLog.errorSummary(error))"
-                )
-                try await Task.sleep(for: .milliseconds(300 * attempt))
+                if shouldRetrySubscriptionRenewal {
+                    DiagnosticsLog.warning(
+                        "network",
+                        "request.retry_subscription_renewal attempt=\(attempt) method=\(request.httpMethod ?? "GET") path=\(Self.safePath(for: request)) \(DiagnosticsLog.errorSummary(error))"
+                    )
+                    try await Task.sleep(for: subscriptionRenewalRetryDelays[attempt - 1])
+                } else {
+                    DiagnosticsLog.warning(
+                        "network",
+                        "request.retry attempt=\(attempt) method=\(request.httpMethod ?? "GET") path=\(Self.safePath(for: request)) \(DiagnosticsLog.errorSummary(error))"
+                    )
+                    try await Task.sleep(for: .milliseconds(300 * attempt))
+                }
                 attempt += 1
             }
         }
@@ -420,6 +455,14 @@ struct RecappiAPIClient: Sendable {
             NSURLErrorNotConnectedToInternet,
             NSURLErrorDNSLookupFailed,
         ].contains(nsError.code)
+    }
+
+    static func isSubscriptionRenewalError(_ error: Error) -> Bool {
+        guard case RecappiAPIError.http(let statusCode, let message) = error,
+              statusCode == 503
+        else { return false }
+
+        return message.localizedCaseInsensitiveContains("Subscription is renewing")
     }
 
     private static func safePath(for request: URLRequest) -> String {
