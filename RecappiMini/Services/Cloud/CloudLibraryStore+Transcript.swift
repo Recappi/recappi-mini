@@ -53,7 +53,10 @@ extension CloudLibraryStore {
 
     func loadTranscriptForSelection() async {
         guard let recording = selectedRecording else { return }
-        guard !recording.isLocalOnlyRecording else { return }
+        guard !recording.isLocalOnlyRecording else {
+            setTranscriptLoading(false, for: recording.id)
+            return
+        }
         // Shape-based fallback: when the cache holds a transcript with no
         // summary content but the recording itself is in a state where the
         // backend should have produced one by now, the cache is almost

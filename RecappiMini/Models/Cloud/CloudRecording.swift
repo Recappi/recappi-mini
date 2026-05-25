@@ -251,6 +251,13 @@ struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {
             r2Key == nil &&
             r2UploadId == nil
     }
+
+    func allowsProcessingRequest(hasLocalSession: Bool) -> Bool {
+        if isLocalOnlyRecording {
+            return hasLocalSession
+        }
+        return status.allowsTranscriptionRequest
+    }
 }
 
 private struct CloudRecordingMetadata: Decodable, Equatable, Sendable {

@@ -44,10 +44,16 @@ extension CloudLibraryStore {
     }
 
     func startTranscriptionForSelectedRecording(_ action: CloudRecordingProcessingAction) async {
-        guard let recording = selectedRecording, recording.status.allowsTranscriptionRequest else { return }
+        guard let recording = selectedRecording else { return }
         guard activeRecordingProcessingAction == nil else { return }
         if let limitMessage = retranscriptionLimitMessage {
             transcriptErrorMessage = limitMessage
+            return
+        }
+        guard recording.allowsProcessingRequest(hasLocalSession: selectedLocalSessionURL != nil) else { return }
+
+        if recording.isLocalOnlyRecording {
+            await processLocalOnlySelectedRecording(recording, action)
             return
         }
 
@@ -93,6 +99,88 @@ extension CloudLibraryStore {
             )
             transcriptErrorMessage = transcriptMessage(for: error)
         }
+    }
+
+    private func processLocalOnlySelectedRecording(
+        _ recording: CloudRecording,
+        _ action: CloudRecordingProcessingAction
+    ) async {
+        guard let sessionURL = localSessionURLsByRecordingID[recording.id] else {
+            transcriptErrorMessage = "This recording is saved locally, but its local audio folder is unavailable."
+            return
+        }
+
+        isRetranscribing = true
+        activeRecordingProcessingAction = action
+        transcriptErrorMessage = nil
+        locallyManagedRecordingUpdatedAt[recording.id] = Date()
+        hasNewerVersionForSelection = false
+        recordingIDsWithNewerVersions.remove(recording.id)
+        defer {
+            isRetranscribing = false
+            activeRecordingProcessingAction = nil
+        }
+
+        let duration = localProcessingDurationSeconds(for: recording)
+        if let placeholder = SessionProcessor.localRecordingPlaceholder(
+            sessionDir: sessionURL,
+            duration: duration,
+            status: .uploading
+        ) {
+            upsertLocalProcessingRecording(placeholder)
+        }
+
+        do {
+            _ = try await SessionProcessor.shared.process(
+                sessionDir: sessionURL,
+                duration: duration,
+                startsTranscription: true,
+                updatePhase: { phase in
+                    DiagnosticsLog.event(
+                        "cloud",
+                        "local_processing.phase recordingID=\(recording.id) phase=\(phase.title)"
+                    )
+                },
+                onCloudRecordingUpdated: { [weak self] updatedRecording, latestJob in
+                    self?.upsertLocalProcessingRecording(updatedRecording, latestJob: latestJob)
+                },
+                onCloudRecordingDeleted: { [weak self] recordingID in
+                    self?.removeLocalProcessingRecording(id: recordingID)
+                }
+            )
+
+            await refreshLocalSessionLinks()
+            if let remoteID = RecordingStore.loadRemoteManifest(in: sessionURL)?.recordingId?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !remoteID.isEmpty,
+               let remoteRecording = recordings.first(where: { $0.id == remoteID }) {
+                select(remoteRecording)
+            }
+            await persistCacheSnapshot()
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            apply(error: error)
+        } catch {
+            DiagnosticsLog.error(
+                "cloud",
+                "local_processing.failed recordingID=\(recording.id) action=\(action.rawValue) \(DiagnosticsLog.errorSummary(error))"
+            )
+            if let placeholder = SessionProcessor.localFailedRecordingPlaceholder(
+                sessionDir: sessionURL,
+                duration: duration,
+                error: error
+            ) {
+                upsertLocalProcessingRecording(
+                    placeholder,
+                    latestJob: TranscriptionJob.failedRecordingPlaceholder(recordingID: placeholder.id)
+                )
+            }
+            transcriptErrorMessage = transcriptMessage(for: error)
+        }
+    }
+
+    private func localProcessingDurationSeconds(for recording: CloudRecording) -> Int {
+        guard let durationMs = recording.durationMs, durationMs > 0 else { return 0 }
+        return Int((Double(durationMs) / 1_000).rounded(.up))
     }
 
     var retranscriptionLimitMessage: String? {

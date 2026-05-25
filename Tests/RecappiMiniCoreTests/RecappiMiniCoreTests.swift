@@ -2059,6 +2059,91 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(merged.first?.status, .failed)
     }
 
+    func testLocalOnlyRecordingAllowsProcessingWhenLocalSessionIsLinked() {
+        let recording = CloudRecording(
+            id: "local-2026-05-25_130800",
+            userId: nil,
+            title: "Arc",
+            summaryTitle: nil,
+            sourceTitle: "Arc",
+            sourceAppName: "Arc",
+            sourceAppBundleID: "company.thebrowser.Browser",
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .failed,
+            sizeBytes: 1_024,
+            durationMs: 60_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        XCTAssertTrue(recording.isLocalOnlyRecording)
+        XCTAssertFalse(recording.allowsProcessingRequest(hasLocalSession: false))
+        XCTAssertTrue(recording.allowsProcessingRequest(hasLocalSession: true))
+    }
+
+    func testRemoteUploadingRecordingStillBlocksProcessing() {
+        let recording = CloudRecording(
+            id: "rec_uploading",
+            userId: "user_123",
+            title: "Uploading",
+            summaryTitle: nil,
+            sourceTitle: nil,
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: "recordings/user/rec_uploading.m4a",
+            r2UploadId: nil,
+            status: .uploading,
+            sizeBytes: nil,
+            durationMs: nil,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        XCTAssertFalse(recording.isLocalOnlyRecording)
+        XCTAssertFalse(recording.allowsProcessingRequest(hasLocalSession: true))
+    }
+
+    @MainActor
+    func testSelectingLocalOnlyRecordingDoesNotLeaveTranscriptLoadingStuck() async {
+        let store = CloudLibraryStore()
+        let recording = CloudRecording(
+            id: "local-2026-05-25_130800",
+            userId: nil,
+            title: "Arc",
+            summaryTitle: nil,
+            sourceTitle: "Arc",
+            sourceAppName: "Arc",
+            sourceAppBundleID: "company.thebrowser.Browser",
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .failed,
+            sizeBytes: 1_024,
+            durationMs: 60_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        store.recordings = [recording]
+
+        store.select(recording)
+        await store.loadTranscriptForSelection()
+
+        XCTAssertEqual(store.selectedRecordingID, recording.id)
+        XCTAssertFalse(store.isSelectedTranscriptLoading)
+    }
+
     func testFloatingPanelHitTestMatchesVisiblePillOnly() {
         let bounds = NSRect(
             x: 0,

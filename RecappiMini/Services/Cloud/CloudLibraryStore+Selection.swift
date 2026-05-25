@@ -18,7 +18,9 @@ extension CloudLibraryStore {
         // `refreshSelectedDetailIfNeeded` may race ahead of it and read
         // `transcriptLoadingRecordingIDs` before it gets populated. Setting
         // the flag here closes that window so the banner does not flash.
-        if transcriptCache[recording.id] == nil {
+        if recording.isLocalOnlyRecording {
+            setTranscriptLoading(false, for: recording.id)
+        } else if transcriptCache[recording.id] == nil {
             setTranscriptLoading(true, for: recording.id)
         }
         scheduleCachePersist()

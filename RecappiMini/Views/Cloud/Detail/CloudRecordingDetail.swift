@@ -1656,12 +1656,9 @@ struct CloudRecordingDetail: View {
         if processingAction != nil || isTranscriptLoading {
             return true
         }
-        if recording.isLocalOnlyRecording {
-            return true
-        }
         return latestJob?.status.isActive == true
             || retranscriptionLimitMessage != nil
-            || !recording.status.allowsTranscriptionRequest
+            || !recording.allowsProcessingRequest(hasLocalSession: localSessionURL != nil)
     }
 
     private func processingHelpText(for action: CloudRecordingProcessingAction) -> String {
@@ -1681,7 +1678,10 @@ struct CloudRecordingDetail: View {
             return "A transcription job is already in progress."
         }
         if recording.isLocalOnlyRecording {
-            return "This recording is saved locally but has not uploaded to Recappi Cloud yet."
+            if localSessionURL != nil {
+                return "Upload the local audio to Recappi Cloud and start transcription."
+            }
+            return "This recording is saved locally, but its local audio folder is unavailable."
         }
         return action.helpText
     }
