@@ -97,9 +97,13 @@ extension CloudCenterPanel {
                 hasNewerVersion: store.hasNewerVersionForSelection,
                 onLoadTranscript: { Task { await store.loadTranscriptForSelection() } },
                 onCopyTranscript: store.copySelectedTranscript,
-                onProcessRecording: {
-                    pendingProcessingAction = $0
-                    pendingProcessingHasExistingTranscript = recording.activeTranscriptId != nil
+                onProcessRecording: { action in
+                    if recording.activeTranscriptId == nil {
+                        Task { await store.processSelectedRecording(action) }
+                    } else {
+                        pendingProcessingAction = action
+                        pendingProcessingHasExistingTranscript = true
+                    }
                 },
                 onPreparePlaybackAudio: { Task { await store.preparePlaybackAudioForSelection() } },
                 onRevealLocalSession: store.revealSelectedLocalSession,

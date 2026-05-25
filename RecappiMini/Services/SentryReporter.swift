@@ -342,6 +342,9 @@ private struct DiagnosticTelemetry {
         if isExpectedMissingTranscript {
             return false
         }
+        if isExpectedSubscriptionRenewal {
+            return false
+        }
         return true
     }
 
@@ -362,6 +365,25 @@ private struct DiagnosticTelemetry {
             return true
         }
         return false
+    }
+
+    private var isExpectedSubscriptionRenewal: Bool {
+        let message = safeMessage.lowercased()
+        guard message.contains("status 503"),
+              message.contains("subscription is renewing") else {
+            return false
+        }
+
+        switch (category, operation) {
+        case ("network", "request.failed"),
+             ("processing", "upload.failed"),
+             ("processing", "process.failed"),
+             ("cloud", "local_processing.failed"),
+             ("cloud", "transcription.start.failed"):
+            return true
+        default:
+            return false
+        }
     }
 
     var searchableTags: [String: String] {

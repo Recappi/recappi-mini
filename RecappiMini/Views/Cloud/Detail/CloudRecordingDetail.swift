@@ -275,11 +275,15 @@ struct CloudRecordingDetail: View {
         visibleTranscriptErrorMessage == "Transcript is not available for this recording yet."
     }
 
+    private var isTranscriptGenerationProcessing: Bool {
+        processingAction == .transcriptAndSummary || latestJob?.status.isActive == true
+    }
+
     private var shouldShowTranscriptGenerationEmptyState: Bool {
         guard !isViewingHistoricalVersion else { return false }
-        guard !isVisibleTranscriptLoading else { return false }
+        guard !isVisibleTranscriptLoading || processingAction == .transcriptAndSummary else { return false }
         guard visibleTranscript == nil else { return false }
-        return latestJob?.status.isActive == true
+        return isTranscriptGenerationProcessing
             || recording.activeTranscriptId == nil
             || isTranscriptUnavailableMessage
     }
@@ -2782,7 +2786,7 @@ struct CloudRecordingDetail: View {
     }
 
     private var transcriptGenerationIconName: String {
-        if latestJob?.status.isActive == true {
+        if isTranscriptGenerationProcessing {
             return "clock"
         }
         if recording.activeTranscriptId == nil {
@@ -2792,7 +2796,7 @@ struct CloudRecordingDetail: View {
     }
 
     private var transcriptGenerationTitle: String {
-        if latestJob?.status.isActive == true {
+        if isTranscriptGenerationProcessing {
             return "Transcription is in progress"
         }
         if recording.activeTranscriptId == nil {
@@ -2802,8 +2806,14 @@ struct CloudRecordingDetail: View {
     }
 
     private var transcriptGenerationDescription: String {
+        if processingAction == .transcriptAndSummary {
+            return "Recappi is uploading or starting cloud processing. Transcript and summary will appear here when it finishes."
+        }
         if latestJob?.status.isActive == true {
             return "Transcript and summary will appear here when processing finishes."
+        }
+        if let visibleTranscriptErrorMessage, !isTranscriptUnavailableMessage {
+            return visibleTranscriptErrorMessage
         }
         if recording.activeTranscriptId == nil {
             return "Start transcription to generate transcript, summary, and speaker labels."
@@ -2840,28 +2850,26 @@ struct CloudRecordingDetail: View {
                 Spacer(minLength: 0)
             }
 
-            if showsAction {
-                if latestJob?.status.isActive == true {
-                    HStack(spacing: 7) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(latestJob?.status.displayName ?? "Processing")
-                            .font(CloudTypography.caption)
-                            .foregroundStyle(Color.dtLabelSecondary)
-                    }
-                } else {
-                    Button(transcriptGenerationActionTitle) {
-                        if recording.activeTranscriptId == nil {
-                            onProcessRecording(.transcriptAndSummary)
-                        } else {
-                            presentRetranscribeContextPopover()
-                        }
-                    }
-                    .buttonStyle(PanelPushButtonStyle(primary: recording.activeTranscriptId == nil))
-                    .frame(width: recording.activeTranscriptId == nil ? 156 : 126)
-                    .disabled(isProcessingActionDisabled(.transcriptAndSummary))
-                    .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
+            if isTranscriptGenerationProcessing {
+                HStack(spacing: 7) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(processingAction?.busyTitle ?? latestJob?.status.displayName ?? "Processing")
+                        .font(CloudTypography.caption)
+                        .foregroundStyle(Color.dtLabelSecondary)
                 }
+            } else if showsAction {
+                Button(transcriptGenerationActionTitle) {
+                    if recording.activeTranscriptId == nil {
+                        onProcessRecording(.transcriptAndSummary)
+                    } else {
+                        presentRetranscribeContextPopover()
+                    }
+                }
+                .buttonStyle(PanelPushButtonStyle(primary: recording.activeTranscriptId == nil))
+                .frame(width: recording.activeTranscriptId == nil ? 156 : 126)
+                .disabled(isProcessingActionDisabled(.transcriptAndSummary))
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
             }
         }
     }

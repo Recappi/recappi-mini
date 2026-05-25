@@ -77,6 +77,9 @@ enum NetworkErrorPresenter {
             case 429:
                 return "请求太频繁，请稍后重试"
             case 500...599:
+                if message.localizedCaseInsensitiveContains("Subscription is renewing") {
+                    return "订阅状态正在刷新，请几秒后重试"
+                }
                 return "Recappi Cloud 暂时不可用，请稍后重试"
             default:
                 return message.isEmpty ? "请求失败（\(statusCode)）" : message

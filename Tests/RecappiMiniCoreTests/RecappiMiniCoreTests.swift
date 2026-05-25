@@ -219,6 +219,15 @@ final class RecappiMiniCoreTests: XCTestCase {
             NetworkErrorPresenter.userFacingMessage(for: RecappiAPIError.http(statusCode: 503, message: "upstream down")),
             "Recappi Cloud 暂时不可用，请稍后重试"
         )
+        XCTAssertEqual(
+            NetworkErrorPresenter.userFacingMessage(
+                for: RecappiAPIError.http(
+                    statusCode: 503,
+                    message: "Subscription is renewing — plan state is between periods. Retry in a few seconds."
+                )
+            ),
+            "订阅状态正在刷新，请几秒后重试"
+        )
     }
 
     func testCloudLibraryListRequestUsesBearerAndOrigin() throws {

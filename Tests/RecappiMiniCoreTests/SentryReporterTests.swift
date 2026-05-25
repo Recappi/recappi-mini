@@ -89,6 +89,45 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testSubscriptionRenewal503DoesNotCaptureExpectedRetryFailures() {
+        let errorSummary = "domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 503): Subscription is renewing — plan state is between periods. Retry in a few seconds."
+
+        for (category, message) in [
+            (
+                "network",
+                "request.failed attempts=5 method=POST path=/api/recordings \(errorSummary)"
+            ),
+            (
+                "processing",
+                "upload.failed file=recording.m4a recording=none \(errorSummary)"
+            ),
+            (
+                "processing",
+                "process.failed dir=2026-05-25_100318 \(errorSummary)"
+            ),
+            (
+                "cloud",
+                "local_processing.failed recordingID=local-2026-05-25_100318 action=transcriptAndSummary \(errorSummary)"
+            ),
+        ] {
+            XCTAssertFalse(
+                SentryReporter.shouldCaptureDiagnosticError(
+                    level: "error",
+                    category: category,
+                    message: message
+                )
+            )
+        }
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=5 method=POST path=/api/recordings domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 503): upstream down"
+            )
+        )
+    }
+
     func testSentryUserUsesBackendUserIDWithoutPII() {
         let session = UserSession(
             userId: "user_123",
