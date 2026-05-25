@@ -49,18 +49,18 @@ struct CloudDetailScrollableSections<Summary: View, Timeline: View, TranscriptHe
                         ) {
                             summary
                         }
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        .transition(.opacity)
                     case .timeline:
                         timeline
                             .id(CloudDetailSection.timeline)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            .transition(.opacity)
                     case .transcript:
                         CloudDetailTranscriptSection(
                             offsetReader: { EmptyView() },
                             header: { transcriptHeader },
                             card: { transcriptCard }
                         )
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        .transition(.opacity)
                     }
                 }
                 .id(activeDetailSection)

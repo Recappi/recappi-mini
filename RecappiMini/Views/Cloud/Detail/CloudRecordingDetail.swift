@@ -62,6 +62,7 @@ struct CloudRecordingDetail: View {
     let isDeleting: Bool
     let isSyncingToLocal: Bool
     let processingAction: CloudRecordingProcessingAction?
+    let processingPhase: ProcessingPhase?
     let hasDownloadedAudio: Bool
     let hasNewerVersion: Bool
     let onLoadTranscript: () -> Void
@@ -138,7 +139,7 @@ struct CloudRecordingDetail: View {
                     detailHeader
                 }
             } latestJob: {
-                latestJobStrip
+                terminalJobStrip
             } newerVersion: {
                 newerVersionStrip
             } navigation: {
@@ -148,21 +149,23 @@ struct CloudRecordingDetail: View {
                     detailNavigationRow
                 }
             }
-            .animation(DT.motionAware(DT.ease(0.20)), value: latestJob?.status)
-            .animation(DT.motionAware(DT.ease(0.20)), value: hasNewerVersion)
 
             if isViewingHistoricalVersion {
                 historicalVersionBanner
                     .padding(.horizontal, 22)
                     .padding(.bottom, 10)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
             }
 
             if shouldShowProcessingContextStrip {
                 processingContextStrip
                     .padding(.horizontal, 22)
                     .padding(.bottom, 10)
-                    .transition(.opacity)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
             }
 
             Divider().overlay(Palette.borderHairline)
@@ -206,7 +209,6 @@ struct CloudRecordingDetail: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
-        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: shouldShowProcessingContextStrip)
         .animation(DT.motionAware(.spring(response: 0.26, dampingFraction: 0.88)), value: isCloudSearchActive)
     }
 
@@ -276,7 +278,7 @@ struct CloudRecordingDetail: View {
     }
 
     private var isTranscriptGenerationProcessing: Bool {
-        processingAction == .transcriptAndSummary || latestJob?.status.isActive == true
+        processingAction == .transcriptAndSummary || processingPhase != nil || latestJob?.status.isActive == true
     }
 
     private var shouldShowTranscriptGenerationEmptyState: Bool {
@@ -2250,7 +2252,6 @@ struct CloudRecordingDetail: View {
                 RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
                     .strokeBorder(DT.systemBlue.opacity(0.22), lineWidth: 0.6)
             )
-            .transition(.opacity.combined(with: .move(edge: .top)))
             .accessibilityIdentifier(AccessibilityIDs.Cloud.newerVersionBanner)
         }
     }
@@ -2307,13 +2308,22 @@ struct CloudRecordingDetail: View {
         )
     }
 
+    private func processingProgressValue(for phase: ProcessingPhase) -> Double {
+        switch phase.progressStyle {
+        case .determinate(let progress):
+            return max(0, min(1, progress))
+        case .indeterminate(let base):
+            return max(0, min(1, base))
+        }
+    }
+
     @ViewBuilder
-    private var latestJobStrip: some View {
+    private var terminalJobStrip: some View {
         if let latestJob {
             switch latestJob.status {
-            case .succeeded:
+            case .succeeded, .queued, .running:
                 EmptyView()
-            case .queued, .running, .failed:
+            case .failed:
                 HStack(spacing: 8) {
                     Image(systemName: latestJob.status.detailIconName)
                         .font(.system(size: 10.5, weight: .semibold))
@@ -2353,7 +2363,6 @@ struct CloudRecordingDetail: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(latestJob.status.detailColor.opacity(latestJob.status == .failed ? 0.20 : 0.12), lineWidth: 1)
                 )
-                .transition(.opacity.combined(with: .move(edge: .top)))
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.latestJobStatus)
             }
         }
@@ -2806,6 +2815,9 @@ struct CloudRecordingDetail: View {
     }
 
     private var transcriptGenerationDescription: String {
+        if let processingPhase {
+            return "\(processingPhase.detail). Transcript and summary will appear here when processing finishes."
+        }
         if processingAction == .transcriptAndSummary {
             return "Recappi is uploading or starting cloud processing. Transcript and summary will appear here when it finishes."
         }
@@ -2845,20 +2857,17 @@ struct CloudRecordingDetail: View {
                         .font(.system(size: 12.5))
                         .foregroundStyle(Color.dtLabelSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    if shouldShowProcessingRail {
+                        processingProgressRail
+                            .padding(.top, 5)
+                    }
                 }
 
                 Spacer(minLength: 0)
             }
 
-            if isTranscriptGenerationProcessing {
-                HStack(spacing: 7) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(processingAction?.busyTitle ?? latestJob?.status.displayName ?? "Processing")
-                        .font(CloudTypography.caption)
-                        .foregroundStyle(Color.dtLabelSecondary)
-                }
-            } else if showsAction {
+            if !isTranscriptGenerationProcessing, showsAction {
                 Button(transcriptGenerationActionTitle) {
                     if recording.activeTranscriptId == nil {
                         onProcessRecording(.transcriptAndSummary)
@@ -2872,6 +2881,39 @@ struct CloudRecordingDetail: View {
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
             }
         }
+    }
+
+    private var shouldShowProcessingRail: Bool {
+        processingPhase != nil || processingAction == .transcriptAndSummary
+    }
+
+    private var processingProgressRail: some View {
+        GeometryReader { geometry in
+            let progress = max(0, min(1, inlineProcessingProgressValue))
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Palette.controlFillHover)
+
+                Capsule(style: .continuous)
+                    .fill(DT.statusUploading.opacity(0.78))
+                    .frame(width: geometry.size.width * progress)
+            }
+        }
+        .frame(width: 190, height: 2.5)
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.processingStatus)
+    }
+
+    private var inlineProcessingProgressValue: Double {
+        if let processingPhase {
+            return processingProgressValue(for: processingPhase)
+        }
+        if latestJob?.status.isActive == true {
+            return 0.84
+        }
+        return 0.12
     }
 
     private var transcriptPlaceholderText: String {

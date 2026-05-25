@@ -148,6 +148,7 @@ enum AccessibilityIDs {
         static let jumpToTimelineButton = "recappi.cloud.jumpToTimelineButton"
         static let jumpToTranscriptButton = "recappi.cloud.jumpToTranscriptButton"
         static let latestJobStatus = "recappi.cloud.latestJobStatus"
+        static let processingStatus = "recappi.cloud.processingStatus"
         static let newerVersionBanner = "recappi.cloud.newerVersionBanner"
         static let newerVersionRefreshButton = "recappi.cloud.newerVersionRefreshButton"
         static let loadTranscriptButton = "recappi.cloud.loadTranscriptButton"
@@ -171,5 +172,6 @@ enum AccessibilityIDs {
         static let confirmDeleteButton = "recappi.cloud.confirmDeleteButton"
         static let accountMenu = "recappi.cloud.accountMenu"
         static let openWebDashboardButton = "recappi.cloud.openWebDashboardButton"
+        static let uploadAudioButton = "recappi.cloud.uploadAudioButton"
     }
 }

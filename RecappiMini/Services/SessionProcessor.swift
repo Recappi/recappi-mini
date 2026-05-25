@@ -58,7 +58,10 @@ final class SessionProcessor {
         duration: Int,
         status: CloudRecordingStatus
     ) -> CloudRecording? {
-        let audioURL = RecordingStore.audioFileURL(in: sessionDir)
+        let manifest = RecordingStore.loadRemoteManifest(in: sessionDir)
+        guard let audioURL = primaryAudioFileURL(in: sessionDir, manifest: manifest) else {
+            return nil
+        }
         guard (try? FileManager.default.attributesOfItem(atPath: audioURL.path)[.size] as? NSNumber)?
             .int64Value ?? 0 > 0 else {
             return nil
@@ -133,7 +136,8 @@ final class SessionProcessor {
                 duration: duration
             )
         }
-        let recordingURL = RecordingStore.audioFileURL(in: sessionDir)
+        let recordingURL = Self.primaryAudioFileURL(in: sessionDir, manifest: manifest)
+            ?? RecordingStore.audioFileURL(in: sessionDir)
 
         let uploadedRecording: UploadedRecordingAsset
         if let recordingId = Self.reusableRecordingID(in: manifest) {
@@ -512,6 +516,35 @@ final class SessionProcessor {
         }
     }
 
+    nonisolated static func primaryAudioFileURL(
+        in sessionDir: URL,
+        manifest: RemoteSessionManifest? = nil,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        if let uploadFilename = manifest?.uploadFilename?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !uploadFilename.isEmpty {
+            let manifestURL = sessionDir.appendingPathComponent(uploadFilename)
+            if fileManager.fileExists(atPath: manifestURL.path) {
+                return manifestURL
+            }
+        }
+
+        let candidates = [
+            RecordingStore.audioFileURL(in: sessionDir),
+            sessionDir.appendingPathComponent("recording.wav"),
+            sessionDir.appendingPathComponent("recording.mp3"),
+            sessionDir.appendingPathComponent("recording.aac"),
+            sessionDir.appendingPathComponent("recording.m4a"),
+            sessionDir.appendingPathComponent("recording.flac"),
+            sessionDir.appendingPathComponent("recording.ogg"),
+            sessionDir.appendingPathComponent("recording.aiff"),
+            sessionDir.appendingPathComponent("recording.aif"),
+            RecordingStore.uploadAudioFileURL(in: sessionDir),
+        ]
+        return candidates.first { fileManager.fileExists(atPath: $0.path) }
+    }
+
     nonisolated static func cloudUploadContentType(for fileURL: URL) -> String? {
         switch fileURL.pathExtension.lowercased() {
         case "wav":
@@ -742,6 +775,7 @@ enum SessionProcessorError: LocalizedError {
     case jobFailed(String)
     case jobTimedOut
     case recordingAudioMissing
+    case unsupportedAudioFile(String)
 
     var errorDescription: String? {
         switch self {
@@ -753,6 +787,8 @@ enum SessionProcessorError: LocalizedError {
             return "转写仍在后台处理中，请稍后刷新云端记录"
         case .recordingAudioMissing:
             return "Recorded audio is missing or empty before upload: recording.m4a was not created for this session. This usually means no system or microphone audio was captured, or the meeting app was closed before stopping."
+        case .unsupportedAudioFile(let fileExtension):
+            return "Recappi cannot upload .\(fileExtension) audio yet. Choose an m4a, mp3, wav, aiff, aac, flac, or ogg file."
         }
     }
 }

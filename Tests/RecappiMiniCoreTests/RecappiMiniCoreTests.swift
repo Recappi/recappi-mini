@@ -1332,6 +1332,64 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(store.transcriptionJobsByRecordingID["rec_processing"]?.first?.status, .succeeded)
     }
 
+    @MainActor
+    func testCloudLibraryReplacesLocalOnlyProcessingRowWithRemoteID() {
+        let store = CloudLibraryStore()
+        let sessionURL = URL(fileURLWithPath: "/tmp/recappi-local-session", isDirectory: true)
+        let local = CloudRecording(
+            id: "local-2026-05-25_100318",
+            userId: nil,
+            title: "Arc",
+            summaryTitle: nil,
+            sourceTitle: "Arc",
+            sourceAppName: "Arc",
+            sourceAppBundleID: "company.thebrowser.Browser",
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .uploading,
+            sizeBytes: 49_741_990,
+            durationMs: 60_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let remote = CloudRecording(
+            id: "rec_remote",
+            userId: nil,
+            title: "Arc",
+            summaryTitle: nil,
+            sourceTitle: "Arc",
+            sourceAppName: "Arc",
+            sourceAppBundleID: "company.thebrowser.Browser",
+            r2Key: "recordings/user/rec_remote.m4a",
+            r2UploadId: nil,
+            status: .uploading,
+            sizeBytes: nil,
+            durationMs: 60_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 1_001)
+        )
+
+        store.upsertLocalProcessingRecording(local)
+        store.select(local)
+        store.localSessionURLsByRecordingID[local.id] = sessionURL
+        store.setProcessingPhase(.uploading(progress: 0.42), for: local.id)
+        store.upsertLocalProcessingRecording(remote, replacing: local.id)
+
+        XCTAssertEqual(store.recordings.map(\.id), ["rec_remote"])
+        XCTAssertEqual(store.selectedRecordingID, "rec_remote")
+        XCTAssertNil(store.processingPhasesByRecordingID[local.id])
+        XCTAssertEqual(store.processingPhasesByRecordingID["rec_remote"], .uploading(progress: 0.42))
+        XCTAssertEqual(store.localSessionURLsByRecordingID["rec_remote"], sessionURL)
+    }
+
     func testCloudLibrarySnapshotRoundTripsLightweightData() throws {
         let recording = try JSONDecoder().decode(
             CloudRecording.self,
@@ -2013,6 +2071,46 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(recordings.map(\.id), ["local-2026-05-25_112500"])
         XCTAssertEqual(recordings.first?.status, .failed)
         XCTAssertEqual(recordings.first?.sizeBytes, 64)
+    }
+
+    func testSessionProcessorPrimaryAudioFileUsesManifestUploadFilename() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let session = temp.appendingPathComponent("2026-05-25_112700", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let imported = session.appendingPathComponent("recording.mp3")
+        try Data(repeating: 5, count: 96).write(to: imported)
+        var manifest = RemoteSessionManifest.stage("imported")
+        manifest.uploadFilename = imported.lastPathComponent
+
+        XCTAssertEqual(
+            SessionProcessor.primaryAudioFileURL(in: session, manifest: manifest)?.lastPathComponent,
+            "recording.mp3"
+        )
+    }
+
+    func testLocalOnlyRecordingPlaceholderUsesImportedAudioManifestFile() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let session = temp.appendingPathComponent("2026-05-25_112800", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let imported = session.appendingPathComponent("recording.mp3")
+        try Data(repeating: 6, count: 512).write(to: imported)
+        var manifest = RemoteSessionManifest.stage("imported")
+        manifest.uploadFilename = imported.lastPathComponent
+        RecordingStore.saveRemoteManifest(manifest, in: session)
+
+        let recording = try XCTUnwrap(SessionProcessor.localRecordingPlaceholder(
+            sessionDir: session,
+            duration: 33,
+            status: .uploading
+        ))
+
+        XCTAssertEqual(recording.id, "local-2026-05-25_112800")
+        XCTAssertEqual(recording.sizeBytes, 512)
+        XCTAssertEqual(recording.contentType, "audio/mp3")
     }
 
     func testCloudLibrarySkipsLocalOnlyRecordingAfterRemoteManifestAppears() throws {

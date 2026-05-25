@@ -181,6 +181,12 @@ extension CloudLibraryStore {
 
     func localRecordingAudioURL(for recording: CloudRecording) -> URL? {
         guard let sessionURL = localSessionURLsByRecordingID[recording.id] else { return nil }
+        if let primary = SessionProcessor.primaryAudioFileURL(
+            in: sessionURL,
+            manifest: RecordingStore.loadRemoteManifest(in: sessionURL)
+        ) {
+            return primary
+        }
         let candidates = [
             RecordingStore.audioFileURL(in: sessionURL),
             RecordingStore.uploadAudioFileURL(in: sessionURL),

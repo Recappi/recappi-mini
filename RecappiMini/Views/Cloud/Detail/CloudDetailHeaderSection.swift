@@ -25,11 +25,17 @@ struct CloudDetailHeaderSection<Header: View, LatestJob: View, NewerVersion: Vie
         // padding/spacing trivia inline.
         VStack(alignment: .leading, spacing: 9) {
             header
-            // Failed/processing transcription banner (orange) sits above
-            // the newer-version banner (blue) so terminal errors stay
-            // closer to the header than informational refresh prompts.
+            // Title-area banners should snap in/out. Animating this area
+            // makes the header feel unstable because the whole page is
+            // visually anchored to it.
             latestJob
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
             newerVersion
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
             navigation
         }
         .padding(.horizontal, 22)

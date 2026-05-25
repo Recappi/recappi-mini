@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 
 @MainActor
@@ -43,6 +44,31 @@ extension CloudLibraryStore {
         await processSelectedRecording(.transcriptAndSummary)
     }
 
+    func importAudioFileAndTranscribe(_ sourceURL: URL) async {
+        guard activeRecordingProcessingAction == nil else { return }
+        do {
+            let prepared = try await prepareImportedAudioSession(from: sourceURL)
+            guard let placeholder = SessionProcessor.localRecordingPlaceholder(
+                sessionDir: prepared.sessionURL,
+                duration: prepared.duration,
+                status: .uploading
+            ) else {
+                throw SessionProcessorError.recordingAudioMissing
+            }
+
+            localSessionURLsByRecordingID[placeholder.id] = prepared.sessionURL
+            upsertLocalProcessingRecording(placeholder)
+            select(placeholder)
+            await processLocalOnlySelectedRecording(placeholder, .transcriptAndSummary)
+        } catch {
+            DiagnosticsLog.error(
+                "cloud",
+                "audio_import.failed file=\(sourceURL.lastPathComponent) \(DiagnosticsLog.errorSummary(error))"
+            )
+            transcriptErrorMessage = transcriptMessage(for: error)
+        }
+    }
+
     func startTranscriptionForSelectedRecording(_ action: CloudRecordingProcessingAction) async {
         guard let recording = selectedRecording else { return }
         guard activeRecordingProcessingAction == nil else { return }
@@ -59,6 +85,7 @@ extension CloudLibraryStore {
 
         isRetranscribing = true
         activeRecordingProcessingAction = action
+        setProcessingPhase(.startingTranscription, for: recording.id)
         transcriptErrorMessage = nil
         locallyManagedRecordingUpdatedAt[recording.id] = Date()
         hasNewerVersionForSelection = false
@@ -66,6 +93,7 @@ extension CloudLibraryStore {
         defer {
             isRetranscribing = false
             activeRecordingProcessingAction = nil
+            setProcessingPhase(nil, for: recording.id)
         }
 
         do {
@@ -112,6 +140,8 @@ extension CloudLibraryStore {
 
         isRetranscribing = true
         activeRecordingProcessingAction = action
+        var visibleProcessingID = recording.id
+        setProcessingPhase(.creatingRecording, for: visibleProcessingID)
         transcriptErrorMessage = nil
         locallyManagedRecordingUpdatedAt[recording.id] = Date()
         hasNewerVersionForSelection = false
@@ -119,6 +149,10 @@ extension CloudLibraryStore {
         defer {
             isRetranscribing = false
             activeRecordingProcessingAction = nil
+            setProcessingPhase(nil, for: visibleProcessingID)
+            if visibleProcessingID != recording.id {
+                setProcessingPhase(nil, for: recording.id)
+            }
         }
 
         let duration = localProcessingDurationSeconds(for: recording)
@@ -136,15 +170,28 @@ extension CloudLibraryStore {
                 duration: duration,
                 startsTranscription: true,
                 updatePhase: { phase in
+                    self.setProcessingPhase(phase, for: visibleProcessingID)
                     DiagnosticsLog.event(
                         "cloud",
                         "local_processing.phase recordingID=\(recording.id) phase=\(phase.title)"
                     )
                 },
                 onCloudRecordingUpdated: { [weak self] updatedRecording, latestJob in
-                    self?.upsertLocalProcessingRecording(updatedRecording, latestJob: latestJob)
+                    guard let self else { return }
+                    let previousID = visibleProcessingID
+                    visibleProcessingID = updatedRecording.id
+                    self.upsertLocalProcessingRecording(
+                        updatedRecording,
+                        latestJob: latestJob,
+                        replacing: recording.id
+                    )
+                    if previousID != visibleProcessingID,
+                       let phase = self.processingPhasesByRecordingID.removeValue(forKey: previousID) {
+                        self.processingPhasesByRecordingID[visibleProcessingID] = phase
+                    }
                 },
                 onCloudRecordingDeleted: { [weak self] recordingID in
+                    guard recordingID != recording.id else { return }
                     self?.removeLocalProcessingRecording(id: recordingID)
                 }
             )
@@ -155,6 +202,11 @@ extension CloudLibraryStore {
                !remoteID.isEmpty,
                let remoteRecording = recordings.first(where: { $0.id == remoteID }) {
                 select(remoteRecording)
+                transcriptCache.removeValue(forKey: remoteID)
+                transcriptCacheRecordingUpdatedAt.removeValue(forKey: remoteID)
+                summaryRefreshAttemptedRecordingIDs.remove(remoteID)
+                await loadTranscriptForSelection()
+                await loadJobHistoryForSelection()
             }
             await persistCacheSnapshot()
         } catch let error as RecappiAPIError where error == .unauthorized {
@@ -165,6 +217,7 @@ extension CloudLibraryStore {
                 "local_processing.failed recordingID=\(recording.id) action=\(action.rawValue) \(DiagnosticsLog.errorSummary(error))"
             )
             let message = transcriptMessage(for: error)
+            setProcessingPhase(nil, for: visibleProcessingID)
             if let placeholder = SessionProcessor.localFailedRecordingPlaceholder(
                 sessionDir: sessionURL,
                 duration: duration,
@@ -185,6 +238,53 @@ extension CloudLibraryStore {
     private func localProcessingDurationSeconds(for recording: CloudRecording) -> Int {
         guard let durationMs = recording.durationMs, durationMs > 0 else { return 0 }
         return Int((Double(durationMs) / 1_000).rounded(.up))
+    }
+
+    private func prepareImportedAudioSession(from sourceURL: URL) async throws -> (sessionURL: URL, duration: Int) {
+        let fileExtension = sourceURL.pathExtension.lowercased()
+        guard !fileExtension.isEmpty,
+              SessionProcessor.cloudUploadContentType(for: sourceURL) != nil else {
+            throw SessionProcessorError.unsupportedAudioFile(fileExtension.isEmpty ? "audio" : fileExtension)
+        }
+
+        let didAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let sessionURL = try RecordingStore.createSessionDirectory()
+        let destination = sessionURL.appendingPathComponent("recording.\(fileExtension)")
+        try FileManager.default.copyItem(at: sourceURL, to: destination)
+
+        let title = sourceURL.deletingPathExtension().lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        RecordingStore.saveSessionMetadata(
+            .capture(
+                sourceTitle: title.isEmpty ? "Imported audio" : title,
+                sourceAppName: "Imported Audio",
+                sourceBundleID: nil,
+                sceneTemplate: config.recordingSceneTemplate,
+                extraPrompt: config.recordingExtraPrompt,
+                includesMicrophoneAudio: false
+            ),
+            in: sessionURL
+        )
+
+        var manifest = RemoteSessionManifest.stage("imported")
+        manifest.uploadFilename = destination.lastPathComponent
+        RecordingStore.saveRemoteManifest(manifest, in: sessionURL)
+
+        return (sessionURL, try await importedAudioDurationSeconds(for: destination))
+    }
+
+    private func importedAudioDurationSeconds(for fileURL: URL) async throws -> Int {
+        let asset = AVURLAsset(url: fileURL)
+        let duration = try await asset.load(.duration)
+        let seconds = duration.seconds
+        guard seconds.isFinite, seconds > 0 else { return 0 }
+        return Int(seconds.rounded(.up))
     }
 
     var retranscriptionLimitMessage: String? {

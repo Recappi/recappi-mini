@@ -93,6 +93,7 @@ extension CloudCenterPanel {
                 isDeleting: store.isDeleting,
                 isSyncingToLocal: store.isSyncingToLocal,
                 processingAction: store.activeRecordingProcessingAction,
+                processingPhase: store.selectedProcessingPhase,
                 hasDownloadedAudio: store.lastDownloadedAudioURL != nil,
                 hasNewerVersion: store.hasNewerVersionForSelection,
                 onLoadTranscript: { Task { await store.loadTranscriptForSelection() } },

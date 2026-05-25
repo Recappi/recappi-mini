@@ -36,6 +36,7 @@ final class CloudLibraryStore: ObservableObject {
     @Published var isSyncingToLocal = false
     @Published var isRetranscribing = false
     @Published var activeRecordingProcessingAction: CloudRecordingProcessingAction?
+    @Published var processingPhasesByRecordingID: [String: ProcessingPhase] = [:]
     @Published var lastDownloadedAudioURL: URL?
     @Published var transcriptErrorMessage: String?
     @Published var billingStatus: BillingStatus?
@@ -121,6 +122,11 @@ final class CloudLibraryStore: ObservableObject {
 
     var selectedLatestTranscriptionJob: TranscriptionJob? {
         selectedTranscriptionJobs.first
+    }
+
+    var selectedProcessingPhase: ProcessingPhase? {
+        guard let selectedRecordingID else { return nil }
+        return processingPhasesByRecordingID[selectedRecordingID]
     }
 
     var selectedActiveJobPollingKey: String {

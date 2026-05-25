@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Two-pane cloud library window. The big surface area is split across
 /// extension files in `Views/Cloud/`:
@@ -138,6 +139,15 @@ struct CloudCenterPanel: View {
             }
 
             Button {
+                presentAudioUploadPanel()
+            } label: {
+                Label("Upload Audio", systemImage: "plus")
+            }
+            .disabled(store.activeRecordingProcessingAction != nil || sessionStore.isAuthBusy)
+            .help("Upload an audio file and start transcription")
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.uploadAudioButton)
+
+            Button {
                 Task { await store.refresh() }
             } label: {
                 if store.isRefreshing {
@@ -150,6 +160,21 @@ struct CloudCenterPanel: View {
             .disabled(store.isRefreshing || sessionStore.isAuthBusy)
             .help("Refresh cloud recordings")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.refreshButton)
+        }
+    }
+
+    func presentAudioUploadPanel() {
+        let panel = NSOpenPanel()
+        panel.title = "Upload Audio"
+        panel.prompt = "Upload"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.audio]
+        guard panel.runModal() == .OK,
+              let url = panel.url else { return }
+        Task {
+            await store.importAudioFileAndTranscribe(url)
         }
     }
 

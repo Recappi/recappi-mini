@@ -27,8 +27,16 @@ extension CloudLibraryStore {
         scheduleSelectedDetailRefresh()
     }
 
-    func upsertLocalProcessingRecording(_ recording: CloudRecording, latestJob: TranscriptionJob? = nil) {
+    func upsertLocalProcessingRecording(
+        _ recording: CloudRecording,
+        latestJob: TranscriptionJob? = nil,
+        replacing replacedRecordingID: String? = nil
+    ) {
         locallyManagedRecordingUpdatedAt[recording.id] = Date()
+        if let replacedRecordingID,
+           replacedRecordingID != recording.id {
+            replaceLocalProcessingReferences(from: replacedRecordingID, to: recording.id)
+        }
         replaceRecording(recording)
         recordings.sort { lhs, rhs in
             (lhs.createdAt ?? .distantPast) > (rhs.createdAt ?? .distantPast)
@@ -52,6 +60,7 @@ extension CloudLibraryStore {
         transcriptCacheRecordingUpdatedAt.removeValue(forKey: recordingID)
         transcriptionJobsByRecordingID.removeValue(forKey: recordingID)
         speakerOverridesByRecordingID.removeValue(forKey: recordingID)
+        processingPhasesByRecordingID.removeValue(forKey: recordingID)
         recordingIDsWithNewerVersions.remove(recordingID)
         locallyManagedRecordingUpdatedAt.removeValue(forKey: recordingID)
         playbackAudioURLsByRecordingID.removeValue(forKey: recordingID)
@@ -62,6 +71,56 @@ extension CloudLibraryStore {
         }
         state = recordings.isEmpty ? .empty : .loaded
         scheduleCachePersist()
+    }
+
+    func setProcessingPhase(_ phase: ProcessingPhase?, for recordingID: String) {
+        if let phase {
+            processingPhasesByRecordingID[recordingID] = phase
+        } else {
+            processingPhasesByRecordingID.removeValue(forKey: recordingID)
+        }
+    }
+
+    private func replaceLocalProcessingReferences(from oldID: String, to newID: String) {
+        if let index = recordings.firstIndex(where: { $0.id == oldID }) {
+            recordings.remove(at: index)
+        }
+        if let phase = processingPhasesByRecordingID.removeValue(forKey: oldID) {
+            processingPhasesByRecordingID[newID] = phase
+        }
+        if let jobs = transcriptionJobsByRecordingID.removeValue(forKey: oldID),
+           transcriptionJobsByRecordingID[newID] == nil {
+            transcriptionJobsByRecordingID[newID] = jobs
+        }
+        if let transcript = transcriptCache.removeValue(forKey: oldID),
+           transcriptCache[newID] == nil {
+            transcriptCache[newID] = transcript
+        }
+        if let updatedAt = transcriptCacheRecordingUpdatedAt.removeValue(forKey: oldID),
+           transcriptCacheRecordingUpdatedAt[newID] == nil {
+            transcriptCacheRecordingUpdatedAt[newID] = updatedAt
+        }
+        if let overrides = speakerOverridesByRecordingID.removeValue(forKey: oldID),
+           speakerOverridesByRecordingID[newID] == nil {
+            speakerOverridesByRecordingID[newID] = overrides
+        }
+        if let localURL = localSessionURLsByRecordingID.removeValue(forKey: oldID) {
+            localSessionURLsByRecordingID[newID] = localURL
+        }
+        if let audioURL = playbackAudioURLsByRecordingID.removeValue(forKey: oldID),
+           playbackAudioURLsByRecordingID[newID] == nil {
+            playbackAudioURLsByRecordingID[newID] = audioURL
+        }
+        if recordingIDsWithNewerVersions.remove(oldID) != nil {
+            recordingIDsWithNewerVersions.insert(newID)
+        }
+        if let updatedAt = locallyManagedRecordingUpdatedAt.removeValue(forKey: oldID) {
+            locallyManagedRecordingUpdatedAt[newID] = updatedAt
+        }
+        summaryRefreshAttemptedRecordingIDs.remove(oldID)
+        if selectedRecordingID == oldID {
+            selectedRecordingID = newID
+        }
     }
 
     func updateSpeakerOverrides(
