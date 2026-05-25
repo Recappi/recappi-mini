@@ -377,9 +377,7 @@ private struct DiagnosticTelemetry {
         switch (category, operation) {
         case ("network", "request.failed"),
              ("processing", "upload.failed"),
-             ("processing", "process.failed"),
-             ("cloud", "local_processing.failed"),
-             ("cloud", "transcription.start.failed"):
+             ("processing", "process.failed"):
             return true
         default:
             return false

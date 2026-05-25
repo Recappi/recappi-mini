@@ -164,6 +164,7 @@ extension CloudLibraryStore {
                 "cloud",
                 "local_processing.failed recordingID=\(recording.id) action=\(action.rawValue) \(DiagnosticsLog.errorSummary(error))"
             )
+            let message = transcriptMessage(for: error)
             if let placeholder = SessionProcessor.localFailedRecordingPlaceholder(
                 sessionDir: sessionURL,
                 duration: duration,
@@ -171,10 +172,13 @@ extension CloudLibraryStore {
             ) {
                 upsertLocalProcessingRecording(
                     placeholder,
-                    latestJob: TranscriptionJob.failedRecordingPlaceholder(recordingID: placeholder.id)
+                    latestJob: TranscriptionJob.failedRecordingPlaceholder(
+                        recordingID: placeholder.id,
+                        error: message
+                    )
                 )
             }
-            transcriptErrorMessage = transcriptMessage(for: error)
+            transcriptErrorMessage = message
         }
     }
 

@@ -54,7 +54,10 @@ struct RecordingJobsResponse: Decodable, Equatable, Sendable {
 }
 
 struct TranscriptionJob: Codable, Equatable, Sendable {
-    static func failedRecordingPlaceholder(recordingID: String) -> TranscriptionJob {
+    static func failedRecordingPlaceholder(
+        recordingID: String,
+        error: String = "Recording processing failed before a transcription job became available."
+    ) -> TranscriptionJob {
         TranscriptionJob(
             id: "recording-\(recordingID)-failed",
             status: .failed,
@@ -63,7 +66,7 @@ struct TranscriptionJob: Codable, Equatable, Sendable {
             model: "Recording processing",
             language: nil,
             prompt: nil,
-            error: "Recording processing failed before a transcription job became available.",
+            error: error,
             attempts: nil,
             enqueuedAt: nil,
             startedAt: nil,
@@ -91,4 +94,3 @@ struct TranscriptionJob: Codable, Equatable, Sendable {
             id.hasSuffix("-failed")
     }
 }
-

@@ -571,6 +571,17 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertNotNil(job.error)
     }
 
+    func testFailedRecordingPlaceholderJobCanShowUserFacingError() {
+        let job = TranscriptionJob.failedRecordingPlaceholder(
+            recordingID: "local-2026-05-25_100318",
+            error: "订阅状态正在刷新，请几秒后重试。"
+        )
+
+        XCTAssertEqual(job.status, .failed)
+        XCTAssertTrue(job.isFailedRecordingPlaceholder)
+        XCTAssertEqual(job.error, "订阅状态正在刷新，请几秒后重试。")
+    }
+
     func testCloudLibraryLatestTranscriptRequestDoesNotUseActiveTranscriptIdAsJobId() throws {
         let client = RecappiAPIClient(origin: "https://recordmeet.ing", bearerToken: "token_123")
         let request = try client.makeRequest(path: "/api/recordings/rec_123/transcript")

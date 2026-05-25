@@ -260,9 +260,13 @@ struct RecordingPanel: View {
                 duration: duration,
                 error: error
             ) {
+                let message = NetworkErrorPresenter.userFacingMessage(for: error)
                 onCloudRecordingUpdated(
                     placeholder,
-                    TranscriptionJob.failedRecordingPlaceholder(recordingID: placeholder.id)
+                    TranscriptionJob.failedRecordingPlaceholder(
+                        recordingID: placeholder.id,
+                        error: message
+                    )
                 )
             }
             if visibleProcessingSessionID == sessionID {
