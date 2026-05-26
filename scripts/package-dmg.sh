@@ -34,6 +34,6 @@ hdiutil create \
     "$DMG_PATH"
 
 if [ -n "$SIGNING_IDENTITY" ]; then
-    codesign --force --sign "$SIGNING_IDENTITY" "$DMG_PATH"
+    codesign --force --timestamp --sign "$SIGNING_IDENTITY" "$DMG_PATH"
     codesign --verify --verbose=2 "$DMG_PATH"
 fi
