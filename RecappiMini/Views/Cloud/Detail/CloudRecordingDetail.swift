@@ -20,6 +20,7 @@ struct CloudRecordingDetail: View {
     @State private var pinnedSegmentID: String?
     @State private var pendingPinnedSegmentIDAfterPrepare: String?
     @State private var isShowingRecordingInfo = false
+    @State private var isShowingProcessingStatusDetail = false
     @State private var pendingScrollTarget: CloudDetailSection?
     @State private var activeDetailSection: CloudDetailSection = .summary
     @State private var suppressOffsetDrivenSectionUpdates = false
@@ -115,12 +116,26 @@ struct CloudRecordingDetail: View {
             transcriptVersionCache.removeAll()
             transcriptVersionLoadingJobID = nil
             transcriptVersionErrorMessage = nil
+            isShowingRecordingInfo = false
+            isShowingProcessingStatusDetail = false
+            isShowingRetranscribeContext = false
+            isShowingTranscriptVersions = false
             activeDetailSection = .summary
+            pendingScrollTarget = nil
             refreshPlayerMetadataIfNeeded()
             cloudSearchQuery = ""
             selectedSearchSpeakerRawName = nil
             renamingSpeakerRawName = nil
+            renamingSpeakerAnchorID = nil
+            speakerRenameDraft = ""
+            speakerNoteDraft = ""
+            speakerEmojiDraft = ""
             summarySourcePopoverKey = nil
+        }
+        .onChange(of: hasActualDetailContent) { _, hasContent in
+            guard !hasContent else { return }
+            activeDetailSection = .summary
+            pendingScrollTarget = nil
         }
     }
 
@@ -191,6 +206,9 @@ struct CloudRecordingDetail: View {
                 } transcriptCard: {
                     transcriptCard
                 }
+                // Reset the scrollable reader when switching recordings, while
+                // keeping the window toolbar hosted by the stable detail view.
+                .id(recording.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .transition(.opacity)
                 .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -269,8 +287,29 @@ struct CloudRecordingDetail: View {
             || shouldShowStandaloneActionItems
     }
 
+    private var hasActualSummaryContent: Bool {
+        structuredSummaryInsights != nil
+            || summaryInsightText != nil
+            || shouldShowStandaloneActionItems
+    }
+
+    private var hasActualTimelineContent: Bool {
+        !timelineEntries.isEmpty
+    }
+
+    private var hasActualTranscriptContent: Bool {
+        visibleTranscript?.displaySegmentRows.isEmpty == false
+    }
+
+    private var hasActualDetailContent: Bool {
+        hasActualSummaryContent || hasActualTimelineContent || hasActualTranscriptContent
+    }
+
     private var isSummaryNavigationAvailable: Bool {
-        hasSummarySection || visibleTranscript == nil || isVisibleTranscriptLoading
+        hasSummarySection
+            || visibleTranscript == nil
+            || isVisibleTranscriptLoading
+            || shouldShowTranscriptGenerationEmptyState
     }
 
     private var isTranscriptUnavailableMessage: Bool {
@@ -284,10 +323,11 @@ struct CloudRecordingDetail: View {
     private var shouldShowTranscriptGenerationEmptyState: Bool {
         guard !isViewingHistoricalVersion else { return false }
         guard !isVisibleTranscriptLoading || processingAction == .transcriptAndSummary else { return false }
-        guard visibleTranscript == nil else { return false }
+        guard visibleTranscript == nil || !hasActualDetailContent else { return false }
         return isTranscriptGenerationProcessing
             || recording.activeTranscriptId == nil
             || isTranscriptUnavailableMessage
+            || !hasActualDetailContent
     }
 
     private var shouldShowProcessingContextStrip: Bool {
@@ -309,7 +349,9 @@ struct CloudRecordingDetail: View {
         // segment transparent. macOS-style segmented picker, compact
         // height, low ornament.
         HStack(alignment: .center, spacing: 10) {
-            detailJumpBar
+            if hasActualDetailContent {
+                detailJumpBar
+            }
 
             Spacer(minLength: 0)
 
@@ -320,10 +362,130 @@ struct CloudRecordingDetail: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                CloudStatusChip(status: recording.status, latestJobStatus: latestJob?.status, prominent: true)
+                headerStatusLabel
             }
             .fixedSize(horizontal: true, vertical: false)
         }
+    }
+
+    @ViewBuilder
+    private var headerStatusLabel: some View {
+        if shouldShowProcessingStatusDetailLabel {
+            Button {
+                isShowingProcessingStatusDetail.toggle()
+            } label: {
+                HStack(spacing: 5) {
+                    Text(processingStatusLabelTitle)
+                        .font(.system(size: 11, weight: .medium))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 7.5, weight: .bold))
+                        .foregroundStyle(processingStatusColor.opacity(0.82))
+                }
+                .foregroundStyle(processingStatusColor)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, CloudStatusChip.prominentHorizontalInset)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(processingStatusColor.opacity(0.13))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .strokeBorder(processingStatusColor.opacity(0.22), lineWidth: 0.5)
+                )
+                .contentShape(Capsule(style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $isShowingProcessingStatusDetail, arrowEdge: .bottom) {
+                processingStatusDetailPopover
+            }
+            .help("Show processing details")
+        } else {
+            CloudStatusChip(status: recording.status, latestJobStatus: latestJob?.status, prominent: true)
+        }
+    }
+
+    private var shouldShowProcessingStatusDetailLabel: Bool {
+        processingPhase != nil
+            || processingAction == .transcriptAndSummary
+            || latestJob?.status.isActive == true
+    }
+
+    private var processingStatusLabelTitle: String {
+        if let processingPhase {
+            return processingPhase.title.replacingOccurrences(of: "…", with: "")
+        }
+        if let status = latestJob?.status, status.isActive {
+            return status.displayName
+        }
+        return "Processing"
+    }
+
+    private var processingStatusColor: Color {
+        if let status = latestJob?.status, status.isActive {
+            return status.detailColor
+        }
+        return DT.statusUploading
+    }
+
+    private var processingStatusDetailTitle: String {
+        if let processingPhase {
+            return processingPhase.title
+        }
+        if let status = latestJob?.status, status.isActive {
+            return "Transcription \(status.displayName.lowercased())"
+        }
+        return "Processing…"
+    }
+
+    private var processingStatusDetailText: String {
+        if let processingPhase {
+            return processingPhase.detail
+        }
+        if processingAction == .transcriptAndSummary {
+            return "Recappi is uploading or starting cloud processing. Transcript and summary will appear here when it finishes."
+        }
+        if let latestJob, latestJob.status.isActive {
+            return latestJob.providerModelText
+        }
+        return "Transcript and summary will appear here when processing finishes."
+    }
+
+    private var processingStatusDetailPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 8) {
+                Image(systemName: latestJob?.status.detailIconName ?? "hourglass")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(processingStatusColor)
+                    .frame(width: 18, height: 18)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(processingStatusDetailTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                    Text(processingStatusDetailText)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Color.dtLabelSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if shouldShowProcessingRail {
+                processingProgressRail
+                    .padding(.top, 2)
+            }
+
+            if let latestJob {
+                VStack(alignment: .leading, spacing: 6) {
+                    recordingInfoRow("Status", latestJob.status.displayName, systemImage: "clock")
+                    recordingInfoRow("Model", latestJob.providerModelText, systemImage: "cpu")
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(14)
+        .frame(width: 310, alignment: .leading)
     }
 
     private var searchNavigationRow: some View {
@@ -898,24 +1060,11 @@ struct CloudRecordingDetail: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         } else if let summaryStatusMessage {
-            transcriptInsightCard(
-                title: "Summary",
-                systemImage: summaryStatusIconName,
-                accessibilityID: AccessibilityIDs.Cloud.summaryText
-            ) {
-                Text(summaryStatusMessage)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Color.dtLabelSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            summaryStatusEmptyState(message: summaryStatusMessage)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.summaryText)
         } else if shouldShowTranscriptGenerationEmptyState {
-            transcriptInsightCard(
-                title: "Summary",
-                systemImage: transcriptGenerationIconName,
-                accessibilityID: AccessibilityIDs.Cloud.summaryText
-            ) {
-                transcriptGenerationEmptyState(showsAction: true)
-            }
+            transcriptGenerationEmptyState(showsAction: true, minHeight: 430)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.summaryText)
         }
 
         if shouldShowStandaloneActionItems {
@@ -1168,51 +1317,56 @@ struct CloudRecordingDetail: View {
     /// Chapter navigation rendered between Summary and Transcript in the
     /// scroll view. This is intentionally framed as an audio jump surface,
     /// not a second thematic summary.
+    @ViewBuilder
     private var timelineSectionView: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 9) {
-                ZStack {
-                    Circle()
-                        .fill(DT.appAccent.opacity(0.14))
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(DT.appAccentSoft)
-                }
-                .frame(width: 24, height: 24)
+        if timelineEntries.isEmpty {
+            timelineEmptyState
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 9) {
+                    ZStack {
+                        Circle()
+                            .fill(DT.appAccent.opacity(0.14))
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(DT.appAccentSoft)
+                    }
+                    .frame(width: 24, height: 24)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Audio chapters")
-                        .font(CloudTypography.section)
-                        .foregroundStyle(Color.dtLabel)
-                    Text("Jump through the recording")
-                        .font(CloudTypography.caption)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Audio chapters")
+                            .font(CloudTypography.section)
+                            .foregroundStyle(Color.dtLabel)
+                        Text("Jump through the recording")
+                            .font(CloudTypography.caption)
+                            .foregroundStyle(Color.dtLabelTertiary)
+                    }
+
+                    Spacer(minLength: 0)
+                    Text("\(timelineEntries.count) chapters")
+                        .font(CloudTypography.captionMono)
                         .foregroundStyle(Color.dtLabelTertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Palette.controlFillHover)
+                        )
                 }
 
-                Spacer(minLength: 0)
-                Text("\(timelineEntries.count) chapters")
-                    .font(CloudTypography.captionMono)
-                    .foregroundStyle(Color.dtLabelTertiary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Palette.controlFillHover)
-                    )
+                timelineChaptersBody()
             }
-
-            timelineChaptersBody()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Palette.surfaceCardSubtle.opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Palette.borderHairline.opacity(0.5), lineWidth: 0.5)
+            )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Palette.surfaceCardSubtle.opacity(0.5))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Palette.borderHairline.opacity(0.5), lineWidth: 0.5)
-        )
     }
 
 
@@ -1323,34 +1477,37 @@ struct CloudRecordingDetail: View {
     }
 
     private var timelineEmptyState: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: "clock.badge.questionmark")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color.dtLabelTertiary)
-                .frame(width: 20, height: 20)
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Palette.surfaceCardSubtle)
+                    .frame(width: 44, height: 44)
 
-            VStack(alignment: .leading, spacing: 3) {
+                Image(systemName: "clock.badge.questionmark")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .frame(width: 22, height: 22)
+            }
+            .overlay(
+                Circle()
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.6)
+            )
+
+            VStack(spacing: 5) {
                 Text("No chapters available")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color.dtLabel)
                 Text("Generate a new summary for this recording to create audio chapter markers.")
-                    .font(.system(size: 11.5))
+                    .font(.system(size: 12.5))
                     .foregroundStyle(Color.dtLabelSecondary)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 440)
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Palette.surfaceCardSubtle.opacity(0.5))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Palette.borderHairline.opacity(0.5), lineWidth: 0.5)
-        )
+        .padding(.horizontal, 28)
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, minHeight: 430, alignment: .center)
     }
 
     @ViewBuilder
@@ -1635,6 +1792,58 @@ struct CloudRecordingDetail: View {
         }
     }
 
+    private var summaryStatusTitle: String {
+        switch visibleTranscript?.summaryStatus {
+        case .pending:
+            return "Summary pending"
+        case .queued:
+            return "Summary queued"
+        case .running:
+            return "Generating summary"
+        case .failed:
+            return "Summary failed"
+        case .skipped:
+            return "Summary skipped"
+        case .succeeded, .none:
+            return "Summary"
+        }
+    }
+
+    private func summaryStatusEmptyState(message: String) -> some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Palette.surfaceCardSubtle)
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: summaryStatusIconName)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color.dtLabelTertiary)
+                    .frame(width: 22, height: 22)
+            }
+            .overlay(
+                Circle()
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.6)
+            )
+
+            VStack(spacing: 5) {
+                Text(summaryStatusTitle)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
+
+                Text(message)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 440)
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, minHeight: 430, alignment: .center)
+    }
+
     private var structuredSummaryInsights: TranscriptSummaryInsights? {
         guard let insights = visibleTranscript?.summaryInsights, !insights.isEmpty else {
             return nil
@@ -1888,7 +2097,7 @@ struct CloudRecordingDetail: View {
 
     @ToolbarContentBuilder
     private var detailToolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
+        ToolbarItem(id: "cloud-recording-info", placement: .primaryAction) {
             Button {
                 isShowingRecordingInfo.toggle()
             } label: {
@@ -1899,7 +2108,9 @@ struct CloudRecordingDetail: View {
                 recordingInfoPopover
             }
             .accessibilityIdentifier(AccessibilityIDs.Cloud.recordingInfoButton)
+        }
 
+        ToolbarItem(id: "cloud-recording-actions", placement: .primaryAction) {
             recordingActionsMenu
         }
     }
@@ -2699,10 +2910,7 @@ struct CloudRecordingDetail: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptText)
             } else if shouldShowTranscriptGenerationEmptyState {
-                transcriptGenerationEmptyState(showsAction: false)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                transcriptGenerationEmptyState(showsAction: false, minHeight: 280)
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .fill(Palette.surfaceCardSubtle)
@@ -2840,31 +3048,39 @@ struct CloudRecordingDetail: View {
     }
 
     @ViewBuilder
-    private func transcriptGenerationEmptyState(showsAction: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
+    private func transcriptGenerationEmptyState(showsAction: Bool, minHeight: CGFloat) -> some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Palette.surfaceCardSubtle)
+                    .frame(width: 44, height: 44)
+
                 Image(systemName: transcriptGenerationIconName)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(Color.dtLabelTertiary)
-                    .frame(width: 18, height: 18)
+                    .frame(width: 22, height: 22)
+            }
+            .overlay(
+                Circle()
+                    .strokeBorder(Palette.borderHairline, lineWidth: 0.6)
+            )
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(transcriptGenerationTitle)
-                        .font(CloudTypography.label)
-                        .foregroundStyle(Color.dtLabel)
+            VStack(spacing: 5) {
+                Text(transcriptGenerationTitle)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.dtLabel)
 
-                    Text(transcriptGenerationDescription)
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(Color.dtLabelSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                Text(transcriptGenerationDescription)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Color.dtLabelSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 440)
+            }
 
-                    if shouldShowProcessingRail {
-                        processingProgressRail
-                            .padding(.top, 5)
-                    }
-                }
-
-                Spacer(minLength: 0)
+            if shouldShowProcessingRail {
+                processingProgressRail
+                    .padding(.top, 2)
             }
 
             if !isTranscriptGenerationProcessing, showsAction {
@@ -2881,6 +3097,9 @@ struct CloudRecordingDetail: View {
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
             }
         }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .center)
     }
 
     private var shouldShowProcessingRail: Bool {

@@ -117,13 +117,6 @@ extension CloudCenterPanel {
                     try await store.loadTranscriptVersion(recordingID: recording.id, jobID: jobID)
                 }
             )
-            // Recording details own transient reading UI state: scroll
-            // position, active jump chip, and pinned segment. Give each
-            // selected recording a distinct identity so SwiftUI does not
-            // recycle the previous detail page's scroll/focus state when the
-            // sidebar selection changes. Playback lives one level up so
-            // browsing another recording no longer tears down the audio.
-            .id(recording.id)
             .task(id: recording.id) {
                 await store.loadTranscriptForSelection()
                 await store.loadJobHistoryForSelection()

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct FloatingPanelChromeView<Content: View>: View {
     let content: Content
+    @Environment(\.colorScheme) private var colorScheme
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -11,16 +12,53 @@ struct FloatingPanelChromeView<Content: View>: View {
     var body: some View {
         content
             .background {
-                RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous)
-                    .fill(Palette.surfacePanel)
+                panelShape
+                    .fill(liquidGlassLegibilityFill)
+                    .glassEffect(.regular.tint(liquidGlassTint), in: panelShape)
+                    .overlay {
+                        panelShape
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(isDarkMode ? 0.20 : 0.30),
+                                        DT.appAccentSoft.opacity(isDarkMode ? 0.08 : 0.13),
+                                        Color.clear,
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .blendMode(.screen)
+                    }
+                    .overlay {
+                        panelShape
+                            .strokeBorder(Color.white.opacity(isDarkMode ? 0.14 : 0.32), lineWidth: 0.6)
+                    }
                     .allowsHitTesting(false)
             }
             .overlay {
-                RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous)
+                panelShape
                     .stroke(Palette.borderHairline, lineWidth: 0.5)
                     .allowsHitTesting(false)
             }
-            .clipShape(RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous))
+            .clipShape(panelShape)
+            .compositingGroup()
+    }
+
+    private var panelShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous)
+    }
+
+    private var liquidGlassLegibilityFill: Color {
+        isDarkMode ? Color.black.opacity(0.28) : Color.white.opacity(0.16)
+    }
+
+    private var liquidGlassTint: Color {
+        isDarkMode ? DT.appAccent.opacity(0.10) : DT.appAccentSoft.opacity(0.16)
+    }
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
     }
 }
 

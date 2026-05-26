@@ -121,11 +121,11 @@ struct CloudCenterPanel: View {
 
     @ToolbarContentBuilder
     var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
+        ToolbarItem(id: "cloud-search", placement: .primaryAction) {
             CloudToolbarSearchInput(text: $cloudSearchQuery)
         }
-        ToolbarItemGroup(placement: .primaryAction) {
-            if isCurrentMeetingActive {
+        if isCurrentMeetingActive {
+            ToolbarItem(id: "cloud-live-caption-toggle", placement: .primaryAction) {
                 Button {
                     appDelegate.setLiveCaptionPanelPresented(!appDelegate.isLiveCaptionPanelPresented)
                 } label: {
@@ -137,7 +137,9 @@ struct CloudCenterPanel: View {
                 .help(appDelegate.isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionToggleButton)
             }
+        }
 
+        ToolbarItem(id: "cloud-upload-audio", placement: .primaryAction) {
             Button {
                 presentAudioUploadPanel()
             } label: {
@@ -146,7 +148,9 @@ struct CloudCenterPanel: View {
             .disabled(store.activeRecordingProcessingAction != nil || sessionStore.isAuthBusy)
             .help("Upload an audio file and start transcription")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.uploadAudioButton)
+        }
 
+        ToolbarItem(id: "cloud-refresh", placement: .primaryAction) {
             Button {
                 Task { await store.refresh() }
             } label: {

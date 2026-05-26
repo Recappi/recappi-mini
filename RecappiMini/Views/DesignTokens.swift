@@ -211,9 +211,24 @@ struct PrimaryRecordButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(hovered ? DT.systemRedLight : DT.systemRed)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                hovered ? DT.systemRedLight : Color.white.opacity(0.26),
+                                hovered ? DT.systemRed : DT.recordingDestructiveRed,
+                                DT.systemRedDeep,
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .overlay(
-                        Circle().stroke(Color.black.opacity(0.18), lineWidth: 0.5)
+                        Circle().stroke(Color.white.opacity(0.26), lineWidth: 0.6)
+                    )
+                    .shadow(
+                        color: DT.recordingDestructiveRed.opacity(hovered ? 0.42 : 0.30),
+                        radius: hovered ? 7 : 5,
+                        y: 2
                     )
 
                 switch kind {

@@ -1,6 +1,14 @@
 import SwiftUI
 
 struct DoneState: View {
+    private enum Metrics {
+        static let iconSize: CGFloat = 16
+        static let iconGap: CGFloat = 7
+        static let actionHeight: CGFloat = 22
+        static let leadingActionInset = iconSize + iconGap
+        static let trailingColumnWidth: CGFloat = 58
+    }
+
     let result: RecordingResult
     var canTranscribe: Bool = false
     var onTranscribe: () -> Void = {}
@@ -10,11 +18,11 @@ struct DoneState: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
+            HStack(spacing: Metrics.iconGap) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(DT.statusReady)
-                    .frame(width: 16, height: 16)
+                    .frame(width: Metrics.iconSize, height: Metrics.iconSize)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Meeting saved")
@@ -32,9 +40,13 @@ struct DoneState: View {
                     .font(.system(size: 11, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(Color.dtLabelSecondary)
+                    .frame(width: Metrics.trailingColumnWidth, alignment: .trailing)
             }
 
             HStack(spacing: 8) {
+                Color.clear
+                    .frame(width: Metrics.leadingActionInset, height: Metrics.actionHeight)
+
                 primaryActionChip
 
                 if hasTranscript {
@@ -43,7 +55,7 @@ struct DoneState: View {
 
                 Spacer(minLength: 0)
 
-                quietLink(title: "Dismiss", action: onNew)
+                trailingQuietLink(title: "Dismiss", action: onNew)
             }
         }
     }
@@ -64,7 +76,7 @@ struct DoneState: View {
             }
             .foregroundStyle(DT.statusReady)
             .padding(.horizontal, 10)
-            .frame(height: 22)
+            .frame(height: Metrics.actionHeight)
             .background(
                 Capsule(style: .continuous)
                     .fill(DT.statusReady.opacity(0.12))
@@ -82,7 +94,18 @@ struct DoneState: View {
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(Color.dtLabelSecondary)
                 .padding(.horizontal, 4)
-                .frame(height: 22)
+                .frame(height: Metrics.actionHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func trailingQuietLink(title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(Color.dtLabelSecondary)
+                .frame(width: Metrics.trailingColumnWidth, height: Metrics.actionHeight, alignment: .trailing)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

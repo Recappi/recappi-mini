@@ -19,6 +19,7 @@ struct RecordingState: View {
 
     @ObservedObject var recorder: AudioRecorder
     @ObservedObject private var appDelegate = AppDelegate.shared
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("recappi.panel.recordingWaveformMode") private var waveformModeRaw = WaveformMode.spectrum.rawValue
     @State private var isConfirmingDiscard = false
     var onDiscard: () -> Void
@@ -147,11 +148,26 @@ struct RecordingState: View {
             recorder.setIncludesMicrophoneAudio(!recorder.includesMicrophoneAudio)
         } label: {
             ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                    .fill(Palette.surfaceChip.opacity(0.72))
+                controlShape
+                    .fill(recordingGlassControlFill)
+                    .glassEffect(.regular.tint(recordingGlassControlTint), in: controlShape)
                     .overlay(
-                        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
-                            .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
+                        controlShape
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(isDarkMode ? 0.10 : 0.22),
+                                        Color.clear,
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .blendMode(.screen)
+                    )
+                    .overlay(
+                        controlShape
+                            .strokeBorder(Color.white.opacity(isDarkMode ? 0.12 : 0.28), lineWidth: 0.5)
                     )
                     .frame(width: 28, height: 28)
 
@@ -183,6 +199,22 @@ struct RecordingState: View {
         .buttonStyle(.plain)
         .help(recorder.includesMicrophoneAudio ? "Microphone on (click to mute)" : "Microphone muted (click to unmute)")
         .accessibilityIdentifier(AccessibilityIDs.Panel.microphoneIncludeButton)
+    }
+
+    private var controlShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
+    }
+
+    private var recordingGlassControlFill: Color {
+        isDarkMode ? Color.black.opacity(0.16) : Color.white.opacity(0.15)
+    }
+
+    private var recordingGlassControlTint: Color {
+        isDarkMode ? DT.appAccent.opacity(0.12) : DT.appAccentSoft.opacity(0.16)
+    }
+
+    private var isDarkMode: Bool {
+        colorScheme == .dark
     }
 
     @ViewBuilder
