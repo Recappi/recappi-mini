@@ -14,14 +14,14 @@ struct FloatingPanelChromeView<Content: View>: View {
             .background {
                 panelShape
                     .fill(liquidGlassLegibilityFill)
-                    .glassEffect(.regular.tint(liquidGlassTint), in: panelShape)
+                    .glassEffect(in: panelShape)
                     .overlay {
                         panelShape
                             .fill(
                                 LinearGradient(
                                     colors: [
                                         Color.white.opacity(isDarkMode ? 0.20 : 0.30),
-                                        DT.appAccentSoft.opacity(isDarkMode ? 0.08 : 0.13),
+                                        Color.white.opacity(isDarkMode ? 0.05 : 0.10),
                                         Color.clear,
                                     ],
                                     startPoint: .topLeading,
@@ -53,10 +53,6 @@ struct FloatingPanelChromeView<Content: View>: View {
         isDarkMode ? Color.black.opacity(0.28) : Color.white.opacity(0.16)
     }
 
-    private var liquidGlassTint: Color {
-        isDarkMode ? DT.appAccent.opacity(0.10) : DT.appAccentSoft.opacity(0.16)
-    }
-
     private var isDarkMode: Bool {
         colorScheme == .dark
     }
@@ -80,9 +76,10 @@ final class FloatingPanel: NSPanel {
         level = .floating
         isOpaque = false
         backgroundColor = .clear
-        // SwiftUI owns the rounded chrome and drop shadow. The transparent
-        // shadow margin is made click-through by the mouse-location monitor
-        // below, so only the visible pill receives events.
+        // SwiftUI owns the rounded chrome; PillShellView owns the shadow in
+        // outer AppKit space so it cannot be clipped by the hosting view.
+        // The transparent shadow margin is made click-through by the mouse
+        // monitor below, so only the visible pill receives events.
         hasShadow = false
         isMovableByWindowBackground = true
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
@@ -163,12 +160,12 @@ final class FloatingPanelHostingView<Root: View>: NSHostingView<Root> {
 
 /// Sizing bridge between SwiftUI's intrinsic content size and the transparent
 /// NSPanel window. Chrome and motion are SwiftUI-owned; this view keeps a real
-/// AppKit safety margin around the hosted SwiftUI pill so shadows never touch
-/// the window edge.
+/// AppKit safety margin around the hosted SwiftUI pill and draws the outer
+/// panel shadow from the shell so it never touches the window edge.
 final class PillShellView: NSView {
-    /// Transparent window-space around the visible pill so SwiftUI shadows
-    /// are not clipped by the NSPanel bounds.
-    nonisolated static let shadowMargin: CGFloat = 24
+    /// Transparent window-space around the visible pill so the AppKit shadow
+    /// is not clipped by the NSPanel bounds.
+    nonisolated static let shadowMargin: CGFloat = 44
     nonisolated static let cornerRadius: CGFloat = 14
 
     private(set) var contentView: NSView?
@@ -180,10 +177,7 @@ final class PillShellView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.masksToBounds = false
-        layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = 0.45
-        layer?.shadowRadius = 8
-        layer?.shadowOffset = CGSize(width: 0, height: -4)
+        updateShadowStyle()
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }
@@ -221,6 +215,17 @@ final class PillShellView: NSView {
     override func layout() {
         super.layout()
         updateShadowPath()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateShadowStyle()
+        updateShadowPath()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateShadowStyle()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -274,6 +279,14 @@ final class PillShellView: NSView {
             cornerHeight: Self.cornerRadius,
             transform: nil
         )
+    }
+
+    private func updateShadowStyle() {
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = isDark ? 0.38 : 0.20
+        layer?.shadowRadius = isDark ? 18 : 16
+        layer?.shadowOffset = CGSize(width: 0, height: -8)
     }
 
     nonisolated static func visiblePillRect(in bounds: NSRect) -> NSRect {

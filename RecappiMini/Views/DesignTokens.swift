@@ -226,9 +226,9 @@ struct PrimaryRecordButton: View {
                         Circle().stroke(Color.white.opacity(0.26), lineWidth: 0.6)
                     )
                     .shadow(
-                        color: DT.recordingDestructiveRed.opacity(hovered ? 0.42 : 0.30),
-                        radius: hovered ? 7 : 5,
-                        y: 2
+                        color: Color.black.opacity(hovered ? 0.22 : 0.16),
+                        radius: hovered ? 3 : 2,
+                        y: 1
                     )
 
                 switch kind {

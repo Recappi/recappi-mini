@@ -184,7 +184,6 @@ struct RecordingOptionsButton: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Palette.borderSubtle, lineWidth: 0.5)
         )
-        .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AccessibilityIDs.Panel.recordingOptionsPopover)
         .onAppear {
