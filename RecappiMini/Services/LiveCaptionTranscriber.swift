@@ -184,7 +184,7 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
 
             if let error {
                 let nsError = error as NSError
-                if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 216 {
+                if Self.isExpectedRecognitionCancellation(nsError) {
                     return
                 }
                 DiagnosticsLog.error(
@@ -345,7 +345,7 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
 
             if let error {
                 let nsError = error as NSError
-                if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 216 {
+                if Self.isExpectedRecognitionCancellation(nsError) {
                     return
                 }
                 DiagnosticsLog.error(
@@ -358,6 +358,17 @@ final class LiveCaptionTranscriber: NSObject, @unchecked Sendable {
                 ))
             }
         }
+    }
+
+    private static func isExpectedRecognitionCancellation(_ error: NSError) -> Bool {
+        if error.domain == "kAFAssistantErrorDomain", error.code == 216 {
+            return true
+        }
+
+        // Rotating or stopping an SFSpeech recognition request produces this
+        // local-speech cancellation. It is expected control flow, not a
+        // user-visible caption failure.
+        return error.domain == "kLSRErrorDomain" && error.code == 301
     }
 
     private func trimEntriesLocked() {

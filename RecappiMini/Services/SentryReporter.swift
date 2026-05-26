@@ -143,6 +143,8 @@ enum SentryReporter {
             "cloudCaptions",
             "code",
             "contentType",
+            "cause",
+            "closeCode",
             "deviceHash",
             "diskFreeMb",
             "dir",
@@ -150,6 +152,7 @@ enum SentryReporter {
             "durationMs",
             "elapsedSeconds",
             "file",
+            "generation",
             "includeMic",
             "job",
             "jobID",
@@ -171,7 +174,9 @@ enum SentryReporter {
             "recordingID",
             "screenCapture",
             "selectedBundle",
+            "sessionId",
             "section",
+            "sinceOpenMs",
             "size",
             "stage",
             "status",
@@ -348,6 +353,9 @@ private struct DiagnosticTelemetry {
         if isExpectedRealtimeClaimRateLimit {
             return false
         }
+        if isExpectedLocalSpeechCancellation {
+            return false
+        }
         return true
     }
 
@@ -402,6 +410,13 @@ private struct DiagnosticTelemetry {
         default:
             return false
         }
+    }
+
+    private var isExpectedLocalSpeechCancellation: Bool {
+        category == "live-caption"
+            && operation == "local_speech.recognition.failed"
+            && fields["domain"] == "kLSRErrorDomain"
+            && fields["code"] == "301"
     }
 
     var searchableTags: [String: String] {

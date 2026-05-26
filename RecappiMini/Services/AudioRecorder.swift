@@ -717,7 +717,9 @@ final class AudioRecorder: NSObject, ObservableObject {
                     output: sysOut,
                     captureQueue: systemCaptureQueue
                 )
-                try tapCapture.start()
+                try await Task.detached(priority: .userInitiated) {
+                    try tapCapture.start()
+                }.value
                 self.coreAudioTapCapture = tapCapture
                 recordingAppName = selectedApp?.name
                 DiagnosticsLog.event("recording", "system_audio.backend core_audio_process_tap")

@@ -21,7 +21,7 @@ final class SentryReporterTests: XCTestCase {
 
     func testTelemetryFieldsKeepSafeDiagnosticsOnly() {
         let fields = SentryReporter.safeTelemetryFields(
-            from: "process.failed dir=2026-05-21_120000 recording=rec_123 file=recording.m4a domain=NSURLErrorDomain code=-1001 prompt='raw prompt' text='hello' summary='private' systemBuffers=42 systemLastAgo=0.04s"
+            from: "process.failed dir=2026-05-21_120000 recording=rec_123 file=recording.m4a domain=NSURLErrorDomain code=-1001 sessionId=session_123 generation=42 sinceOpenMs=825 cause=receive.throw closeCode=0 prompt='raw prompt' text='hello' summary='private' systemBuffers=42 systemLastAgo=0.04s"
         )
 
         XCTAssertEqual(fields["dir"], "2026-05-21_120000")
@@ -29,6 +29,11 @@ final class SentryReporterTests: XCTestCase {
         XCTAssertEqual(fields["file"], "recording.m4a")
         XCTAssertEqual(fields["domain"], "NSURLErrorDomain")
         XCTAssertEqual(fields["code"], "-1001")
+        XCTAssertEqual(fields["sessionId"], "session_123")
+        XCTAssertEqual(fields["generation"], "42")
+        XCTAssertEqual(fields["sinceOpenMs"], "825")
+        XCTAssertEqual(fields["cause"], "receive.throw")
+        XCTAssertEqual(fields["closeCode"], "0")
         XCTAssertEqual(fields["systemBuffers"], "42")
         XCTAssertEqual(fields["systemLastAgo"], "0.04s")
         XCTAssertNil(fields["prompt"])
@@ -167,6 +172,33 @@ final class SentryReporterTests: XCTestCase {
                 level: "error",
                 category: "network",
                 message: "request.failed attempts=1 method=POST path=/api/recordings \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "ws.failed mode=translation:zh sessionId=mock-session generation=200 sinceOpenMs=825 cause=receive.throw closeCode=0 domain=NSURLErrorDomain code=-1011 message=There was a bad response from the server."
+            ),
+            "The user-visible WebSocket failure must stay as the captured error while the follow-up 429 is suppressed."
+        )
+    }
+
+    func testLocalSpeechCancellationDoesNotCaptureSentryErrors() {
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "local_speech.recognition.failed locale=en-US domain=kLSRErrorDomain code=301 message=Recognition request was canceled"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "local_speech.recognition.failed locale=en-US domain=kLSRErrorDomain code=1101 message=Speech recognizer is unavailable"
             )
         )
     }
