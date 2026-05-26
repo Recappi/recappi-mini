@@ -3,16 +3,15 @@
     <channel>
         <title>Recappi Mini</title>
         <item>
-            <title>1.0.124</title>
-            <pubDate>Tue, 26 May 2026 04:00:21 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.124</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.124</sparkle:fullReleaseNotesLink>
-            <sparkle:version>137</sparkle:version>
-            <sparkle:shortVersionString>1.0.124</sparkle:shortVersionString>
+            <title>1.0.125</title>
+            <pubDate>Tue, 26 May 2026 09:12:36 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.125</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.125</sparkle:fullReleaseNotesLink>
+            <sparkle:version>138</sparkle:version>
+            <sparkle:shortVersionString>1.0.125</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>- Fixed the post-recording View in Cloud action so it opens Recappi Cloud focused on the recording that just finished.
-- The Transcribe in Cloud shortcut now opens the same focused recording before starting processing.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.124/RecappiMini-1.0.124.dmg" length="6854614" type="application/octet-stream" sparkle:edSignature="wTWQNHk6n5uHCq9imfypJB2wu2u8UgzG1Ieq/9vOmfpqS92OhMhNDmTszuKhXao5+jhEOtKsOLH75G+hLMwxDw=="/>
+            <description><![CDATA[<pre>Automated release for v1.0.125.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.125/RecappiMini-1.0.125.dmg" length="6909150" type="application/octet-stream" sparkle:edSignature="Ug3hO0TJJX2SQPxMZ8+pkWlhF/AzA3xQcvCUBiVxX2GGpTGO0WJzXH91QqLWSP4fIkS5E4Md2JxECU+HtOVzDQ=="/>
         </item>
     </channel>
 </rss>
