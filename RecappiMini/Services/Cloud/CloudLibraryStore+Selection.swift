@@ -27,6 +27,16 @@ extension CloudLibraryStore {
         scheduleSelectedDetailRefresh()
     }
 
+    @discardableResult
+    func selectRecording(id recordingID: String) -> Bool {
+        guard let recording = recordings.first(where: { $0.id == recordingID }) else {
+            DiagnosticsLog.event("cloud", "recording.focus.missing recordingID=\(recordingID)")
+            return false
+        }
+        select(recording)
+        return true
+    }
+
     func upsertLocalProcessingRecording(
         _ recording: CloudRecording,
         latestJob: TranscriptionJob? = nil,

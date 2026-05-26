@@ -13,6 +13,7 @@ struct RecordingPanel: View {
 
     let onOpenFolder: (URL) -> Void
     let onOpenCloud: () -> Void
+    let onOpenCloudRecording: @MainActor @Sendable (String) -> Void
     let onClosePanel: () -> Void
     let onTranscribeCloudRecording: @MainActor @Sendable (String) -> Void
     let onCloudRecordingUpdated: @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
@@ -123,7 +124,7 @@ struct RecordingPanel: View {
                 result: r,
                 canTranscribe: canTranscribe(result: r),
                 onTranscribe: { transcribeAndShow(result: r) },
-                onShow: onOpenCloud,
+                onShow: { showInCloud(result: r) },
                 onCopy: { copyTranscript(r) },
                 onNew: { recorder.reset() }
             )
@@ -312,6 +313,14 @@ struct RecordingPanel: View {
             return
         }
         onTranscribeCloudRecording(recordingID)
+    }
+
+    private func showInCloud(result: RecordingResult) {
+        guard let recordingID = cloudRecordingID(for: result) else {
+            onOpenCloud()
+            return
+        }
+        onOpenCloudRecording(recordingID)
     }
 
     private func canTranscribe(result: RecordingResult) -> Bool {

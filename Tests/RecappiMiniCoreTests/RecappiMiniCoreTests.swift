@@ -1390,6 +1390,21 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(store.localSessionURLsByRecordingID["rec_remote"], sessionURL)
     }
 
+    @MainActor
+    func testCloudLibraryCanFocusRecordingByIDAfterDoneAction() {
+        let store = CloudLibraryStore()
+        let previous = CloudRecording.previewSample(id: "rec_previous", title: "Previous meeting")
+        let finished = CloudRecording.previewSample(id: "rec_finished", title: "Finished meeting")
+
+        store.upsertLocalProcessingRecording(previous)
+        store.select(previous)
+        store.upsertLocalProcessingRecording(finished)
+
+        XCTAssertEqual(store.selectedRecordingID, "rec_previous")
+        XCTAssertTrue(store.selectRecording(id: "rec_finished"))
+        XCTAssertEqual(store.selectedRecordingID, "rec_finished")
+    }
+
     func testCloudLibrarySnapshotRoundTripsLightweightData() throws {
         let recording = try JSONDecoder().decode(
             CloudRecording.self,

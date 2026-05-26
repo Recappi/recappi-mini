@@ -242,10 +242,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             recorder: recorder,
             onOpenFolder: { folderURL in NSWorkspace.shared.open(folderURL) },
             onOpenCloud: { [weak self] in self?.showCloudCenter() },
+            onOpenCloudRecording: { [weak self] recordingID in
+                self?.showCloudCenter(selectingRecordingID: recordingID)
+            },
             onClosePanel: { [weak self] in self?.hidePanel() },
             onTranscribeCloudRecording: { [weak self] recordingID in
                 guard let self else { return }
-                self.showCloudCenter()
+                self.showCloudCenter(selectingRecordingID: recordingID)
                 Task { @MainActor [weak self] in
                     await self?.cloudStore.processRecording(id: recordingID, .transcriptAndSummary)
                 }
@@ -773,11 +776,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         return false
     }
 
-    func showCloudCenter() {
-        DiagnosticsLog.event("cloud", "window.open")
+    func showCloudCenter(selectingRecordingID recordingID: String? = nil) {
+        if let recordingID {
+            _ = cloudStore.selectRecording(id: recordingID)
+        }
+        DiagnosticsLog.event("cloud", "window.open recordingID=\(recordingID ?? "none")")
         if let cloudWindow = managedWindows.cloudWindow {
             activateForegroundWindowPresentation()
             cloudWindow.makeKeyAndOrderFront(nil)
+            if let recordingID {
+                _ = cloudStore.selectRecording(id: recordingID)
+            }
             return
         }
 
