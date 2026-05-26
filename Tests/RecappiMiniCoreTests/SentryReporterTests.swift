@@ -48,6 +48,42 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testNetworkRequestFingerprintsUsePathAndStatus() {
+        let transcript404 = SentryReporter.diagnosticFingerprint(
+            level: "error",
+            category: "network",
+            message: "request.failed attempts=1 method=GET path=/api/recordings/a810dd36-974d-419d-8415-aec679fb215f/transcript domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 404): Transcript not found"
+        )
+        let anotherTranscript404 = SentryReporter.diagnosticFingerprint(
+            level: "error",
+            category: "network",
+            message: "request.failed attempts=1 method=GET path=/api/recordings/b720ee47-1234-4aa8-9455-9765c66f08ac/transcript domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 404): Transcript not found"
+        )
+        let realtime429 = SentryReporter.diagnosticFingerprint(
+            level: "error",
+            category: "network",
+            message: "request.failed attempts=1 method=POST path=/api/openai/realtime/sessions domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 429): OpenAI Realtime session claim rate exceeded (10/minute)."
+        )
+
+        XCTAssertEqual(
+            transcript404,
+            [
+                "recappi",
+                "network",
+                "request.failed",
+                "method:GET",
+                "path:/api/recordings/:id/transcript",
+                "status:404",
+                "domain:RecappiMini.RecappiAPIError",
+                "code:0",
+            ]
+        )
+        XCTAssertEqual(transcript404, anotherTranscript404)
+        XCTAssertNotEqual(transcript404, realtime429)
+        XCTAssertTrue(realtime429.contains("path:/api/openai/realtime/sessions"))
+        XCTAssertTrue(realtime429.contains("status:429"))
+    }
+
     func testCancelledNetworkRequestsDoNotCaptureSentryErrors() {
         XCTAssertFalse(
             SentryReporter.shouldCaptureDiagnosticError(

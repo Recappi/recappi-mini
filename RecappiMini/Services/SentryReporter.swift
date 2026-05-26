@@ -212,6 +212,10 @@ enum SentryReporter {
         DiagnosticTelemetry(level: level, category: category, message: message).shouldCaptureError
     }
 
+    static func diagnosticFingerprint(level: String, category: String, message: String) -> [String] {
+        DiagnosticTelemetry(level: level, category: category, message: message).fingerprint
+    }
+
     private static func addBreadcrumb(_ telemetry: DiagnosticTelemetry) {
         let breadcrumb = Breadcrumb(
             level: sentryLevel(for: telemetry.level),
@@ -243,7 +247,7 @@ enum SentryReporter {
             scope.setLevel(sentryLevel(for: telemetry.level))
             scope.setTag(value: telemetry.category, key: "recappi.category")
             scope.setTag(value: telemetry.operation, key: "recappi.operation")
-            scope.setFingerprint(["recappi", telemetry.category, telemetry.operation])
+            scope.setFingerprint(telemetry.fingerprint)
             for (key, value) in recordingContext.tags {
                 scope.setTag(value: value, key: key)
             }
@@ -417,6 +421,64 @@ private struct DiagnosticTelemetry {
             && operation == "local_speech.recognition.failed"
             && fields["domain"] == "kLSRErrorDomain"
             && fields["code"] == "301"
+    }
+
+    var fingerprint: [String] {
+        var parts = ["recappi", category, operation]
+        guard category == "network", operation == "request.failed" else {
+            return parts
+        }
+
+        appendFingerprintField("method", from: fields["method"], to: &parts)
+        appendFingerprintField("path", from: normalizedRequestPath, to: &parts)
+        appendFingerprintField("status", from: httpStatusCode, to: &parts)
+        appendFingerprintField("domain", from: fields["domain"], to: &parts)
+        appendFingerprintField("code", from: fields["code"], to: &parts)
+        return parts
+    }
+
+    private var normalizedRequestPath: String? {
+        guard var path = fields["path"], !path.isEmpty else { return nil }
+        path = path.replacingOccurrences(
+            of: #"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?=/|$)"#,
+            with: "/:id",
+            options: .regularExpression
+        )
+        path = path.replacingOccurrences(
+            of: #"/rec_[A-Za-z0-9_-]+(?=/|$)"#,
+            with: "/:recording",
+            options: .regularExpression
+        )
+        return path
+    }
+
+    private var httpStatusCode: String? {
+        if let statusCode = fields["statusCode"], Self.isThreeDigitStatus(statusCode) {
+            return statusCode
+        }
+        if let status = fields["status"], Self.isThreeDigitStatus(status) {
+            return status
+        }
+        let nsMessage = safeMessage as NSString
+        let regex = try? NSRegularExpression(pattern: #"status[ =](\d{3})"#, options: [.caseInsensitive])
+        guard let match = regex?.firstMatch(
+            in: safeMessage,
+            range: NSRange(location: 0, length: nsMessage.length)
+        ) else {
+            return nil
+        }
+        let range = match.range(at: 1)
+        guard range.location != NSNotFound else { return nil }
+        return nsMessage.substring(with: range)
+    }
+
+    private static func isThreeDigitStatus(_ value: String) -> Bool {
+        value.range(of: #"^\d{3}$"#, options: .regularExpression) != nil
+    }
+
+    private func appendFingerprintField(_ key: String, from value: String?, to parts: inout [String]) {
+        guard let value, !value.isEmpty else { return }
+        parts.append("\(key):\(value)")
     }
 
     var searchableTags: [String: String] {
