@@ -2291,6 +2291,29 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(PillShellView.visiblePillContains(NSPoint(x: visibleRect.midX, y: visibleRect.midY), in: bounds))
     }
 
+    func testFloatingPanelConstrainsVisiblePillInsteadOfShadowMargin() {
+        let screenFrame = NSRect(x: 0, y: 0, width: 1_000, height: 800)
+        let panelSize = NSSize(
+            width: DT.panelWidth + PillShellView.shadowMargin * 2,
+            height: 180
+        )
+        let proposed = NSRect(
+            x: 520,
+            y: 700,
+            width: panelSize.width,
+            height: panelSize.height
+        )
+
+        let constrained = PillShellView.constrainWindowFrame(proposed, visiblePillTo: screenFrame)
+        let visiblePill = PillShellView.visiblePillRect(
+            in: NSRect(origin: .zero, size: constrained.size)
+        ).offsetBy(dx: constrained.minX, dy: constrained.minY)
+
+        XCTAssertEqual(visiblePill.maxY, screenFrame.maxY)
+        XCTAssertLessThan(constrained.maxY, screenFrame.maxY + PillShellView.shadowMargin + 0.5)
+        XCTAssertGreaterThan(constrained.maxY, screenFrame.maxY)
+    }
+
     @MainActor
     func testFloatingPanelResizeKeepsTopEdgeAnchored() {
         let frame = NSRect(x: 100, y: 200, width: 320, height: 120)

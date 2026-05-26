@@ -102,6 +102,12 @@ final class FloatingPanel: NSPanel {
         // Don't call makeKeyAndOrderFront
     }
 
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        let screenFrame = (screen ?? self.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        guard !screenFrame.isEmpty else { return frameRect }
+        return PillShellView.constrainWindowFrame(frameRect, visiblePillTo: screenFrame)
+    }
+
     deinit {
         if let localMouseMonitor {
             NSEvent.removeMonitor(localMouseMonitor)
@@ -291,6 +297,42 @@ final class PillShellView: NSView {
 
     nonisolated static func visiblePillRect(in bounds: NSRect) -> NSRect {
         bounds.insetBy(dx: shadowMargin, dy: shadowMargin)
+    }
+
+    nonisolated static func constrainWindowFrame(_ frame: NSRect, visiblePillTo screenFrame: NSRect) -> NSRect {
+        var result = frame
+        let pillSize = NSSize(
+            width: max(frame.width - shadowMargin * 2, 1),
+            height: max(frame.height - shadowMargin * 2, 1)
+        )
+
+        if pillSize.width <= screenFrame.width {
+            let pillMinX = result.minX + shadowMargin
+            let pillMaxX = pillMinX + pillSize.width
+            if pillMaxX > screenFrame.maxX {
+                result.origin.x -= pillMaxX - screenFrame.maxX
+            }
+            if result.minX + shadowMargin < screenFrame.minX {
+                result.origin.x += screenFrame.minX - (result.minX + shadowMargin)
+            }
+        } else {
+            result.origin.x = screenFrame.minX - shadowMargin
+        }
+
+        if pillSize.height <= screenFrame.height {
+            let pillMinY = result.minY + shadowMargin
+            let pillMaxY = pillMinY + pillSize.height
+            if pillMaxY > screenFrame.maxY {
+                result.origin.y -= pillMaxY - screenFrame.maxY
+            }
+            if result.minY + shadowMargin < screenFrame.minY {
+                result.origin.y += screenFrame.minY - (result.minY + shadowMargin)
+            }
+        } else {
+            result.origin.y = screenFrame.minY - shadowMargin
+        }
+
+        return result
     }
 
     nonisolated static func visiblePillContains(_ point: NSPoint, in bounds: NSRect) -> Bool {
