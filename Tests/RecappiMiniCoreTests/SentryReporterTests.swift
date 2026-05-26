@@ -143,6 +143,34 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testRealtimeClaimRateLimitDoesNotCaptureSentryErrors() {
+        let errorSummary = "domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 429): OpenAI Realtime session claim rate exceeded (10/minute)."
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=POST path=/api/openai/realtime/sessions \(errorSummary)"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "claim.failed mode=translation:zh attempt=4 \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=POST path=/api/recordings \(errorSummary)"
+            )
+        )
+    }
+
     func testSentryUserUsesBackendUserIDWithoutPII() {
         let session = UserSession(
             userId: "user_123",

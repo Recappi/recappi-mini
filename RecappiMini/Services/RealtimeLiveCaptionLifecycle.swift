@@ -274,13 +274,16 @@ actor RealtimeLiveCaptionActor {
     struct Configuration: Sendable {
         let reconnectDelays: [TimeInterval]
         let audioBufferCapacity: Int
+        let rateLimitReconnectDelay: TimeInterval
 
         init(
             reconnectDelays: [TimeInterval] = [1, 2, 5, 10, 30],
-            audioBufferCapacity: Int = 128
+            audioBufferCapacity: Int = 128,
+            rateLimitReconnectDelay: TimeInterval = 60
         ) {
             self.reconnectDelays = reconnectDelays
             self.audioBufferCapacity = max(1, audioBufferCapacity)
+            self.rateLimitReconnectDelay = max(0, rateLimitReconnectDelay)
         }
 
         static let `default` = Configuration()
@@ -607,11 +610,24 @@ actor RealtimeLiveCaptionActor {
     }
 
     static func claimFailureDiagnosticLevel(for error: Error) -> String {
+        if isRealtimeClaimRateLimitError(error) {
+            return "warning"
+        }
+
         guard case RecappiAPIError.http(let statusCode, let message) = error,
               statusCode == 503
         else { return "error" }
 
         return message.localizedCaseInsensitiveContains("Subscription is renewing") ? "warning" : "error"
+    }
+
+    static func isRealtimeClaimRateLimitError(_ error: Error) -> Bool {
+        guard case RecappiAPIError.http(let statusCode, let message) = error,
+              statusCode == 429 else {
+            return false
+        }
+
+        return message.localizedCaseInsensitiveContains("session claim rate exceeded")
     }
 
     /// Force a reconnect from `.live`. No-op from other states (a
@@ -1884,7 +1900,7 @@ actor RealtimeLiveCaptionActor {
     }
 
     private func scheduleReconnect(after error: Error, attempt: Int) async {
-        let delay = reconnectDelay(forAttempt: attempt)
+        let delay = reconnectDelay(forAttempt: attempt, after: error)
         trace("reconnect.schedule", "attempt=\(attempt) delayMs=\(Int(delay * 1000))")
         lifecycle = .reconnecting(
             generation: nextGeneration,
@@ -1923,6 +1939,12 @@ actor RealtimeLiveCaptionActor {
         guard !delays.isEmpty else { return 0 }
         let bounded = max(0, min(attempt, delays.count - 1))
         return delays[bounded]
+    }
+
+    private func reconnectDelay(forAttempt attempt: Int, after error: Error) -> TimeInterval {
+        let baseDelay = reconnectDelay(forAttempt: attempt)
+        guard Self.isRealtimeClaimRateLimitError(error) else { return baseDelay }
+        return max(baseDelay, configuration.rateLimitReconnectDelay)
     }
 
     // MARK: Diagnostic trace helper (Task C)

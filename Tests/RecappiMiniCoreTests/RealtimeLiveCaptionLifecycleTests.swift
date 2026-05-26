@@ -203,6 +203,48 @@ final class RealtimeLiveCaptionLifecycleTests: XCTestCase {
             )),
             "error"
         )
+        XCTAssertEqual(
+            RealtimeLiveCaptionActor.claimFailureDiagnosticLevel(for: RecappiAPIError.http(
+                statusCode: 429,
+                message: "OpenAI Realtime session claim rate exceeded (10/minute)."
+            )),
+            "warning"
+        )
+    }
+
+    func testRealtimeClaimRateLimitUsesCooldownDelay() async {
+        let connector = MockRealtimeSessionConnector()
+        connector.claimFailures = 1
+        connector.claimFailureError = RecappiAPIError.http(
+            statusCode: 429,
+            message: "OpenAI Realtime session claim rate exceeded (10/minute)."
+        )
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .translation(targetLanguage: "zh"),
+            configuration: .init(
+                reconnectDelays: [0.01],
+                rateLimitReconnectDelay: 0.08
+            )
+        )
+
+        await actor.start()
+        await connector.waitForClaimResolved()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        XCTAssertEqual(
+            connector.claimCallCount,
+            1,
+            "429 realtime claim rate-limit must not immediately re-claim on the generic delay."
+        )
+
+        try? await Task.sleep(nanoseconds: 90_000_000)
+        XCTAssertEqual(
+            connector.claimCallCount,
+            2,
+            "429 realtime claim rate-limit should retry after the configured cooldown."
+        )
     }
 
     // MARK: - Stop during reconnect
@@ -398,6 +440,7 @@ final class MockRealtimeSessionConnector: RealtimeSessionConnector, @unchecked S
     private var _claimCallCount = 0
     private var _openSocketCallCount = 0
     private var _claimFailures: Int = 0
+    private var _claimFailureError: Error = NSError(domain: "MockConnector", code: 1)
     private var _holdClaim = false
     private var _claimContinuations: [CheckedContinuation<Void, Never>] = []
     private var _claimResolvedWaiters: [CheckedContinuation<Void, Never>] = []
@@ -415,6 +458,10 @@ final class MockRealtimeSessionConnector: RealtimeSessionConnector, @unchecked S
     var claimFailures: Int {
         get { lock.withLock { _claimFailures } }
         set { lock.withLock { _claimFailures = newValue } }
+    }
+    var claimFailureError: Error {
+        get { lock.withLock { _claimFailureError } }
+        set { lock.withLock { _claimFailureError = newValue } }
     }
     var holdClaim: Bool {
         get { lock.withLock { _holdClaim } }
@@ -450,7 +497,7 @@ final class MockRealtimeSessionConnector: RealtimeSessionConnector, @unchecked S
         }
 
         if shouldFail {
-            throw NSError(domain: "MockConnector", code: 1, userInfo: nil)
+            throw claimFailureError
         }
 
         return RealtimeSessionClaim(

@@ -345,6 +345,9 @@ private struct DiagnosticTelemetry {
         if isExpectedSubscriptionRenewal {
             return false
         }
+        if isExpectedRealtimeClaimRateLimit {
+            return false
+        }
         return true
     }
 
@@ -378,6 +381,23 @@ private struct DiagnosticTelemetry {
         case ("network", "request.failed"),
              ("processing", "upload.failed"),
              ("processing", "process.failed"):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var isExpectedRealtimeClaimRateLimit: Bool {
+        let message = safeMessage.lowercased()
+        guard message.contains("status 429"),
+              message.contains("session claim rate exceeded") else {
+            return false
+        }
+
+        switch (category, operation) {
+        case ("network", "request.failed"):
+            return fields["path"] == "/api/openai/realtime/sessions"
+        case ("live-caption", "claim.failed"):
             return true
         default:
             return false
