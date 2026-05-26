@@ -2310,7 +2310,39 @@ final class RecappiMiniCoreTests: XCTestCase {
         ).offsetBy(dx: constrained.minX, dy: constrained.minY)
 
         XCTAssertEqual(visiblePill.maxY, screenFrame.maxY)
-        XCTAssertLessThan(constrained.maxY, screenFrame.maxY + PillShellView.shadowMargin + 0.5)
+        XCTAssertLessThan(constrained.maxY, screenFrame.maxY + PillShellView.topShadowMargin + 0.5)
+        XCTAssertGreaterThan(constrained.maxY, screenFrame.maxY)
+    }
+
+    func testFloatingPanelAllowsContinuousDragInsideShadowMargin() {
+        let screenFrame = NSRect(x: 0, y: 0, width: 1_000, height: 800)
+        let panelSize = NSSize(
+            width: DT.panelWidth + PillShellView.shadowMargin * 2,
+            height: 180
+        )
+        let startFrame = NSRect(
+            x: 520,
+            y: 540,
+            width: panelSize.width,
+            height: panelSize.height
+        )
+        let startVisiblePill = PillShellView.visiblePillRect(
+            in: NSRect(origin: .zero, size: startFrame.size)
+        ).offsetBy(dx: startFrame.minX, dy: startFrame.minY)
+        let desiredTopGap: CGFloat = 12
+        let dragDeltaY = screenFrame.maxY - desiredTopGap - startVisiblePill.maxY
+
+        let constrained = PillShellView.dragWindowFrame(
+            startFrame: startFrame,
+            startMouse: NSPoint(x: 700, y: 700),
+            currentMouse: NSPoint(x: 700, y: 700 + dragDeltaY),
+            visiblePillTo: screenFrame
+        )
+        let visiblePill = PillShellView.visiblePillRect(
+            in: NSRect(origin: .zero, size: constrained.size)
+        ).offsetBy(dx: constrained.minX, dy: constrained.minY)
+
+        XCTAssertEqual(visiblePill.maxY, screenFrame.maxY - desiredTopGap)
         XCTAssertGreaterThan(constrained.maxY, screenFrame.maxY)
     }
 

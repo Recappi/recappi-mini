@@ -62,7 +62,7 @@ struct RecordingState: View {
                     Image(systemName: "minus")
                         .font(.system(size: 9, weight: .bold))
                 }
-                .buttonStyle(PanelIconButtonStyle(size: 14))
+                .buttonStyle(PanelIconButtonStyle(size: 14, backdropAdaptiveForeground: true))
                 .help("Hide panel")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
             }

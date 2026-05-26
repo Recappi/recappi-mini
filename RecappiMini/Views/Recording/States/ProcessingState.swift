@@ -35,7 +35,7 @@ struct ProcessingState: View {
                     Image(systemName: "minus")
                         .font(.system(size: 9, weight: .bold))
                 }
-                .buttonStyle(PanelIconButtonStyle(size: 16))
+                .buttonStyle(PanelIconButtonStyle(size: 16, backdropAdaptiveForeground: true))
                 .help("Hide panel and continue processing")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
             }

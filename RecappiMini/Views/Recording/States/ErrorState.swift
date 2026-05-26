@@ -53,7 +53,7 @@ struct ErrorState: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .medium))
                 }
-                .buttonStyle(PanelIconButtonStyle(size: 22))
+                .buttonStyle(PanelIconButtonStyle(size: 22, backdropAdaptiveForeground: true))
                 .help("Dismiss")
             }
 

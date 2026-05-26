@@ -179,7 +179,7 @@ struct IdleState: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
             }
-            .buttonStyle(PanelIconButtonStyle(size: 24))
+            .buttonStyle(PanelIconButtonStyle(size: 24, backdropAdaptiveForeground: true))
             .disabled(isStarting)
             .opacity(isStarting ? 0.72 : 1)
             .help("Hide panel")

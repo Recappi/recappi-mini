@@ -136,9 +136,14 @@ extension Color {
 /// trash, folder, copy, etc.).
 struct PanelIconButtonStyle: ButtonStyle {
     var size: CGFloat = 28
+    var backdropAdaptiveForeground = false
 
     func makeBody(configuration: Configuration) -> some View {
-        Chrome(isPressed: configuration.isPressed, size: size) {
+        Chrome(
+            isPressed: configuration.isPressed,
+            size: size,
+            backdropAdaptiveForeground: backdropAdaptiveForeground
+        ) {
             configuration.label
         }
     }
@@ -146,13 +151,19 @@ struct PanelIconButtonStyle: ButtonStyle {
     private struct Chrome<Content: View>: View {
         let isPressed: Bool
         let size: CGFloat
+        let backdropAdaptiveForeground: Bool
         @ViewBuilder let content: () -> Content
         @State private var hovered = false
 
         var body: some View {
             content()
                 .frame(width: size, height: size)
-                .foregroundStyle(hovered || isPressed ? Palette.labelPrimary : Palette.labelSecondary)
+                .modifier(
+                    PanelIconForegroundModifier(
+                        isActive: hovered || isPressed,
+                        backdropAdaptive: backdropAdaptiveForeground
+                    )
+                )
                 .background(
                     RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
                         .fill(isPressed ? Palette.controlFillPress : (hovered ? Palette.controlFillHover : Color.clear))
@@ -161,6 +172,22 @@ struct PanelIconButtonStyle: ButtonStyle {
                 .onHover { hovered = $0 }
                 .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
                 .animation(DT.motionAware(DT.ease(0.08)), value: isPressed)
+        }
+    }
+}
+
+private struct PanelIconForegroundModifier: ViewModifier {
+    let isActive: Bool
+    let backdropAdaptive: Bool
+
+    func body(content: Content) -> some View {
+        if backdropAdaptive {
+            content
+                .foregroundStyle(Color.white.opacity(isActive ? 0.88 : 0.74))
+                .blendMode(.difference)
+        } else {
+            content
+                .foregroundStyle(isActive ? Palette.labelPrimary : Palette.labelSecondary)
         }
     }
 }

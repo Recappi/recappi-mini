@@ -63,6 +63,9 @@ final class FloatingPanel: NSPanel {
     fileprivate var deferredContentSize: NSSize?
     private nonisolated(unsafe) var localMouseMonitor: Any?
     private nonisolated(unsafe) var globalMouseMonitor: Any?
+    private var dragStartMouseLocation: NSPoint?
+    private var dragStartFrame: NSRect?
+    private var didCustomDrag = false
 
     init(contentRect: NSRect) {
         super.init(
@@ -81,7 +84,7 @@ final class FloatingPanel: NSPanel {
         // The transparent shadow margin is made click-through by the mouse
         // monitor below, so only the visible pill receives events.
         hasShadow = false
-        isMovableByWindowBackground = true
+        isMovableByWindowBackground = false
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         titlebarAppearsTransparent = true
         titleVisibility = .hidden
@@ -100,6 +103,13 @@ final class FloatingPanel: NSPanel {
     override func mouseDown(with event: NSEvent) {
         super.mouseDown(with: event)
         // Don't call makeKeyAndOrderFront
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        if handleCustomDragEvent(event) {
+            return
+        }
+        super.sendEvent(event)
     }
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
@@ -134,6 +144,73 @@ final class FloatingPanel: NSPanel {
         ignoresMouseEvents = !PillShellView.visiblePillContains(localPoint, in: bounds)
     }
 
+    private func handleCustomDragEvent(_ event: NSEvent) -> Bool {
+        updateMousePassthrough()
+
+        switch event.type {
+        case .leftMouseDown:
+            beginCustomDragIfNeeded(with: event)
+            return false
+        case .leftMouseDragged:
+            return continueCustomDrag()
+        case .leftMouseUp:
+            return finishCustomDrag()
+        default:
+            return false
+        }
+    }
+
+    private func beginCustomDragIfNeeded(with event: NSEvent) {
+        guard isVisible else { return }
+        let localPoint = convertPoint(fromScreen: NSEvent.mouseLocation)
+        let bounds = NSRect(origin: .zero, size: frame.size)
+        guard PillShellView.visiblePillContains(localPoint, in: bounds) else { return }
+        dragStartMouseLocation = NSEvent.mouseLocation
+        dragStartFrame = frame
+        didCustomDrag = false
+    }
+
+    private func continueCustomDrag() -> Bool {
+        guard let dragStartMouseLocation,
+              let dragStartFrame else { return false }
+        let currentMouse = NSEvent.mouseLocation
+        let distance = hypot(
+            currentMouse.x - dragStartMouseLocation.x,
+            currentMouse.y - dragStartMouseLocation.y
+        )
+        guard didCustomDrag || distance >= 3 else { return false }
+
+        didCustomDrag = true
+        let screenFrame = screenForPoint(currentMouse)?.visibleFrame
+            ?? screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? .zero
+        let nextFrame = PillShellView.dragWindowFrame(
+            startFrame: dragStartFrame,
+            startMouse: dragStartMouseLocation,
+            currentMouse: currentMouse,
+            visiblePillTo: screenFrame
+        )
+        setFrame(nextFrame, display: true)
+        updateMousePassthrough()
+        return true
+    }
+
+    private func finishCustomDrag() -> Bool {
+        let consumed = didCustomDrag
+        dragStartMouseLocation = nil
+        dragStartFrame = nil
+        didCustomDrag = false
+        updateMousePassthrough()
+        return consumed
+    }
+
+    private func screenForPoint(_ point: NSPoint) -> NSScreen? {
+        NSScreen.screens.first { screen in
+            NSMouseInRect(point, screen.frame, false)
+        }
+    }
+
     private func installMousePassthroughMonitors() {
         let mask: NSEvent.EventTypeMask = [
             .mouseMoved,
@@ -161,7 +238,7 @@ final class FloatingPanel: NSPanel {
 }
 
 final class FloatingPanelHostingView<Root: View>: NSHostingView<Root> {
-    override var mouseDownCanMoveWindow: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
 }
 
 /// Sizing bridge between SwiftUI's intrinsic content size and the transparent
@@ -172,6 +249,7 @@ final class PillShellView: NSView {
     /// Transparent window-space around the visible pill so the AppKit shadow
     /// is not clipped by the NSPanel bounds.
     nonisolated static let shadowMargin: CGFloat = 44
+    nonisolated static let topShadowMargin: CGFloat = 20
     nonisolated static let cornerRadius: CGFloat = 14
 
     private(set) var contentView: NSView?
@@ -197,7 +275,7 @@ final class PillShellView: NSView {
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: m),
             view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -m),
-            view.topAnchor.constraint(equalTo: topAnchor, constant: m),
+            view.topAnchor.constraint(equalTo: topAnchor, constant: Self.topShadowMargin),
         ])
 
         // Resize the window whenever hostingView's frame (= SwiftUI
@@ -261,7 +339,7 @@ final class PillShellView: NSView {
         let innerSize = measuredContentSize(for: inner)
         let desired = NSSize(
             width: innerSize.width + Self.shadowMargin * 2,
-            height: innerSize.height + Self.shadowMargin * 2
+            height: innerSize.height + Self.topShadowMargin + Self.shadowMargin
         )
         if targetWindowSize?.isClose(to: desired) == true { return }
         guard !panel.frame.size.isClose(to: desired) else {
@@ -296,14 +374,19 @@ final class PillShellView: NSView {
     }
 
     nonisolated static func visiblePillRect(in bounds: NSRect) -> NSRect {
-        bounds.insetBy(dx: shadowMargin, dy: shadowMargin)
+        NSRect(
+            x: bounds.minX + shadowMargin,
+            y: bounds.minY + shadowMargin,
+            width: max(bounds.width - shadowMargin * 2, 0),
+            height: max(bounds.height - topShadowMargin - shadowMargin, 0)
+        )
     }
 
     nonisolated static func constrainWindowFrame(_ frame: NSRect, visiblePillTo screenFrame: NSRect) -> NSRect {
         var result = frame
         let pillSize = NSSize(
             width: max(frame.width - shadowMargin * 2, 1),
-            height: max(frame.height - shadowMargin * 2, 1)
+            height: max(frame.height - topShadowMargin - shadowMargin, 1)
         )
 
         if pillSize.width <= screenFrame.width {
@@ -335,6 +418,19 @@ final class PillShellView: NSView {
         return result
     }
 
+    nonisolated static func dragWindowFrame(
+        startFrame: NSRect,
+        startMouse: NSPoint,
+        currentMouse: NSPoint,
+        visiblePillTo screenFrame: NSRect
+    ) -> NSRect {
+        let proposed = startFrame.offsetBy(
+            dx: currentMouse.x - startMouse.x,
+            dy: currentMouse.y - startMouse.y
+        )
+        return constrainWindowFrame(proposed, visiblePillTo: screenFrame)
+    }
+
     nonisolated static func visiblePillContains(_ point: NSPoint, in bounds: NSRect) -> Bool {
         let rect = visiblePillRect(in: bounds)
         guard rect.width > 0, rect.height > 0 else { return false }
@@ -361,8 +457,10 @@ final class PillShellView: NSView {
     override var intrinsicContentSize: NSSize {
         guard let inner = contentView else { return .zero }
         let size = measuredContentSize(for: inner)
-        let pad = Self.shadowMargin * 2
-        return NSSize(width: size.width + pad, height: size.height + pad)
+        return NSSize(
+            width: size.width + Self.shadowMargin * 2,
+            height: size.height + Self.topShadowMargin + Self.shadowMargin
+        )
     }
 
     func prepareTransition(offsetX: CGFloat, opacity: Float) {
@@ -451,7 +549,7 @@ struct FloatingPanelController {
     static func positionAtTopRight(_ panel: FloatingPanel, width: CGFloat, height: CGFloat) {
         let m = PillShellView.shadowMargin
         let windowWidth = width + m * 2
-        let windowHeight = height + m * 2
+        let windowHeight = height + PillShellView.topShadowMargin + m
         let frame = visibleFrame(
             screen: panel.screen ?? NSScreen.main,
             panelSize: NSSize(width: windowWidth, height: windowHeight)
@@ -640,7 +738,7 @@ struct FloatingPanelController {
     private static func visibleFrame(screen: NSScreen?, panelSize: NSSize) -> NSRect {
         let screenFrame = (screen ?? NSScreen.main)?.visibleFrame ?? .zero
         let x = screenFrame.maxX - panelSize.width + PillShellView.shadowMargin - 16
-        let y = screenFrame.maxY - panelSize.height + PillShellView.shadowMargin - 16
+        let y = screenFrame.maxY - panelSize.height + PillShellView.topShadowMargin - 16
         return NSRect(origin: CGPoint(x: x, y: y), size: panelSize)
     }
 
