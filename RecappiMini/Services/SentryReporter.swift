@@ -412,6 +412,9 @@ private struct DiagnosticTelemetry {
         if isExpectedRealtimeClaimRateLimit {
             return false
         }
+        if isTransientLiveCaptionSocketDisconnect {
+            return false
+        }
         return true
     }
 
@@ -466,6 +469,15 @@ private struct DiagnosticTelemetry {
         default:
             return false
         }
+    }
+
+    private var isTransientLiveCaptionSocketDisconnect: Bool {
+        category == "live-caption"
+            && operation == "ws.failed"
+            && fields["cause"] == "receive.throw"
+            && fields["closeCode"] == "1005"
+            && fields["domain"] == NSPOSIXErrorDomain
+            && fields["code"] == "57"
     }
 
     var fingerprint: [String] {

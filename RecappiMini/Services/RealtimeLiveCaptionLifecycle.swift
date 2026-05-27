@@ -1236,7 +1236,24 @@ actor RealtimeLiveCaptionActor {
             parts.append("reason='\(reason)'")
         }
         parts.append(DiagnosticsLog.errorSummary(error))
-        DiagnosticsLog.error("live-caption", parts.joined(separator: " "))
+        let message = parts.joined(separator: " ")
+        if Self.isTransientSocketDisconnect(cause: cause, error: error, closeCode: closeCode) {
+            DiagnosticsLog.warning("live-caption", message)
+        } else {
+            DiagnosticsLog.error("live-caption", message)
+        }
+    }
+
+    private static func isTransientSocketDisconnect(
+        cause: String,
+        error: Error,
+        closeCode: Int
+    ) -> Bool {
+        let nsError = error as NSError
+        return cause == "receive.throw"
+            && closeCode == 1005
+            && nsError.domain == NSPOSIXErrorDomain
+            && nsError.code == 57
     }
 
     /// Decode the optional close-reason payload into a sanitized

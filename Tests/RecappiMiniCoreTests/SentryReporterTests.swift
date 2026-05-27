@@ -229,6 +229,24 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testTransientLiveCaptionSocketDisconnectDoesNotCaptureSentryErrors() {
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "ws.failed mode=translation:zh sessionId=e6e87f05-fdb0-4479-8af5-197ba0d25549 generation=1 sinceOpenMs=1913 cause=receive.throw closeCode=1005 domain=NSPOSIXErrorDomain code=57 message=The operation couldn't be completed. Socket is not connected"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "ws.failed mode=translation:zh sessionId=mock-session generation=200 sinceOpenMs=825 cause=receive.throw closeCode=1005 domain=NSURLErrorDomain code=-1011 message=There was a bad response from the server."
+            )
+        )
+    }
+
     func testSentryUserUsesBackendUserIDWithoutPII() {
         let session = UserSession(
             userId: "user_123",
