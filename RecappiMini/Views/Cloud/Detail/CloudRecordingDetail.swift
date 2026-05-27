@@ -1913,37 +1913,7 @@ struct CloudRecordingDetail: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
                 .frame(minWidth: 0)
-
-            headerPlayButton
         }
-    }
-
-    /// Apple Music-style track-row play affordance. The bottom strip is
-    /// now the steady-state now-playing surface; this button is the
-    /// primary "start playing this recording" entry. Shows a prepare
-    /// spinner while the audio is downloading.
-    private var headerPlayButton: some View {
-        let isViewingLoadedAudio = audioPlayer.currentRecordingID == recording.id
-        let isPlaying = isViewingLoadedAudio && audioPlayer.isPlaying
-
-        return Button(action: handlePlayPause) {
-            ZStack {
-                Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 38, weight: .regular))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.tint)
-                    .opacity(isPreparingPlaybackAudio ? 0 : 1)
-                ProgressView()
-                    .controlSize(.small)
-                    .opacity(isPreparingPlaybackAudio ? 1 : 0)
-            }
-            .frame(width: 38, height: 38)
-            .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .disabled(isPreparingPlaybackAudio)
-        .help(isPlaying ? "Pause" : "Play recording")
-        .accessibilityIdentifier(AccessibilityIDs.Cloud.headerPlayButton)
     }
 
     private var searchDetailHeader: some View {

@@ -198,6 +198,13 @@ struct RemoteSessionManifest: Codable, Equatable {
             updatedAt: ISO8601DateFormatter().string(from: Date())
         )
     }
+
+    var hasTranscriptReference: Bool {
+        guard let transcriptId = transcriptId?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !transcriptId.isEmpty
+    }
 }
 
 struct RecordingSessionMetadata: Codable, Equatable, Sendable {

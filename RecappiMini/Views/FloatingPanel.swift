@@ -1,8 +1,17 @@
 import AppKit
+import Combine
 import SwiftUI
 
 struct FloatingPanelChromeView<Content: View>: View {
     let content: Content
+    /// The chrome reads `colorScheme` directly — the host
+    /// (`FloatingPanelHostingView`) flips its NSAppearance based on the
+    /// backdrop luminance observer (task #185), and SwiftUI propagates
+    /// the resulting `colorScheme` to this subtree. This keeps the chrome
+    /// stateless and ensures every child label/icon that uses
+    /// appearance-aware tokens (`Palette.label*`, `Color.primary`, etc.)
+    /// flips in lockstep with the chrome background — the failure mode
+    /// where peng-xiao reported invisible labels on dark backdrop.
     @Environment(\.colorScheme) private var colorScheme
 
     init(@ViewBuilder content: () -> Content) {
@@ -43,6 +52,7 @@ struct FloatingPanelChromeView<Content: View>: View {
             }
             .clipShape(panelShape)
             .compositingGroup()
+            .animation(.easeInOut(duration: 0.25), value: isDarkMode)
     }
 
     private var panelShape: RoundedRectangle {
@@ -145,7 +155,9 @@ final class FloatingPanel: NSPanel {
     }
 
     private func handleCustomDragEvent(_ event: NSEvent) -> Bool {
-        updateMousePassthrough()
+        if Self.shouldRefreshMousePassthrough(for: event.type) {
+            updateMousePassthrough()
+        }
 
         switch event.type {
         case .leftMouseDown:
@@ -191,8 +203,7 @@ final class FloatingPanel: NSPanel {
             currentMouse: currentMouse,
             visiblePillTo: screenFrame
         )
-        setFrame(nextFrame, display: true)
-        updateMousePassthrough()
+        setFrame(nextFrame, display: false)
         return true
     }
 
@@ -211,18 +222,24 @@ final class FloatingPanel: NSPanel {
         }
     }
 
+    nonisolated static func shouldRefreshMousePassthrough(for eventType: NSEvent.EventType) -> Bool {
+        switch eventType {
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            return false
+        default:
+            return true
+        }
+    }
+
     private func installMousePassthroughMonitors() {
         let mask: NSEvent.EventTypeMask = [
             .mouseMoved,
             .leftMouseDown,
             .leftMouseUp,
-            .leftMouseDragged,
             .rightMouseDown,
             .rightMouseUp,
-            .rightMouseDragged,
             .otherMouseDown,
             .otherMouseUp,
-            .otherMouseDragged,
         ]
 
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
@@ -239,6 +256,46 @@ final class FloatingPanel: NSPanel {
 
 final class FloatingPanelHostingView<Root: View>: NSHostingView<Root> {
     override var mouseDownCanMoveWindow: Bool { false }
+
+    /// Backdrop-adaptive chrome plumbing (task #185). The luminance
+    /// observer publishes a single `prefersDarkChrome` flag; we react by
+    /// overriding this hosting view's `appearance`, which in turn flips
+    /// every appearance-aware `Palette` token and SwiftUI
+    /// `@Environment(\.colorScheme)` inside the panel — so the chrome
+    /// background, labels, and icons all adopt dark/light together
+    /// instead of splitting into "dark shell, light text".
+    ///
+    /// When the user has chosen system dark mode globally we leave
+    /// `appearance` unset so the host inherits — light backdrop should
+    /// not yank the panel back to light against the user's preference.
+    var luminanceObserver: BackdropLuminanceObserver? {
+        didSet {
+            luminanceSubscription?.cancel()
+            luminanceSubscription = luminanceObserver?.$prefersDarkChrome
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in
+                    self?.applyAdaptiveAppearance()
+                }
+            applyAdaptiveAppearance()
+        }
+    }
+
+    private var luminanceSubscription: AnyCancellable?
+
+    private func applyAdaptiveAppearance() {
+        guard let observer = luminanceObserver else {
+            appearance = nil
+            return
+        }
+        let systemIsDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        if systemIsDark {
+            appearance = nil
+            return
+        }
+        appearance = observer.prefersDarkChrome
+            ? NSAppearance(named: .darkAqua)
+            : NSAppearance(named: .aqua)
+    }
 }
 
 /// Sizing bridge between SwiftUI's intrinsic content size and the transparent

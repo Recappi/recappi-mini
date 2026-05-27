@@ -48,6 +48,14 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testSentrySampleRateNormalizationClampsOverrides() {
+        XCTAssertEqual(SentryReporter.normalizedSampleRate(nil, default: 0.05), 0.05)
+        XCTAssertEqual(SentryReporter.normalizedSampleRate("0.1", default: 0.05), 0.1)
+        XCTAssertEqual(SentryReporter.normalizedSampleRate(" 1.7 ", default: 0.05), 1.0)
+        XCTAssertEqual(SentryReporter.normalizedSampleRate("-0.2", default: 0.05), 0.0)
+        XCTAssertEqual(SentryReporter.normalizedSampleRate("nope", default: 0.05), 0.05)
+    }
+
     func testNetworkRequestFingerprintsUsePathAndStatus() {
         let transcript404 = SentryReporter.diagnosticFingerprint(
             level: "error",
@@ -221,24 +229,6 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
-    func testLocalSpeechCancellationDoesNotCaptureSentryErrors() {
-        XCTAssertFalse(
-            SentryReporter.shouldCaptureDiagnosticError(
-                level: "error",
-                category: "live-caption",
-                message: "local_speech.recognition.failed locale=en-US domain=kLSRErrorDomain code=301 message=Recognition request was canceled"
-            )
-        )
-
-        XCTAssertTrue(
-            SentryReporter.shouldCaptureDiagnosticError(
-                level: "error",
-                category: "live-caption",
-                message: "local_speech.recognition.failed locale=en-US domain=kLSRErrorDomain code=1101 message=Speech recognizer is unavailable"
-            )
-        )
-    }
-
     func testSentryUserUsesBackendUserIDWithoutPII() {
         let session = UserSession(
             userId: "user_123",
@@ -269,5 +259,37 @@ final class SentryReporterTests: XCTestCase {
 
         SentryReporter.setUserIdentity(session)
         SentryReporter.clearUserIdentity()
+    }
+
+    func testAppHangTrackingPauseGateReferenceCountsModalAlerts() {
+        var gate = AppHangTrackingPauseGate()
+
+        XCTAssertFalse(gate.isPaused)
+        XCTAssertTrue(gate.pause())
+        XCTAssertTrue(gate.isPaused)
+        XCTAssertFalse(gate.pause())
+        XCTAssertTrue(gate.isPaused)
+        XCTAssertFalse(gate.resume())
+        XCTAssertTrue(gate.isPaused)
+        XCTAssertTrue(gate.resume())
+        XCTAssertFalse(gate.isPaused)
+        XCTAssertFalse(gate.resume())
+        XCTAssertFalse(gate.isPaused)
+    }
+
+    @MainActor
+    func testAppUpdaterUserDriverDelegateForwardsSparkleModalCallbacks() {
+        let delegate = AppUpdaterUserDriverDelegate()
+        var events: [String] = []
+
+        delegate.onWillShowModalAlert = { events.append("pause") }
+        delegate.onDidShowModalAlert = { events.append("resume") }
+        delegate.onWillFinishUpdateSession = { events.append("finish") }
+
+        delegate.standardUserDriverWillShowModalAlert()
+        delegate.standardUserDriverDidShowModalAlert()
+        delegate.standardUserDriverWillFinishUpdateSession()
+
+        XCTAssertEqual(events, ["pause", "resume", "finish"])
     }
 }

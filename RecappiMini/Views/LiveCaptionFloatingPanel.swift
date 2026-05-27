@@ -449,6 +449,7 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private func isPaneStreamSelected(_ stream: PaneStream) -> Bool {
+        let paneVisibility = effectivePaneVisibility
         switch stream {
         case .caption:
             return paneVisibility.showsCaption
@@ -458,11 +459,21 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private func canTogglePaneStream(_ stream: PaneStream) -> Bool {
+        let paneVisibility = effectivePaneVisibility
+        let hasCaption = !sourcePaneSegments.isEmpty
+        let hasTranslation = !translationOnlySegments.isEmpty
+        let hasAnyPaneContent = hasCaption || hasTranslation
         switch stream {
         case .caption:
-            return paneVisibility.showsTranslation || !paneVisibility.showsCaption
+            guard hasAnyPaneContent else {
+                return paneVisibility.showsTranslation || !paneVisibility.showsCaption
+            }
+            return hasCaption && (paneVisibility.showsTranslation || !paneVisibility.showsCaption)
         case .translation:
-            return paneVisibility.showsCaption || !paneVisibility.showsTranslation
+            guard hasAnyPaneContent else {
+                return paneVisibility.showsCaption || !paneVisibility.showsTranslation
+            }
+            return hasTranslation && (paneVisibility.showsCaption || !paneVisibility.showsTranslation)
         }
     }
 
@@ -557,7 +568,7 @@ struct LiveCaptionFloatingPanel: View {
     private var liveCaptionPaneGrid: some View {
         if liveCaptionShowsTranslation {
             VStack(alignment: .leading, spacing: 12) {
-                switch paneVisibility {
+                switch effectivePaneVisibility {
                 case .both:
                     GeometryReader { proxy in
                         let gap: CGFloat = 18
@@ -649,7 +660,7 @@ struct LiveCaptionFloatingPanel: View {
 
     private var liveCaptionDisplayTitle: String {
         guard liveCaptionShowsTranslation else { return "Original" }
-        switch paneVisibility {
+        switch effectivePaneVisibility {
         case .both:
             return "Bilingual"
         case .captionOnly:
@@ -708,6 +719,29 @@ struct LiveCaptionFloatingPanel: View {
                 sequence: segment.sequence
             )
         }
+    }
+
+    private var effectivePaneVisibility: LiveCaptionPaneVisibility {
+        Self.effectivePaneVisibility(
+            requested: paneVisibility,
+            hasCaption: !sourcePaneSegments.isEmpty,
+            hasTranslation: !translationOnlySegments.isEmpty
+        )
+    }
+
+    nonisolated static func effectivePaneVisibility(
+        requested: LiveCaptionPaneVisibility,
+        hasCaption: Bool,
+        hasTranslation: Bool
+    ) -> LiveCaptionPaneVisibility {
+        guard hasCaption || hasTranslation else { return requested }
+        if requested.showsCaption, !hasCaption, hasTranslation {
+            return .translationOnly
+        }
+        if requested.showsTranslation, !hasTranslation, hasCaption {
+            return .captionOnly
+        }
+        return requested
     }
 
     /// True when the recorder has at least one accumulated caption
@@ -788,7 +822,7 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var compactDisplayLine: String {
-        guard liveCaptionShowsTranslation, !paneVisibility.showsCaption else {
+        guard liveCaptionShowsTranslation, !effectivePaneVisibility.showsCaption else {
             return compactCaptionLine
         }
         let compactTranslation = compactLine(from: translationStreamText)

@@ -78,6 +78,84 @@ enum CloudRecordingDisplayStatus: Equatable, Sendable {
     }
 }
 
+enum DoneCloudStatus: Equatable, Sendable {
+    case savedLocally
+    case uploading
+    case synced
+    case pending
+    case queued
+    case transcribing
+    case ready
+    case syncFailed
+    case transcriptionFailed
+
+    static func resolve(
+        cloudEnabled: Bool,
+        autoTranscribeAfterUpload: Bool,
+        manifest: RemoteSessionManifest?,
+        latestJobStatus: RemoteJobStatus?,
+        hasTranscript: Bool
+    ) -> DoneCloudStatus {
+        guard cloudEnabled else { return .savedLocally }
+        guard let manifest, hasCleanID(manifest.recordingId) else { return .savedLocally }
+
+        if let latestJobStatus {
+            switch latestJobStatus {
+            case .queued:
+                return .queued
+            case .running:
+                return .transcribing
+            case .failed:
+                return .transcriptionFailed
+            case .succeeded:
+                return manifest.hasTranscriptReference || hasTranscript ? .ready : .synced
+            }
+        }
+
+        if manifest.hasTranscriptReference || hasTranscript {
+            return .ready
+        }
+
+        switch manifest.stage {
+        case "verifyingSession", "creatingRecording", "completingUpload":
+            return .uploading
+        case "uploadFailed":
+            return .syncFailed
+        case "startingTranscription":
+            return .queued
+        case "fetchingTranscript":
+            return .transcribing
+        case "transcriptionFailed":
+            return .transcriptionFailed
+        case "synced":
+            return autoTranscribeAfterUpload ? .synced : .pending
+        case "done":
+            return .ready
+        default:
+            if hasCleanID(manifest.jobId) {
+                return autoTranscribeAfterUpload ? .queued : .pending
+            }
+            return .synced
+        }
+    }
+
+    var isActive: Bool {
+        switch self {
+        case .uploading, .queued, .transcribing:
+            return true
+        case .savedLocally, .synced, .pending, .ready, .syncFailed, .transcriptionFailed:
+            return false
+        }
+    }
+
+    private static func hasCleanID(_ value: String?) -> Bool {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !value.isEmpty
+    }
+}
+
 struct CloudRecording: Identifiable, Decodable, Equatable, Sendable {
     let id: String
     let userId: String?

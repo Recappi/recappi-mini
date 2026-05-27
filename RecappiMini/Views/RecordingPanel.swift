@@ -10,6 +10,7 @@ struct RecordingPanel: View {
     @ObservedObject private var config = AppConfig.shared
     @State private var visibleProcessingSessionID: UUID?
     @State private var detachProcessingWhenReady = false
+    @State private var latestDoneJobStatusByRecordingID: [String: RemoteJobStatus] = [:]
 
     let onOpenFolder: (URL) -> Void
     let onOpenCloud: () -> Void
@@ -79,8 +80,15 @@ struct RecordingPanel: View {
 
     nonisolated static func contentMinHeight(for state: RecorderState) -> CGFloat? {
         switch state {
-        case .recording, .processing, .done, .error:
+        case .recording, .processing, .error:
             return activeCaptureContentMinHeight
+        case .done:
+            // `.done` is the post-capture toast — DoneState collapsed to
+            // a single ~22pt row, and forcing the 52pt active-capture
+            // height left a large empty strip below the content. Return
+            // nil so PillShellView resizes the NSPanel to the intrinsic
+            // SwiftUI fittingSize and the toast reads as a tight notification.
+            return nil
         case .idle, .starting:
             return nil
         }
@@ -123,9 +131,9 @@ struct RecordingPanel: View {
             DoneState(
                 result: r,
                 canTranscribe: canTranscribe(result: r),
+                cloudStatus: doneCloudStatus(result: r),
                 onTranscribe: { transcribeAndShow(result: r) },
                 onShow: { showInCloud(result: r) },
-                onCopy: { copyTranscript(r) },
                 onNew: { recorder.reset() }
             )
         case .error(let message):
@@ -239,7 +247,10 @@ struct RecordingPanel: View {
                     guard visibleProcessingSessionID == sessionID else { return }
                     recorder.state = .processing(phase)
                 },
-                onCloudRecordingUpdated: onCloudRecordingUpdated,
+                onCloudRecordingUpdated: { recording, job in
+                    rememberLatestJobStatus(recording: recording, job: job)
+                    onCloudRecordingUpdated(recording, job)
+                },
                 onCloudRecordingDeleted: onCloudRecordingDeleted
             )
             if visibleProcessingSessionID == sessionID {
@@ -262,12 +273,14 @@ struct RecordingPanel: View {
                 error: error
             ) {
                 let message = NetworkErrorPresenter.userFacingMessage(for: error)
+                let job = TranscriptionJob.failedRecordingPlaceholder(
+                    recordingID: placeholder.id,
+                    error: message
+                )
+                rememberLatestJobStatus(recording: placeholder, job: job)
                 onCloudRecordingUpdated(
                     placeholder,
-                    TranscriptionJob.failedRecordingPlaceholder(
-                        recordingID: placeholder.id,
-                        error: message
-                    )
+                    job
                 )
             }
             if visibleProcessingSessionID == sessionID {
@@ -299,19 +312,12 @@ struct RecordingPanel: View {
         }
     }
 
-    /// "Copy" in the done state copies the transcript text when available.
-    private func copyTranscript(_ r: RecordingResult) {
-        let body = r.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !body.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(body, forType: .string)
-    }
-
     private func transcribeAndShow(result: RecordingResult) {
         guard let recordingID = cloudRecordingID(for: result) else {
             onOpenCloud()
             return
         }
+        latestDoneJobStatusByRecordingID[recordingID] = .queued
         onTranscribeCloudRecording(recordingID)
     }
 
@@ -327,13 +333,43 @@ struct RecordingPanel: View {
         let transcript = result.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return transcript.isEmpty &&
             cloudRecordingID(for: result) != nil &&
-            !config.recordingAutoTranscribeAfterUpload
+            !config.recordingAutoTranscribeAfterUpload &&
+            doneCloudStatus(result: result) == .pending
+    }
+
+    private func doneCloudStatus(result: RecordingResult) -> DoneCloudStatus {
+        let manifest = RecordingStore.loadRemoteManifest(in: result.folderURL)
+        let recordingID = Self.cleanID(manifest?.recordingId)
+        return DoneCloudStatus.resolve(
+            cloudEnabled: config.cloudEnabled,
+            autoTranscribeAfterUpload: config.recordingAutoTranscribeAfterUpload,
+            manifest: manifest,
+            latestJobStatus: recordingID.flatMap { latestDoneJobStatusByRecordingID[$0] },
+            hasTranscript: hasTranscript(result)
+        )
+    }
+
+    private func hasTranscript(_ result: RecordingResult) -> Bool {
+        guard let transcript = result.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !transcript.isEmpty
     }
 
     private func cloudRecordingID(for result: RecordingResult) -> String? {
-        let id = RecordingStore.loadRemoteManifest(in: result.folderURL)?.recordingId?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return id.isEmpty ? nil : id
+        Self.cleanID(RecordingStore.loadRemoteManifest(in: result.folderURL)?.recordingId)
+    }
+
+    private func rememberLatestJobStatus(recording: CloudRecording, job: TranscriptionJob?) {
+        guard let job else { return }
+        latestDoneJobStatusByRecordingID[recording.id] = job.status
+    }
+
+    private nonisolated static func cleanID(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private func postBackgroundProcessingNotification(for result: RecordingResult) {

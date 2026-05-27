@@ -117,12 +117,6 @@ struct RecordingOptionsButton: View {
                     .accessibilityIdentifier(AccessibilityIDs.Panel.liveCaptionTranslateToggle)
                 }
 
-                if !config.backendRealtimeLiveCaptionsEnabled {
-                    Text("Translation requires backend Realtime captions in Settings.")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(Palette.labelTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             }
 
             optionsSection("Cloud transcription") {
@@ -315,7 +309,7 @@ struct RecordingOptionsButton: View {
     }
 
     private var canConfigureTranslation: Bool {
-        config.liveCaptionsDisplayEnabled && config.backendRealtimeLiveCaptionsEnabled
+        config.liveCaptionsDisplayEnabled
     }
 
     private var liveCaptionDisplayBinding: Binding<Bool> {
@@ -360,7 +354,7 @@ struct RecordingOptionsButton: View {
                     } else {
                         config.liveCaptionsTranslationTargetLanguage =
                             LiveCaptionTranslationTargetLanguageOption.normalizedCode(newValue)
-                        config.liveCaptionsBilingualEnabled = config.backendRealtimeLiveCaptionsEnabled
+                        config.liveCaptionsBilingualEnabled = true
                     }
                 }
             }

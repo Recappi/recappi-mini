@@ -60,7 +60,6 @@ targets:
           - CFBundleURLName: com.recappi.mini.auth
             CFBundleURLSchemes: [recappi]
         NSMicrophoneUsageDescription: "Recappi Mini needs microphone access to record meetings"
-        NSSpeechRecognitionUsageDescription: "Recappi Mini uses speech recognition to show live captions while recording meetings"
         NSAppleEventsUsageDescription: "Recappi Mini reads browser tab URLs and titles to detect meeting pages in Safari, Chrome, Arc, and compatible browsers."
         NSAudioCaptureUsageDescription: "Recappi Mini needs system audio recording access to capture meeting audio from your Mac"
         NSAppTransportSecurity:
@@ -80,7 +79,6 @@ targets:
     dependencies:
       - sdk: ScreenCaptureKit.framework
       - sdk: AVFoundation.framework
-      - sdk: Speech.framework
       - sdk: AuthenticationServices.framework
       - sdk: CoreMedia.framework
       - sdk: Security.framework

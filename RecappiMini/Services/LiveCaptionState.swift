@@ -25,25 +25,20 @@ import Foundation
 ///   transcriber's close handshake hasn't returned yet. After it
 ///   returns the state transitions to `.none`.
 ///
-/// The associated payload is a `LiveCaptionProvider` sum type that
-/// concretely identifies the active provider (the cloud
-/// `RealtimeLiveCaptionActor` or the on-device
-/// `LiveCaptionTranscriber`). Phase 3d removed the previous `Any?`
-/// boxing after deleting the legacy `BackendRealtimeLive-
-/// CaptionTranscriber`.
+/// The associated payload is a `LiveCaptionProvider` sum type that concretely
+/// identifies the active backend provider. Phase 3d removed the previous `Any?`
+/// boxing after deleting the legacy `BackendRealtimeLiveCaptionTranscriber`;
+/// task #186 later made backend Realtime the only production provider.
 ///
 /// `@MainActor` because every read/write is from `AudioRecorder`,
 /// which is itself `@MainActor`.
 
-/// Concrete provider identity for the live-caption pipeline. The cloud
-/// path uses an actor; the on-device path uses the SFSpeechRecognizer-
-/// backed transcriber. A `.testSentinel` case keeps the DEBUG hooks
-/// driving the AudioRecorder restart state machine usable without
-/// standing up real I/O.
+/// Concrete provider identity for the live-caption pipeline. A `.testSentinel`
+/// case keeps the DEBUG hooks driving the AudioRecorder restart state machine
+/// usable without standing up real I/O.
 @MainActor
 enum LiveCaptionProvider {
     case backend(RealtimeLiveCaptionActor)
-    case local(LiveCaptionTranscriber)
 #if DEBUG
     case testSentinel(AnyObject)
 #endif
@@ -56,8 +51,6 @@ enum LiveCaptionProvider {
         switch self {
         case .backend(let actor):
             return ObjectIdentifier(actor)
-        case .local(let transcriber):
-            return ObjectIdentifier(transcriber)
         case .testSentinel(let object):
             return ObjectIdentifier(object)
         }
@@ -70,8 +63,6 @@ enum LiveCaptionProvider {
         switch self {
         case .backend(let actor):
             return actor
-        case .local(let transcriber):
-            return transcriber
         case .testSentinel(let object):
             return object
         }
@@ -86,7 +77,7 @@ enum LiveCaptionProvider {
 /// Testing(_:)`. Closure signatures intentionally mirror the
 /// production helpers (`drainEntriesForTransition`, `stop(saveTo:)`,
 /// `startLiveCaptionProvider`) so a test can drive the same control
-/// flow without standing up real network / speech I/O.
+/// flow without standing up real network I/O.
 @MainActor
 final class StubLiveCaptionLifecycleHooks {
     var drainEntries: (@MainActor (LiveCaptionProvider?) -> [LiveCaptionEntry]) = { _ in [] }
@@ -110,8 +101,7 @@ enum LiveCaptionState {
     /// Convenience accessor used by legacy readers
     /// (`canReconnectLiveCaptions`, `reconnectLiveCaptionsNow`, the
     /// UI test path) that still need the active provider as an
-    /// optional. After Phase 3d the cloud path always carries the
-    /// actor here; the on-device path carries the local transcriber.
+    /// optional. Production now carries only the backend actor here.
     var activeProvider: LiveCaptionProvider? {
         switch self {
         case .none:

@@ -91,6 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private let cloudStore = CloudLibraryStore()
     private let recorder = AudioRecorder()
     private let appUpdater = AppUpdater.shared
+    /// Backdrop-adaptive chrome (#185). One observer is shared by the
+    /// floating panel's SwiftUI chrome; attached after `panel.orderFront`
+    /// so it has a real NSWindow to sample around.
+    private let backdropLuminance = BackdropLuminanceObserver()
     private var openSettingsAction: (() -> Void)?
     private let uiTestMode = UITestModeConfiguration.shared
     private var activityObserver: AnyCancellable?
@@ -269,6 +273,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             }
         )
         hostingView.sizingOptions = [.intrinsicContentSize]
+        // Bind the backdrop observer to the host's NSAppearance so all
+        // appearance-aware tokens flip together (#185). See the comment
+        // on `FloatingPanelHostingView.luminanceObserver`.
+        hostingView.luminanceObserver = backdropLuminance
 
         // AppKit only measures and hosts; SwiftUI owns the rounded chrome,
         // shadow, and show/hide motion so panel transitions stay compositor-friendly.
@@ -278,6 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         panel.delegate = self
         FloatingPanelController.positionAtTopRight(panel, width: pillWidth, height: 56)
         panel.orderFrontRegardless()
+        backdropLuminance.attach(to: panel)
 
         self.panel = panel
         syncPanelVisibility()
@@ -338,6 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     func applicationWillTerminate(_ notification: Notification) {
         DiagnosticsLog.event("app", "lifecycle.terminate")
+        backdropLuminance.detach()
         activePromptRefreshTask?.cancel()
         browserAutoPromptTask?.cancel()
         hiddenPanelAutoPromptTask?.cancel()
@@ -894,6 +904,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         }
 
         switch state {
+        case "idle":
+            recorder.state = .idle
+
+        case "recording":
+            recorder.state = .recording
+            recorder.elapsedSeconds = 47
+
         case "processing":
             recorder.state = .processing(.polling(jobStatus: "summarizing"))
 

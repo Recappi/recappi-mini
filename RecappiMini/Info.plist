@@ -18,8 +18,6 @@
     <integer>86400</integer>
     <key>NSMicrophoneUsageDescription</key>
     <string>Recappi Mini needs microphone access to record meetings</string>
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Recappi Mini uses speech recognition to show live captions while recording meetings</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Recappi Mini reads browser tab URLs and titles to detect meeting pages in Safari, Chrome, Arc, and compatible browsers.</string>
     <key>NSAudioCaptureUsageDescription</key>

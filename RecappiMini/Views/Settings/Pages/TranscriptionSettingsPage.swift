@@ -16,16 +16,7 @@ struct TranscriptionSettingsPage: View {
                 }
                 .accessibilityIdentifier(AccessibilityIDs.Settings.speechLanguagePicker)
             } footer: {
-                Text("Live Captions are an optional floating display while recording. Speech language is also used for cloud transcription because Apple Speech cannot reliably auto-detect spoken language.")
-                    .foregroundStyle(Palette.labelSecondary)
-                    .font(.footnote)
-            }
-
-            Section {
-                Toggle("Use backend Realtime captions", isOn: backendRealtimeBinding)
-                    .accessibilityIdentifier(AccessibilityIDs.Settings.backendRealtimeLiveCaptionsToggle)
-            } footer: {
-                Text("Experimental. When enabled, Recappi streams live caption audio through the authenticated backend Realtime WebSocket instead of Apple Speech.")
+                Text("Live Captions are an optional floating display while recording. Speech language is used for cloud transcription and backend Realtime captions.")
                     .foregroundStyle(Palette.labelSecondary)
                     .font(.footnote)
             }
@@ -33,17 +24,16 @@ struct TranscriptionSettingsPage: View {
             Section {
                 Toggle("Bilingual captions (original + translation)", isOn: bilingualBinding)
                     .accessibilityIdentifier(AccessibilityIDs.Settings.liveCaptionsBilingualToggle)
-                    .disabled(!config.backendRealtimeLiveCaptionsEnabled)
 
                 Picker("Translation target language", selection: bilingualTargetLanguageBinding) {
                     ForEach(LiveCaptionTranslationTargetLanguageOption.common) { option in
                         Text(option.title).tag(option.id)
                     }
                 }
-                .disabled(!config.backendRealtimeLiveCaptionsEnabled || !config.liveCaptionsBilingualEnabled)
+                .disabled(!config.liveCaptionsBilingualEnabled)
                 .accessibilityIdentifier(AccessibilityIDs.Settings.liveCaptionsBilingualTargetLanguagePicker)
             } footer: {
-                Text("When enabled, the live caption panel renders both the original transcript and a translation in the target language. Requires backend Realtime captions and uses OpenAI's translation Realtime endpoint.")
+                Text("When enabled, the live caption panel renders both the original transcript and a translation in the target language through backend Realtime.")
                     .foregroundStyle(Palette.labelSecondary)
                     .font(.footnote)
             }
@@ -67,13 +57,6 @@ struct TranscriptionSettingsPage: View {
                 config.liveCaptionsDisplayEnabled = $0
                 AppDelegate.shared.applyLiveCaptionDisplayPreference()
             }
-        )
-    }
-
-    private var backendRealtimeBinding: Binding<Bool> {
-        Binding(
-            get: { config.backendRealtimeLiveCaptionsEnabled },
-            set: { config.backendRealtimeLiveCaptionsEnabled = $0 }
         )
     }
 

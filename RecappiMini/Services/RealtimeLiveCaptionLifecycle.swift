@@ -1145,9 +1145,18 @@ actor RealtimeLiveCaptionActor {
                             "type='\(Self.tagString(evt.serverType))' code='\(Self.tagString(evt.serverCode))' message='\(DiagnosticsLog.sanitize(evt.message, maxLength: 240))'"
                         )
                     }
+                    let elapsedMs = sinceOpenMs()
                     trace(
                         "ws.drop",
-                        "code=\(socket.closeCode) reason='\(Self.closeReasonString(socket.closeReason))' sinceOpenMs=\(sinceOpenMs()) cause=server.error"
+                        "code=\(socket.closeCode) reason='\(Self.closeReasonString(socket.closeReason))' sinceOpenMs=\(elapsedMs) cause=server.error"
+                    )
+                    recordWebSocketFailure(
+                        cause: "server.error",
+                        error: serverError,
+                        closeCode: socket.closeCode,
+                        closeReason: socket.closeReason,
+                        generation: generation,
+                        sinceOpenMs: elapsedMs
                     )
                     await scheduleReconnect(after: serverError, attempt: 1)
                     return
@@ -1173,14 +1182,23 @@ actor RealtimeLiveCaptionActor {
                 // the legacy class's `isTerminalCloseCode` semantics.
                 let rawCode = socket.closeCode
                 let errDescription = DiagnosticsLog.sanitize(String(describing: error), maxLength: 240)
+                let elapsedMs = sinceOpenMs()
                 trace(
                     "ws.drop",
-                    "code=\(rawCode) reason='\(Self.closeReasonString(socket.closeReason))' sinceOpenMs=\(sinceOpenMs()) cause=receive.throw err='\(errDescription)'"
+                    "code=\(rawCode) reason='\(Self.closeReasonString(socket.closeReason))' sinceOpenMs=\(elapsedMs) cause=receive.throw err='\(errDescription)'"
                 )
                 if Self.isTerminalCloseCode(rawCode) {
                     await transitionToTerminalStop(rawCode: rawCode, reason: socket.closeReason)
                     return
                 }
+                recordWebSocketFailure(
+                    cause: "receive.throw",
+                    error: error,
+                    closeCode: rawCode,
+                    closeReason: socket.closeReason,
+                    generation: generation,
+                    sinceOpenMs: elapsedMs
+                )
                 await scheduleReconnect(after: error, attempt: 1)
                 return
             }
@@ -1194,6 +1212,31 @@ actor RealtimeLiveCaptionActor {
         guard let openedAt = liveOpenedAt else { return 0 }
         let elapsed = Date().timeIntervalSince(openedAt)
         return max(0, Int(elapsed * 1000))
+    }
+
+    private func recordWebSocketFailure(
+        cause: String,
+        error: Error,
+        closeCode: Int,
+        closeReason: Data?,
+        generation: Int,
+        sinceOpenMs: Int
+    ) {
+        var parts = [
+            "ws.failed",
+            "mode=\(Self.modeLabel(mode))",
+            "sessionId=\(lastClaimedSessionId ?? "unknown")",
+            "generation=\(generation)",
+            "sinceOpenMs=\(sinceOpenMs)",
+            "cause=\(cause)",
+            "closeCode=\(closeCode)",
+        ]
+        let reason = Self.closeReasonString(closeReason)
+        if !reason.isEmpty {
+            parts.append("reason='\(reason)'")
+        }
+        parts.append(DiagnosticsLog.errorSummary(error))
+        DiagnosticsLog.error("live-caption", parts.joined(separator: " "))
     }
 
     /// Decode the optional close-reason payload into a sanitized

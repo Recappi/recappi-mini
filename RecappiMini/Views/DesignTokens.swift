@@ -453,11 +453,12 @@ struct DarkChipButtonStyle: ButtonStyle {
 /// pulls its fill from `Palette.surfaceChip` so it adapts to light/dark.
 struct PanelPushButtonStyle: ButtonStyle {
     var primary: Bool = false
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12))
-            .foregroundStyle(primary ? Color.black.opacity(0.88) : Palette.labelPrimary)
+            .foregroundStyle(primaryForegroundColor)
             .frame(maxWidth: .infinity)
             .frame(height: 22)
             .background(
@@ -479,5 +480,10 @@ struct PanelPushButtonStyle: ButtonStyle {
                     .stroke(primary ? Color.white.opacity(0.18) : Palette.borderHairline, lineWidth: 0.5)
             )
             .opacity(configuration.isPressed ? 0.85 : 1.0)
+    }
+
+    private var primaryForegroundColor: Color {
+        guard primary else { return Palette.labelPrimary }
+        return colorScheme == .dark ? Color.black.opacity(0.88) : Color.white
     }
 }

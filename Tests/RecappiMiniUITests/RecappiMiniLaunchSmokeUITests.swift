@@ -363,6 +363,34 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         XCTAssertTrue(translationViewport.exists, "Translation stream should remain visible after hiding captions.")
     }
 
+    func testLiveCaptionsBilingualPanelFallsBackWhenSourceStreamIsEmpty() throws {
+        let translationText = "只有翻译流先返回时，字幕面板应该先全宽显示翻译内容。"
+
+        let app = launchRecappiApp(
+            authToken: "invalid-test-token",
+            simulatedLiveCaptionTranslationText: translationText
+        )
+
+        startFixtureRecording(in: app, showTranslation: true)
+
+        let translationViewport = app.scrollViews[UITestIDs.Cloud.currentMeetingTranslationViewport]
+        XCTAssertTrue(translationViewport.waitForExistence(timeout: 10), "Expected translation viewport to stay visible.")
+
+        let translation = uiElement(app, id: UITestIDs.Cloud.currentMeetingTranslation)
+        let renderedTranslationText = [translation.label, translation.value as? String]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+        XCTAssertTrue(renderedTranslationText.contains(translationText))
+
+        let captionViewport = app.scrollViews[UITestIDs.Cloud.currentMeetingCaptionViewport]
+        XCTAssertFalse(captionViewport.exists, "Source placeholder should not reserve the left pane when the source stream is empty.")
+        XCTAssertGreaterThanOrEqual(
+            translationViewport.frame.width,
+            430,
+            "Translation-only fallback should use the expanded panel width."
+        )
+    }
+
     func testLiveCaptionsExpandedPanelFitsMediumCaptionGeometry() throws {
         let mediumCaption = """
         这一期我们声港的地方我要去一个特别的很多观众都知道，过去几年瞬间消息主要关注的一个方向就是医药健康领域经常提到虽然创新那种研发还是美国主导的。但药品原料粉末中国早就占据了大头。

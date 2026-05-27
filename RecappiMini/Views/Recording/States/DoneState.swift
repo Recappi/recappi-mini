@@ -5,71 +5,90 @@ struct DoneState: View {
         static let iconSize: CGFloat = 16
         static let iconGap: CGFloat = 7
         static let actionHeight: CGFloat = 22
-        static let leadingActionInset = iconSize + iconGap
-        static let trailingColumnWidth: CGFloat = 58
     }
 
     let result: RecordingResult
     var canTranscribe: Bool = false
+    /// Per-recording cloud lifecycle. `nil` collapses the status pill
+    /// (e.g. when the cloud / auto-transcribe feature flag is off). The
+    /// resolver lives in RecordingPanel; this view never derives it.
+    var cloudStatus: DoneCloudStatus? = nil
     var onTranscribe: () -> Void = {}
     var onShow: () -> Void
-    var onCopy: () -> Void
     var onNew: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: Metrics.iconGap) {
+        HStack(alignment: .center, spacing: 6) {
+            // Leading slot — when a cloud status is present, its
+            // per-state icon carries the visual signal (uploading arrow /
+            // hourglass / waveform / etc.) so the static ✓ would just
+            // duplicate. When status is `nil` (cloud disabled / flag-off)
+            // we fall back to a single ✓ so the toast still reads "done".
+            if let status = cloudStatus {
+                Image(systemName: status.displayIcon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .symbolEffect(.pulse, options: .repeating, isActive: status.isActive)
+                    .contentTransition(.symbolEffect(.replace))
+                    .foregroundStyle(statusColor(status))
+                    .frame(width: Metrics.iconSize, height: Metrics.iconSize)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.doneTitle)
+                    .accessibilityLabel("Meeting saved · \(status.displayText)")
+
+                Text(status.displayText)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(statusColor(status))
+                    .contentTransition(.opacity)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .layoutPriority(1)
+
+                separator
+            } else {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(DT.statusReady)
                     .frame(width: Metrics.iconSize, height: Metrics.iconSize)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Meeting saved")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(Color.dtLabel)
-                        .accessibilityIdentifier(AccessibilityIDs.Panel.doneTitle)
-                    Text(statusSubtitle)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(Color.dtLabelTertiary)
-                }
-
-                Spacer(minLength: 0)
-
-                Text(formatTime(result.duration))
-                    .font(.system(size: 11, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.dtLabelSecondary)
-                    .frame(width: Metrics.trailingColumnWidth, alignment: .trailing)
+                    .accessibilityIdentifier(AccessibilityIDs.Panel.doneTitle)
+                    .accessibilityLabel("Meeting saved")
             }
 
-            HStack(spacing: 8) {
-                Color.clear
-                    .frame(width: Metrics.leadingActionInset, height: Metrics.actionHeight)
+            Text(formatTime(result.duration))
+                .font(.system(size: 11, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(Color.dtLabelTertiary)
 
-                primaryActionChip
+            Spacer(minLength: 10)
 
-                if hasTranscript {
-                    quietLink(title: "Copy", action: onCopy)
-                }
+            primaryActionChip
 
-                Spacer(minLength: 0)
+            trailingQuietLink(title: "Dismiss", action: onNew)
+        }
+        .frame(height: Metrics.actionHeight)
+        .padding(.leading, 2)
+        .animation(.smooth(duration: 0.28), value: cloudStatus)
+    }
 
-                trailingQuietLink(title: "Dismiss", action: onNew)
-            }
+    private func statusColor(_ status: DoneCloudStatus) -> Color {
+        switch status {
+        case .ready, .synced:
+            return DT.statusReady
+        case .syncFailed, .transcriptionFailed:
+            return Color(red: 0.95, green: 0.46, blue: 0.32)
+        case .savedLocally, .uploading, .pending, .queued, .transcribing:
+            return Color.dtLabelSecondary
         }
     }
 
-    private var statusSubtitle: String {
-        canTranscribe
-            ? "Uploaded to Cloud · transcript pending"
-            : "Ready in Recappi Cloud"
+    private var separator: some View {
+        Text("·")
+            .font(.system(size: 11))
+            .foregroundStyle(Color.dtLabelTertiary)
     }
 
     private var primaryActionChip: some View {
         Button(action: canTranscribe ? onTranscribe : onShow) {
             HStack(spacing: 5) {
-                Text(canTranscribe ? "Transcribe in Cloud" : "View in Cloud")
+                Text(canTranscribe ? "Transcribe" : "View")
                     .font(.system(size: 11, weight: .semibold))
                 Image(systemName: "arrow.right")
                     .font(.system(size: 9, weight: .bold))
@@ -88,7 +107,7 @@ struct DoneState: View {
         .accessibilityIdentifier(canTranscribe ? AccessibilityIDs.Panel.transcribeButton : AccessibilityIDs.Panel.showButton)
     }
 
-    private func quietLink(title: String, action: @escaping () -> Void) -> some View {
+    private func trailingQuietLink(title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 10.5, weight: .medium))
@@ -100,24 +119,42 @@ struct DoneState: View {
         .buttonStyle(.plain)
     }
 
-    private func trailingQuietLink(title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(Color.dtLabelSecondary)
-                .frame(width: Metrics.trailingColumnWidth, height: Metrics.actionHeight, alignment: .trailing)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var hasTranscript: Bool {
-        result.transcript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    }
-
     private func formatTime(_ seconds: Int) -> String {
         let h = seconds / 3600, m = (seconds % 3600) / 60, s = seconds % 60
         if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
         return String(format: "%02d:%02d", m, s)
+    }
+}
+
+// Icon + copy mapping live with the view, not on the shared model.
+// Per @Mini's boundary lock: shared `DoneCloudStatus` carries state truth
+// (cases + `isActive`); choosing the SF Symbol and the user-facing label
+// is visual strategy and changes on style iteration alone.
+private extension DoneCloudStatus {
+    var displayText: String {
+        switch self {
+        case .savedLocally: return "Local"
+        case .uploading: return "Uploading"
+        case .synced: return "Synced"
+        case .pending: return "Pending"
+        case .queued: return "Queued"
+        case .transcribing: return "Transcribing"
+        case .ready: return "Ready"
+        case .syncFailed: return "Sync failed"
+        case .transcriptionFailed: return "Failed"
+        }
+    }
+
+    var displayIcon: String {
+        switch self {
+        case .savedLocally: return "internaldrive"
+        case .uploading: return "arrow.up.circle"
+        case .synced: return "checkmark.circle.fill"
+        case .pending: return "hourglass"
+        case .queued: return "clock.arrow.circlepath"
+        case .transcribing: return "waveform"
+        case .ready: return "checkmark.circle.fill"
+        case .syncFailed, .transcriptionFailed: return "exclamationmark.triangle.fill"
+        }
     }
 }

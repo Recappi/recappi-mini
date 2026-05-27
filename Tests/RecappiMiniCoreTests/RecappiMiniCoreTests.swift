@@ -884,6 +884,24 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(transcript.segments.count, 2)
     }
 
+    func testTranscriptResponsePrefersSegmentsOverPollutedTopLevelText() throws {
+        let data = """
+        {
+          "id": "tr_123",
+          "text": "Meeting summary: This is not the verbatim transcript. [Transcript]: teaser",
+          "segments": [
+            { "startMs": 0, "endMs": 900, "text": "真实逐字稿第一句。" },
+            { "startMs": 900, "endMs": 1800, "text": "真实逐字稿第二句。" }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let transcript = try JSONDecoder().decode(TranscriptResponse.self, from: data)
+
+        XCTAssertEqual(transcript.text, "真实逐字稿第一句。\n真实逐字稿第二句。")
+        XCTAssertFalse(transcript.text.contains("Meeting summary"))
+    }
+
     func testTranscriptResponseNormalizesSecondBasedSegmentsForPlayback() throws {
         let data = """
         {
@@ -1184,6 +1202,124 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(
             CloudRecordingDisplayStatus.resolve(recordingStatus: .ready, latestJobStatus: .succeeded),
             .recording(.ready)
+        )
+    }
+
+    func testDoneCloudStatusResolvesFeatureAndManifestStates() {
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: false,
+                autoTranscribeAfterUpload: true,
+                manifest: makeRemoteManifest(stage: "synced"),
+                latestJobStatus: nil,
+                hasTranscript: false
+            ),
+            .savedLocally
+        )
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: true,
+                manifest: nil,
+                latestJobStatus: nil,
+                hasTranscript: false
+            ),
+            .savedLocally
+        )
+
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: true,
+                manifest: makeRemoteManifest(stage: "synced"),
+                latestJobStatus: nil,
+                hasTranscript: false
+            ),
+            .synced
+        )
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: false,
+                manifest: makeRemoteManifest(stage: "synced"),
+                latestJobStatus: nil,
+                hasTranscript: false
+            ),
+            .pending
+        )
+
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: true,
+                manifest: makeRemoteManifest(stage: "completingUpload"),
+                latestJobStatus: nil,
+                hasTranscript: false
+            ),
+            .uploading
+        )
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: true,
+                manifest: makeRemoteManifest(stage: "startingTranscription", jobId: "job_123"),
+                latestJobStatus: nil,
+                hasTranscript: false
+            ),
+            .queued
+        )
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: true,
+                manifest: makeRemoteManifest(stage: "fetchingTranscript", jobId: "job_123"),
+                latestJobStatus: nil,
+                hasTranscript: false
+            ),
+            .transcribing
+        )
+    }
+
+    func testDoneCloudStatusPrefersTranscriptAndLatestJob() {
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: true,
+                manifest: makeRemoteManifest(stage: "synced", transcriptId: "tr_123"),
+                latestJobStatus: nil,
+                hasTranscript: false
+            ),
+            .ready
+        )
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: true,
+                manifest: makeRemoteManifest(stage: "synced"),
+                latestJobStatus: .running,
+                hasTranscript: false
+            ),
+            .transcribing
+        )
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: true,
+                manifest: makeRemoteManifest(stage: "synced"),
+                latestJobStatus: .failed,
+                hasTranscript: false
+            ),
+            .transcriptionFailed
+        )
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: true,
+                manifest: makeRemoteManifest(stage: "uploadFailed"),
+                latestJobStatus: nil,
+                hasTranscript: false
+            ),
+            .syncFailed
         )
     }
 
@@ -1888,6 +2024,20 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(config.normalizedCloudLanguage, "en")
     }
 
+    @MainActor
+    func testBackendRealtimeLiveCaptionsAreForcedOn() {
+        let key = "backendRealtimeLiveCaptionsEnabled"
+        UserDefaults.standard.set(false, forKey: key)
+        defer { UserDefaults.standard.set(true, forKey: key) }
+
+        let config = AppConfig.shared
+        XCTAssertTrue(config.backendRealtimeLiveCaptionsEnabled)
+
+        config.backendRealtimeLiveCaptionsEnabled = false
+        XCTAssertTrue(config.backendRealtimeLiveCaptionsEnabled)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: key))
+    }
+
     func testRemoteManifestRoundTrip() throws {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -2346,6 +2496,67 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertGreaterThan(constrained.maxY, screenFrame.maxY)
     }
 
+    func testFloatingPanelSkipsPassthroughRefreshDuringDragEvents() {
+        XCTAssertFalse(FloatingPanel.shouldRefreshMousePassthrough(for: .leftMouseDragged))
+        XCTAssertFalse(FloatingPanel.shouldRefreshMousePassthrough(for: .rightMouseDragged))
+        XCTAssertFalse(FloatingPanel.shouldRefreshMousePassthrough(for: .otherMouseDragged))
+
+        XCTAssertTrue(FloatingPanel.shouldRefreshMousePassthrough(for: .mouseMoved))
+        XCTAssertTrue(FloatingPanel.shouldRefreshMousePassthrough(for: .leftMouseDown))
+        XCTAssertTrue(FloatingPanel.shouldRefreshMousePassthrough(for: .leftMouseUp))
+    }
+
+    func testLiveCaptionPaneVisibilityFallsBackToAvailableStream() {
+        XCTAssertEqual(
+            LiveCaptionFloatingPanel.effectivePaneVisibility(
+                requested: .both,
+                hasCaption: false,
+                hasTranslation: true
+            ),
+            .translationOnly
+        )
+        XCTAssertEqual(
+            LiveCaptionFloatingPanel.effectivePaneVisibility(
+                requested: .both,
+                hasCaption: true,
+                hasTranslation: false
+            ),
+            .captionOnly
+        )
+        XCTAssertEqual(
+            LiveCaptionFloatingPanel.effectivePaneVisibility(
+                requested: .both,
+                hasCaption: false,
+                hasTranslation: false
+            ),
+            .both
+        )
+        XCTAssertEqual(
+            LiveCaptionFloatingPanel.effectivePaneVisibility(
+                requested: .captionOnly,
+                hasCaption: false,
+                hasTranslation: false
+            ),
+            .captionOnly
+        )
+        XCTAssertEqual(
+            LiveCaptionFloatingPanel.effectivePaneVisibility(
+                requested: .translationOnly,
+                hasCaption: false,
+                hasTranslation: false
+            ),
+            .translationOnly
+        )
+        XCTAssertEqual(
+            LiveCaptionFloatingPanel.effectivePaneVisibility(
+                requested: .both,
+                hasCaption: true,
+                hasTranslation: true
+            ),
+            .both
+        )
+    }
+
     @MainActor
     func testFloatingPanelResizeKeepsTopEdgeAnchored() {
         let frame = NSRect(x: 100, y: 200, width: 320, height: 120)
@@ -2378,7 +2589,7 @@ final class RecappiMiniCoreTests: XCTestCase {
                 transcript: nil,
                 duration: 74
             ))),
-            RecordingPanel.activeCaptureContentMinHeight
+            nil
         )
         XCTAssertEqual(
             RecordingPanel.contentMinHeight(for: .error(message: "Cloud session expired.")),
@@ -3473,6 +3684,19 @@ final class RecappiMiniCoreTests: XCTestCase {
             uiTestModeForcesOnboarding: false,
             uiTestModeSuppressesOnboarding: true
         ))
+    }
+
+    private func makeRemoteManifest(
+        stage: String,
+        recordingId: String? = "rec_123",
+        jobId: String? = nil,
+        transcriptId: String? = nil
+    ) -> RemoteSessionManifest {
+        var manifest = RemoteSessionManifest.stage(stage)
+        manifest.recordingId = recordingId
+        manifest.jobId = jobId
+        manifest.transcriptId = transcriptId
+        return manifest
     }
 
     private static func makeStubbedAPIClient(

@@ -34,6 +34,7 @@ enum SentryReporter {
             options.enableAppHangTracking = true
             options.appHangTimeoutInterval = 2.0
             options.swiftAsyncStacktraces = true
+            options.tracesSampleRate = NSNumber(value: configuration.traceSampleRate)
             options.enableCaptureFailedRequests = false
             options.enableMetrics = false
             #if os(macOS)
@@ -46,11 +47,20 @@ enum SentryReporter {
             options.enableMetricKit = true
             options.enableMetricKitRawPayload = false
             #endif
+            #if !(os(watchOS) || os(tvOS) || os(visionOS))
+            if configuration.profileSessionSampleRate > 0 {
+                options.configureProfiling = { profiling in
+                    profiling.lifecycle = .manual
+                    profiling.sessionSampleRate = Float(configuration.profileSessionSampleRate)
+                    profiling.profileAppStarts = false
+                }
+            }
+            #endif
 
-            // Keep this crash/error focused. Recappi already writes local
-            // diagnostics for high-volume runtime details, so we avoid Sentry
-            // tracing/swizzling that could add CPU cost or leak raw URLs.
-            options.enableAutoPerformanceTracing = false
+            // Keep high-volume auto instrumentation constrained. Recappi uses
+            // a low trace/profiling sample rate for jank investigation, while
+            // URL/file details stay in the local DiagnosticsLog-safe pipeline.
+            options.enableAutoPerformanceTracing = configuration.traceSampleRate > 0
             options.enableNetworkTracking = false
             options.enableNetworkBreadcrumbs = false
             options.enableFileIOTracing = false
@@ -63,6 +73,7 @@ enum SentryReporter {
         }
 
         state.markEnabled(SentrySDK.isEnabled)
+        startProfilerIfNeeded(configuration)
         configureBaseScope(configuration)
     }
 
@@ -94,6 +105,22 @@ enum SentryReporter {
             SentrySDK.setUser(nil)
         }
         DiagnosticsLog.event("sentry", "user.cleared")
+    }
+
+    static func pauseAppHangTrackingForExpectedModal(reason: String) {
+        guard state.pauseExpectedModalAppHangTracking() else { return }
+        if state.isEnabledForCurrentProcess, SentrySDK.isEnabled {
+            SentrySDK.pauseAppHangTracking()
+        }
+        DiagnosticsLog.event("sentry", "app_hang_tracking.pause reason=\(reason)")
+    }
+
+    static func resumeAppHangTrackingForExpectedModal(reason: String) {
+        guard state.resumeExpectedModalAppHangTracking() else { return }
+        if state.isEnabledForCurrentProcess, SentrySDK.isEnabled {
+            SentrySDK.resumeAppHangTracking()
+        }
+        DiagnosticsLog.event("sentry", "app_hang_tracking.resume reason=\(reason)")
     }
 
     static func sentryUser(for session: UserSession) -> User {
@@ -216,6 +243,16 @@ enum SentryReporter {
         DiagnosticTelemetry(level: level, category: category, message: message).fingerprint
     }
 
+    static func normalizedSampleRate(_ value: String?, default defaultValue: Double) -> Double {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return clampedSampleRate(defaultValue)
+        }
+        guard let parsed = Double(value), parsed.isFinite else {
+            return clampedSampleRate(defaultValue)
+        }
+        return clampedSampleRate(parsed)
+    }
+
     private static func addBreadcrumb(_ telemetry: DiagnosticTelemetry) {
         let breadcrumb = Breadcrumb(
             level: sentryLevel(for: telemetry.level),
@@ -275,6 +312,8 @@ enum SentryReporter {
                     "version": configuration.version,
                     "build": configuration.build,
                     "release": configuration.releaseName,
+                    "trace_sample_rate": String(configuration.traceSampleRate),
+                    "profile_session_sample_rate": String(configuration.profileSessionSampleRate),
                 ],
                 key: "recappi_app"
             )
@@ -323,6 +362,22 @@ enum SentryReporter {
         }
         return Int(hash & 0x7fff_ffff)
     }
+
+    private static func clampedSampleRate(_ value: Double) -> Double {
+        min(1, max(0, value))
+    }
+
+    private static func startProfilerIfNeeded(_ configuration: ReporterConfiguration) {
+        guard state.isEnabledForCurrentProcess, SentrySDK.isEnabled else { return }
+        guard configuration.profileSessionSampleRate > 0 else { return }
+        #if !(os(watchOS) || os(tvOS) || os(visionOS))
+        SentrySDK.startProfiler()
+        DiagnosticsLog.event(
+            "sentry",
+            "profiler.start sampleRate=\(configuration.profileSessionSampleRate) traceSampleRate=\(configuration.traceSampleRate)"
+        )
+        #endif
+    }
 }
 
 private struct DiagnosticTelemetry {
@@ -355,9 +410,6 @@ private struct DiagnosticTelemetry {
             return false
         }
         if isExpectedRealtimeClaimRateLimit {
-            return false
-        }
-        if isExpectedLocalSpeechCancellation {
             return false
         }
         return true
@@ -414,13 +466,6 @@ private struct DiagnosticTelemetry {
         default:
             return false
         }
-    }
-
-    private var isExpectedLocalSpeechCancellation: Bool {
-        category == "live-caption"
-            && operation == "local_speech.recognition.failed"
-            && fields["domain"] == "kLSRErrorDomain"
-            && fields["code"] == "301"
     }
 
     var fingerprint: [String] {
@@ -513,6 +558,8 @@ private struct ReporterConfiguration: Equatable {
     let build: String
     let bundleIdentifier: String
     let debug: Bool
+    let traceSampleRate: Double
+    let profileSessionSampleRate: Double
 
     var releaseName: String {
         "\(bundleIdentifier)@\(version)+\(build)"
@@ -538,13 +585,23 @@ private struct ReporterConfiguration: Equatable {
             ?? (bundle.object(forInfoDictionaryKey: "SentryEnvironment") as? String)
             ?? "production"
         let debug = environment["RECAPPI_SENTRY_DEBUG"] == "1"
+        let traceSampleRate = SentryReporter.normalizedSampleRate(
+            environment["RECAPPI_SENTRY_TRACE_SAMPLE_RATE"] ?? environment["SENTRY_TRACES_SAMPLE_RATE"],
+            default: 0.05
+        )
+        let profileSessionSampleRate = SentryReporter.normalizedSampleRate(
+            environment["RECAPPI_SENTRY_PROFILE_SAMPLE_RATE"] ?? environment["SENTRY_PROFILES_SAMPLE_RATE"],
+            default: 0.10
+        )
         return ReporterConfiguration(
             dsn: dsn,
             environment: sentryEnvironment,
             version: version,
             build: build,
             bundleIdentifier: bundleIdentifier,
-            debug: debug
+            debug: debug,
+            traceSampleRate: traceSampleRate,
+            profileSessionSampleRate: profileSessionSampleRate
         )
     }
 }
@@ -584,6 +641,7 @@ private final class ReporterState: @unchecked Sendable {
     private var disabledReason: String?
     private var configuration: ReporterConfiguration?
     private var recordingContext = RecordingContextSnapshot()
+    private var appHangPauseGate = AppHangTrackingPauseGate()
 
     var isEnabledForCurrentProcess: Bool {
         lock.withLock { enabled }
@@ -611,6 +669,14 @@ private final class ReporterState: @unchecked Sendable {
             enabled = false
             disabledReason = reason
         }
+    }
+
+    func pauseExpectedModalAppHangTracking() -> Bool {
+        lock.withLock { appHangPauseGate.pause() }
+    }
+
+    func resumeExpectedModalAppHangTracking() -> Bool {
+        lock.withLock { appHangPauseGate.resume() }
     }
 
     func updateRecordingContext(from telemetry: DiagnosticTelemetry) -> RecordingContextSnapshot? {
@@ -649,6 +715,25 @@ private final class ReporterState: @unchecked Sendable {
 
     func recordingContextSnapshot() -> RecordingContextSnapshot {
         lock.withLock { recordingContext }
+    }
+}
+
+struct AppHangTrackingPauseGate: Equatable {
+    private(set) var depth = 0
+
+    var isPaused: Bool {
+        depth > 0
+    }
+
+    mutating func pause() -> Bool {
+        depth += 1
+        return depth == 1
+    }
+
+    mutating func resume() -> Bool {
+        guard depth > 0 else { return false }
+        depth -= 1
+        return depth == 0
     }
 }
 

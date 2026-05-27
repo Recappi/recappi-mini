@@ -60,6 +60,12 @@ struct UITestModeConfiguration {
     /// window in their way.
     let suppressOnboardingForTesting: Bool
 
+    /// Pin `BackdropLuminanceObserver.prefersDarkChrome` for screenshot
+    /// fixtures so #185 dark-chrome rendering can be captured without
+    /// physically dragging the panel over a dark window. Strictly a
+    /// regression / screenshot helper — bypasses real luminance sampling.
+    let forceAdaptiveDarkChromeForTesting: Bool
+
     private init(processInfo: ProcessInfo = .processInfo) {
         let env = processInfo.environment
         let args = Set(processInfo.arguments)
@@ -80,6 +86,7 @@ struct UITestModeConfiguration {
         perfLogEnabled = env["RECAPPI_PERF_LOG"] == "1"
         forceOnboardingForTesting = env["RECAPPI_TEST_FORCE_ONBOARDING"] == "1"
         suppressOnboardingForTesting = env["RECAPPI_TEST_SUPPRESS_ONBOARDING"] == "1"
+        forceAdaptiveDarkChromeForTesting = env["RECAPPI_TEST_FORCE_ADAPTIVE_DARK_CHROME"] == "1"
         if let rawSnooze = env["RECAPPI_TEST_HIDDEN_AUTOPROMPT_SNOOZE_SECONDS"],
            let parsedSnooze = TimeInterval(rawSnooze) {
             hiddenAutoPromptSnoozeSeconds = max(parsedSnooze, 0)

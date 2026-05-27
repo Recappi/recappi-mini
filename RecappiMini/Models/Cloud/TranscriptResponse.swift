@@ -34,7 +34,7 @@ struct TranscriptResponse: Decodable, Equatable, Sendable {
         )
 
         let decodedText = try container.decodeIfPresent(String.self, forKey: .text)
-        text = decodedText ?? segments.map(\.text).joined(separator: "\n")
+        text = Self.textFromSegments(segments) ?? decodedText ?? ""
         summaryStatus = try container.decodeIfPresent(TranscriptSummaryStatus.self, forKey: .summaryStatus)
 
         let decodedSummaryInsights = try container.decodeIfPresent(TranscriptSummaryInsights.self, forKey: .summaryInsights)
@@ -83,6 +83,13 @@ struct TranscriptResponse: Decodable, Equatable, Sendable {
     private static func nonEmpty(_ values: [String]?) -> [String]? {
         guard let values, !values.isEmpty else { return nil }
         return values
+    }
+
+    private static func textFromSegments(_ segments: [TranscriptSegment]) -> String? {
+        let lines = segments
+            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
     private static func normalizeSegmentTimeline(_ segments: [TranscriptSegment]) -> [TranscriptSegment] {

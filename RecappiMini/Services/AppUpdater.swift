@@ -40,8 +40,15 @@ final class AppUpdater: NSObject, ObservableObject {
 
         super.init()
 
+        userDriverDelegate.onWillShowModalAlert = {
+            SentryReporter.pauseAppHangTrackingForExpectedModal(reason: "sparkle_modal_alert")
+        }
+        userDriverDelegate.onDidShowModalAlert = {
+            SentryReporter.resumeAppHangTrackingForExpectedModal(reason: "sparkle_modal_alert")
+        }
         userDriverDelegate.onWillFinishUpdateSession = { [weak self] in
             DiagnosticsLog.event("updater", "session.finish")
+            SentryReporter.resumeAppHangTrackingForExpectedModal(reason: "sparkle_session_finish")
             self?.finishUserInitiatedCheck?()
         }
         DiagnosticsLog.event(
@@ -118,8 +125,18 @@ final class AppUpdater: NSObject, ObservableObject {
 }
 
 @MainActor
-private final class AppUpdaterUserDriverDelegate: NSObject, @preconcurrency SPUStandardUserDriverDelegate {
+final class AppUpdaterUserDriverDelegate: NSObject, @preconcurrency SPUStandardUserDriverDelegate {
+    var onWillShowModalAlert: (() -> Void)?
+    var onDidShowModalAlert: (() -> Void)?
     var onWillFinishUpdateSession: (() -> Void)?
+
+    func standardUserDriverWillShowModalAlert() {
+        onWillShowModalAlert?()
+    }
+
+    func standardUserDriverDidShowModalAlert() {
+        onDidShowModalAlert?()
+    }
 
     func standardUserDriverWillFinishUpdateSession() {
         onWillFinishUpdateSession?()

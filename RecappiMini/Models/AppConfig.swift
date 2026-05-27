@@ -117,13 +117,15 @@ final class AppConfig: ObservableObject {
     @AppStorage("cloudEnabled") var cloudEnabled: Bool = true
     @AppStorage("autoPromptForActiveAudioApps") var autoPromptForActiveAudioApps: Bool = true
     @AppStorage("liveCaptionsDisplayEnabled") var liveCaptionsDisplayEnabled: Bool = true
-    @AppStorage("backendRealtimeLiveCaptionsEnabled") var backendRealtimeLiveCaptionsEnabled: Bool = false
-    /// When true, the backend Realtime live captions session is opened
-    /// in *translation* mode (`mode=translation, includeSourceTranscript=true`),
-    /// which streams both the source transcript and a translated
-    /// transcript on the same connection. The panel renders both rows.
-    /// Has no effect unless `backendRealtimeLiveCaptionsEnabled` is on
-    /// — the legacy SF speech path is monolingual.
+    @AppStorage("backendRealtimeLiveCaptionsEnabled") private var storedBackendRealtimeLiveCaptionsEnabled: Bool = true
+    var backendRealtimeLiveCaptionsEnabled: Bool {
+        get { true }
+        set { storedBackendRealtimeLiveCaptionsEnabled = true }
+    }
+    /// When true, the backend Realtime live captions session is opened in
+    /// translation mode (`mode=translation, includeSourceTranscript=true`),
+    /// which streams both the source transcript and a translated transcript on
+    /// the same connection. The panel renders both rows.
     @AppStorage("liveCaptionsBilingualEnabled") var liveCaptionsBilingualEnabled: Bool = false
     /// Target language for bilingual translation. Mirrors the OpenAI
     /// translation endpoint's `target_language` field; common values
@@ -160,5 +162,7 @@ final class AppConfig: ObservableObject {
         return "en"
     }
 
-    private init() {}
+    private init() {
+        storedBackendRealtimeLiveCaptionsEnabled = true
+    }
 }

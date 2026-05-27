@@ -2,7 +2,6 @@ import AVFoundation
 import AppKit
 import CoreAudio
 @preconcurrency import ScreenCaptureKit
-import Speech
 
 @MainActor
 final class AudioRecorder: NSObject, ObservableObject {
@@ -123,7 +122,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// `[LiveCaptionEntry]` accumulator without touching its WebSocket
     /// state. Routed through the test seam so unit tests can drive the
     /// `RecordingCaptionStore` carryover path without standing up real
-    /// network / speech I/O.
+    /// network I/O.
     fileprivate var liveCaptionDrainOverrideForTesting: (@MainActor (LiveCaptionProvider?) -> [LiveCaptionEntry])?
 
     /// Install stub `stop` and `start` callbacks for the restart-
@@ -623,7 +622,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         activeLiveCaptionConfiguration = liveCaptionRecordingConfiguration()
         DiagnosticsLog.event(
             "recording",
-            "start.request selectedBundle=\(selectedApp?.id ?? "all-system-audio") includeMic=\(includesMicrophoneAudio) cloudCaptions=\(AppConfig.shared.backendRealtimeLiveCaptionsEnabled) bilingual=\(activeLiveCaptionConfiguration?.showsTranslation ?? false) language=\(AppConfig.shared.normalizedCloudLanguage)"
+            "start.request selectedBundle=\(selectedApp?.id ?? "all-system-audio") includeMic=\(includesMicrophoneAudio) cloudCaptions=backend bilingual=\(activeLiveCaptionConfiguration?.showsTranslation ?? false) language=\(AppConfig.shared.normalizedCloudLanguage)"
         )
         pendingDetectedMeetingRecordingContext = nil
         recordingSuggestion = nil
@@ -1239,9 +1238,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         guard state == .recording else { return }
         restartLiveCaptions(
-            localeIdentifier: AppConfig.shared.backendRealtimeLiveCaptionsEnabled
-                ? AppConfig.shared.normalizedCloudLanguage
-                : AppConfig.shared.selectedSpeechLanguage.id,
+            localeIdentifier: AppConfig.shared.normalizedCloudLanguage,
             message: "Switching live caption mode…"
         )
     }
@@ -1402,24 +1399,9 @@ final class AudioRecorder: NSObject, ObservableObject {
             return
         }
 
-        if AppConfig.shared.backendRealtimeLiveCaptionsEnabled {
-            startLiveCaptionProvider(
-                for: systemOutput,
-                localeIdentifier: AppConfig.shared.normalizedCloudLanguage
-            )
-            return
-        }
-
-        let speechStatus = await LiveCaptionTranscriber.requestSpeechAuthorizationIfNeeded()
-        guard speechStatus == .authorized else {
-            DiagnosticsLog.warning("live-caption", "provider.unavailable reason=speech_authorization status=\(speechStatus.rawValue)")
-            liveCaptionMessage = "Enable Speech Recognition to use live captions."
-            return
-        }
-
         startLiveCaptionProvider(
             for: systemOutput,
-            localeIdentifier: AppConfig.shared.selectedSpeechLanguage.id
+            localeIdentifier: AppConfig.shared.normalizedCloudLanguage
         )
     }
 
@@ -1427,85 +1409,53 @@ final class AudioRecorder: NSObject, ObservableObject {
         for systemOutput: SystemAudioOutput,
         localeIdentifier: String
     ) {
-        if AppConfig.shared.backendRealtimeLiveCaptionsEnabled {
-            guard let bearerToken = AuthSessionStore.shared.bearerToken() else {
-                DiagnosticsLog.warning("live-caption", "provider.unavailable reason=missing_bearer_token")
-                liveCaptionMessage = "Sign in to Recappi Cloud to use backend live captions."
-                liveCaptionStatusPhase = .unavailable
-                liveCaptionIsFinal = false
-                return
-            }
-
-            let client = RecappiAPIClient(
-                origin: AppConfig.shared.effectiveBackendBaseURL,
-                bearerToken: bearerToken
-            )
-            // Bilingual toggle picks the OpenAI translation session
-            // (`includeSourceTranscript=true` so we still get the
-            // source row); otherwise we mint the standard transcription
-            // session. The actor multiplexes both shapes so the rest
-            // of the pipeline doesn't care.
-            let lockedConfig = activeLiveCaptionConfiguration ?? liveCaptionRecordingConfiguration()
-            let mode: RealtimeLiveCaptionMode = lockedConfig.showsTranslation
-                ? .translation(
-                    targetLanguage: Self.normalizedRealtimeTranslationTargetLanguage(
-                        lockedConfig.targetLanguage
-                    )
-                )
-                : .transcription
-            let contextHint = mode.isTranslation ? nil : RecordingContextPrompt.liveCaptionHint(
-                sceneRaw: AppConfig.shared.recordingSceneTemplate,
-                extraPrompt: AppConfig.shared.recordingExtraPrompt
-            )
-            DiagnosticsLog.event(
-                "live-caption",
-                "provider.start backend=true mode=\(Self.liveCaptionModeLabel(mode)) language=\(Self.normalizedRealtimeLanguage(localeIdentifier)) target=\(lockedConfig.targetLanguage) contextHintChars=\(contextHint?.count ?? 0)"
-            )
-            // Hand the hint to the actor so it can emit the legacy
-            // `conversation.item.create` system-message event on
-            // `session.created`. Translation mode strips the hint at
-            // the actor's init time (translation rejects
-            // `conversation.item.create`); the `_ = contextHint`
-            // discard the actor refactor introduced silently dropped
-            // this signal and degraded transcription quality for users
-            // with a recording scene template or extra prompt.
-            let connector = LiveRealtimeSessionConnector(client: client)
-            let backendActor = RealtimeLiveCaptionActor(
-                connector: connector,
-                language: Self.normalizedRealtimeLanguage(localeIdentifier),
-                mode: mode,
-                contextHint: contextHint
-            )
-            installBackendLiveCaptionActor(
-                backendActor,
-                for: systemOutput,
-                localeIdentifier: localeIdentifier
-            )
-            return
-        }
-
-        guard #available(macOS 26.0, *) else { return }
-        guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
-            DiagnosticsLog.warning("live-caption", "provider.unavailable reason=speech_authorization status=\(SFSpeechRecognizer.authorizationStatus().rawValue)")
-            liveCaptionMessage = "Enable Speech Recognition to use live captions."
+        guard let bearerToken = AuthSessionStore.shared.bearerToken() else {
+            DiagnosticsLog.warning("live-caption", "provider.unavailable reason=missing_bearer_token")
+            liveCaptionMessage = "Sign in to Recappi Cloud to use live captions."
             liveCaptionStatusPhase = .unavailable
             liveCaptionIsFinal = false
             return
         }
 
-        DiagnosticsLog.event("live-caption", "provider.start backend=false language=\(localeIdentifier)")
-        let liveTranscriber = LiveCaptionTranscriber { [weak self] snapshot in
-            self?.applyLiveCaptionSnapshot(snapshot)
-        }
-        liveCaptionState = .running(
-            provider: .local(liveTranscriber),
-            locale: localeIdentifier,
-            generation: restartGeneration
+        let client = RecappiAPIClient(
+            origin: AppConfig.shared.effectiveBackendBaseURL,
+            bearerToken: bearerToken
         )
-        systemOutput.onLiveCaptionSampleBuffer = { [weak liveTranscriber] sampleBuffer in
-            liveTranscriber?.append(sampleBuffer)
-        }
-        liveTranscriber.start(localeIdentifier: localeIdentifier)
+        // Bilingual toggle picks the OpenAI translation session
+        // (`includeSourceTranscript=true` so we still get the source row);
+        // otherwise we mint the standard transcription session. The actor
+        // multiplexes both shapes so the rest of the pipeline doesn't care.
+        let lockedConfig = activeLiveCaptionConfiguration ?? liveCaptionRecordingConfiguration()
+        let mode: RealtimeLiveCaptionMode = lockedConfig.showsTranslation
+            ? .translation(
+                targetLanguage: Self.normalizedRealtimeTranslationTargetLanguage(
+                    lockedConfig.targetLanguage
+                )
+            )
+            : .transcription
+        let contextHint = mode.isTranslation ? nil : RecordingContextPrompt.liveCaptionHint(
+            sceneRaw: AppConfig.shared.recordingSceneTemplate,
+            extraPrompt: AppConfig.shared.recordingExtraPrompt
+        )
+        DiagnosticsLog.event(
+            "live-caption",
+            "provider.start backend=true mode=\(Self.liveCaptionModeLabel(mode)) language=\(Self.normalizedRealtimeLanguage(localeIdentifier)) target=\(lockedConfig.targetLanguage) contextHintChars=\(contextHint?.count ?? 0)"
+        )
+        // Hand the hint to the actor so it can emit the legacy
+        // `conversation.item.create` system-message event on `session.created`.
+        // Translation mode strips the hint at the actor's init time.
+        let connector = LiveRealtimeSessionConnector(client: client)
+        let backendActor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: Self.normalizedRealtimeLanguage(localeIdentifier),
+            mode: mode,
+            contextHint: contextHint
+        )
+        installBackendLiveCaptionActor(
+            backendActor,
+            for: systemOutput,
+            localeIdentifier: localeIdentifier
+        )
     }
 
     /// Install a freshly-constructed backend actor as the active live-
@@ -1637,8 +1587,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private func liveCaptionRecordingConfiguration() -> LiveCaptionRecordingConfiguration {
         LiveCaptionRecordingConfiguration(
-            showsTranslation: AppConfig.shared.backendRealtimeLiveCaptionsEnabled
-                && AppConfig.shared.liveCaptionsBilingualEnabled,
+            showsTranslation: AppConfig.shared.liveCaptionsBilingualEnabled,
             targetLanguage: Self.normalizedRealtimeTranslationTargetLanguage(
                 AppConfig.shared.liveCaptionsTranslationTargetLanguage
             )
@@ -1662,10 +1611,6 @@ final class AudioRecorder: NSObject, ObservableObject {
         switch provider {
         case .backend(let backendActor):
             Task { _ = await backendActor.stop(saveTo: sessionDir) }
-        case .local(let transcriber):
-            if #available(macOS 26.0, *) {
-                transcriber.stop(saveTo: sessionDir)
-            }
 #if DEBUG
         case .testSentinel:
             // Sentinels have no real I/O. Tests inject behaviour through
@@ -1689,10 +1634,6 @@ final class AudioRecorder: NSObject, ObservableObject {
         switch provider {
         case .backend(let backendActor):
             _ = await backendActor.stop(saveTo: sessionDir)
-        case .local(let transcriber):
-            if #available(macOS 26.0, *) {
-                transcriber.stop(saveTo: sessionDir)
-            }
 #if DEBUG
         case .testSentinel:
             // Sentinels short-circuit via the test override hook; the
@@ -1708,9 +1649,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// accumulator without mutating its WebSocket state. The DEBUG
     /// test seam routes through `liveCaptionDrainOverrideForTesting`
     /// so unit tests can drive the carryover path without standing up
-    /// real I/O. Production paths dispatch over the concrete provider
-    /// type — the cloud actor's `drainEntries()` or (on macOS 26+) the
-    /// on-device `LiveCaptionTranscriber.drainEntriesForTransition()`.
+    /// real I/O. Production now dispatches to the backend actor's
+    /// `drainEntriesNonblocking()` mirror.
     private func drainEntriesUsingHooks(from provider: LiveCaptionProvider?) -> [LiveCaptionEntry] {
 #if DEBUG
         if let drainOverride = liveCaptionDrainOverrideForTesting {
@@ -1731,11 +1671,6 @@ final class AudioRecorder: NSObject, ObservableObject {
             // the cooperative thread pool when the actor's executor
             // queue had pending audio-frame Tasks ahead of the drain.
             return backendActor.drainEntriesNonblocking()
-        case .local(let transcriber):
-            if #available(macOS 26.0, *) {
-                return transcriber.drainEntriesForTransition()
-            }
-            return []
 #if DEBUG
         case .testSentinel:
             // The drain hook above intercepts sentinel-bearing test
@@ -1750,7 +1685,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// Phase 2 — central "stop the live captions and flush carryover"
     /// entry point. Replaces the previous direct call to
     /// `stopLiveCaptionsAwaitingClose(_:saveTo:)` from `stopRecording`,
-    /// routing the active / transitioning transcriber's entries
+    /// routing the active / transitioning provider's entries
     /// through `liveCaptionStore` so caption history is preserved
     /// across the restart-then-stop window (Codex Finding #2).
     private func finalizeLiveCaptionsForStop(saveTo sessionDir: URL?) async {
@@ -1950,15 +1885,15 @@ final class AudioRecorder: NSObject, ObservableObject {
             self.activeLiveCaptionConfiguration = liveCaptionRecordingConfiguration()
         }
         self.liveCaptionIsFinal = false
-        if let simulatedLiveCaptionText = uiTestMode.simulatedLiveCaptionText,
-           !simulatedLiveCaptionText.isEmpty {
-            // UI tests inject a single fixture string; surface it as one
-            // simulated segment with a stable id so consumers exercise
-            // the segment-aware code path even without a real upstream.
+        let simulatedSource = uiTestMode.simulatedLiveCaptionText?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if simulatedSource?.isEmpty == false || simulatedTranslation?.isEmpty == false {
+            // UI tests inject fixture text; surface it as one simulated
+            // segment so consumers exercise the segment-aware code path.
             self.liveCaptionSegments = [
                 LiveCaptionSegment(
                     id: "ui-test-fixture",
-                    sourceText: simulatedLiveCaptionText,
+                    sourceText: simulatedSource ?? "",
                     translatedText: simulatedTranslation?.isEmpty == false ? simulatedTranslation : nil,
                     isFinal: false,
                     sequence: 0
