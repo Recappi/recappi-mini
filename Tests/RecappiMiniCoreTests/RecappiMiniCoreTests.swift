@@ -2506,6 +2506,33 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(FloatingPanel.shouldRefreshMousePassthrough(for: .leftMouseUp))
     }
 
+    func testFloatingPanelHiddenSnapPlanAvoidsDisplayFlushAndRedundantOrderOut() {
+        XCTAssertEqual(
+            FloatingPanelController.hiddenSnapPlan(isVisible: false, framesNearlyMatch: false),
+            FloatingPanelController.HiddenSnapPlan(
+                shouldSetFrame: true,
+                displayFrame: false,
+                shouldOrderOut: false
+            )
+        )
+        XCTAssertEqual(
+            FloatingPanelController.hiddenSnapPlan(isVisible: false, framesNearlyMatch: true),
+            FloatingPanelController.HiddenSnapPlan(
+                shouldSetFrame: false,
+                displayFrame: false,
+                shouldOrderOut: false
+            )
+        )
+        XCTAssertEqual(
+            FloatingPanelController.hiddenSnapPlan(isVisible: true, framesNearlyMatch: true),
+            FloatingPanelController.HiddenSnapPlan(
+                shouldSetFrame: false,
+                displayFrame: false,
+                shouldOrderOut: true
+            )
+        )
+    }
+
     func testLiveCaptionPaneVisibilityFallsBackToAvailableStream() {
         XCTAssertEqual(
             LiveCaptionFloatingPanel.effectivePaneVisibility(

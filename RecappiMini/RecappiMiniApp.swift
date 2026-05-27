@@ -1328,6 +1328,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func handleScreenParametersChanged() {
+        // AppKit can emit screen-parameter notifications while a hide/show
+        // operation is already moving the panel. Let the in-flight sync finish
+        // instead of re-entering NSWindow frame/order APIs.
+        guard !isSyncingPanelVisibility else { return }
         guard let panel else { return }
         if panelTargetVisible {
             FloatingPanelController.snapToVisible(panel)

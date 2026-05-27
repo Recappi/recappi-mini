@@ -591,6 +591,12 @@ final class PillShellView: NSView {
 
 @MainActor
 struct FloatingPanelController {
+    struct HiddenSnapPlan: Equatable {
+        let shouldSetFrame: Bool
+        let displayFrame: Bool
+        let shouldOrderOut: Bool
+    }
+
     private static var immediateResizeAnimationDeadline: CFTimeInterval = 0
 
     static func performNextContentResizesImmediately(duration: CFTimeInterval = 0.35) {
@@ -777,12 +783,27 @@ struct FloatingPanelController {
         let frame = hiddenFrame(screen: panel.screen ?? NSScreen.main, panelSize: panel.frame.size)
         panel.ignoresMouseEvents = true
         panel.contentView?.setAccessibilityHidden(true)
-        guard !framesNearlyMatch(panel.frame, frame) else {
-            panel.orderOut(nil)
-            return
+        let plan = hiddenSnapPlan(
+            isVisible: panel.isVisible,
+            framesNearlyMatch: framesNearlyMatch(panel.frame, frame)
+        )
+        if plan.shouldSetFrame {
+            panel.setFrame(frame, display: plan.displayFrame)
         }
-        panel.setFrame(frame, display: true)
-        panel.orderOut(nil)
+        if plan.shouldOrderOut {
+            panel.orderOut(nil)
+        }
+    }
+
+    nonisolated static func hiddenSnapPlan(
+        isVisible: Bool,
+        framesNearlyMatch: Bool
+    ) -> HiddenSnapPlan {
+        HiddenSnapPlan(
+            shouldSetFrame: !framesNearlyMatch,
+            displayFrame: false,
+            shouldOrderOut: isVisible
+        )
     }
 
     private static func framesNearlyMatch(_ lhs: NSRect, _ rhs: NSRect) -> Bool {
