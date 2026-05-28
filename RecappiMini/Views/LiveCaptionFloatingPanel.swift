@@ -38,9 +38,9 @@ enum LiveCaptionPanelMode: String {
     var windowPadding: CGFloat {
         switch self {
         case .expanded:
-            return 10
-        case .compact:
             return 8
+        case .compact:
+            return 6
         }
     }
 
@@ -589,11 +589,13 @@ struct LiveCaptionFloatingPanel: View {
     @ViewBuilder
     private var liveCaptionPaneGrid: some View {
         if liveCaptionShowsTranslation {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 switch effectivePaneVisibility {
                 case .both:
                     GeometryReader { proxy in
-                        let gap: CGFloat = 18
+                        // Tighter gap (no inner card chrome means we can pull
+                        // the columns closer without them blurring together).
+                        let gap: CGFloat = 14
                         let sourceWidth = max(160, (proxy.size.width - gap) * 0.57)
                         let translationWidth = max(140, proxy.size.width - gap - sourceWidth)
                         HStack(alignment: .top, spacing: gap) {
@@ -1051,19 +1053,21 @@ private struct LiveCaptionStreamPane: View {
     let textID: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             if showsChrome {
-                HStack(spacing: 6) {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 10, weight: .semibold))
+                // Title row drops the icon (the word "Original"/"Translation"
+                // already carries the role; the icon was duplicating signal in
+                // a tight pane). Two-character language code + middle dot makes
+                // the lang affordance scannable without a second tier of chip.
+                HStack(spacing: 0) {
                     Text(title)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 9.5, weight: .bold))
                         .textCase(.uppercase)
-                        .tracking(0.5)
+                        .tracking(0.6)
+                        .lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 .foregroundStyle(streamLabelColor)
-                .padding(.horizontal, 2)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
@@ -1077,11 +1081,10 @@ private struct LiveCaptionStreamPane: View {
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(showsChrome ? 12 : 6)
-        .background(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(Palette.surfaceElevated.opacity(showsChrome ? 0.46 : 0))
-        )
+        // Each pane sits directly on the panel's glass surface — no nested
+        // card chrome. peng-xiao 5/28 11:24: "不要卡片套卡片". The columns
+        // are visually separated by the parent HStack's gap, not by their
+        // own backgrounds.
         .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: showsChrome)
     }
 
