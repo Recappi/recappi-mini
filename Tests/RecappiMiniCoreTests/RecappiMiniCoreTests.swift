@@ -1384,6 +1384,61 @@ final class RecappiMiniCoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCloudLibraryRefreshesCachedLocalOnlyTimestampFromDisk() {
+        let store = CloudLibraryStore()
+        let staleToday = Date(timeIntervalSince1970: 1_779_954_420)
+        let parsedSessionDate = Date(timeIntervalSince1970: 1_777_532_623)
+        let cached = CloudRecording(
+            id: "local-2026-04-22_153432",
+            userId: nil,
+            title: "2026-04-22_153432",
+            summaryTitle: nil,
+            sourceTitle: nil,
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .failed,
+            sizeBytes: 128,
+            durationMs: nil,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: staleToday,
+            updatedAt: staleToday
+        )
+        let fromDisk = CloudRecording(
+            id: cached.id,
+            userId: nil,
+            title: cached.title,
+            summaryTitle: nil,
+            sourceTitle: nil,
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .failed,
+            sizeBytes: 128,
+            durationMs: nil,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: parsedSessionDate,
+            updatedAt: parsedSessionDate
+        )
+        store.recordings = [cached]
+
+        let merged = store.mergeWithLocalOnlyRecordings([], localOnlyRecordings: [fromDisk])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged.first?.id, cached.id)
+        XCTAssertEqual(merged.first?.createdAt, parsedSessionDate)
+        XCTAssertEqual(merged.first?.updatedAt, parsedSessionDate)
+    }
+
+    @MainActor
     func testCloudLibraryAudioFileExtensionMapsAACToPlayableContainer() {
         let store = CloudLibraryStore()
         let recording = CloudRecording(
@@ -2278,6 +2333,29 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(recording.status, .uploading)
         XCTAssertEqual(recording.durationMs, 9_000)
         XCTAssertEqual(recording.sizeBytes, 256)
+    }
+
+    func testLocalRecordingPlaceholderUsesSessionTimestampWhenMetadataIsMissing() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let session = temp.appendingPathComponent("2026-04-16_113023", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        try Data(repeating: 7, count: 128).write(to: RecordingStore.audioFileURL(in: session))
+
+        let recording = try XCTUnwrap(SessionProcessor.localRecordingPlaceholder(
+            sessionDir: session,
+            duration: 0,
+            status: .uploading
+        ))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        let expectedDate = try XCTUnwrap(formatter.date(from: "2026-04-16_113023"))
+
+        XCTAssertEqual(recording.title, "2026-04-16_113023")
+        let createdAt = try XCTUnwrap(recording.createdAt)
+        XCTAssertEqual(createdAt.timeIntervalSince1970, expectedDate.timeIntervalSince1970, accuracy: 0.001)
     }
 
     func testCloudLibraryFindsLocalOnlyRecordingsFromDisk() throws {

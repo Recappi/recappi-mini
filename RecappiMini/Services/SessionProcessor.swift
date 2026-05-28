@@ -133,7 +133,7 @@ final class SessionProcessor {
             channels: nil,
             contentType: Self.cloudUploadContentType(for: audioURL),
             activeTranscriptId: nil,
-            createdAt: metadata.flatMap { ISO8601DateFormatter().date(from: $0.startedAt) } ?? Date(),
+            createdAt: localRecordingCreatedAt(sessionDir: sessionDir, metadata: metadata, audioURL: audioURL),
             updatedAt: Date()
         )
     }
@@ -745,9 +745,44 @@ final class SessionProcessor {
             channels: nil,
             contentType: contentType,
             activeTranscriptId: nil,
-            createdAt: metadata.flatMap { ISO8601DateFormatter().date(from: $0.startedAt) } ?? Date(),
+            createdAt: localRecordingCreatedAt(sessionDir: sessionDir, metadata: metadata),
             updatedAt: Date()
         )
+    }
+
+    private nonisolated static func localRecordingCreatedAt(
+        sessionDir: URL,
+        metadata: RecordingSessionMetadata?,
+        audioURL: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> Date {
+        if let startedAt = metadata?.startedAt,
+           let date = ISO8601DateFormatter().date(from: startedAt) {
+            return date
+        }
+
+        if let date = sessionDirectoryDate(from: sessionDir.lastPathComponent) {
+            return date
+        }
+
+        if let audioURL,
+           let attributes = try? fileManager.attributesOfItem(atPath: audioURL.path) {
+            if let creationDate = attributes[.creationDate] as? Date {
+                return creationDate
+            }
+            if let modificationDate = attributes[.modificationDate] as? Date {
+                return modificationDate
+            }
+        }
+
+        return Date()
+    }
+
+    private nonisolated static func sessionDirectoryDate(from name: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        return formatter.date(from: name)
     }
 
     private nonisolated static func cloudRecordingStatus(from raw: String) -> CloudRecordingStatus {

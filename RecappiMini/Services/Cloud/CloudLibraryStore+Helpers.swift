@@ -46,7 +46,11 @@ extension CloudLibraryStore {
         var mergedIDs = Set(merged.map(\.id))
 
         for localRecording in localOnlyRecordings where !mergedIDs.contains(localRecording.id) {
-            merged.append(cachedByID[localRecording.id] ?? localRecording)
+            if let cached = cachedByID[localRecording.id] {
+                merged.append(localRecording.mergingCachedDetail(from: cached))
+            } else {
+                merged.append(localRecording)
+            }
             mergedIDs.insert(localRecording.id)
         }
 
