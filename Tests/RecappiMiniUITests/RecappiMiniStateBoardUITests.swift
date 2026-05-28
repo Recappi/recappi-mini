@@ -196,6 +196,15 @@ final class RecappiMiniStateBoardUITests: XCTestCase {
         let bilingualPanel = uiElement(bilingualApp, id: UITestIDs.Cloud.currentMeetingPanel)
         XCTAssertTrue(bilingualPanel.waitForExistence(timeout: 15), "Expected bilingual live caption panel.")
         try capture(bilingualPanel, named: "liveCaptions_bilingual")
+
+        XCTAssertTrue(revealLiveCaptionChrome(in: bilingualApp, timeout: 10), "Expected bilingual live caption mode button.")
+        let bilingualMode = bilingualApp.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
+        XCTAssertTrue(bilingualMode.exists, "Expected bilingual live caption mode button.")
+        bilingualMode.hover()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        bilingualMode.click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        try capture(bilingualPanel, named: "liveCaptions_bilingual_compact")
     }
 
     private func captureCloudDetailStates() throws {

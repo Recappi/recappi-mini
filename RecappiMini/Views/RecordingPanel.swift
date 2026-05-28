@@ -16,7 +16,7 @@ struct RecordingPanel: View {
     let onOpenCloud: () -> Void
     let onOpenCloudRecording: @MainActor @Sendable (String) -> Void
     let onClosePanel: () -> Void
-    let onTranscribeCloudRecording: @MainActor @Sendable (String) -> Void
+    let onTranscribeCloudRecording: @MainActor @Sendable (String, @escaping @MainActor @Sendable (TranscriptionJob) -> Void) -> Void
     let onCloudRecordingUpdated: @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void
     let onCloudRecordingDeleted: @MainActor @Sendable (String) -> Void
 
@@ -318,7 +318,9 @@ struct RecordingPanel: View {
             return
         }
         latestDoneJobStatusByRecordingID[recordingID] = .queued
-        onTranscribeCloudRecording(recordingID)
+        onTranscribeCloudRecording(recordingID) { job in
+            latestDoneJobStatusByRecordingID[recordingID] = job.status
+        }
     }
 
     private func showInCloud(result: RecordingResult) {

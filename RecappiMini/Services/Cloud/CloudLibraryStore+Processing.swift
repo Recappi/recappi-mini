@@ -4,11 +4,18 @@ import Foundation
 
 @MainActor
 extension CloudLibraryStore {
-    func processSelectedRecording(_ action: CloudRecordingProcessingAction) async {
-        await startTranscriptionForSelectedRecording(action)
+    func processSelectedRecording(
+        _ action: CloudRecordingProcessingAction,
+        onJobUpdate: (@MainActor @Sendable (TranscriptionJob) -> Void)? = nil
+    ) async {
+        await startTranscriptionForSelectedRecording(action, onJobUpdate: onJobUpdate)
     }
 
-    func processRecording(id recordingID: String, _ action: CloudRecordingProcessingAction) async {
+    func processRecording(
+        id recordingID: String,
+        _ action: CloudRecordingProcessingAction,
+        onJobUpdate: (@MainActor @Sendable (TranscriptionJob) -> Void)? = nil
+    ) async {
         let trimmedID = recordingID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedID.isEmpty else { return }
 
@@ -37,7 +44,7 @@ extension CloudLibraryStore {
             }
         }
 
-        await startTranscriptionForSelectedRecording(action)
+        await startTranscriptionForSelectedRecording(action, onJobUpdate: onJobUpdate)
     }
 
     func retranscribeSelectedRecording() async {
@@ -69,7 +76,10 @@ extension CloudLibraryStore {
         }
     }
 
-    func startTranscriptionForSelectedRecording(_ action: CloudRecordingProcessingAction) async {
+    func startTranscriptionForSelectedRecording(
+        _ action: CloudRecordingProcessingAction,
+        onJobUpdate: (@MainActor @Sendable (TranscriptionJob) -> Void)? = nil
+    ) async {
         guard let recording = selectedRecording else { return }
         guard activeRecordingProcessingAction == nil else { return }
         if let limitMessage = retranscriptionLimitMessage {
@@ -114,8 +124,15 @@ extension CloudLibraryStore {
                 try await client.getJob(jobId: start.jobId)
             }
             upsertJob(job, for: recording.id)
+            onJobUpdate?(job)
             if job.status == .succeeded {
                 try await refreshTranscriptAfterJobSucceeded(recording: recording, job: job)
+            } else if job.status.isActive {
+                await pollActiveJobsUntilTerminal(
+                    recordingID: recording.id,
+                    jobIDs: [job.id],
+                    onJobUpdate: onJobUpdate
+                )
             }
             await persistCacheSnapshot()
         } catch let error as RecappiAPIError where error == .unauthorized {

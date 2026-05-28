@@ -68,6 +68,13 @@ struct LiveCaptionFloatingPanel: View {
     let onToggleMode: () -> Void
     let onClose: () -> Void
 
+    struct CompactCaptionRow: Equatable, Identifiable {
+        let id: String
+        let label: String
+        let text: String
+        let isPlaceholder: Bool
+    }
+
     var body: some View {
         let cornerRadius = mode.cornerRadius
         // `.contentShape` declares the hit-test region so clicks on the
@@ -154,18 +161,11 @@ struct LiveCaptionFloatingPanel: View {
                     maxHeight: Self.compactCaptionTwoLineHeight
                 )
                 .overlay(alignment: .leading) {
-                    Text(compactDisplayLine)
-                        .font(.system(size: Self.compactCaptionFontSize, weight: hasLiveCaptionSegments ? .semibold : .medium))
-                        .foregroundStyle(hasLiveCaptionSegments ? glassTextPrimary : glassTextSecondary)
-                        .shadow(color: Color.white.opacity(0.40), radius: 0.6, x: 0, y: 0)
-                        .lineSpacing(Self.compactCaptionLineSpacing)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2, reservesSpace: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    compactCaptionRowsView
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(compactDisplayLine))
-                .accessibilityValue(Text(compactDisplayLine))
+                .accessibilityLabel(Text(compactAccessibilityText))
+                .accessibilityValue(Text(compactAccessibilityText))
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
 
             HStack(alignment: .center, spacing: 7) {
@@ -195,6 +195,28 @@ struct LiveCaptionFloatingPanel: View {
         // `defaultWindowSize`, so `.infinity` here would blow the
         // SwiftUI fittingSize up to the host's available width.
         .frame(width: mode.contentWidth, alignment: .leading)
+    }
+
+    private var compactCaptionRowsView: some View {
+        VStack(alignment: .leading, spacing: Self.compactCaptionLineSpacing) {
+            ForEach(compactCaptionRows) { row in
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    Text(row.label.uppercased())
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundStyle(glassTextSecondary)
+                        .lineLimit(1)
+                        .frame(width: Self.compactCaptionLabelWidth, alignment: .leading)
+
+                    Text(row.text)
+                        .font(.system(size: Self.compactCaptionFontSize, weight: row.isPlaceholder ? .medium : .semibold))
+                        .foregroundStyle(row.isPlaceholder ? glassTextSecondary : glassTextPrimary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .shadow(color: Color.white.opacity(isDarkMode ? 0 : 0.34), radius: 0.6, x: 0, y: 0)
+        .frame(maxWidth: .infinity, maxHeight: Self.compactCaptionTwoLineHeight, alignment: .center)
     }
 
     private func panelBackground(cornerRadius: CGFloat) -> some View {
@@ -575,21 +597,27 @@ struct LiveCaptionFloatingPanel: View {
                         let sourceWidth = max(160, (proxy.size.width - gap) * 0.57)
                         let translationWidth = max(140, proxy.size.width - gap - sourceWidth)
                         HStack(alignment: .top, spacing: gap) {
-                            LiveCaptionTextViewport(
+                            LiveCaptionStreamPane(
+                                title: sourceStreamTitle,
+                                systemImage: "captions.bubble",
                                 segments: sourcePaneSegments,
                                 placeholderText: captionPlaceholderText,
                                 isPlaceholder: sourcePaneSegments.isEmpty,
                                 errorMessage: nil,
+                                showsChrome: true,
                                 viewportID: AccessibilityIDs.Cloud.currentMeetingCaptionViewport,
                                 textID: AccessibilityIDs.Cloud.currentMeetingCaption
                             )
                             .frame(width: sourceWidth, height: proxy.size.height, alignment: .topLeading)
 
-                            LiveCaptionTextViewport(
+                            LiveCaptionStreamPane(
+                                title: translationStreamTitle,
+                                systemImage: "translate",
                                 segments: translationOnlySegments,
                                 placeholderText: translationPlaceholderText,
                                 isPlaceholder: translationOnlySegments.isEmpty,
                                 errorMessage: nil,
+                                showsChrome: true,
                                 viewportID: AccessibilityIDs.Cloud.currentMeetingTranslationViewport,
                                 textID: AccessibilityIDs.Cloud.currentMeetingTranslation
                             )
@@ -599,21 +627,27 @@ struct LiveCaptionFloatingPanel: View {
                     }
                     .transition(.opacity)
                 case .captionOnly:
-                    LiveCaptionTextViewport(
+                    LiveCaptionStreamPane(
+                        title: sourceStreamTitle,
+                        systemImage: "captions.bubble",
                         segments: sourcePaneSegments,
                         placeholderText: captionPlaceholderText,
                         isPlaceholder: sourcePaneSegments.isEmpty,
                         errorMessage: nil,
+                        showsChrome: true,
                         viewportID: AccessibilityIDs.Cloud.currentMeetingCaptionViewport,
                         textID: AccessibilityIDs.Cloud.currentMeetingCaption
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 case .translationOnly:
-                    LiveCaptionTextViewport(
+                    LiveCaptionStreamPane(
+                        title: translationStreamTitle,
+                        systemImage: "translate",
                         segments: translationOnlySegments,
                         placeholderText: translationPlaceholderText,
                         isPlaceholder: translationOnlySegments.isEmpty,
                         errorMessage: nil,
+                        showsChrome: true,
                         viewportID: AccessibilityIDs.Cloud.currentMeetingTranslationViewport,
                         textID: AccessibilityIDs.Cloud.currentMeetingTranslation
                     )
@@ -623,11 +657,14 @@ struct LiveCaptionFloatingPanel: View {
             .foregroundStyle(hasLiveCaptionSegments ? glassTextPrimary : glassTextSecondary)
             .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: paneVisibility)
         } else {
-            LiveCaptionTextViewport(
+            LiveCaptionStreamPane(
+                title: sourceStreamTitle,
+                systemImage: "captions.bubble",
                 segments: viewportSegments,
                 placeholderText: captionLine,
                 isPlaceholder: !hasLiveCaptionSegments,
                 errorMessage: nil,
+                showsChrome: true,
                 viewportID: AccessibilityIDs.Cloud.currentMeetingCaptionViewport,
                 textID: AccessibilityIDs.Cloud.currentMeetingCaption
             )
@@ -672,9 +709,21 @@ struct LiveCaptionFloatingPanel: View {
 
     private var liveCaptionModeStatusText: String {
         guard liveCaptionShowsTranslation else {
-            return "Original"
+            return sourceStreamTitle
         }
-        return "Caption + \(liveCaptionTargetLanguageShortTitle)"
+        return "\(liveCaptionSourceLanguageShortTitle) → \(liveCaptionTargetLanguageShortTitle)"
+    }
+
+    private var sourceStreamTitle: String {
+        Self.streamTitle(role: "Original", languageShortTitle: liveCaptionSourceLanguageShortTitle)
+    }
+
+    private var translationStreamTitle: String {
+        Self.streamTitle(role: "Translation", languageShortTitle: liveCaptionTargetLanguageShortTitle)
+    }
+
+    private var liveCaptionSourceLanguageShortTitle: String {
+        SpeechLanguageOption.option(for: config.cloudLanguage).shortCode
     }
 
     private var liveCaptionTargetLanguageShortTitle: String {
@@ -682,6 +731,14 @@ struct LiveCaptionFloatingPanel: View {
         return LiveCaptionTranslationTargetLanguageOption
             .option(for: lockedConfig?.targetLanguage ?? config.liveCaptionsTranslationTargetLanguage)
             .shortTitle
+    }
+
+    nonisolated static func streamTitle(role: String, languageShortTitle: String) -> String {
+        let trimmedRole = role.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLanguage = languageShortTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRole.isEmpty else { return trimmedLanguage.isEmpty ? "Caption" : trimmedLanguage }
+        guard !trimmedLanguage.isEmpty else { return trimmedRole }
+        return "\(trimmedRole) · \(trimmedLanguage)"
     }
 
     private var bilingualViewportSegments: [LiveCaptionSegment] {
@@ -818,25 +875,106 @@ struct LiveCaptionFloatingPanel: View {
     /// has to insert a "…" indicator. The expanded panel renders the
     /// full transcript via `LiveCaptionAppKitTextView`.
     private var compactCaptionLine: String {
-        compactLine(from: captionLine)
+        Self.compactLine(from: captionLine)
     }
 
-    private var compactDisplayLine: String {
-        guard liveCaptionShowsTranslation, !effectivePaneVisibility.showsCaption else {
-            return compactCaptionLine
+    private var compactCaptionRows: [CompactCaptionRow] {
+        Self.compactCaptionRows(
+            showsTranslation: liveCaptionShowsTranslation,
+            paneVisibility: effectivePaneVisibility,
+            captionText: compactCaptionLine,
+            translationText: translationStreamText,
+            sourceLanguageShortTitle: liveCaptionSourceLanguageShortTitle,
+            targetLanguageShortTitle: liveCaptionTargetLanguageShortTitle
+        )
+    }
+
+    private var compactAccessibilityText: String {
+        compactCaptionRows
+            .map { "\($0.label): \($0.text)" }
+            .joined(separator: " / ")
+    }
+
+    nonisolated static func compactCaptionRows(
+        showsTranslation: Bool,
+        paneVisibility: LiveCaptionPaneVisibility,
+        captionText: String,
+        translationText: String,
+        sourceLanguageShortTitle: String,
+        targetLanguageShortTitle: String
+    ) -> [CompactCaptionRow] {
+        let sourceLabel = streamTitle(role: "Original", languageShortTitle: sourceLanguageShortTitle)
+        let translationLabel = streamTitle(role: "Translation", languageShortTitle: targetLanguageShortTitle)
+        let sourceText = compactLine(
+            from: captionText,
+            asciiBudget: compactCaptionRowMaxASCIICharacters,
+            cjkBudget: compactCaptionRowMaxCJKCharacters
+        )
+        let translationLine = compactLine(
+            from: translationText,
+            asciiBudget: compactCaptionRowMaxASCIICharacters,
+            cjkBudget: compactCaptionRowMaxCJKCharacters
+        )
+        let sourceContent = sourceText.isEmpty ? "Listening for meeting audio" : sourceText
+        let translationContent = translationLine.isEmpty ? "Waiting for translation" : translationLine
+
+        guard showsTranslation else {
+            return [
+                CompactCaptionRow(
+                    id: "original",
+                    label: sourceLabel,
+                    text: sourceContent,
+                    isPlaceholder: sourceText.isEmpty
+                ),
+            ]
         }
-        let compactTranslation = compactLine(from: translationStreamText)
-        return compactTranslation.isEmpty ? "Waiting for translation" : compactTranslation
+
+        var rows: [CompactCaptionRow] = []
+        if paneVisibility.showsCaption {
+            rows.append(
+                CompactCaptionRow(
+                    id: "original",
+                    label: sourceLabel,
+                    text: sourceContent,
+                    isPlaceholder: sourceText.isEmpty
+                )
+            )
+        }
+        if paneVisibility.showsTranslation {
+            rows.append(
+                CompactCaptionRow(
+                    id: "translation",
+                    label: translationLabel,
+                    text: translationContent,
+                    isPlaceholder: translationLine.isEmpty
+                )
+            )
+        }
+        return rows.isEmpty
+            ? [CompactCaptionRow(id: "original", label: sourceLabel, text: sourceContent, isPlaceholder: sourceText.isEmpty)]
+            : rows
     }
 
-    private func compactLine(from text: String) -> String {
+    nonisolated static func compactLine(from text: String) -> String {
+        compactLine(
+            from: text,
+            asciiBudget: compactCaptionMaxASCIICharacters,
+            cjkBudget: compactCaptionMaxCJKCharacters
+        )
+    }
+
+    private nonisolated static func compactLine(
+        from text: String,
+        asciiBudget: Int,
+        cjkBudget: Int
+    ) -> String {
         let normalized = text
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
         let containsCJK = normalized.contains(where: \.isCompactCJK)
         let budget = containsCJK
-            ? Self.compactCaptionMaxCJKCharacters
-            : Self.compactCaptionMaxASCIICharacters
+            ? cjkBudget
+            : asciiBudget
         guard normalized.count > budget else { return normalized }
         let tail = String(normalized.suffix(budget))
         // CJK has no word breaks worth respecting — return the raw tail.
@@ -852,8 +990,11 @@ struct LiveCaptionFloatingPanel: View {
         return String(tail[afterSpace...])
     }
 
-    private static let compactCaptionMaxASCIICharacters: Int = 94
-    private static let compactCaptionMaxCJKCharacters: Int = 46
+    private nonisolated static let compactCaptionMaxASCIICharacters: Int = 94
+    private nonisolated static let compactCaptionMaxCJKCharacters: Int = 46
+    private nonisolated static let compactCaptionRowMaxASCIICharacters: Int = 72
+    private nonisolated static let compactCaptionRowMaxCJKCharacters: Int = 34
+    private static let compactCaptionLabelWidth: CGFloat = 96
     private static let compactCaptionFontSize: CGFloat = 12.5
     private static let compactCaptionLineSpacing: CGFloat = 1
     private static let expandedHeaderBandHeight: CGFloat = 44
@@ -898,6 +1039,7 @@ struct LiveCaptionFloatingPanel: View {
 }
 
 private struct LiveCaptionStreamPane: View {
+    @Environment(\.colorScheme) private var colorScheme
     let title: String
     let systemImage: String
     let segments: [LiveCaptionSegment]
@@ -920,7 +1062,7 @@ private struct LiveCaptionStreamPane: View {
                         .tracking(0.5)
                     Spacer(minLength: 0)
                 }
-        .foregroundStyle(Color.black.opacity(0.42))
+                .foregroundStyle(streamLabelColor)
                 .padding(.horizontal, 2)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -941,6 +1083,12 @@ private struct LiveCaptionStreamPane: View {
                 .fill(Palette.surfaceElevated.opacity(showsChrome ? 0.46 : 0))
         )
         .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: showsChrome)
+    }
+
+    private var streamLabelColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.56)
+            : Color.black.opacity(0.46)
     }
 }
 

@@ -250,11 +250,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                 self?.showCloudCenter(selectingRecordingID: recordingID)
             },
             onClosePanel: { [weak self] in self?.hidePanel() },
-            onTranscribeCloudRecording: { [weak self] recordingID in
+            onTranscribeCloudRecording: { [weak self] recordingID, onJobUpdate in
                 guard let self else { return }
                 self.showCloudCenter(selectingRecordingID: recordingID)
                 Task { @MainActor [weak self] in
-                    await self?.cloudStore.processRecording(id: recordingID, .transcriptAndSummary)
+                    await self?.cloudStore.processRecording(
+                        id: recordingID,
+                        .transcriptAndSummary,
+                        onJobUpdate: onJobUpdate
+                    )
                 }
             },
             onCloudRecordingUpdated: { [weak self] recording, latestJob in

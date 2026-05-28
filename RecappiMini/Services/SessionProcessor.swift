@@ -4,6 +4,7 @@ import Foundation
 final class SessionProcessor {
     static let shared = SessionProcessor()
     private static let transcriptionPollingTimeout: TimeInterval = 15 * 60
+    private var activeProcessesBySessionPath: [String: ActiveProcess] = [:]
 
     private init() {}
 
@@ -14,6 +15,49 @@ final class SessionProcessor {
         updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
         onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void = { _, _ in },
         onCloudRecordingDeleted: @escaping @MainActor @Sendable (String) -> Void = { _ in }
+    ) async throws -> RecordingResult {
+        let sessionKey = Self.sessionProcessingKey(for: sessionDir)
+        if let active = activeProcessesBySessionPath[sessionKey] {
+            DiagnosticsLog.warning(
+                "processing",
+                "process.coalesced_duplicate dir=\(sessionDir.lastPathComponent)"
+            )
+            return try await active.task.value
+        }
+
+        let processID = UUID()
+        let task = Task { @MainActor in
+            try await self.performProcess(
+                sessionDir: sessionDir,
+                duration: duration,
+                startsTranscription: startsTranscription,
+                updatePhase: updatePhase,
+                onCloudRecordingUpdated: onCloudRecordingUpdated,
+                onCloudRecordingDeleted: onCloudRecordingDeleted
+            )
+        }
+        activeProcessesBySessionPath[sessionKey] = ActiveProcess(id: processID, task: task)
+        do {
+            let result = try await task.value
+            if activeProcessesBySessionPath[sessionKey]?.id == processID {
+                activeProcessesBySessionPath.removeValue(forKey: sessionKey)
+            }
+            return result
+        } catch {
+            if activeProcessesBySessionPath[sessionKey]?.id == processID {
+                activeProcessesBySessionPath.removeValue(forKey: sessionKey)
+            }
+            throw error
+        }
+    }
+
+    private func performProcess(
+        sessionDir: URL,
+        duration: Int,
+        startsTranscription: Bool,
+        updatePhase: @escaping @MainActor @Sendable (ProcessingPhase) -> Void,
+        onCloudRecordingUpdated: @escaping @MainActor @Sendable (CloudRecording, TranscriptionJob?) -> Void,
+        onCloudRecordingDeleted: @escaping @MainActor @Sendable (String) -> Void
     ) async throws -> RecordingResult {
         let origin = AppConfig.shared.effectiveBackendBaseURL
         var attemptedReauthentication = false
@@ -47,6 +91,10 @@ final class SessionProcessor {
                 throw error
             }
         }
+    }
+
+    nonisolated static func sessionProcessingKey(for sessionDir: URL) -> String {
+        sessionDir.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     nonisolated static func localRecordingID(for sessionDir: URL) -> String {
@@ -757,6 +805,11 @@ private struct UploadAudioAsset {
     let url: URL
     let contentType: String
     let durationMs: Int
+}
+
+private struct ActiveProcess {
+    let id: UUID
+    let task: Task<RecordingResult, Error>
 }
 
 private struct UploadedRecordingAsset {

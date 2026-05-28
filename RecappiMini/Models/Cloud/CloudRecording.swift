@@ -108,7 +108,7 @@ enum DoneCloudStatus: Equatable, Sendable {
             case .failed:
                 return .transcriptionFailed
             case .succeeded:
-                return manifest.hasTranscriptReference || hasTranscript ? .ready : .synced
+                return .ready
             }
         }
 

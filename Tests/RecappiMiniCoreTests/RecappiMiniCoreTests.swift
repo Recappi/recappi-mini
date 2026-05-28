@@ -1315,12 +1315,72 @@ final class RecappiMiniCoreTests: XCTestCase {
             DoneCloudStatus.resolve(
                 cloudEnabled: true,
                 autoTranscribeAfterUpload: true,
+                manifest: makeRemoteManifest(stage: "synced"),
+                latestJobStatus: .succeeded,
+                hasTranscript: false
+            ),
+            .ready
+        )
+        XCTAssertEqual(
+            DoneCloudStatus.resolve(
+                cloudEnabled: true,
+                autoTranscribeAfterUpload: true,
                 manifest: makeRemoteManifest(stage: "uploadFailed"),
                 latestJobStatus: nil,
                 hasTranscript: false
             ),
             .syncFailed
         )
+    }
+
+    func testCloudLibraryDeduplicatesRecordingsByID() {
+        let older = CloudRecording(
+            id: "rec_duplicate",
+            userId: "user_123",
+            title: "Meeting at 10:05",
+            summaryTitle: nil,
+            sourceTitle: nil,
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .uploading,
+            sizeBytes: nil,
+            durationMs: 42_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: nil,
+            activeTranscriptId: nil,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let newer = CloudRecording(
+            id: "rec_duplicate",
+            userId: "user_123",
+            title: "Meeting at 10:05",
+            summaryTitle: "Ready title",
+            sourceTitle: nil,
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .ready,
+            sizeBytes: nil,
+            durationMs: 42_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: nil,
+            activeTranscriptId: "tr_123",
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let deduped = CloudLibraryStore.deduplicatedRecordings([newer, older])
+
+        XCTAssertEqual(deduped.count, 1)
+        XCTAssertEqual(deduped.first?.id, "rec_duplicate")
+        XCTAssertEqual(deduped.first?.status, .ready)
+        XCTAssertEqual(deduped.first?.activeTranscriptId, "tr_123")
     }
 
     @MainActor
@@ -2582,6 +2642,54 @@ final class RecappiMiniCoreTests: XCTestCase {
             ),
             .both
         )
+    }
+
+    func testLiveCaptionStreamTitlesIncludeRoleAndLanguage() {
+        XCTAssertEqual(
+            LiveCaptionFloatingPanel.streamTitle(role: "Original", languageShortTitle: "EN"),
+            "Original · EN"
+        )
+        XCTAssertEqual(
+            LiveCaptionFloatingPanel.streamTitle(role: "Translation", languageShortTitle: "ZH"),
+            "Translation · ZH"
+        )
+    }
+
+    func testLiveCaptionCompactRowsShowOriginalAndTranslationLabels() {
+        let rows = LiveCaptionFloatingPanel.compactCaptionRows(
+            showsTranslation: true,
+            paneVisibility: .both,
+            captionText: "If you have a team, pay attention to the latest source line",
+            translationText: "昨天清了一下 staging 的，看起来没什么问题，只有 qboard 还需要继续确认",
+            sourceLanguageShortTitle: "EN",
+            targetLanguageShortTitle: "ZH"
+        )
+
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].label, "Original · EN")
+        XCTAssertEqual(rows[1].label, "Translation · ZH")
+        XCTAssertFalse(rows[0].isPlaceholder)
+        XCTAssertFalse(rows[1].isPlaceholder)
+        XCTAssertTrue(rows[0].text.contains("latest source line"))
+        XCTAssertTrue(rows[1].text.contains("qboard"))
+    }
+
+    func testLiveCaptionCompactRowsKeepTranslationPlaceholderVisible() {
+        let rows = LiveCaptionFloatingPanel.compactCaptionRows(
+            showsTranslation: true,
+            paneVisibility: .both,
+            captionText: "Listening source stream",
+            translationText: "",
+            sourceLanguageShortTitle: "EN",
+            targetLanguageShortTitle: "ZH"
+        )
+
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].label, "Original · EN")
+        XCTAssertEqual(rows[0].text, "Listening source stream")
+        XCTAssertEqual(rows[1].label, "Translation · ZH")
+        XCTAssertEqual(rows[1].text, "Waiting for translation")
+        XCTAssertTrue(rows[1].isPlaceholder)
     }
 
     @MainActor

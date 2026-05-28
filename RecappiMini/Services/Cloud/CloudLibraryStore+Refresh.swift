@@ -138,8 +138,11 @@ extension CloudLibraryStore {
             let page = try await runAuthorized { client in
                 try await client.listRecordings(limit: pageLimit, cursor: cursor)
             }
-            let existingIDs = Set(recordings.map(\.id))
-            recordings.append(contentsOf: mergeWithCachedRecordingDetails(page.items).filter { !existingIDs.contains($0.id) })
+            var existingIDs = Set(recordings.map(\.id))
+            for recording in mergeWithCachedRecordingDetails(page.items) where existingIDs.insert(recording.id).inserted {
+                recordings.append(recording)
+            }
+            recordings = Self.deduplicatedRecordings(recordings)
             nextCursor = page.nextCursor
             totalRecordingCount = page.totalCount ?? totalRecordingCount ?? (nextCursor == nil ? recordings.count : nil)
             selectDefaultRecordingIfNeeded()

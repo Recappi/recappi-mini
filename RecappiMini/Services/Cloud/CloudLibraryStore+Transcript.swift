@@ -40,13 +40,37 @@ extension CloudLibraryStore {
     }
 
     func pollSelectedActiveJobsUntilTerminal() async {
-        while !Task.isCancelled {
-            guard let recording = selectedRecording else { return }
-            let activeJobs = (transcriptionJobsByRecordingID[recording.id] ?? [])
-                .filter { $0.status.isActive }
-            guard !activeJobs.isEmpty else { return }
+        guard let recording = selectedRecording else { return }
+        let activeJobs = (transcriptionJobsByRecordingID[recording.id] ?? [])
+            .filter { $0.status.isActive }
+        guard !activeJobs.isEmpty else { return }
 
-            await refreshJobs(recordingID: recording.id, jobIDs: activeJobs.map(\.id))
+        await pollActiveJobsUntilTerminal(
+            recordingID: recording.id,
+            jobIDs: activeJobs.map(\.id)
+        )
+    }
+
+    func pollActiveJobsUntilTerminal(
+        recordingID: String,
+        jobIDs: [String],
+        onJobUpdate: (@MainActor @Sendable (TranscriptionJob) -> Void)? = nil
+    ) async {
+        var idsToRefresh = jobIDs
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !idsToRefresh.isEmpty else { return }
+
+        while !Task.isCancelled {
+            await refreshJobs(
+                recordingID: recordingID,
+                jobIDs: idsToRefresh,
+                onJobUpdate: onJobUpdate
+            )
+            idsToRefresh = (transcriptionJobsByRecordingID[recordingID] ?? [])
+                .filter { $0.status.isActive }
+                .map(\.id)
+            guard !idsToRefresh.isEmpty else { return }
             try? await Task.sleep(for: .seconds(2))
         }
     }
@@ -180,7 +204,11 @@ extension CloudLibraryStore {
     }
 
 
-    func refreshJobs(recordingID: String, jobIDs: [String]) async {
+    func refreshJobs(
+        recordingID: String,
+        jobIDs: [String],
+        onJobUpdate: (@MainActor @Sendable (TranscriptionJob) -> Void)? = nil
+    ) async {
         var didUpdateJobs = false
         for jobID in jobIDs {
             guard !Task.isCancelled else { return }
@@ -192,6 +220,7 @@ extension CloudLibraryStore {
                     try await client.getJob(jobId: jobID)
                 }
                 upsertJob(job, for: recordingID)
+                onJobUpdate?(job)
                 didUpdateJobs = true
                 if previousStatus != .succeeded, job.status == .succeeded,
                    let recording = recordings.first(where: { $0.id == recordingID }) {

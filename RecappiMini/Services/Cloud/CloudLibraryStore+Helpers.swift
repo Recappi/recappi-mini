@@ -13,9 +13,11 @@ extension CloudLibraryStore {
     func replaceRecording(_ recording: CloudRecording) {
         guard let index = recordings.firstIndex(where: { $0.id == recording.id }) else {
             recordings.insert(recording, at: 0)
+            recordings = Self.deduplicatedRecordings(recordings)
             return
         }
         recordings[index] = recording
+        recordings = Self.deduplicatedRecordings(recordings)
     }
 
     func applySummaryTitleFromTranscript(_ transcript: TranscriptResponse, to recordingID: String) {
@@ -28,19 +30,19 @@ extension CloudLibraryStore {
     }
 
     func mergeWithCachedRecordingDetails(_ incoming: [CloudRecording]) -> [CloudRecording] {
-        let cachedByID = Dictionary(uniqueKeysWithValues: recordings.map { ($0.id, $0) })
-        return incoming.map { recording in
+        let cachedByID = Dictionary(recordings.map { ($0.id, $0) }, uniquingKeysWith: { current, _ in current })
+        return Self.deduplicatedRecordings(incoming.map { recording in
             guard let cached = cachedByID[recording.id] else { return recording }
             return recording.mergingCachedDetail(from: cached)
-        }
+        })
     }
 
     func mergeWithLocalOnlyRecordings(
         _ incoming: [CloudRecording],
         localOnlyRecordings: [CloudRecording]
     ) -> [CloudRecording] {
-        let cachedByID = Dictionary(uniqueKeysWithValues: recordings.map { ($0.id, $0) })
-        var merged = incoming
+        let cachedByID = Dictionary(recordings.map { ($0.id, $0) }, uniquingKeysWith: { current, _ in current })
+        var merged = Self.deduplicatedRecordings(incoming)
         var mergedIDs = Set(merged.map(\.id))
 
         for localRecording in localOnlyRecordings where !mergedIDs.contains(localRecording.id) {
@@ -50,6 +52,13 @@ extension CloudLibraryStore {
 
         return merged.sorted {
             ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast)
+        }
+    }
+
+    nonisolated static func deduplicatedRecordings(_ recordings: [CloudRecording]) -> [CloudRecording] {
+        var seenIDs = Set<String>()
+        return recordings.filter { recording in
+            seenIDs.insert(recording.id).inserted
         }
     }
 
