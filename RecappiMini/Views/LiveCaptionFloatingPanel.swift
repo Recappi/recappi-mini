@@ -1235,6 +1235,13 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        // NSTextView's `lineFragmentPadding` defaults to 5pt — it nudges
+        // text in from the container's leading edge. With the SwiftUI
+        // title row sitting at x=0 of the same column, that default
+        // produced a visible misalignment (caption body indented past
+        // the `ORIGINAL · EN` label). Zero it so the body and title
+        // share the same leading edge.
+        textView.textContainer?.lineFragmentPadding = 0
         textView.linkTextAttributes = [:]
         // Carry the SwiftUI accessibilityIdentifier through to the
         // AppKit text view so XCUITest can still find the caption AX
