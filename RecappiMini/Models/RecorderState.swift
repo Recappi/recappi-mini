@@ -18,6 +18,10 @@ enum RecorderState: Equatable {
         self == .recording
     }
 
+    var requiresQuitConfirmation: Bool {
+        self == .recording || self == .starting
+    }
+
     var isProcessing: Bool {
         if case .processing = self { return true }
         return false

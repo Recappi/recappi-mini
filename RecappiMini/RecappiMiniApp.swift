@@ -6,6 +6,8 @@ import SwiftUI
 
 @main
 struct RecappiMiniApp: App {
+    @NSApplicationDelegateAdaptor(AppLifecycleDelegateProxy.self) private var appLifecycleDelegate
+
     private static let isRunningForPreviews =
         ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
 
@@ -63,9 +65,38 @@ struct RecappiMiniApp: App {
     }
 
 }
+
+@MainActor
+final class AppLifecycleDelegateProxy: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        AppDelegate.shared.applicationDidFinishLaunching(notification)
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        AppDelegate.shared.applicationDidBecomeActive(notification)
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        AppDelegate.shared.applicationDidResignActive(notification)
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        AppDelegate.shared.applicationShouldTerminate(sender)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        AppDelegate.shared.applicationWillTerminate(notification)
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWindowDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     static let shared = AppDelegate()
+
+    private enum RecordingQuitConfirmation {
+        case keepRecording
+        case stopAndQuit
+    }
 
     private struct UITestAutoPromptCommand: Decodable {
         let bundleID: String
@@ -115,6 +146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var isSyncingPanelVisibility = false
     private var uiTestCommandPollTimer: Timer?
     private var didFinishLaunching = false
+    private var isStoppingRecordingForTermination = false
+    private var pendingTerminationStopTask: Task<Void, Never>?
     private var uiTestMeetingLabelByBundleID: [String: String] = [:]
     private var panelTargetVisible = true {
         didSet {
@@ -349,8 +382,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         installStateBoardRecordingPanelFixtureIfNeeded()
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !uiTestMode.isEnabled else { return .terminateNow }
+        guard recorder.state.requiresQuitConfirmation else { return .terminateNow }
+        guard !isStoppingRecordingForTermination else { return .terminateLater }
+
+        DiagnosticsLog.event("app", "terminate.request while_recording state=\(recorder.state)")
+        switch presentRecordingQuitConfirmationAlert() {
+        case .keepRecording:
+            DiagnosticsLog.event("app", "terminate.cancelled reason=recording_active")
+            showPanel(activateApp: true)
+            return .terminateCancel
+        case .stopAndQuit:
+            beginStoppingRecordingForTermination(sender)
+            return .terminateLater
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         DiagnosticsLog.event("app", "lifecycle.terminate")
+        pendingTerminationStopTask?.cancel()
+        pendingTerminationStopTask = nil
         backdropLuminance.detach()
         activePromptRefreshTask?.cancel()
         browserAutoPromptTask?.cancel()
@@ -374,6 +426,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
             self.statusItem = nil
+        }
+    }
+
+    private func presentRecordingQuitConfirmationAlert() -> RecordingQuitConfirmation {
+        prepareForForegroundWindowPresentation()
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Recording in progress"
+        alert.informativeText = "Stop the current recording before quitting Recappi Mini, or keep recording and return to the panel."
+        alert.addButton(withTitle: "Keep Recording")
+        alert.addButton(withTitle: "Stop Recording and Quit")
+        alert.buttons.first?.keyEquivalent = "\r"
+        if alert.buttons.indices.contains(1) {
+            alert.buttons[1].keyEquivalent = ""
+            if #available(macOS 11.0, *) {
+                alert.buttons[1].hasDestructiveAction = true
+            }
+        }
+
+        SentryReporter.pauseAppHangTrackingForExpectedModal(reason: "recording_quit_confirmation")
+        let response = alert.runModal()
+        SentryReporter.resumeAppHangTrackingForExpectedModal(reason: "recording_quit_confirmation")
+        return response == .alertSecondButtonReturn ? .stopAndQuit : .keepRecording
+    }
+
+    private func beginStoppingRecordingForTermination(_ sender: NSApplication) {
+        isStoppingRecordingForTermination = true
+        DiagnosticsLog.event("app", "terminate.stop_recording.begin")
+        pendingTerminationStopTask = Task { @MainActor [weak self, weak sender] in
+            guard let self else { return }
+            do {
+                let sessionDir = try await self.recorder.stopRecording()
+                DiagnosticsLog.event("app", "terminate.stop_recording.saved dir=\(sessionDir.lastPathComponent)")
+                self.pendingTerminationStopTask = nil
+                sender?.reply(toApplicationShouldTerminate: true)
+            } catch {
+                DiagnosticsLog.error("app", "terminate.stop_recording.failed \(DiagnosticsLog.errorSummary(error))")
+                self.isStoppingRecordingForTermination = false
+                self.pendingTerminationStopTask = nil
+                self.recorder.state = .error(message: NetworkErrorPresenter.userFacingMessage(for: error))
+                self.showPanel(activateApp: true)
+                sender?.reply(toApplicationShouldTerminate: false)
+            }
         }
     }
 

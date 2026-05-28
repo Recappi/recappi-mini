@@ -2800,6 +2800,12 @@ final class RecappiMiniCoreTests: XCTestCase {
     }
 
     @MainActor
+    func testCustomTooltipDoesNotAnimateMaterialWindowRetargets() {
+        let duration = RecappiTooltipController.retargetFrameAnimationDuration
+        XCTAssertEqual(duration, 0)
+    }
+
+    @MainActor
     func testFloatingPanelResizeKeepsTopEdgeAnchored() {
         let frame = NSRect(x: 100, y: 200, width: 320, height: 120)
         let resized = FloatingPanelController.contentResizeFrame(
@@ -3162,6 +3168,35 @@ final class RecappiMiniCoreTests: XCTestCase {
     func testDotMatrixLeavesSilenceUnlit() {
         let litRows = DotMatrixWaveformModel.litRowCounts(for: Array(repeating: 0, count: 40))
         XCTAssertTrue(litRows.allSatisfy { $0 == 0 })
+    }
+
+    func testDotMatrixUsesSoftBoundaryOpacity() {
+        let opacities = DotMatrixWaveformModel.litRowOpacities(for: [0.18], rows: 5).first ?? []
+
+        XCTAssertTrue(opacities.contains { $0 > 0 && $0 < 1 })
+        XCTAssertEqual(opacities.last ?? 0, 1, accuracy: 0.001)
+    }
+
+    func testDotMatrixLeavesSilenceFullyTransparent() {
+        let opacities = DotMatrixWaveformModel.litRowOpacities(for: Array(repeating: 0, count: 4), rows: 5)
+
+        XCTAssertTrue(opacities.flatMap { $0 }.allSatisfy { $0 == 0 })
+    }
+
+    func testRecorderStateRequiresQuitConfirmationWhileCapturing() {
+        XCTAssertTrue(RecorderState.starting.requiresQuitConfirmation)
+        XCTAssertTrue(RecorderState.recording.requiresQuitConfirmation)
+        XCTAssertFalse(RecorderState.idle.requiresQuitConfirmation)
+        XCTAssertFalse(RecorderState.processing(.savingAudio).requiresQuitConfirmation)
+        XCTAssertFalse(RecorderState.done(result: RecordingResult(folderURL: URL(fileURLWithPath: "/tmp/session"), transcript: nil, duration: 1)).requiresQuitConfirmation)
+        XCTAssertFalse(RecorderState.error(message: "Failed").requiresQuitConfirmation)
+    }
+
+    @MainActor
+    func testAppLifecycleDelegateProxyForwardsIdleTermination() {
+        let proxy = AppLifecycleDelegateProxy()
+
+        XCTAssertEqual(proxy.applicationShouldTerminate(.shared), .terminateNow)
     }
 
     @MainActor

@@ -13,9 +13,9 @@ import SwiftUI
 ///    sits at the top-right of the display, so naive "above the anchor"
 ///    placement is regularly cropped by the menu bar / screen edge).
 /// 2. When the user moves from one tooltipped button to another while a
-///    tooltip is already showing, the same pill *morphs* — its frame
-///    animates from old anchor to new anchor and the text inside cross-
-///    fades — instead of fading out + fading in two separate tooltips.
+///    tooltip is already showing, a fixed transparent carrier window is
+///    reused. The glass pill inside that carrier morphs its position/width
+///    and cross-fades text instead of moving/resizing the NSWindow itself.
 ///
 /// Usage:
 /// ```swift
@@ -68,11 +68,15 @@ private struct TooltipAnchorView: NSViewRepresentable {
 @MainActor
 private final class RecappiTooltipModel: ObservableObject {
     @Published var text: String = ""
+    @Published var pillFrame: CGRect = .zero
+    @Published var isVisible: Bool = false
 }
 
 @MainActor
 final class RecappiTooltipController {
     static let shared = RecappiTooltipController()
+    static let retargetFrameAnimationDuration: TimeInterval = 0
+    static let carrierMorphDuration: TimeInterval = 0.18
 
     private var window: RecappiTooltipWindow?
     private var hostingView: NSHostingView<RecappiTooltipContent>?
@@ -93,7 +97,6 @@ final class RecappiTooltipController {
     private let dismissGrace: TimeInterval = 0.18
 
     private let fadeDuration: TimeInterval = 0.15
-    private let morphDuration: TimeInterval = 0.22
     private let anchorGap: CGFloat = 6
 
     func scheduleShow(text: String, anchor: NSView, token: UUID) {
@@ -102,9 +105,9 @@ final class RecappiTooltipController {
         dismissWorkItem = nil
 
         if window != nil {
-            // Already on screen — morph instantly to the new anchor/text.
+            // Already on screen — retarget the same pill to the new anchor/text.
             currentToken = token
-            morph(to: text, anchor: anchor)
+            retarget(to: text, anchor: anchor)
             return
         }
 
@@ -142,59 +145,41 @@ final class RecappiTooltipController {
 
     private func show(text: String, anchor: NSView) {
         guard let hostWindow = anchor.window else { return }
+        let placement = placement(for: anchor, in: hostWindow, text: text)
+        ensureCarrierWindow(frame: placement.carrierFrame, hostWindow: hostWindow)
         model.text = text
-        let content = RecappiTooltipContent(model: model)
-        let hosting = NSHostingView(rootView: content)
-        hosting.layoutSubtreeIfNeeded()
-
-        let win = RecappiTooltipWindow()
-        win.appearance = hostWindow.contentView?.window?.appearance ?? NSApp.effectiveAppearance
-        win.contentView = hosting
-
-        let size = hosting.fittingSize
-        let anchorOnScreen = hostWindow.convertToScreen(anchor.convert(anchor.bounds, to: nil))
-        let origin = placement(anchorOnScreen: anchorOnScreen, tooltipSize: size)
-        win.setFrame(NSRect(origin: origin, size: size), display: true)
-        win.alphaValue = 0
-        win.orderFrontRegardless()
-
-        self.window = win
-        self.hostingView = hosting
+        model.pillFrame = placement.pillFrameInCarrier
+        model.isVisible = false
+        window?.orderFrontRegardless()
         installClickMonitorIfNeeded()
 
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = fadeDuration
-            win.animator().alphaValue = 1
+        withAnimation(.easeOut(duration: fadeDuration)) {
+            model.isVisible = true
         }
     }
 
-    private func morph(to text: String, anchor: NSView) {
-        guard let win = window, let hosting = hostingView, let hostWindow = anchor.window else { return }
+    private func retarget(to text: String, anchor: NSView) {
+        guard let hostWindow = anchor.window else { return }
 
         // The model update drives the SwiftUI `.contentTransition(.opacity)`
-        // inside the tooltip body, so the *text* cross-fades while the
-        // *window frame* animates in lockstep below.
-        model.text = text
-        hosting.layoutSubtreeIfNeeded()
-        let size = hosting.fittingSize
-        let anchorOnScreen = hostWindow.convertToScreen(anchor.convert(anchor.bounds, to: nil))
-        let origin = placement(anchorOnScreen: anchorOnScreen, tooltipSize: size)
-        let target = NSRect(origin: origin, size: size)
-
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = morphDuration
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.2, 1)
-            ctx.allowsImplicitAnimation = true
-            win.animator().setFrame(target, display: true)
+        // inside the tooltip body. Keep the NSWindow frame itself fixed: a
+        // material-backed panel stutters if AppKit animates both position and
+        // size while the cursor is moving across dense toolbar buttons.
+        let placement = placement(for: anchor, in: hostWindow, text: text)
+        ensureCarrierWindow(frame: placement.carrierFrame, hostWindow: hostWindow)
+        withAnimation(.smooth(duration: Self.carrierMorphDuration)) {
+            model.text = text
+            model.pillFrame = placement.pillFrameInCarrier
+            model.isVisible = true
         }
     }
 
     private func fadeOut() {
-        guard let window else { return }
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = fadeDuration
-            window.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
+        guard window != nil else { return }
+        withAnimation(.easeOut(duration: fadeDuration)) {
+            model.isVisible = false
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + fadeDuration) { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard self.currentToken == nil else { return }
@@ -203,7 +188,7 @@ final class RecappiTooltipController {
                 self.hostingView = nil
                 self.removeClickMonitor()
             }
-        })
+        }
     }
 
     private func dismissImmediately() {
@@ -212,6 +197,7 @@ final class RecappiTooltipController {
         dismissWorkItem?.cancel()
         dismissWorkItem = nil
         currentToken = nil
+        model.isVisible = false
         window?.orderOut(nil)
         window = nil
         hostingView = nil
@@ -238,12 +224,38 @@ final class RecappiTooltipController {
         self.clickMonitor = nil
     }
 
+    private func ensureCarrierWindow(frame: NSRect, hostWindow: NSWindow) {
+        if window == nil {
+            let content = RecappiTooltipContent(model: model)
+            let hosting = NSHostingView(rootView: content)
+            hosting.frame = NSRect(origin: .zero, size: frame.size)
+            hosting.autoresizingMask = [.width, .height]
+
+            let win = RecappiTooltipWindow(contentRect: frame)
+            win.appearance = hostWindow.contentView?.window?.appearance ?? NSApp.effectiveAppearance
+            win.contentView = hosting
+            win.setFrame(frame, display: false)
+
+            self.window = win
+            self.hostingView = hosting
+            return
+        }
+
+        if let window, !window.frame.equalTo(frame) {
+            window.setFrame(frame, display: false)
+            hostingView?.frame = NSRect(origin: .zero, size: frame.size)
+        }
+        window?.appearance = hostWindow.contentView?.window?.appearance ?? NSApp.effectiveAppearance
+    }
+
     /// Strictly clamp the tooltip rect to the visible screen. Below the
     /// anchor is the default (the floating panel sits at the top-right of
     /// the display, so "above" is regularly cropped by the menu bar).
     /// If neither below nor above fits cleanly, we pick the side with more
     /// room and clamp the corner so the pill is never partially off-screen.
-    private func placement(anchorOnScreen: CGRect, tooltipSize: CGSize) -> CGPoint {
+    private func placement(for anchor: NSView, in hostWindow: NSWindow, text: String) -> TooltipPlacement {
+        let anchorOnScreen = hostWindow.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+        let tooltipSize = tooltipSize(for: text)
         let screen = NSScreen.screens.first(where: { $0.frame.intersects(anchorOnScreen) })
             ?? NSScreen.main
         let visible = screen?.visibleFrame ?? .zero
@@ -280,14 +292,33 @@ final class RecappiTooltipController {
                 y = min(visible.maxY - tooltipSize.height - inset, aboveY)
             }
         }
-        return CGPoint(x: x, y: y)
+
+        let pillFrameOnScreen = NSRect(origin: CGPoint(x: x, y: y), size: tooltipSize)
+        let pillFrameInCarrier = NSRect(
+            x: pillFrameOnScreen.minX - visible.minX,
+            y: visible.maxY - pillFrameOnScreen.maxY,
+            width: pillFrameOnScreen.width,
+            height: pillFrameOnScreen.height
+        )
+        return TooltipPlacement(carrierFrame: visible, pillFrameInCarrier: pillFrameInCarrier)
+    }
+
+    private func tooltipSize(for text: String) -> CGSize {
+        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        let rawSize = (text as NSString).size(withAttributes: [.font: font])
+        return CGSize(width: ceil(rawSize.width) + 22, height: ceil(font.ascender - font.descender) + 14)
     }
 }
 
+private struct TooltipPlacement {
+    var carrierFrame: NSRect
+    var pillFrameInCarrier: NSRect
+}
+
 private final class RecappiTooltipWindow: NSPanel {
-    init() {
+    init(contentRect: NSRect) {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+            contentRect: contentRect,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -313,26 +344,35 @@ private struct RecappiTooltipContent: View {
     @ObservedObject var model: RecappiTooltipModel
 
     var body: some View {
-        Text(model.text)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Palette.labelPrimary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .fixedSize(horizontal: true, vertical: false)
-            // `.opacity` content transition cross-fades the label when the
-            // string changes mid-flight, giving the morph between adjacent
-            // buttons a continuous feel rather than two separate pills.
-            .contentTransition(.opacity)
-            .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay {
+        ZStack(alignment: .topLeading) {
+            if model.isVisible {
+                Text(model.text)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Palette.labelPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.98)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    // `.opacity` content transition cross-fades the label
+                    // when the string changes mid-flight, while the pill's
+                    // frame moves inside a fixed carrier window.
+                    .contentTransition(.opacity)
+                    .frame(width: model.pillFrame.width, height: model.pillFrame.height)
+                    .background {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
+                            .fill(.ultraThinMaterial)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
+                            }
+                            .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 3)
                     }
-                    .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 3)
+                    .position(x: model.pillFrame.midX, y: model.pillFrame.midY)
+                    .transition(.opacity)
+                    .animation(.smooth(duration: RecappiTooltipController.carrierMorphDuration), value: model.pillFrame)
+                    .animation(.smooth(duration: 0.14), value: model.text)
             }
-            .padding(2)
-            .animation(.smooth(duration: 0.18), value: model.text)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

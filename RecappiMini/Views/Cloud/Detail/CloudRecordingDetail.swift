@@ -38,6 +38,8 @@ struct CloudRecordingDetail: View {
     @State private var speakerNoteDraft = ""
     @State private var speakerEmojiDraft = ""
     @State private var summarySourcePopoverKey: String?
+    @Namespace private var chapterRowHighlightNamespace
+    @Namespace private var transcriptRowHighlightNamespace
 
     let recording: CloudRecording
     let recordingWebURL: URL?
@@ -1306,66 +1308,23 @@ struct CloudRecordingDetail: View {
                     timelineChapterRow(
                         entry,
                         index: offset,
-                        total: entries.count,
                         activeIndex: activeIndex
                     )
                 }
             }
+            .animation(DT.motionAware(DT.easeSpring(0.20)), value: activeIndex)
         }
     }
 
-    /// Chapter navigation rendered between Summary and Transcript in the
-    /// scroll view. This is intentionally framed as an audio jump surface,
-    /// not a second thematic summary.
+    /// Chapter navigation rendered in the same row language as transcript
+    /// segments: the row itself is the jump target, without a separate
+    /// timeline rail or right-side action chip.
     @ViewBuilder
     private var timelineSectionView: some View {
         if timelineEntries.isEmpty {
             timelineEmptyState
         } else {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .center, spacing: 9) {
-                    ZStack {
-                        Circle()
-                            .fill(DT.appAccent.opacity(0.14))
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(DT.appAccentSoft)
-                    }
-                    .frame(width: 24, height: 24)
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Audio chapters")
-                            .font(CloudTypography.section)
-                            .foregroundStyle(Color.dtLabel)
-                        Text("Jump through the recording")
-                            .font(CloudTypography.caption)
-                            .foregroundStyle(Color.dtLabelTertiary)
-                    }
-
-                    Spacer(minLength: 0)
-                    Text("\(timelineEntries.count) chapters")
-                        .font(CloudTypography.captionMono)
-                        .foregroundStyle(Color.dtLabelTertiary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Palette.controlFillHover)
-                        )
-                }
-
-                timelineChaptersBody()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Palette.surfaceCardSubtle.opacity(0.5))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Palette.borderHairline.opacity(0.5), lineWidth: 0.5)
-            )
+            timelineChaptersBody()
         }
     }
 
@@ -1374,103 +1333,44 @@ struct CloudRecordingDetail: View {
     private func timelineChapterRow(
         _ entry: TimelineChapterDisplayEntry,
         index: Int,
-        total: Int,
         activeIndex: Int?
     ) -> some View {
         let isActive = activeIndex == index
-        let isPlayed = (activeIndex ?? -1) > index
-        let isFuture = currentTimelinePlaybackMs != nil && (activeIndex ?? Int.max) < index && !isActive
-        let isLast = index == total - 1
-
-        let markerSize: CGFloat = 12
-        let railWidth: CGFloat = 2
-        let activeAccent = DT.statusReady
-        let pastAccent = DT.statusReady.opacity(0.6)
-        let completedAccent = DT.statusReady.opacity(0.72)
-        let futureAccent = Palette.labelTertiary.opacity(0.35)
 
         Button {
             handlePlaybackSeek(Double(entry.startMs) / 1000.0)
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-            // Rail column: marker + connector
-                VStack(spacing: 0) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                (isPlayed || isActive) ? completedAccent : futureAccent
-                            )
-                            .frame(width: markerSize, height: markerSize)
-                    }
-                    .frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(entry.timeRange)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Color.dtLabelTertiary)
+                        .lineLimit(1)
 
-                    if !isLast {
-                        Rectangle()
-                            .fill(
-                                isPlayed || isActive
-                                    ? pastAccent
-                                    : futureAccent
-                            )
-                            .frame(width: railWidth)
-                            .frame(maxHeight: .infinity)
-                    }
-                }
-                .frame(width: 22)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(entry.timeRange)
-                            .font(CloudTypography.captionMono)
-                            .foregroundStyle(isFuture ? Color.dtLabelTertiary : Color.dtLabelSecondary)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2.5)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(isFuture ? Palette.controlFillHover.opacity(0.55) : Palette.controlFillHover)
-                            )
-                            .overlay(
-                                Capsule(style: .continuous)
-                                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
-                            )
-
-                        Text(entry.title)
-                            .font(CloudTypography.label)
-                            .foregroundStyle(isFuture ? Color.dtLabelSecondary : Color.dtLabel)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Spacer(minLength: 0)
-
-                        HStack(spacing: 4) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 8.5, weight: .medium))
-                            Text("Jump")
-                                .font(CloudTypography.caption)
-                        }
+                    Text(entry.title)
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color.dtLabelSecondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Palette.controlFillHover)
-                        )
-                    }
-                    .padding(.top, 4)
-
-                    Text(entry.summary)
-                        .font(CloudTypography.body)
-                        .foregroundStyle(isFuture ? Color.dtLabelTertiary : Color.dtLabelSecondary)
-                        .lineSpacing(2.5)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.bottom, isLast ? 0 : 14)
+
+                Text(entry.summary)
+                    .font(.body)
+                    .foregroundStyle(Color.dtLabel)
+                    .lineSpacing(5)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isActive ? activeAccent.opacity(0.045) : Color.clear)
+                CloudActivePlaybackRowHighlight(
+                    isActive: isActive,
+                    namespace: chapterRowHighlightNamespace,
+                    id: "chapter-active-row"
+                )
             )
         }
         .buttonStyle(.plain)
@@ -2073,7 +1973,7 @@ struct CloudRecordingDetail: View {
             } label: {
                 Label("Recording details", systemImage: "info.circle")
             }
-            .recappiTooltip(recordingInfoHelpText)
+            .recappiTooltip("Show recording details")
             .popover(isPresented: $isShowingRecordingInfo, arrowEdge: .top) {
                 recordingInfoPopover
             }
@@ -2184,17 +2084,6 @@ struct CloudRecordingDetail: View {
             retranscribeContextPopover
         }
         .accessibilityIdentifier(AccessibilityIDs.Cloud.moreActionsButton)
-    }
-
-    private var recordingInfoHelpText: String {
-        [
-            "Duration: \(recording.durationText ?? "Unknown")",
-            "Size: \(recording.sizeText ?? "Unknown")",
-            "Audio: \(recording.audioShapeCompactText)",
-            "Format: \(recording.formatText)",
-            "Source: \(recording.sourceLine)",
-            "Created: \(recording.shortDateText)",
-        ].joined(separator: "\n")
     }
 
     private var recordingInfoPopover: some View {
@@ -2864,6 +2753,7 @@ struct CloudRecordingDetail: View {
                             row: row,
                             isActive: row.id == activeSegmentID,
                             speaker: speakerIdentity(for: row.speaker),
+                            activeHighlightNamespace: transcriptRowHighlightNamespace,
                             onSpeakerSelect: {
                                 if let identity = speakerIdentity(for: row.speaker) {
                                     presentSpeakerRenamePopover(for: identity, anchorID: row.id)
@@ -2877,6 +2767,7 @@ struct CloudRecordingDetail: View {
                         .id(row.id)
                     }
                 }
+                .animation(DT.motionAware(DT.easeSpring(0.20)), value: activeSegmentID)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptText)
             } else if shouldShowTranscriptGenerationEmptyState {
@@ -2929,9 +2820,6 @@ struct CloudRecordingDetail: View {
         }
         .frame(maxWidth: .infinity)
         .frame(minHeight: segmentRows.isEmpty ? nil : 200, alignment: .topLeading)
-        .transaction { transaction in
-            transaction.animation = nil
-        }
     }
 
     private func activeSegmentID(in rows: [CloudTranscriptSegmentDisplayRow]) -> String? {
@@ -3328,6 +3216,7 @@ private struct CloudTranscriptSegmentRow<PopoverContent: View>: View {
     let row: CloudTranscriptSegmentDisplayRow
     let isActive: Bool
     let speaker: CloudSpeakerIdentity?
+    let activeHighlightNamespace: Namespace.ID
     let onSpeakerSelect: () -> Void
     let onSelect: () -> Void
     @Binding var renamingSpeakerRawName: String?
@@ -3398,12 +3287,35 @@ private struct CloudTranscriptSegmentRow<PopoverContent: View>: View {
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            Rectangle()
-                .fill(isActive ? Color.dtLabel.opacity(0.04) : Color.clear)
+            CloudActivePlaybackRowHighlight(
+                isActive: isActive,
+                namespace: activeHighlightNamespace,
+                id: "transcript-active-row"
+            )
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
-        .recappiTooltip(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
+    }
+}
+
+private struct CloudActivePlaybackRowHighlight: View {
+    let isActive: Bool
+    let namespace: Namespace.ID
+    let id: String
+
+    var body: some View {
+        ZStack {
+            if isActive {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.dtLabel.opacity(0.045))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(Palette.borderHairline.opacity(0.55), lineWidth: 0.5)
+                    }
+                    .matchedGeometryEffect(id: id, in: namespace, properties: .frame)
+                    .transition(.opacity)
+            }
+        }
     }
 }
 

@@ -16,6 +16,27 @@ enum DotMatrixWaveformModel {
             return max(1, min(rows, Int(ceil(perceptual * Float(rows)))))
         }
     }
+
+    static func litRowOpacities(for levels: [Float], rows: Int = 5) -> [[Float]] {
+        guard rows > 0 else { return Array(repeating: [], count: levels.count) }
+        return levels.map { rawLevel in
+            let amplitude = max(0, min(1, rawLevel))
+            guard amplitude > 0.028 else { return Array(repeating: 0, count: rows) }
+            let perceptualHeight = max(1, pow(amplitude, 0.58) * Float(rows))
+            return (0..<rows).map { row in
+                let rowFromBottom = Float(rows - row - 1)
+                let fill = perceptualHeight - rowFromBottom
+                guard fill > 0 else { return 0 }
+                guard fill < 1 else { return 1 }
+                return smoothstep(fill)
+            }
+        }
+    }
+
+    private static func smoothstep(_ value: Float) -> Float {
+        let t = max(0, min(1, value))
+        return t * t * (3 - 2 * t)
+    }
 }
 
 struct DotMatrixWaveform: View {
@@ -38,19 +59,24 @@ struct DotMatrixWaveform: View {
             let colStep = size.width / CGFloat(cols)
             let rowStep = size.height / CGFloat(rows)
             let dotSize = min(colStep, rowStep) * 0.6
-            let litRows = DotMatrixWaveformModel.litRowCounts(for: renderLevels, rows: rows)
+            let litOpacities = DotMatrixWaveformModel.litRowOpacities(for: renderLevels, rows: rows)
 
             for column in 0..<cols {
-                let lit = litRows[column]
-                let firstLit = rows - lit
-
                 for row in 0..<rows {
                     let x = CGFloat(column) * colStep + (colStep - dotSize) / 2
                     let y = CGFloat(row) * rowStep + (rowStep - dotSize) / 2
                     let rect = CGRect(x: x, y: y, width: dotSize, height: dotSize)
-                    let isLit = row >= firstLit
-                    let color = isLit ? resolvedLitColor : resolvedUnlitColor
-                    ctx.fill(Path(ellipseIn: rect), with: .color(color))
+                    let path = Path(ellipseIn: rect)
+                    ctx.fill(path, with: .color(resolvedUnlitColor))
+
+                    let opacity = litOpacities[column][row]
+                    if opacity > 0 {
+                        // Overlay the lit color with fractional coverage at
+                        // the waveform's top edge. Fully covered lower dots
+                        // stay crisp; only the boundary row fades into the
+                        // unlit matrix so the shape stops reading as binary.
+                        ctx.fill(path, with: .color(resolvedLitColor.opacity(Double(opacity))))
+                    }
                 }
             }
         }

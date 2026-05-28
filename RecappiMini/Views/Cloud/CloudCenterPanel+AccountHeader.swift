@@ -56,12 +56,19 @@ extension CloudCenterPanel {
 
         // Usage section (signed in + billing loaded).
         if sessionStore.currentSession != nil, let billing = store.billingStatus {
-            let header = NSMenuItem(title: "Usage", action: nil, keyEquivalent: "")
-            header.isEnabled = false
-            menu.addItem(header)
-
-            menu.addItem(disabledMenuItem(title: "    Storage  \(billing.storageUsageText)"))
-            menu.addItem(disabledMenuItem(title: "    Minutes  \(billing.minutesUsageText)"))
+            menu.addItem(self.usageSectionHeader("Usage"))
+            menu.addItem(self.usageRow(
+                label: "Storage",
+                value: billing.storageUsageText,
+                percent: billing.hasUnlimitedStorage ? nil : billing.storageProgress,
+                overLimit: billing.effectiveIsOverStorage
+            ))
+            menu.addItem(self.usageRow(
+                label: "Minutes",
+                value: billing.minutesUsageText,
+                percent: billing.hasUnlimitedMinutes ? nil : billing.minutesProgress,
+                overLimit: billing.effectiveIsOverMinutes
+            ))
 
             let billingItem = closureMenuItem(title: "Manage billing…", systemImage: "creditcard") { [store] in
                 Task { @MainActor in await store.openBillingPortalOrPlans() }
@@ -71,22 +78,10 @@ extension CloudCenterPanel {
             menu.addItem(.separator())
         }
 
-        // Theme submenu.
-        let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
-        themeItem.image = NSImage(systemSymbolName: "paintbrush", accessibilityDescription: nil)
-        let themeSub = NSMenu()
-        themeSub.autoenablesItems = false
-        for option in AppTheme.allCases {
-            let item = closureMenuItem(title: option.displayName, systemImage: nil) { [config] in
-                config.theme = option
-            }
-            item.state = (config.theme == option) ? .on : .off
-            themeSub.addItem(item)
-        }
-        themeItem.submenu = themeSub
-        menu.addItem(themeItem)
-
-        // Settings…
+        // Settings… (Theme is configured inside Settings → General; surfacing
+        // a separate Theme submenu here was redundant per peng-xiao
+        // 5/28 23:59 — the account menu now stays focused on session +
+        // billing + settings entry.)
         menu.addItem(closureMenuItem(title: "Settings…", systemImage: "gear") {
             AppDelegate.shared.showSettingsWindow()
         })
@@ -120,6 +115,79 @@ extension CloudCenterPanel {
     private func disabledMenuItem(title: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
+        return item
+    }
+
+    /// Tight "USAGE" section header — uppercase, tertiary label color,
+    /// kerning to match the small caps section labels elsewhere in the app
+    /// (AudioSourcePill's category headers). Replaces the previous plain
+    /// title-cased disabled item that read as just another menu row.
+    private func usageSectionHeader(_ text: String) -> NSMenuItem {
+        let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.attributedTitle = NSAttributedString(
+            string: text.uppercased(),
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: NSColor.tertiaryLabelColor,
+                .kern: 0.6,
+            ]
+        )
+        return item
+    }
+
+    /// Three-column usage row (label · value · percent). Tab stops align
+    /// the value column left and pin the percent column to the right edge
+    /// so Storage and Minutes line up regardless of value width. peng-xiao
+    /// 5/29 00:10 asked to add a percent next to each row and tighten the
+    /// alignment that the previous two-column tab layout missed.
+    private func usageRow(label: String, value: String, percent: Double?, overLimit: Bool) -> NSMenuItem {
+        let percentText: String = {
+            guard let percent else { return "" }
+            let clamped = max(0, percent)
+            let pct = Int((clamped * 100).rounded())
+            return "\(pct)%"
+        }()
+        let title = percentText.isEmpty
+            ? "\(label)\t\(value)"
+            : "\(label)\t\(value)\t\(percentText)"
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.tabStops = [
+            NSTextTab(textAlignment: .left, location: 80),
+            NSTextTab(textAlignment: .right, location: 240),
+        ]
+
+        let attributed = NSMutableAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 12),
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .paragraphStyle: paragraph,
+            ]
+        )
+        // Value text: primary label color (the readable headline number).
+        let valueStart = label.count + 1
+        attributed.addAttribute(
+            .foregroundColor,
+            value: NSColor.labelColor,
+            range: NSRange(location: valueStart, length: value.count)
+        )
+        // Percent text: red if over limit, otherwise tertiary so it reads
+        // as auxiliary metadata rather than competing with the value.
+        if !percentText.isEmpty {
+            let percentStart = valueStart + value.count + 1
+            attributed.addAttribute(
+                .foregroundColor,
+                value: overLimit ? NSColor.systemRed : NSColor.tertiaryLabelColor,
+                range: NSRange(location: percentStart, length: percentText.count)
+            )
+        }
+
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.indentationLevel = 1
+        item.attributedTitle = attributed
         return item
     }
 

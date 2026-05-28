@@ -56,6 +56,8 @@ struct RecordingState: View {
                     } label: {
                         Image(systemName: appDelegate.isLiveCaptionPanelPresented ? "captions.bubble.fill" : "captions.bubble")
                             .font(.system(size: 10.5, weight: .semibold))
+                            .contentTransition(.symbolEffect(.replace))
+                            .animation(DT.motionAware(DT.ease(0.16)), value: appDelegate.isLiveCaptionPanelPresented)
                     }
                     .buttonStyle(PanelIconButtonStyle(size: 18))
                     .recappiTooltip(appDelegate.isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
@@ -191,36 +193,23 @@ struct RecordingState: View {
         } label: {
             ZStack(alignment: .topTrailing) {
                 controlShape
-                    .fill(recordingGlassControlFill)
-                    .glassEffect(.regular.tint(recordingGlassControlTint), in: controlShape)
+                    .fill(microphoneControlFill)
                     .overlay(
                         controlShape
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(isDarkMode ? 0.10 : 0.22),
-                                        Color.clear,
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .blendMode(.screen)
-                    )
-                    .overlay(
-                        controlShape
-                            .strokeBorder(Color.white.opacity(isDarkMode ? 0.12 : 0.28), lineWidth: 0.5)
+                            .strokeBorder(microphoneControlStroke, lineWidth: 0.5)
                     )
                     .frame(width: 28, height: 28)
 
                 Image(systemName: recorder.includesMicrophoneAudio ? "mic.fill" : "mic.slash.fill")
                     .font(.system(size: 12))
+                    .contentTransition(.symbolEffect(.replace))
                     .foregroundStyle(
                         recorder.includesMicrophoneAudio
                             ? DT.recordingLiveBlue
                             : Palette.labelTertiary
                     )
                     .frame(width: 28, height: 28)
+                    .animation(DT.motionAware(DT.ease(0.16)), value: recorder.includesMicrophoneAudio)
 
                 if recorder.includesMicrophoneAudio {
                     Circle()
@@ -232,11 +221,13 @@ struct RecordingState: View {
                         )
                         .offset(x: 3, y: -2.5)
                         .modifier(PulsingModifier())
+                        .transition(.scale(scale: 0.72).combined(with: .opacity))
                         .accessibilityHidden(true)
                 }
             }
             .frame(width: 28, height: 28)
             .contentShape(Rectangle())
+            .animation(DT.motionAware(DT.ease(0.14)), value: recorder.includesMicrophoneAudio)
         }
         .buttonStyle(.plain)
         .recappiTooltip(recorder.includesMicrophoneAudio ? "Microphone on (click to mute)" : "Microphone muted (click to unmute)")
@@ -247,12 +238,18 @@ struct RecordingState: View {
         RoundedRectangle(cornerRadius: DT.R.control, style: .continuous)
     }
 
-    private var recordingGlassControlFill: Color {
-        isDarkMode ? Color.black.opacity(0.16) : Color.white.opacity(0.15)
+    private var microphoneControlFill: Color {
+        if recorder.includesMicrophoneAudio {
+            return DT.recordingLiveBlue.opacity(isDarkMode ? 0.12 : 0.07)
+        }
+        return Color.dtLabel.opacity(isDarkMode ? 0.07 : 0.035)
     }
 
-    private var recordingGlassControlTint: Color {
-        isDarkMode ? DT.appAccent.opacity(0.12) : DT.appAccentSoft.opacity(0.16)
+    private var microphoneControlStroke: Color {
+        if recorder.includesMicrophoneAudio {
+            return DT.recordingLiveBlue.opacity(isDarkMode ? 0.22 : 0.16)
+        }
+        return Palette.borderHairline.opacity(0.6)
     }
 
     private var isDarkMode: Bool {
