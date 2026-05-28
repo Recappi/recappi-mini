@@ -188,7 +188,7 @@ struct IdleState: View {
             PrimaryRecordButton(kind: isStarting ? .loading : .record, action: onRecord)
                 .keyboardShortcut(.return, modifiers: [])
                 .disabled(isStarting)
-                .help(isStarting ? "Starting recording…" : "Record")
+                .help(isStarting ? "Starting recording…" : "Start recording (⏎)")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.recordButton)
         }
         .frame(height: 28)

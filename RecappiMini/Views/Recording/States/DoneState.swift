@@ -61,7 +61,11 @@ struct DoneState: View {
 
             primaryActionChip
 
-            trailingQuietLink(title: "Dismiss", action: onNew)
+            trailingQuietLink(
+                title: "Dismiss",
+                help: "Close this notification. The recording stays in Recappi Cloud.",
+                action: onNew
+            )
         }
         .frame(height: Metrics.actionHeight)
         .padding(.leading, 2)
@@ -107,7 +111,7 @@ struct DoneState: View {
         .accessibilityIdentifier(canTranscribe ? AccessibilityIDs.Panel.transcribeButton : AccessibilityIDs.Panel.showButton)
     }
 
-    private func trailingQuietLink(title: String, action: @escaping () -> Void) -> some View {
+    private func trailingQuietLink(title: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 10.5, weight: .medium))
@@ -117,6 +121,7 @@ struct DoneState: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(help)
     }
 
     private func formatTime(_ seconds: Int) -> String {

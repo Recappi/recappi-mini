@@ -63,7 +63,7 @@ struct RecordingState: View {
                         .font(.system(size: 9, weight: .bold))
                 }
                 .buttonStyle(PanelIconButtonStyle(size: 14, backdropAdaptiveForeground: true))
-                .help("Hide panel")
+                .help("Hide panel · recording continues in the background")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
             }
             .padding(.horizontal, 2)
@@ -100,7 +100,7 @@ struct RecordingState: View {
 
             PrimaryRecordButton(kind: .stop, action: onStop)
                 .keyboardShortcut(.return, modifiers: [])
-                .help("Stop")
+                .help("Stop recording and start processing (⏎)")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
         }
     }
@@ -127,17 +127,19 @@ struct RecordingState: View {
             }
             .buttonStyle(RecordingInlineConfirmButtonStyle())
             .keyboardShortcut(.cancelAction)
+            .help("Keep recording")
 
             Button("Discard") {
                 isConfirmingDiscard = false
                 onDiscard()
             }
             .buttonStyle(RecordingInlineConfirmButtonStyle(destructive: true))
+            .help("Permanently delete this recording without saving")
             .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
 
             PrimaryRecordButton(kind: .stop, action: onStop)
                 .keyboardShortcut(.return, modifiers: [])
-                .help("Stop")
+                .help("Stop recording and start processing (⏎)")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
         }
         .transition(.opacity)

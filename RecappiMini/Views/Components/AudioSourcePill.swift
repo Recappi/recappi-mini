@@ -45,6 +45,7 @@ struct AudioSourcePill: View {
         .onHover { hovered = $0 }
         .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
         .accessibilityIdentifier(AccessibilityIDs.Panel.audioSourcePicker)
+        .help(helpText)
         .background {
             // No explicit frame — the anchor NSView fills the pill so
             // anchor.convert(bounds, to: nil) returns the pill's real
@@ -56,6 +57,13 @@ struct AudioSourcePill: View {
 
     private var currentLabel: String {
         recorder.selectedApp?.name ?? "All system audio"
+    }
+
+    private var helpText: String {
+        if let app = recorder.selectedApp {
+            return "Recording \(app.name). Click to change source."
+        }
+        return "Recording all system audio. Click to pick a specific app."
     }
 
     @MainActor
