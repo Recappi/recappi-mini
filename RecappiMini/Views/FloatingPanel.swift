@@ -13,6 +13,7 @@ struct FloatingPanelChromeView<Content: View>: View {
     /// flips in lockstep with the chrome background — the failure mode
     /// where peng-xiao reported invisible labels on dark backdrop.
     @Environment(\.colorScheme) private var colorScheme
+    @State private var isPanelDragging = false
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -21,29 +22,7 @@ struct FloatingPanelChromeView<Content: View>: View {
     var body: some View {
         content
             .background {
-                panelShape
-                    .fill(liquidGlassLegibilityFill)
-                    .glassEffect(in: panelShape)
-                    .overlay {
-                        panelShape
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(isDarkMode ? 0.20 : 0.30),
-                                        Color.white.opacity(isDarkMode ? 0.05 : 0.10),
-                                        Color.clear,
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .blendMode(.screen)
-                    }
-                    .overlay {
-                        panelShape
-                            .strokeBorder(Color.white.opacity(isDarkMode ? 0.14 : 0.32), lineWidth: 0.6)
-                    }
-                    .allowsHitTesting(false)
+                panelBackground
             }
             .overlay {
                 panelShape
@@ -51,21 +30,99 @@ struct FloatingPanelChromeView<Content: View>: View {
                     .allowsHitTesting(false)
             }
             .clipShape(panelShape)
-            .compositingGroup()
-            .animation(.easeInOut(duration: 0.25), value: isDarkMode)
+            .modifier(FloatingPanelCompositingModifier(enabled: !isPanelDragging))
+            .animation(isPanelDragging ? nil : .easeInOut(duration: 0.25), value: isDarkMode)
+            .onReceive(NotificationCenter.default.publisher(for: .recappiFloatingPanelDraggingChanged)) { notification in
+                guard let isDragging = notification.object as? Bool else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    isPanelDragging = isDragging
+                }
+            }
     }
 
     private var panelShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: PillShellView.cornerRadius, style: .continuous)
     }
 
+    @ViewBuilder
+    private var panelBackground: some View {
+        if isPanelDragging {
+            panelShape
+                .fill(dragLegibilityFill)
+                .overlay {
+                    panelShape
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(isDarkMode ? 0.12 : 0.28),
+                                    Color.clear,
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+                .overlay {
+                    panelShape
+                        .strokeBorder(Color.white.opacity(isDarkMode ? 0.12 : 0.30), lineWidth: 0.6)
+                }
+                .allowsHitTesting(false)
+        } else {
+            panelShape
+                .fill(liquidGlassLegibilityFill)
+                .glassEffect(in: panelShape)
+                .overlay {
+                    panelShape
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(isDarkMode ? 0.20 : 0.30),
+                                    Color.white.opacity(isDarkMode ? 0.05 : 0.10),
+                                    Color.clear,
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .blendMode(.screen)
+                }
+                .overlay {
+                    panelShape
+                        .strokeBorder(Color.white.opacity(isDarkMode ? 0.14 : 0.32), lineWidth: 0.6)
+                }
+                .allowsHitTesting(false)
+        }
+    }
+
     private var liquidGlassLegibilityFill: Color {
         isDarkMode ? Color.black.opacity(0.28) : Color.white.opacity(0.16)
+    }
+
+    private var dragLegibilityFill: Color {
+        isDarkMode ? Color.black.opacity(0.44) : Color.white.opacity(0.74)
     }
 
     private var isDarkMode: Bool {
         colorScheme == .dark
     }
+}
+
+private struct FloatingPanelCompositingModifier: ViewModifier {
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.compositingGroup()
+        } else {
+            content
+        }
+    }
+}
+
+private extension Notification.Name {
+    static let recappiFloatingPanelDraggingChanged = Notification.Name("recappi.floatingPanel.draggingChanged")
 }
 
 final class FloatingPanel: NSPanel {
@@ -75,7 +132,9 @@ final class FloatingPanel: NSPanel {
     private nonisolated(unsafe) var globalMouseMonitor: Any?
     private var dragStartMouseLocation: NSPoint?
     private var dragStartFrame: NSRect?
+    private var dragLastFrameUpdateTimestamp: TimeInterval = 0
     private var didCustomDrag = false
+    private var isDragPerformanceModeEnabled = false
 
     init(contentRect: NSRect) {
         super.init(
@@ -164,9 +223,9 @@ final class FloatingPanel: NSPanel {
             beginCustomDragIfNeeded(with: event)
             return false
         case .leftMouseDragged:
-            return continueCustomDrag()
+            return continueCustomDrag(with: event)
         case .leftMouseUp:
-            return finishCustomDrag()
+            return finishCustomDrag(with: event)
         default:
             return false
         }
@@ -179,10 +238,11 @@ final class FloatingPanel: NSPanel {
         guard PillShellView.visiblePillContains(localPoint, in: bounds) else { return }
         dragStartMouseLocation = NSEvent.mouseLocation
         dragStartFrame = frame
+        dragLastFrameUpdateTimestamp = 0
         didCustomDrag = false
     }
 
-    private func continueCustomDrag() -> Bool {
+    private func continueCustomDrag(with event: NSEvent) -> Bool {
         guard let dragStartMouseLocation,
               let dragStartFrame else { return false }
         let currentMouse = NSEvent.mouseLocation
@@ -192,28 +252,76 @@ final class FloatingPanel: NSPanel {
         )
         guard didCustomDrag || distance >= 3 else { return false }
 
-        didCustomDrag = true
+        if !didCustomDrag {
+            didCustomDrag = true
+            setDragPerformanceModeEnabled(true)
+        }
+        return applyDragFrame(
+            startFrame: dragStartFrame,
+            startMouse: dragStartMouseLocation,
+            currentMouse: currentMouse,
+            timestamp: event.timestamp,
+            force: false
+        )
+    }
+
+    private func applyDragFrame(
+        startFrame: NSRect,
+        startMouse: NSPoint,
+        currentMouse: NSPoint,
+        timestamp: TimeInterval,
+        force: Bool
+    ) -> Bool {
+        guard force || Self.shouldApplyDragFrame(
+            timestamp: timestamp,
+            lastTimestamp: dragLastFrameUpdateTimestamp
+        ) else {
+            return true
+        }
+
         let screenFrame = screenForPoint(currentMouse)?.visibleFrame
             ?? screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? .zero
         let nextFrame = PillShellView.dragWindowFrame(
-            startFrame: dragStartFrame,
-            startMouse: dragStartMouseLocation,
+            startFrame: startFrame,
+            startMouse: startMouse,
             currentMouse: currentMouse,
             visiblePillTo: screenFrame
         )
         setFrame(nextFrame, display: false)
+        dragLastFrameUpdateTimestamp = timestamp
         return true
     }
 
-    private func finishCustomDrag() -> Bool {
+    private func finishCustomDrag(with event: NSEvent) -> Bool {
         let consumed = didCustomDrag
+        if consumed, let dragStartMouseLocation, let dragStartFrame {
+            _ = applyDragFrame(
+                startFrame: dragStartFrame,
+                startMouse: dragStartMouseLocation,
+                currentMouse: NSEvent.mouseLocation,
+                timestamp: event.timestamp,
+                force: true
+            )
+        }
         dragStartMouseLocation = nil
         dragStartFrame = nil
+        dragLastFrameUpdateTimestamp = 0
         didCustomDrag = false
+        setDragPerformanceModeEnabled(false)
         updateMousePassthrough()
         return consumed
+    }
+
+    private func setDragPerformanceModeEnabled(_ enabled: Bool) {
+        guard isDragPerformanceModeEnabled != enabled else { return }
+        isDragPerformanceModeEnabled = enabled
+        (contentView as? PillShellView)?.setDraggingForPerformance(enabled)
+        NotificationCenter.default.post(
+            name: .recappiFloatingPanelDraggingChanged,
+            object: enabled
+        )
     }
 
     private func screenForPoint(_ point: NSPoint) -> NSScreen? {
@@ -229,6 +337,14 @@ final class FloatingPanel: NSPanel {
         default:
             return true
         }
+    }
+
+    nonisolated static func shouldApplyDragFrame(
+        timestamp: TimeInterval,
+        lastTimestamp: TimeInterval,
+        minInterval: TimeInterval = 1.0 / 120.0
+    ) -> Bool {
+        lastTimestamp <= 0 || timestamp - lastTimestamp >= minInterval
     }
 
     private func installMousePassthroughMonitors() {
@@ -312,6 +428,7 @@ final class PillShellView: NSView {
     private(set) var contentView: NSView?
     private var pendingContentSync = false
     private var targetWindowSize: NSSize?
+    private var isDraggingForPerformance = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -366,6 +483,12 @@ final class PillShellView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        updateShadowStyle()
+    }
+
+    func setDraggingForPerformance(_ dragging: Bool) {
+        guard isDraggingForPerformance != dragging else { return }
+        isDraggingForPerformance = dragging
         updateShadowStyle()
     }
 
@@ -425,9 +548,15 @@ final class PillShellView: NSView {
     private func updateShadowStyle() {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = isDark ? 0.38 : 0.20
-        layer?.shadowRadius = isDark ? 18 : 16
-        layer?.shadowOffset = CGSize(width: 0, height: -8)
+        if isDraggingForPerformance {
+            layer?.shadowOpacity = isDark ? 0.14 : 0.08
+            layer?.shadowRadius = 8
+            layer?.shadowOffset = CGSize(width: 0, height: -3)
+        } else {
+            layer?.shadowOpacity = isDark ? 0.38 : 0.20
+            layer?.shadowRadius = isDark ? 18 : 16
+            layer?.shadowOffset = CGSize(width: 0, height: -8)
+        }
     }
 
     nonisolated static func visiblePillRect(in bounds: NSRect) -> NSRect {
