@@ -400,7 +400,7 @@ struct CloudRecordingDetail: View {
             .popover(isPresented: $isShowingProcessingStatusDetail, arrowEdge: .bottom) {
                 processingStatusDetailPopover
             }
-            .help("Show processing details")
+            .recappiTooltip("Show processing details")
         } else {
             CloudStatusChip(status: recording.status, latestJobStatus: latestJob?.status, prominent: true)
         }
@@ -1949,7 +1949,7 @@ struct CloudRecordingDetail: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(PanelIconButtonStyle(size: 28))
-            .help("Close search")
+            .recappiTooltip("Close search")
         }
     }
 
@@ -2005,7 +2005,7 @@ struct CloudRecordingDetail: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .help("Choose processing scene")
+                .recappiTooltip("Choose processing scene")
 
                 Button {
                     config.recordingTemplatePromptExpanded.toggle()
@@ -2045,7 +2045,7 @@ struct CloudRecordingDetail: View {
                 .buttonStyle(PanelPushButtonStyle())
                 .frame(minWidth: 98)
                 .disabled(isProcessingActionDisabled(.transcriptAndSummary))
-                .help(processingHelpText(for: .transcriptAndSummary))
+                .recappiTooltip(processingHelpText(for: .transcriptAndSummary))
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.retranscribeButton)
             }
             .transaction { transaction in
@@ -2073,7 +2073,7 @@ struct CloudRecordingDetail: View {
             } label: {
                 Label("Recording details", systemImage: "info.circle")
             }
-            .help(recordingInfoHelpText)
+            .recappiTooltip(recordingInfoHelpText)
             .popover(isPresented: $isShowingRecordingInfo, arrowEdge: .top) {
                 recordingInfoPopover
             }
@@ -2104,7 +2104,7 @@ struct CloudRecordingDetail: View {
             }
         }
         .disabled(isSyncingToLocal)
-        .help(localSessionURL == nil ? "Sync to local" : "Open local session")
+        .recappiTooltip(localSessionURL == nil ? "Sync to local" : "Open local session")
         .accessibilityIdentifier(localSessionURL == nil ? AccessibilityIDs.Cloud.syncToLocalButton : AccessibilityIDs.Cloud.revealLocalSessionButton)
     }
 
@@ -2159,7 +2159,7 @@ struct CloudRecordingDetail: View {
                     }
                 }
                 .disabled(isProcessingActionDisabled(action))
-                .help(processingHelpText(for: action))
+                .recappiTooltip(processingHelpText(for: action))
                 .accessibilityIdentifier(action.accessibilityIdentifier)
             }
 
@@ -2167,7 +2167,7 @@ struct CloudRecordingDetail: View {
                 isShowingTranscriptVersions = true
             }
             .disabled(!hasPreviousTranscriptVersions)
-            .help(hasPreviousTranscriptVersions ? "View earlier transcript versions" : "No previous transcript versions")
+            .recappiTooltip(hasPreviousTranscriptVersions ? "View earlier transcript versions" : "No previous transcript versions")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.previousVersionsButton)
 
             Divider()
@@ -2179,7 +2179,7 @@ struct CloudRecordingDetail: View {
             Label("More actions", systemImage: "ellipsis")
         }
         .menuIndicator(.hidden)
-        .help("More actions")
+        .recappiTooltip("More actions")
         .popover(isPresented: $isShowingRetranscribeContext, arrowEdge: .top) {
             retranscribeContextPopover
         }
@@ -2622,7 +2622,7 @@ struct CloudRecordingDetail: View {
         ) {
             speakerRenamePopover
         }
-        .help("Rename \(identity.displayName)")
+        .recappiTooltip("Rename \(identity.displayName)")
         .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerChipPrefix + identity.rawName)
     }
 
@@ -3353,7 +3353,7 @@ private struct CloudTranscriptSegmentRow<PopoverContent: View>: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help("Rename \(speaker.displayName)")
+                    .recappiTooltip("Rename \(speaker.displayName)")
                     .accessibilityIdentifier(AccessibilityIDs.Cloud.speakerNameButtonPrefix + speaker.rawName)
                     .accessibilityLabel("Speaker \(speaker.displayName)")
                     .accessibilityHint("Rename speaker")
@@ -3403,7 +3403,7 @@ private struct CloudTranscriptSegmentRow<PopoverContent: View>: View {
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
-        .help(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
+        .recappiTooltip(row.startMs == nil && row.endMs == nil ? "No timing for this segment" : "Jump audio to this segment")
     }
 }
 

@@ -45,7 +45,7 @@ struct AudioSourcePill: View {
         .onHover { hovered = $0 }
         .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
         .accessibilityIdentifier(AccessibilityIDs.Panel.audioSourcePicker)
-        .help(helpText)
+        .recappiTooltip(helpText)
         .background {
             // No explicit frame — the anchor NSView fills the pill so
             // anchor.convert(bounds, to: nil) returns the pill's real

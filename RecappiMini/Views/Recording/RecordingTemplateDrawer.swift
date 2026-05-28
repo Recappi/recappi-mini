@@ -56,7 +56,7 @@ struct RecordingOptionsButton: View {
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.72 : 1)
-        .help("Configure recording options")
+        .recappiTooltip("Configure recording options")
         .popover(isPresented: $isShowingOptions, arrowEdge: .top) {
             optionsPopover
         }
@@ -165,7 +165,7 @@ struct RecordingOptionsButton: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Open Recappi Mini Settings")
+            .recappiTooltip("Open Recappi Mini Settings")
             .accessibilityIdentifier(AccessibilityIDs.Panel.recordingOptionsSettingsButton)
         }
         .padding(18)

@@ -107,7 +107,7 @@ struct DoneState: View {
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
-        .help(canTranscribe ? "Start cloud transcription and open Recappi Cloud" : "Open this recording in Recappi Cloud")
+        .recappiTooltip(canTranscribe ? "Start cloud transcription and open Recappi Cloud" : "Open this recording in Recappi Cloud")
         .accessibilityIdentifier(canTranscribe ? AccessibilityIDs.Panel.transcribeButton : AccessibilityIDs.Panel.showButton)
     }
 
@@ -121,7 +121,7 @@ struct DoneState: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(help)
+        .recappiTooltip(help)
     }
 
     private func formatTime(_ seconds: Int) -> String {

@@ -2644,6 +2644,12 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(FloatingPanel.shouldRefreshMousePassthrough(for: .leftMouseUp))
     }
 
+    @MainActor
+    func testFloatingPanelAcceptsMouseMovedEventsForCustomTooltips() {
+        let panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 120, height: 80))
+        XCTAssertTrue(panel.acceptsMouseMovedEvents)
+    }
+
     func testFloatingPanelStartsNativeDragAfterSmallSlop() {
         XCTAssertFalse(FloatingPanel.shouldStartNativeDrag(distance: 2.9, alreadyDragging: false))
         XCTAssertTrue(FloatingPanel.shouldStartNativeDrag(distance: 3.0, alreadyDragging: false))

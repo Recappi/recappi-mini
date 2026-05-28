@@ -40,7 +40,7 @@ struct CloudMeetingPlaybackStrip: View {
             }
             .buttonStyle(PanelIconButtonStyle(size: 28))
             .disabled(isPreparingAudio)
-            .help(hasAudio ? "Play meeting audio" : "Download audio preview")
+            .recappiTooltip(hasAudio ? "Play meeting audio" : "Download audio preview")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(playbackStatusTitle)
@@ -65,7 +65,7 @@ struct CloudMeetingPlaybackStrip: View {
                 .buttonStyle(.borderless)
                 .disabled(isPreparingAudio)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.syncToLocalButton)
-                .help("Sync this recording to this Mac")
+                .recappiTooltip("Sync this recording to this Mac")
             }
 
             CloudPlaybackWaveformScrubber(
@@ -123,7 +123,7 @@ struct CloudMeetingPlaybackStrip: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .disabled(!hasAudio)
-        .help("Playback speed")
+        .recappiTooltip("Playback speed")
     }
 
     private var playbackStatusTitle: String {
@@ -188,7 +188,7 @@ struct CloudNowPlayingMiniPane: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(PanelIconButtonStyle(size: 24))
-            .help(isPlaying ? "Pause" : "Play")
+            .recappiTooltip(isPlaying ? "Pause" : "Play")
 
             Button(action: onSelectRecording) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -208,7 +208,7 @@ struct CloudNowPlayingMiniPane: View {
             }
             .buttonStyle(.plain)
             .contentShape(Rectangle())
-            .help("Show playing recording")
+            .recappiTooltip("Show playing recording")
 
             playbackRateMenu
         }
@@ -243,7 +243,7 @@ struct CloudNowPlayingMiniPane: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Playback speed")
+        .recappiTooltip("Playback speed")
     }
 }
 

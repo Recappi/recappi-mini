@@ -54,7 +54,7 @@ struct ErrorState: View {
                         .font(.system(size: 10, weight: .medium))
                 }
                 .buttonStyle(PanelIconButtonStyle(size: 22, backdropAdaptiveForeground: true))
-                .help("Dismiss")
+                .recappiTooltip("Dismiss")
             }
 
             actionsRow
@@ -68,17 +68,17 @@ struct ErrorState: View {
                 if isRetryable {
                     Button("Retry", action: onRetry)
                         .buttonStyle(ErrorRetryButtonStyle())
-                        .help("Retry processing this recording")
+                        .recappiTooltip("Retry processing this recording")
                         .accessibilityIdentifier(AccessibilityIDs.Panel.retryButton)
                     moreMenu
                 } else {
                     Button("Show in Finder", action: onShow)
                         .buttonStyle(PanelPushButtonStyle())
-                        .help("Open the local recording folder in Finder")
+                        .recappiTooltip("Open the local recording folder in Finder")
                         .accessibilityIdentifier(AccessibilityIDs.Panel.showButton)
                     Button("Open Logs", action: onOpenLogs)
                         .buttonStyle(PanelPushButtonStyle())
-                        .help("Open the Recappi diagnostic logs folder")
+                        .recappiTooltip("Open the Recappi diagnostic logs folder")
                         .accessibilityIdentifier(AccessibilityIDs.Panel.openLogsButton)
                 }
             }
@@ -86,11 +86,11 @@ struct ErrorState: View {
             HStack(spacing: 6) {
                 Button("Settings…", action: onSettings)
                     .buttonStyle(ErrorRetryButtonStyle())
-                    .help("Open Recappi Mini Settings to fix the configuration issue")
+                    .recappiTooltip("Open Recappi Mini Settings to fix the configuration issue")
                     .accessibilityIdentifier(AccessibilityIDs.Panel.settingsButton)
                 Button("Open Logs", action: onOpenLogs)
                     .buttonStyle(PanelPushButtonStyle())
-                    .help("Open the Recappi diagnostic logs folder")
+                    .recappiTooltip("Open the Recappi diagnostic logs folder")
                     .accessibilityIdentifier(AccessibilityIDs.Panel.openLogsButton)
             }
         }
@@ -115,7 +115,7 @@ struct ErrorState: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .buttonStyle(PanelPushButtonStyle())
-        .help("More recovery actions")
+        .recappiTooltip("More recovery actions")
     }
 
     private var title: String {

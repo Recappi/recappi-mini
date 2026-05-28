@@ -160,6 +160,7 @@ final class FloatingPanel: NSPanel {
 
         // Don't steal focus from other apps
         becomesKeyOnlyIfNeeded = true
+        acceptsMouseMovedEvents = true
         installMousePassthroughMonitors()
     }
 

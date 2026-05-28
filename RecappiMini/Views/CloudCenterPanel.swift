@@ -134,7 +134,7 @@ struct CloudCenterPanel: View {
                         systemImage: appDelegate.isLiveCaptionPanelPresented ? "captions.bubble.fill" : "captions.bubble"
                     )
                 }
-                .help(appDelegate.isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
+                .recappiTooltip(appDelegate.isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionToggleButton)
             }
         }
@@ -146,7 +146,7 @@ struct CloudCenterPanel: View {
                 Label("Upload Audio", systemImage: "plus")
             }
             .disabled(store.activeRecordingProcessingAction != nil || sessionStore.isAuthBusy)
-            .help("Upload an audio file and start transcription")
+            .recappiTooltip("Upload an audio file and start transcription")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.uploadAudioButton)
         }
 
@@ -162,7 +162,7 @@ struct CloudCenterPanel: View {
                 }
             }
             .disabled(store.isRefreshing || sessionStore.isAuthBusy)
-            .help("Refresh cloud recordings")
+            .recappiTooltip("Refresh cloud recordings")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.refreshButton)
         }
     }

@@ -45,13 +45,13 @@ struct IdleState: View {
                     .padding(.trailing, hintTrailingInset)
                     .accessibilityLabel(meetingHintText(title: suggestion.promptTitle, appName: suggestion.appName))
                     .accessibilityIdentifier(AccessibilityIDs.Panel.recordingSuggestion)
-                    .help("Record only \(suggestion.appName). Use the source menu to keep recording all system audio.")
+                    .recappiTooltip("Record only \(suggestion.appName). Use the source menu to keep recording all system audio.")
                 } else if let prompt = recorder.meetingPrompt {
                     hintRow(title: prompt.promptTitle, appName: prompt.appName, appID: prompt.appID)
                         .accessibilityElement(children: .combine)
                         .accessibilityLabel(meetingHintText(title: prompt.promptTitle, appName: prompt.appName))
                         .accessibilityIdentifier(AccessibilityIDs.Panel.meetingPrompt)
-                        .help("Recappi Mini selected \(prompt.appName) because it looks like a meeting is active.")
+                        .recappiTooltip("Recappi Mini selected \(prompt.appName) because it looks like a meeting is active.")
                 }
             }
         }
@@ -164,7 +164,7 @@ struct IdleState: View {
             }
             .buttonStyle(.plain)
             .disabled(isStarting)
-            .help("Open Recappi Cloud")
+            .recappiTooltip("Open Recappi Cloud")
             .accessibilityIdentifier(AccessibilityIDs.Panel.cloudButton)
 
             AudioSourcePill(recorder: recorder)
@@ -182,13 +182,13 @@ struct IdleState: View {
             .buttonStyle(PanelIconButtonStyle(size: 24, backdropAdaptiveForeground: true))
             .disabled(isStarting)
             .opacity(isStarting ? 0.72 : 1)
-            .help("Hide panel")
+            .recappiTooltip("Hide panel")
             .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
 
             PrimaryRecordButton(kind: isStarting ? .loading : .record, action: onRecord)
                 .keyboardShortcut(.return, modifiers: [])
                 .disabled(isStarting)
-                .help(isStarting ? "Starting recording…" : "Start recording (⏎)")
+                .recappiTooltip(isStarting ? "Starting recording…" : "Start recording (⏎)")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.recordButton)
         }
         .frame(height: 28)

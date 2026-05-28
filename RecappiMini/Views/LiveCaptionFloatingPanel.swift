@@ -240,7 +240,7 @@ struct LiveCaptionFloatingPanel: View {
             .buttonStyle(PanelIconButtonStyle(size: 22))
             .focusable(false)
             .recappiSuppressFocusRing()
-            .help(mode.toggleTitle)
+            .recappiTooltip(mode.toggleTitle)
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingPanelModeButton)
 
             Button(action: onClose) {
@@ -250,7 +250,7 @@ struct LiveCaptionFloatingPanel: View {
             .buttonStyle(PanelIconButtonStyle(size: 22))
             .focusable(false)
             .recappiSuppressFocusRing()
-            .help("Hide live captions for this meeting")
+            .recappiTooltip("Hide live captions for this meeting")
             .accessibilityLabel("Hide live captions")
             .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionCloseButton)
         }
@@ -324,7 +324,7 @@ struct LiveCaptionFloatingPanel: View {
         .buttonStyle(PanelIconButtonStyle(size: 22))
         .focusable(false)
         .recappiSuppressFocusRing()
-        .help(message)
+        .recappiTooltip(message)
         .accessibilityLabel("Reconnect live captions")
         .accessibilityValue(message)
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionReconnectButton)
@@ -415,7 +415,7 @@ struct LiveCaptionFloatingPanel: View {
         .background(
             glassShape(Capsule(style: .continuous))
         )
-        .help("Caption display is chosen before recording starts.")
+        .recappiTooltip("Caption display is chosen before recording starts.")
     }
 
     private var paneVisibilityControls: some View {
@@ -435,7 +435,7 @@ struct LiveCaptionFloatingPanel: View {
                 accessibilityIdentifier: AccessibilityIDs.Cloud.currentMeetingTranslationToggleButton
             )
         }
-        .help("Toggle each live caption stream. At least one stream stays visible.")
+        .recappiTooltip("Toggle each live caption stream. At least one stream stays visible.")
     }
 
     private enum PaneStream {
@@ -464,7 +464,7 @@ struct LiveCaptionFloatingPanel: View {
         .focusable(false)
         .recappiSuppressFocusRing()
         .disabled(!canToggle)
-        .help(title)
+        .recappiTooltip(title)
         .accessibilityLabel(title)
         .accessibilityValue(selected ? "Shown" : "Hidden")
         .accessibilityIdentifier(accessibilityIdentifier)
@@ -689,7 +689,7 @@ struct LiveCaptionFloatingPanel: View {
             Capsule(style: .continuous)
                 .fill(Color.white.opacity(0.24))
         )
-        .help("Caption display is chosen before recording starts.")
+        .recappiTooltip("Caption display is chosen before recording starts.")
     }
 
     private var liveCaptionShowsTranslation: Bool {

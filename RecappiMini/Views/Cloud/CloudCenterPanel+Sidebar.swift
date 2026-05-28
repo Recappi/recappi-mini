@@ -108,7 +108,7 @@ extension CloudCenterPanel {
             .glassEffect(in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help("Open Recappi Cloud in your browser")
+        .recappiTooltip("Open Recappi Cloud in your browser")
         .accessibilityIdentifier(AccessibilityIDs.Cloud.openWebDashboardButton)
     }
 

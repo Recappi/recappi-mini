@@ -55,7 +55,7 @@ struct RecordingState: View {
                             .font(.system(size: 10.5, weight: .semibold))
                     }
                     .buttonStyle(PanelIconButtonStyle(size: 18))
-                    .help(appDelegate.isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
+                    .recappiTooltip(appDelegate.isLiveCaptionPanelPresented ? "Hide live captions" : "Show live captions")
                     .accessibilityIdentifier(AccessibilityIDs.Panel.liveCaptionsButton)
                 }
                 Button(action: onClose) {
@@ -63,7 +63,7 @@ struct RecordingState: View {
                         .font(.system(size: 9, weight: .bold))
                 }
                 .buttonStyle(PanelIconButtonStyle(size: 14, backdropAdaptiveForeground: true))
-                .help("Hide panel · recording continues in the background")
+                .recappiTooltip("Hide panel · recording continues in the background")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.closeButton)
             }
             .padding(.horizontal, 2)
@@ -91,7 +91,7 @@ struct RecordingState: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(waveformHelpText)
+            .recappiTooltip(waveformHelpText)
             .accessibilityIdentifier(AccessibilityIDs.Panel.waveformToggle)
 
             microphoneButton
@@ -100,7 +100,7 @@ struct RecordingState: View {
 
             PrimaryRecordButton(kind: .stop, action: onStop)
                 .keyboardShortcut(.return, modifiers: [])
-                .help("Stop recording and start processing (⏎)")
+                .recappiTooltip("Stop recording and start processing (⏎)")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
         }
     }
@@ -127,19 +127,19 @@ struct RecordingState: View {
             }
             .buttonStyle(RecordingInlineConfirmButtonStyle())
             .keyboardShortcut(.cancelAction)
-            .help("Keep recording")
+            .recappiTooltip("Keep recording")
 
             Button("Discard") {
                 isConfirmingDiscard = false
                 onDiscard()
             }
             .buttonStyle(RecordingInlineConfirmButtonStyle(destructive: true))
-            .help("Permanently delete this recording without saving")
+            .recappiTooltip("Permanently delete this recording without saving")
             .accessibilityIdentifier(AccessibilityIDs.Panel.discardButton)
 
             PrimaryRecordButton(kind: .stop, action: onStop)
                 .keyboardShortcut(.return, modifiers: [])
-                .help("Stop recording and start processing (⏎)")
+                .recappiTooltip("Stop recording and start processing (⏎)")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
         }
         .transition(.opacity)
@@ -199,7 +199,7 @@ struct RecordingState: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(recorder.includesMicrophoneAudio ? "Microphone on (click to mute)" : "Microphone muted (click to unmute)")
+        .recappiTooltip(recorder.includesMicrophoneAudio ? "Microphone on (click to mute)" : "Microphone muted (click to unmute)")
         .accessibilityIdentifier(AccessibilityIDs.Panel.microphoneIncludeButton)
     }
 
@@ -246,7 +246,7 @@ struct RecordingState: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(width: 28, height: 28)
-        .help("More recording actions")
+        .recappiTooltip("More recording actions")
         .accessibilityLabel("More recording actions")
         .accessibilityIdentifier(AccessibilityIDs.Panel.recordingMoreButton)
     }
@@ -282,7 +282,7 @@ struct RecordingState: View {
                 .foregroundStyle(Palette.labelSecondary)
                 .lineLimit(1)
         }
-        .help(recordingSourceIcon == nil ? "Recording all system audio" : "Recording \(recordingSourceLabel)")
+        .recappiTooltip(recordingSourceIcon == nil ? "Recording all system audio" : "Recording \(recordingSourceLabel)")
     }
 
     private var recordingSourceIcon: NSImage? {
