@@ -2644,24 +2644,10 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(FloatingPanel.shouldRefreshMousePassthrough(for: .leftMouseUp))
     }
 
-    func testFloatingPanelCoalescesDragFrameUpdates() {
-        let minInterval = 1.0 / 120.0
-
-        XCTAssertTrue(FloatingPanel.shouldApplyDragFrame(
-            timestamp: 10,
-            lastTimestamp: 0,
-            minInterval: minInterval
-        ))
-        XCTAssertFalse(FloatingPanel.shouldApplyDragFrame(
-            timestamp: 10 + minInterval / 2,
-            lastTimestamp: 10,
-            minInterval: minInterval
-        ))
-        XCTAssertTrue(FloatingPanel.shouldApplyDragFrame(
-            timestamp: 10 + minInterval * 1.1,
-            lastTimestamp: 10,
-            minInterval: minInterval
-        ))
+    func testFloatingPanelStartsNativeDragAfterSmallSlop() {
+        XCTAssertFalse(FloatingPanel.shouldStartNativeDrag(distance: 2.9, alreadyDragging: false))
+        XCTAssertTrue(FloatingPanel.shouldStartNativeDrag(distance: 3.0, alreadyDragging: false))
+        XCTAssertTrue(FloatingPanel.shouldStartNativeDrag(distance: 0, alreadyDragging: true))
     }
 
     func testFloatingPanelHiddenSnapPlanAvoidsDisplayFlushAndRedundantOrderOut() {

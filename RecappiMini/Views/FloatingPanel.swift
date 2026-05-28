@@ -131,8 +131,7 @@ final class FloatingPanel: NSPanel {
     private nonisolated(unsafe) var localMouseMonitor: Any?
     private nonisolated(unsafe) var globalMouseMonitor: Any?
     private var dragStartMouseLocation: NSPoint?
-    private var dragStartFrame: NSRect?
-    private var dragLastFrameUpdateTimestamp: TimeInterval = 0
+    private var dragStartEvent: NSEvent?
     private var didCustomDrag = false
     private var isDragPerformanceModeEnabled = false
 
@@ -237,81 +236,49 @@ final class FloatingPanel: NSPanel {
         let bounds = NSRect(origin: .zero, size: frame.size)
         guard PillShellView.visiblePillContains(localPoint, in: bounds) else { return }
         dragStartMouseLocation = NSEvent.mouseLocation
-        dragStartFrame = frame
-        dragLastFrameUpdateTimestamp = 0
+        dragStartEvent = event
         didCustomDrag = false
     }
 
-    private func continueCustomDrag(with event: NSEvent) -> Bool {
+    private func continueCustomDrag(with _: NSEvent) -> Bool {
         guard let dragStartMouseLocation,
-              let dragStartFrame else { return false }
+              let dragStartEvent else { return false }
         let currentMouse = NSEvent.mouseLocation
         let distance = hypot(
             currentMouse.x - dragStartMouseLocation.x,
             currentMouse.y - dragStartMouseLocation.y
         )
-        guard didCustomDrag || distance >= 3 else { return false }
+        guard Self.shouldStartNativeDrag(distance: distance, alreadyDragging: didCustomDrag) else {
+            return false
+        }
 
         if !didCustomDrag {
             didCustomDrag = true
             setDragPerformanceModeEnabled(true)
         }
-        return applyDragFrame(
-            startFrame: dragStartFrame,
-            startMouse: dragStartMouseLocation,
-            currentMouse: currentMouse,
-            timestamp: event.timestamp,
-            force: false
-        )
-    }
 
-    private func applyDragFrame(
-        startFrame: NSRect,
-        startMouse: NSPoint,
-        currentMouse: NSPoint,
-        timestamp: TimeInterval,
-        force: Bool
-    ) -> Bool {
-        guard force || Self.shouldApplyDragFrame(
-            timestamp: timestamp,
-            lastTimestamp: dragLastFrameUpdateTimestamp
-        ) else {
-            return true
-        }
-
-        let screenFrame = screenForPoint(currentMouse)?.visibleFrame
-            ?? screen?.visibleFrame
-            ?? NSScreen.main?.visibleFrame
-            ?? .zero
-        let nextFrame = PillShellView.dragWindowFrame(
-            startFrame: startFrame,
-            startMouse: startMouse,
-            currentMouse: currentMouse,
-            visiblePillTo: screenFrame
-        )
-        setFrame(nextFrame, display: false)
-        dragLastFrameUpdateTimestamp = timestamp
+        // Let AppKit/WindowServer run the interactive move. The previous
+        // per-mouseDragged setFrame loop kept correctness but still felt
+        // sticky on real machines because every input event forced the app
+        // process through a transparent-panel frame move.
+        performDrag(with: dragStartEvent)
+        resetCustomDragState()
+        updateMousePassthrough()
         return true
     }
 
     private func finishCustomDrag(with event: NSEvent) -> Bool {
         let consumed = didCustomDrag
-        if consumed, let dragStartMouseLocation, let dragStartFrame {
-            _ = applyDragFrame(
-                startFrame: dragStartFrame,
-                startMouse: dragStartMouseLocation,
-                currentMouse: NSEvent.mouseLocation,
-                timestamp: event.timestamp,
-                force: true
-            )
-        }
-        dragStartMouseLocation = nil
-        dragStartFrame = nil
-        dragLastFrameUpdateTimestamp = 0
-        didCustomDrag = false
-        setDragPerformanceModeEnabled(false)
+        resetCustomDragState()
         updateMousePassthrough()
         return consumed
+    }
+
+    private func resetCustomDragState() {
+        dragStartMouseLocation = nil
+        dragStartEvent = nil
+        didCustomDrag = false
+        setDragPerformanceModeEnabled(false)
     }
 
     private func setDragPerformanceModeEnabled(_ enabled: Bool) {
@@ -322,11 +289,9 @@ final class FloatingPanel: NSPanel {
             name: .recappiFloatingPanelDraggingChanged,
             object: enabled
         )
-    }
-
-    private func screenForPoint(_ point: NSPoint) -> NSScreen? {
-        NSScreen.screens.first { screen in
-            NSMouseInRect(point, screen.frame, false)
+        if enabled {
+            contentView?.layoutSubtreeIfNeeded()
+            contentView?.displayIfNeeded()
         }
     }
 
@@ -339,12 +304,12 @@ final class FloatingPanel: NSPanel {
         }
     }
 
-    nonisolated static func shouldApplyDragFrame(
-        timestamp: TimeInterval,
-        lastTimestamp: TimeInterval,
-        minInterval: TimeInterval = 1.0 / 120.0
+    nonisolated static func shouldStartNativeDrag(
+        distance: CGFloat,
+        alreadyDragging: Bool,
+        threshold: CGFloat = 3
     ) -> Bool {
-        lastTimestamp <= 0 || timestamp - lastTimestamp >= minInterval
+        alreadyDragging || distance >= threshold
     }
 
     private func installMousePassthroughMonitors() {
