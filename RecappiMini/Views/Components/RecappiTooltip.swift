@@ -80,6 +80,7 @@ final class RecappiTooltipController {
     private var currentToken: UUID?
     private var dwellWorkItem: DispatchWorkItem?
     private var dismissWorkItem: DispatchWorkItem?
+    private var clickMonitor: Any?
 
     /// How long the cursor must rest on an unannounced button before the
     /// pill first appears. Matches macOS native tooltip dwell roughly.
@@ -159,6 +160,7 @@ final class RecappiTooltipController {
 
         self.window = win
         self.hostingView = hosting
+        installClickMonitorIfNeeded()
 
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = fadeDuration
@@ -199,8 +201,41 @@ final class RecappiTooltipController {
                 self.window?.orderOut(nil)
                 self.window = nil
                 self.hostingView = nil
+                self.removeClickMonitor()
             }
         })
+    }
+
+    private func dismissImmediately() {
+        dwellWorkItem?.cancel()
+        dwellWorkItem = nil
+        dismissWorkItem?.cancel()
+        dismissWorkItem = nil
+        currentToken = nil
+        window?.orderOut(nil)
+        window = nil
+        hostingView = nil
+        removeClickMonitor()
+    }
+
+    private func installClickMonitorIfNeeded() {
+        guard clickMonitor == nil else { return }
+        clickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.dismissImmediately()
+                }
+            }
+            return event
+        }
+    }
+
+    private func removeClickMonitor() {
+        guard let clickMonitor else { return }
+        NSEvent.removeMonitor(clickMonitor)
+        self.clickMonitor = nil
     }
 
     /// Strictly clamp the tooltip rect to the visible screen. Below the
@@ -260,7 +295,10 @@ private final class RecappiTooltipWindow: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
-        level = .popUpMenu
+        // Stay above the app panels, but below native NSMenu popups. If this
+        // uses `.popUpMenu`, opening a SwiftUI Menu can leave the tooltip
+        // visually covering the dropdown until hover exit fires.
+        level = .floating
         ignoresMouseEvents = true
         hidesOnDeactivate = false
         animationBehavior = .none

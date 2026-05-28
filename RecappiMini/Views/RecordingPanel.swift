@@ -11,6 +11,7 @@ struct RecordingPanel: View {
     @State private var visibleProcessingSessionID: UUID?
     @State private var detachProcessingWhenReady = false
     @State private var latestDoneJobStatusByRecordingID: [String: RemoteJobStatus] = [:]
+    @State private var pendingAutoStopRequest: AutoStopRecordingRequest?
 
     let onOpenFolder: (URL) -> Void
     let onOpenCloud: () -> Void
@@ -24,7 +25,7 @@ struct RecordingPanel: View {
         mainView
             .id(panelContentIdentity)
             .transition(panelContentTransition)
-            .animation(DT.motionAware(DT.easeSpring(DT.Motion.contentSwap)), value: panelContentIdentity)
+            .animation(DT.motionAware(.spring(response: 0.36, dampingFraction: 0.50, blendDuration: 0.03)), value: panelContentIdentity)
             .frame(
                 width: DT.panelWidth - DT.panelPadding * 2,
                 alignment: .topLeading
@@ -37,8 +38,14 @@ struct RecordingPanel: View {
             // transparent NSPanel around it; individual controls can keep
             // stable internal heights, but the panel shell should not guess a
             // fixed state height.
-            .onReceive(recorder.$autoStopRequest.compactMap { $0 }) { _ in
-                stopRecording()
+            .onReceive(recorder.$autoStopRequest.compactMap { $0 }) { request in
+                withAnimation(DT.motionAware(DT.easeSpring(DT.Motion.elementPresence))) {
+                    pendingAutoStopRequest = request
+                }
+            }
+            .onChange(of: recorder.state) { _, state in
+                guard state != .recording else { return }
+                pendingAutoStopRequest = nil
             }
             .onAppear {
                 AppDelegate.shared.registerOpenSettingsAction {
@@ -70,7 +77,7 @@ struct RecordingPanel: View {
     }
 
     private var panelContentTransition: AnyTransition {
-        .opacity
+        .opacity.combined(with: .scale(scale: 0.94, anchor: .center))
     }
 
     /// Keep the active capture flow in one stable shell height. Without this,
@@ -118,6 +125,18 @@ struct RecordingPanel: View {
         case .recording:
             RecordingState(
                 recorder: recorder,
+                autoStopRequest: pendingAutoStopRequest,
+                onKeepRecording: {
+                    recorder.clearAutoStopRequest()
+                    withAnimation(DT.motionAware(DT.ease(DT.Motion.elementPresence))) {
+                        pendingAutoStopRequest = nil
+                    }
+                },
+                onConfirmAutoStop: {
+                    recorder.clearAutoStopRequest()
+                    pendingAutoStopRequest = nil
+                    stopRecording()
+                },
                 onDiscard: discardRecording,
                 onStop: stopRecording,
                 onClose: onClosePanel

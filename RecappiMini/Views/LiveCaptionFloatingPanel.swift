@@ -517,16 +517,15 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var captionPlaceholderText: String {
-        listeningPlaceholderText
+        Self.originalPlaceholderText
     }
 
     private var translationPlaceholderText: String {
-        listeningPlaceholderText
+        Self.translationPlaceholderText
     }
 
-    private var listeningPlaceholderText: String {
-        "正在听..."
-    }
+    nonisolated static let originalPlaceholderText = "Listening for original audio"
+    nonisolated static let translationPlaceholderText = "Waiting for translation"
 
     private var sourceStreamText: String {
         if let debugText = ProcessInfo.processInfo.environment["LIVE_CAPTION_DEBUG_TEXT"],
@@ -917,8 +916,8 @@ struct LiveCaptionFloatingPanel: View {
             asciiBudget: compactCaptionRowMaxASCIICharacters,
             cjkBudget: compactCaptionRowMaxCJKCharacters
         )
-        let sourceContent = sourceText.isEmpty ? "Listening for meeting audio" : sourceText
-        let translationContent = translationLine.isEmpty ? "Waiting for translation" : translationLine
+        let sourceContent = sourceText.isEmpty ? originalPlaceholderText : sourceText
+        let translationContent = translationLine.isEmpty ? translationPlaceholderText : translationLine
 
         guard showsTranslation else {
             return [

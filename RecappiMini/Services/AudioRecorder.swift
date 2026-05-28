@@ -1793,6 +1793,10 @@ final class AudioRecorder: NSObject, ObservableObject {
         autoStopRequest = AutoStopRecordingRequest(context: context)
     }
 
+    func clearAutoStopRequest() {
+        autoStopRequest = nil
+    }
+
     @discardableResult
     func focusRecordingSourceIfAvailable() -> Bool {
         guard state == .recording else { return false }

@@ -22,6 +22,9 @@ struct RecordingState: View {
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("recappi.panel.recordingWaveformMode") private var waveformModeRaw = WaveformMode.spectrum.rawValue
     @State private var isConfirmingDiscard = false
+    var autoStopRequest: AutoStopRecordingRequest?
+    var onKeepRecording: () -> Void
+    var onConfirmAutoStop: () -> Void
     var onDiscard: () -> Void
     var onStop: () -> Void
     var onClose: () -> Void
@@ -75,7 +78,9 @@ struct RecordingState: View {
 
     @ViewBuilder
     private var controlsRow: some View {
-        if isConfirmingDiscard {
+        if let autoStopRequest {
+            autoStopConfirmationRow(request: autoStopRequest)
+        } else if isConfirmingDiscard {
             discardConfirmationRow
         } else {
             recordingControlsRow
@@ -103,6 +108,41 @@ struct RecordingState: View {
                 .recappiTooltip("Stop recording and start processing (⏎)")
                 .accessibilityIdentifier(AccessibilityIDs.Panel.stopButton)
         }
+    }
+
+    private func autoStopConfirmationRow(request: AutoStopRecordingRequest) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "video.slash")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(DT.recordingLiveBlue)
+                .frame(width: 18, height: 28)
+
+            Text("Meeting ended?")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(Palette.labelPrimary)
+                .lineLimit(1)
+                .layoutPriority(1)
+
+            Spacer(minLength: 0)
+
+            Button("Keep") {
+                onKeepRecording()
+            }
+            .buttonStyle(RecordingInlineConfirmButtonStyle())
+            .keyboardShortcut(.cancelAction)
+            .recappiTooltip("Keep recording even though \(request.context.promptTitle) is no longer detected")
+            .accessibilityIdentifier(AccessibilityIDs.Panel.autoStopKeepButton)
+
+            Button("Stop") {
+                onConfirmAutoStop()
+            }
+            .buttonStyle(RecordingInlineConfirmButtonStyle(destructive: true))
+            .keyboardShortcut(.return, modifiers: [])
+            .recappiTooltip("Stop recording and start processing")
+            .accessibilityIdentifier(AccessibilityIDs.Panel.autoStopStopButton)
+        }
+        .accessibilityIdentifier(AccessibilityIDs.Panel.autoStopPrompt)
+        .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
 
     private var discardConfirmationRow: some View {

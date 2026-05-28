@@ -2782,6 +2782,23 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(rows[1].isPlaceholder)
     }
 
+    func testLiveCaptionPlaceholdersAreStreamSpecific() {
+        let rows = LiveCaptionFloatingPanel.compactCaptionRows(
+            showsTranslation: true,
+            paneVisibility: .both,
+            captionText: "",
+            translationText: "",
+            sourceLanguageShortTitle: "EN",
+            targetLanguageShortTitle: "JA"
+        )
+
+        XCTAssertEqual(rows.map(\.text), [
+            LiveCaptionFloatingPanel.originalPlaceholderText,
+            LiveCaptionFloatingPanel.translationPlaceholderText,
+        ])
+        XCTAssertTrue(rows.allSatisfy(\.isPlaceholder))
+    }
+
     @MainActor
     func testFloatingPanelResizeKeepsTopEdgeAnchored() {
         let frame = NSRect(x: 100, y: 200, width: 320, height: 120)

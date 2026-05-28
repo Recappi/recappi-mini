@@ -578,7 +578,7 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         }
     }
 
-    func testDetectedMeetingSuggestionAutoStopsWhenAudioEnds() throws {
+    func testDetectedMeetingSuggestionPromptsToStopWhenAudioEnds() throws {
         let app = launchRecappiApp(
             authToken: "invalid-test-token",
             simulatedAutoPromptApp: (bundleID: "com.google.Chrome", name: "Google Chrome"),
@@ -607,13 +607,20 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             active: false
         )
 
+        let autoStopPrompt = uiElement(app, id: UITestIDs.Panel.autoStopPrompt)
+        XCTAssertTrue(autoStopPrompt.waitForExistence(timeout: 15), "Expected meeting-ended stop prompt.")
+
+        let autoStopButton = app.buttons[UITestIDs.Panel.autoStopStopButton]
+        XCTAssertTrue(autoStopButton.waitForExistence(timeout: 5), "Expected stop action in meeting-ended prompt.")
+        autoStopButton.click()
+
         XCTAssertTrue(
             waitForNonExistence(of: stopButton, timeout: 15),
-            "Expected suggested meeting recording to auto-stop after meeting audio ended."
+            "Expected suggested meeting recording to stop after confirming the meeting-ended prompt."
         )
     }
 
-    func testDetectedBrowserMeetingAutoStopsWhenTabEndsButBrowserAudioStaysActive() throws {
+    func testDetectedBrowserMeetingPromptsToStopWhenTabEndsButBrowserAudioStaysActive() throws {
         let app = launchRecappiApp(
             authToken: "invalid-test-token",
             simulatedAutoPromptApp: (bundleID: "com.google.Chrome", name: "Google Chrome"),
@@ -641,9 +648,16 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
             active: true
         )
 
+        let autoStopPrompt = uiElement(app, id: UITestIDs.Panel.autoStopPrompt)
+        XCTAssertTrue(autoStopPrompt.waitForExistence(timeout: 15), "Expected meeting-ended stop prompt.")
+
+        let autoStopButton = app.buttons[UITestIDs.Panel.autoStopStopButton]
+        XCTAssertTrue(autoStopButton.waitForExistence(timeout: 5), "Expected stop action in meeting-ended prompt.")
+        autoStopButton.click()
+
         XCTAssertTrue(
             waitForNonExistence(of: stopButton, timeout: 15),
-            "Expected browser meeting recording to auto-stop when the meeting tab disappears even if Chrome remains active."
+            "Expected browser meeting recording to stop after confirming the tab-ended prompt."
         )
     }
 

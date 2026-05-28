@@ -238,17 +238,7 @@ struct PrimaryRecordButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                hovered ? DT.systemRedLight : Color.white.opacity(0.26),
-                                hovered ? DT.systemRed : DT.recordingDestructiveRed,
-                                DT.systemRedDeep,
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                    .fill(hovered ? DT.systemRed : DT.recordingDestructiveRed)
                     .overlay(
                         Circle().stroke(Color.white.opacity(0.26), lineWidth: 0.6)
                     )
@@ -275,7 +265,8 @@ struct PrimaryRecordButton: View {
                 }
             }
             .frame(width: size, height: size)
-            .scaleEffect(pressed ? 0.96 : 1.0)
+            // Hover stays subtle; press uses a tighter snap down.
+            .scaleEffect(pressed ? 0.94 : (hovered ? 1.02 : 1.0))
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
@@ -284,8 +275,8 @@ struct PrimaryRecordButton: View {
                 .onChanged { _ in pressed = true }
                 .onEnded { _ in pressed = false }
         )
-        .animation(DT.motionAware(DT.ease(0.12)), value: hovered)
-        .animation(DT.motionAware(DT.ease(0.08)), value: pressed)
+        .animation(DT.motionAware(DT.ease(0.14)), value: hovered)
+        .animation(DT.motionAware(.spring(response: 0.18, dampingFraction: 0.7)), value: pressed)
     }
 }
 
