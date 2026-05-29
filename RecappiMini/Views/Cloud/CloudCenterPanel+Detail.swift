@@ -97,6 +97,7 @@ extension CloudCenterPanel {
                 hasDownloadedAudio: store.lastDownloadedAudioURL != nil,
                 hasNewerVersion: store.hasNewerVersionForSelection,
                 onLoadTranscript: { Task { await store.loadTranscriptForSelection() } },
+                onRefreshDetail: { Task { await store.refreshSelectedDetailIfNeeded() } },
                 onCopyTranscript: store.copySelectedTranscript,
                 onProcessRecording: { action in
                     if recording.activeTranscriptId == nil {

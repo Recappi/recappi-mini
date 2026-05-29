@@ -69,6 +69,7 @@ struct CloudRecordingDetail: View {
     let hasDownloadedAudio: Bool
     let hasNewerVersion: Bool
     let onLoadTranscript: () -> Void
+    let onRefreshDetail: () -> Void
     let onCopyTranscript: () -> Void
     let onProcessRecording: (CloudRecordingProcessingAction) -> Void
     let onPreparePlaybackAudio: () -> Void
@@ -90,6 +91,7 @@ struct CloudRecordingDetail: View {
         .onAppear {
             detailWaveform.load(url: playbackAudioURL)
             refreshPlayerMetadataIfNeeded()
+            refreshDetailWhenActivating(activeDetailSection)
         }
         .onChange(of: playbackAudioURL) { _, url in
             detailWaveform.load(url: url)
@@ -138,6 +140,9 @@ struct CloudRecordingDetail: View {
             guard !hasContent else { return }
             activeDetailSection = .summary
             pendingScrollTarget = nil
+        }
+        .onChange(of: activeDetailSection) { _, section in
+            refreshDetailWhenActivating(section)
         }
     }
 
@@ -569,6 +574,7 @@ struct CloudRecordingDetail: View {
         let isActive = activeDetailSection == section
         return Button {
             pendingScrollTarget = section
+            refreshDetailWhenActivating(section)
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
@@ -593,6 +599,38 @@ struct CloudRecordingDetail: View {
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.45 : 1)
         .accessibilityIdentifier(accessibilityID)
+    }
+
+    private func refreshDetailWhenActivating(_ section: CloudDetailSection) {
+        guard Self.shouldRefreshDetailWhenActivating(
+            section: section,
+            recordingStatus: recording.status,
+            activeTranscriptId: recording.activeTranscriptId,
+            transcript: visibleTranscript,
+            isViewingHistoricalVersion: isViewingHistoricalVersion,
+            isTranscriptLoading: isVisibleTranscriptLoading
+        ) else {
+            return
+        }
+        onRefreshDetail()
+    }
+
+    nonisolated static func shouldRefreshDetailWhenActivating(
+        section: CloudDetailSection,
+        recordingStatus: CloudRecordingStatus,
+        activeTranscriptId: String?,
+        transcript: TranscriptResponse?,
+        isViewingHistoricalVersion: Bool,
+        isTranscriptLoading: Bool
+    ) -> Bool {
+        guard section == .summary || section == .timeline else { return false }
+        guard !isViewingHistoricalVersion, !isTranscriptLoading else { return false }
+        guard recordingStatus == .ready else { return false }
+        guard activeTranscriptId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return false
+        }
+        guard let transcript else { return true }
+        return !CloudLibraryStore.hasSummaryContent(transcript)
     }
 
     private var isCloudSearchActive: Bool {

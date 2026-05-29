@@ -3909,6 +3909,48 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(CloudLibraryStore.hasSummaryContent(transcript))
     }
 
+    func test_cloudDetailRefreshesReadyMissingSummaryWhenOpeningSummaryOrChapters() throws {
+        let transcript = try makeTranscript(summary: nil, hasInsights: false)
+
+        XCTAssertTrue(CloudRecordingDetail.shouldRefreshDetailWhenActivating(
+            section: .summary,
+            recordingStatus: .ready,
+            activeTranscriptId: "trans-test",
+            transcript: transcript,
+            isViewingHistoricalVersion: false,
+            isTranscriptLoading: false
+        ))
+        XCTAssertTrue(CloudRecordingDetail.shouldRefreshDetailWhenActivating(
+            section: .timeline,
+            recordingStatus: .ready,
+            activeTranscriptId: "trans-test",
+            transcript: transcript,
+            isViewingHistoricalVersion: false,
+            isTranscriptLoading: false
+        ))
+    }
+
+    func test_cloudDetailDoesNotRefreshWhenSummaryContentIsPresentOrNotSummaryNavigation() throws {
+        let transcript = try makeTranscript(summary: "already fresh", hasInsights: false)
+
+        XCTAssertFalse(CloudRecordingDetail.shouldRefreshDetailWhenActivating(
+            section: .summary,
+            recordingStatus: .ready,
+            activeTranscriptId: "trans-test",
+            transcript: transcript,
+            isViewingHistoricalVersion: false,
+            isTranscriptLoading: false
+        ))
+        XCTAssertFalse(CloudRecordingDetail.shouldRefreshDetailWhenActivating(
+            section: .transcript,
+            recordingStatus: .ready,
+            activeTranscriptId: "trans-test",
+            transcript: nil,
+            isViewingHistoricalVersion: false,
+            isTranscriptLoading: false
+        ))
+    }
+
     // MARK: - OnboardingState.shouldPresentOnLaunch
 
     func test_shouldPresentOnLaunch_returnsTrue_onFirstLaunch() {

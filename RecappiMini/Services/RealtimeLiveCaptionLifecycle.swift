@@ -275,15 +275,18 @@ actor RealtimeLiveCaptionActor {
         let reconnectDelays: [TimeInterval]
         let audioBufferCapacity: Int
         let rateLimitReconnectDelay: TimeInterval
+        let proactiveSessionRotationInterval: TimeInterval
 
         init(
             reconnectDelays: [TimeInterval] = [1, 2, 5, 10, 30],
             audioBufferCapacity: Int = 128,
-            rateLimitReconnectDelay: TimeInterval = 60
+            rateLimitReconnectDelay: TimeInterval = 60,
+            proactiveSessionRotationInterval: TimeInterval = 20 * 60
         ) {
             self.reconnectDelays = reconnectDelays
             self.audioBufferCapacity = max(1, audioBufferCapacity)
             self.rateLimitReconnectDelay = max(0, rateLimitReconnectDelay)
+            self.proactiveSessionRotationInterval = max(0, proactiveSessionRotationInterval)
         }
 
         static let `default` = Configuration()
@@ -1097,6 +1100,9 @@ actor RealtimeLiveCaptionActor {
             // Bail if the lifecycle has moved past this socket — a
             // late wakeup must never probe a rotated-out connection.
             guard isCurrent(socket: socket, generation: generation) else { return }
+            if await rotateSessionForAgeIfNeeded(socket: socket, generation: generation) {
+                return
+            }
             let voiced = voicedAudioBufferCountSinceInbound
             let lastInboundReference = lastInboundTranscriptAt ?? connectionStartedAt ?? Date()
             let quietFor = Date().timeIntervalSince(lastInboundReference)
@@ -1866,6 +1872,39 @@ actor RealtimeLiveCaptionActor {
             return false
         }
         return current === socket && currentGeneration == generation
+    }
+
+    /// OpenAI Realtime WebSocket sessions are bounded-duration streams.
+    /// Rotate before the provider-side cap so long meetings keep receiving
+    /// transcript deltas instead of waiting for a hard close or a silent stall.
+    private func rotateSessionForAgeIfNeeded(
+        socket: RealtimeSocket,
+        generation: Int
+    ) async -> Bool {
+        let interval = configuration.proactiveSessionRotationInterval
+        guard interval > 0 else { return false }
+        guard case .live(let current, let currentGeneration, let receiveTask, let watchdogTask) = lifecycle,
+              current === socket,
+              currentGeneration == generation else {
+            return true
+        }
+        guard let openedAt = liveOpenedAt else { return false }
+        let age = Date().timeIntervalSince(openedAt)
+        guard age >= interval else { return false }
+
+        trace(
+            "session.rotate",
+            "ageSec=\(Int(age)) intervalSec=\(Int(interval))"
+        )
+        receiveTask.cancel()
+        watchdogTask.cancel()
+        socket.cancel(
+            code: 1001,
+            reason: "proactive session rotation".data(using: .utf8)
+        )
+        liveOpenedAt = nil
+        await beginClaim(attempt: 0)
+        return true
     }
 
     /// First-resume-wins race between a ping and a timeout. Unlike

@@ -428,6 +428,55 @@ final class RealtimeLiveCaptionLifecycleTests: XCTestCase {
             XCTFail("Expected .live after rapid reconnect, got \(snapshot)")
         }
     }
+
+    func testProactiveSessionRotationReclaimsBeforeProviderCap() async {
+        let connector = MockRealtimeSessionConnector()
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .transcription,
+            configuration: .init(
+                reconnectDelays: [0.01],
+                proactiveSessionRotationInterval: 0.03
+            )
+        )
+        await actor.setStallWatchdogIntervalForTesting(0.01)
+
+        await actor.start()
+        await connector.waitForClaimResolved()
+        await connector.waitForSocketOpened()
+        await Task.yield()
+        await Task.yield()
+
+        guard let first = connector.lastIssuedSocket else {
+            XCTFail("Expected first socket.")
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while Date() < deadline && connector.openSocketCallCount < 2 {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTAssertGreaterThanOrEqual(
+            connector.claimCallCount,
+            2,
+            "Long-running realtime sessions should proactively claim a fresh socket before provider caps."
+        )
+        XCTAssertGreaterThanOrEqual(connector.openSocketCallCount, 2)
+        XCTAssertTrue(first.cancelled, "Proactive rotation must close the old socket.")
+        XCTAssertEqual(first.cancelCode, 1001)
+
+        let snapshot = await actor.lifecycleSnapshotForTesting()
+        switch snapshot {
+        case .live(let generation):
+            XCTAssertGreaterThanOrEqual(generation, 2)
+        default:
+            XCTFail("Expected .live after proactive rotation, got \(snapshot)")
+        }
+
+        _ = await actor.stop(saveTo: nil)
+    }
 }
 
 // MARK: - Mock connector + socket
