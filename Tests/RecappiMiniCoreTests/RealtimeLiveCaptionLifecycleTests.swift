@@ -188,6 +188,34 @@ final class RealtimeLiveCaptionLifecycleTests: XCTestCase {
         XCTAssertEqual(connector.claimCallCount, 2, "Claim must have been attempted twice (one failure + one success).")
     }
 
+    func testClaimFailurePublishesReconnectingSnapshot() async {
+        let connector = MockRealtimeSessionConnector()
+        connector.claimFailures = 1
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .transcription,
+            configuration: .init(reconnectDelays: [0.2])
+        )
+        let stream = await actor.captionSnapshots()
+        let recorder = SnapshotRecorder()
+        let consumer = Task {
+            for await snapshot in stream {
+                recorder.append(snapshot)
+                if snapshot.phase == .reconnecting { break }
+            }
+        }
+
+        await actor.start()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        let reconnectingSnapshot = recorder.snapshots.first { $0.phase == .reconnecting }
+        XCTAssertEqual(reconnectingSnapshot?.message, "Live captions are reconnecting…")
+
+        consumer.cancel()
+        _ = await actor.stop(saveTo: nil)
+    }
+
     func testSubscriptionRenewalClaimFailureIsWarningTelemetry() {
         XCTAssertEqual(
             RealtimeLiveCaptionActor.claimFailureDiagnosticLevel(for: RecappiAPIError.http(

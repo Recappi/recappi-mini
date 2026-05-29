@@ -15,6 +15,7 @@ struct LiveCaptionSegment: Equatable, Sendable, Codable {
 struct LiveCaptionSnapshot: Equatable, Sendable {
     enum Phase: String, Equatable, Sendable {
         case preparing
+        case reconnecting
         case listening
         case unavailable
         case failed
@@ -22,8 +23,8 @@ struct LiveCaptionSnapshot: Equatable, Sendable {
 
     let phase: Phase
     /// Ordered segments in the visible timeline. Empty when the backend has
-    /// nothing to display yet (`.preparing`, `.unavailable`, `.failed` with no
-    /// captured caption history, etc).
+    /// nothing to display yet (`.preparing`, `.reconnecting`, `.unavailable`,
+    /// `.failed` with no captured caption history, etc).
     let segments: [LiveCaptionSegment]
     /// Convenience: true when every segment in `segments` has `isFinal == true`.
     let allSegmentsFinal: Bool

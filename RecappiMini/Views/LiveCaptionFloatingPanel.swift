@@ -815,7 +815,9 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var liveCaptionErrorMessage: String? {
-        guard recorder.liveCaptionStatusPhase == .failed || recorder.liveCaptionStatusPhase == .unavailable else {
+        guard recorder.liveCaptionStatusPhase == .reconnecting
+            || recorder.liveCaptionStatusPhase == .failed
+            || recorder.liveCaptionStatusPhase == .unavailable else {
             return nil
         }
         let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines)

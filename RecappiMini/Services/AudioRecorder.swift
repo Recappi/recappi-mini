@@ -1192,7 +1192,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         switch snapshot.phase {
         case .preparing, .listening:
             liveCaptionMessage = snapshot.message
-        case .unavailable, .failed:
+        case .reconnecting, .unavailable, .failed:
             // Surface the error/reconnect status via `liveCaptionMessage`
             // but do NOT wipe `liveCaptionSegments`: a transient
             // WebSocket failure should not erase the caption history

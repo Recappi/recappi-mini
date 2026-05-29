@@ -266,6 +266,7 @@ actor RealtimeLiveCaptionActor {
     /// `handleReceiveSuccess` remain synchronous (the test seam
     /// `ingestReceiveEventJSONForTesting` already depends on that).
     private var pendingContextHintSend: Bool = false
+    private var publishListeningOnNextLive: Bool = false
 
     /// Tunables for retry timing + audio buffering. Carved out so tests
     /// can run with near-zero reconnect delays and a small audio cap
@@ -641,6 +642,8 @@ actor RealtimeLiveCaptionActor {
         receiveTask.cancel()
         watchdogTask.cancel()
         socket.cancel(code: 1001, reason: nil)
+        publishReconnectingSnapshot()
+        publishListeningOnNextLive = true
         await beginClaim(attempt: 0)
     }
 
@@ -1046,6 +1049,10 @@ actor RealtimeLiveCaptionActor {
                 watchdogTask: watchdogTask
             )
             trace("phase", "to=live")
+            if attempt > 0 || publishListeningOnNextLive {
+                publishSnapshot(.statusOnly(phase: .listening, message: nil))
+            }
+            publishListeningOnNextLive = false
             DiagnosticsLog.event(
                 "live-caption",
                 "socket.live mode=\(Self.modeLabel(mode)) generation=\(generation) pendingAudio=\(pendingAudio.count)"
@@ -1080,7 +1087,6 @@ actor RealtimeLiveCaptionActor {
             } else {
                 DiagnosticsLog.error("live-caption", claimFailureMessage)
             }
-            publishSnapshot(.statusOnly(phase: .failed, message: "Live captions are reconnecting…"))
             await scheduleReconnect(after: error, attempt: attempt)
         }
     }
@@ -2008,6 +2014,7 @@ actor RealtimeLiveCaptionActor {
             delay: delay
         )
         trace("phase", "to=\(Self.snapshotTag(lifecycle.snapshot))")
+        publishReconnectingSnapshot()
         // The .live window is over: clear the open-instant so a future
         // drop trace doesn't compute `sinceOpenMs` against a defunct
         // socket. `lastClaimedSessionId` deliberately stays — the next
@@ -2031,6 +2038,10 @@ actor RealtimeLiveCaptionActor {
         guard case .reconnecting = lifecycle else { return }
         trace("reconnect.fire")
         await beginClaim(attempt: attempt + 1)
+    }
+
+    private func publishReconnectingSnapshot() {
+        publishSnapshot(.statusOnly(phase: .reconnecting, message: "Live captions are reconnecting…"))
     }
 
     private func reconnectDelay(forAttempt attempt: Int) -> TimeInterval {
