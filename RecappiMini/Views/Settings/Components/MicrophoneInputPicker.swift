@@ -13,8 +13,8 @@ struct MicrophoneInputPicker: View {
         Picker(title, selection: normalizedSelectionBinding) {
             ForEach(options) { option in
                 Text(option.title)
-                    .foregroundStyle(option.isUnavailable ? Palette.labelTertiary : Palette.labelPrimary)
                     .tag(option.id)
+                    .disabled(option.isUnavailable)
             }
         }
         .recappiLabelsHidden(hidesLabel)
