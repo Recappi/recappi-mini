@@ -175,10 +175,6 @@ struct LiveCaptionFloatingPanel: View {
                     .monospacedDigit()
                     .foregroundStyle(glassTextSecondary)
                     .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionElapsedTime)
-                if let liveCaptionErrorMessage {
-                    liveCaptionErrorIndicator(message: liveCaptionErrorMessage)
-                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                }
                 captionControlButtons
             }
             .padding(.leading, 10)
@@ -258,15 +254,7 @@ struct LiveCaptionFloatingPanel: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 9) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(DT.systemRed)
-                    .frame(width: 5, height: 5)
-                    .modifier(PulsingModifier())
-                Text("Live captions")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(glassTextPrimary)
-            }
+            liveCaptionLeadingBadge
 
             Text(sourceLine)
                 .font(.system(size: 10, weight: .regular))
@@ -283,8 +271,8 @@ struct LiveCaptionFloatingPanel: View {
                 .foregroundStyle(glassTextSecondary)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionElapsedTime)
 
-            if let liveCaptionErrorMessage {
-                liveCaptionErrorIndicator(message: liveCaptionErrorMessage)
+            if let status = liveCaptionConnectionStatus, status.actionable {
+                liveCaptionRetryButton(tint: status.color)
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
 
@@ -300,7 +288,7 @@ struct LiveCaptionFloatingPanel: View {
         .focusable(false)
         .recappiSuppressFocusRing()
         .accessibilityHidden(!chromeVisible)
-        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: liveCaptionErrorMessage != nil)
+        .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: liveCaptionStatusKind)
             .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: liveCaptionShowsTranslation)
     }
 
@@ -313,20 +301,125 @@ struct LiveCaptionFloatingPanel: View {
             .accessibilityHidden(true)
     }
 
-    private func liveCaptionErrorIndicator(message: String) -> some View {
+    // MARK: - Live caption connection status (Phase → visual treatment)
+
+    private enum LiveCaptionStatusKind: Equatable {
+        case connecting   // .preparing — first connection
+        case reconnecting // .reconnecting — session dropped, retry in flight
+        case interrupted  // .failed — gave up, user can retry
+        case unavailable  // .unavailable — backend can't be used
+    }
+
+    private struct LiveCaptionStatusStyle {
+        var kind: LiveCaptionStatusKind
+        var color: Color
+        var label: String        // expanded strip label
+        var shortLabel: String   // compact pill label
+        var systemImage: String? // nil → calm pulsing dot (in-progress states)
+        var actionable: Bool     // tappable → reconnect, and show the Retry control
+    }
+
+    private var liveCaptionStatusKind: LiveCaptionStatusKind? {
+        switch recorder.liveCaptionStatusPhase {
+        case .preparing?: return .connecting
+        case .reconnecting?: return .reconnecting
+        case .failed?: return .interrupted
+        case .unavailable?: return .unavailable
+        case .listening?, nil: return nil
+        }
+    }
+
+    /// Visual treatment for the current connection status, or `nil` while
+    /// captions stream normally (`.listening`). Phase-driven — never gated on a
+    /// message being present, since Connecting/Reconnecting usually have none.
+    private var liveCaptionConnectionStatus: LiveCaptionStatusStyle? {
+        guard let kind = liveCaptionStatusKind else { return nil }
+        switch kind {
+        case .connecting:
+            return .init(kind: kind, color: DT.recordingLiveBlue, label: "Connecting…",
+                         shortLabel: "Connecting", systemImage: nil, actionable: false)
+        case .reconnecting:
+            return .init(kind: kind, color: DT.recordingLiveBlue, label: "Reconnecting…",
+                         shortLabel: "Reconnecting", systemImage: nil, actionable: false)
+        case .interrupted:
+            return .init(kind: kind, color: DT.statusWarning, label: "Captions interrupted",
+                         shortLabel: "Retry", systemImage: "exclamationmark.triangle.fill",
+                         actionable: true)
+        case .unavailable:
+            return .init(kind: kind, color: DT.systemOrange, label: "Live captions unavailable",
+                         shortLabel: "Unavailable", systemImage: "exclamationmark.octagon.fill",
+                         actionable: recorder.canReconnectLiveCaptions)
+        }
+    }
+
+    /// Recorder diagnostic message, surfaced only as tooltip / accessibility
+    /// detail. The primary user-facing copy is mapped from the phase above so
+    /// it stays consistent and localizable.
+    private var liveCaptionStatusDetail: String? {
+        let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return message?.isEmpty == false ? message : nil
+    }
+
+    @ViewBuilder
+    private func liveCaptionStatusGlyph(_ style: LiveCaptionStatusStyle, dotSize: CGFloat) -> some View {
+        if let symbol = style.systemImage {
+            Image(systemName: symbol)
+                .font(.system(size: dotSize + 5, weight: .semibold))
+                .foregroundStyle(style.color)
+        } else {
+            Circle()
+                .fill(style.color)
+                .frame(width: dotSize, height: dotSize)
+                .modifier(PulsingModifier())
+        }
+    }
+
+    /// Expanded-header leading badge: the red "● Live captions" pill while
+    /// streaming, swapping to a status strip (connecting / reconnecting /
+    /// interrupted / unavailable) otherwise.
+    @ViewBuilder
+    private var liveCaptionLeadingBadge: some View {
+        if let style = liveCaptionConnectionStatus {
+            HStack(spacing: 6) {
+                liveCaptionStatusGlyph(style, dotSize: 5)
+                Text(style.label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(glassTextPrimary)
+                    .lineLimit(1)
+            }
+            .recappiTooltip(liveCaptionStatusDetail ?? style.label)
+            .accessibilityLabel(style.label)
+            .accessibilityValue(liveCaptionStatusDetail ?? "")
+        } else {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(DT.systemRed)
+                    .frame(width: 5, height: 5)
+                    .modifier(PulsingModifier())
+                Text("Live captions")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(glassTextPrimary)
+            }
+        }
+    }
+
+    /// Trailing reconnect affordance, shown only for actionable states
+    /// (`.failed`, or `.unavailable` when a reconnect is possible). Preserves
+    /// the existing accessibility id + message value so UI tests resolve it.
+    private func liveCaptionRetryButton(tint: Color) -> some View {
         Button {
             recorder.reconnectLiveCaptionsNow()
         } label: {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: "arrow.clockwise")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(DT.statusWarning)
+                .foregroundStyle(tint)
         }
         .buttonStyle(PanelIconButtonStyle(size: 22))
         .focusable(false)
         .recappiSuppressFocusRing()
-        .recappiTooltip(message)
+        .recappiTooltip(liveCaptionStatusDetail ?? "Reconnect live captions")
         .accessibilityLabel("Reconnect live captions")
-        .accessibilityValue(message)
+        .accessibilityValue(liveCaptionStatusDetail ?? "")
         .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionReconnectButton)
     }
 
@@ -348,22 +441,61 @@ struct LiveCaptionFloatingPanel: View {
         )
     }
 
+    /// Compact-panel badge. Swaps the "● Live" pill for a status pill when the
+    /// connection is not streaming; the pill is tappable (reconnect) for
+    /// actionable states. Stays within the existing pill footprint so the
+    /// fixed two-line compact height is never disturbed.
+    @ViewBuilder
     private var compactLiveBadge: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(DT.systemRed)
-                .frame(width: 5, height: 5)
-                .modifier(PulsingModifier())
-            Text("Live")
-                .font(.system(size: 9.5, weight: .semibold))
-                .foregroundStyle(glassTextPrimary)
+        if let style = liveCaptionConnectionStatus {
+            let pill = HStack(spacing: 4) {
+                liveCaptionStatusGlyph(style, dotSize: 5)
+                Text(style.shortLabel)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(glassTextPrimary)
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(style.color.opacity(0.14))
+            )
+
+            if style.actionable {
+                Button {
+                    recorder.reconnectLiveCaptionsNow()
+                } label: {
+                    pill
+                }
+                .buttonStyle(.plain)
+                .focusable(false)
+                .recappiSuppressFocusRing()
+                .recappiTooltip(liveCaptionStatusDetail ?? "Reconnect live captions")
+                .accessibilityLabel("Reconnect live captions")
+                .accessibilityValue(liveCaptionStatusDetail ?? "")
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionReconnectButton)
+            } else {
+                pill
+                    .recappiTooltip(liveCaptionStatusDetail ?? style.label)
+                    .accessibilityLabel(style.label)
+            }
+        } else {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(DT.systemRed)
+                    .frame(width: 5, height: 5)
+                    .modifier(PulsingModifier())
+                Text("Live")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(glassTextPrimary)
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(DT.systemRed.opacity(0.12))
+            )
         }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
-        .background(
-            Capsule(style: .continuous)
-                .fill(DT.systemRed.opacity(0.12))
-        )
     }
 
     private var verticalHeaderDivider: some View {
@@ -812,16 +944,6 @@ struct LiveCaptionFloatingPanel: View {
             return true
         }
         return !recorder.liveCaptionSegments.isEmpty
-    }
-
-    private var liveCaptionErrorMessage: String? {
-        guard recorder.liveCaptionStatusPhase == .reconnecting
-            || recorder.liveCaptionStatusPhase == .failed
-            || recorder.liveCaptionStatusPhase == .unavailable else {
-            return nil
-        }
-        let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return message?.isEmpty == false ? message : nil
     }
 
     /// Segment list passed into the expanded viewport. Mirrors the
