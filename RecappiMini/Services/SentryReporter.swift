@@ -415,6 +415,9 @@ private struct DiagnosticTelemetry {
         if isTransientLiveCaptionSocketDisconnect {
             return false
         }
+        if isExpectedLocalOnlyRecordingDelete404 {
+            return false
+        }
         return true
     }
 
@@ -478,6 +481,24 @@ private struct DiagnosticTelemetry {
             && fields["closeCode"] == "1005"
             && fields["domain"] == NSPOSIXErrorDomain
             && fields["code"] == "57"
+    }
+
+    private var isExpectedLocalOnlyRecordingDelete404: Bool {
+        let message = safeMessage.lowercased()
+        guard message.contains("status 404"),
+              message.contains("recording not found") else {
+            return false
+        }
+
+        switch (category, operation) {
+        case ("network", "request.failed"):
+            return fields["method"] == "DELETE"
+                && fields["path"]?.contains("/api/recordings/local-") == true
+        case ("cloud", "recording.delete.failed"):
+            return fields["recordingID"]?.hasPrefix("local-") == true
+        default:
+            return false
+        }
     }
 
     var fingerprint: [String] {

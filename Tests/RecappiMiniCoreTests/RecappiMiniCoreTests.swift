@@ -2565,6 +2565,62 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertFalse(store.isSelectedTranscriptLoading)
     }
 
+    @MainActor
+    func testDeletingLocalOnlyRecordingRemovesItWithoutRemoteAuth() async {
+        let store = CloudLibraryStore()
+        let local = CloudRecording(
+            id: "local-2026-05-10_175443",
+            userId: nil,
+            title: "Local only",
+            summaryTitle: nil,
+            sourceTitle: "All system audio",
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .failed,
+            sizeBytes: 1_024,
+            durationMs: 60_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        let remote = CloudRecording(
+            id: "rec_remote",
+            userId: "user_123",
+            title: "Remote",
+            summaryTitle: nil,
+            sourceTitle: nil,
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: "recordings/user/rec_remote.m4a",
+            r2UploadId: nil,
+            status: .ready,
+            sizeBytes: 2_048,
+            durationMs: 120_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+        store.recordings = [local, remote]
+        store.selectedRecordingID = local.id
+        store.state = .loaded
+
+        await store.deleteSelectedRecording()
+
+        XCTAssertEqual(store.recordings.map(\.id), [remote.id])
+        XCTAssertEqual(store.selectedRecordingID, remote.id)
+        XCTAssertEqual(store.state, .loaded)
+        XCTAssertFalse(store.isDeleting)
+        XCTAssertNil(store.cacheWarningMessage)
+    }
+
     func testFloatingPanelHitTestMatchesVisiblePillOnly() {
         let bounds = NSRect(
             x: 0,

@@ -44,6 +44,14 @@ extension CloudLibraryStore {
     func deleteSelectedRecording() async {
         guard let recording = selectedRecording else { return }
         isDeleting = true
+        defer { isDeleting = false }
+
+        guard !recording.isLocalOnlyRecording else {
+            DiagnosticsLog.event("cloud", "recording.delete.local recordingID=\(recording.id)")
+            removeLocalProcessingRecording(id: recording.id)
+            await persistCacheSnapshot()
+            return
+        }
 
         do {
             try await runAuthorized { client in
@@ -72,8 +80,6 @@ extension CloudLibraryStore {
                 state = recordings.isEmpty ? .empty : .loaded
             }
         }
-
-        isDeleting = false
     }
 
     func signIn(with provider: OAuthProvider) async {

@@ -229,6 +229,34 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testLocalOnlyRecordingDelete404DoesNotCaptureSentryErrors() {
+        let errorSummary = "domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 404): Recording not found"
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=DELETE path=/api/recordings/local-2026-05-10_175443 \(errorSummary)"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "cloud",
+                message: "recording.delete.failed recordingID=local-2026-05-10_175443 \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=DELETE path=/api/recordings/rec_123 \(errorSummary)"
+            )
+        )
+    }
+
     func testTransientLiveCaptionSocketDisconnectDoesNotCaptureSentryErrors() {
         XCTAssertFalse(
             SentryReporter.shouldCaptureDiagnosticError(
