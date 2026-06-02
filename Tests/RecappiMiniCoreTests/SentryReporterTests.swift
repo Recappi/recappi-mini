@@ -56,6 +56,15 @@ final class SentryReporterTests: XCTestCase {
         XCTAssertEqual(SentryReporter.normalizedSampleRate("nope", default: 0.05), 0.05)
     }
 
+    func testNativeSigtermReportingDefaultsOffUnlessExplicitlyEnabled() {
+        XCTAssertFalse(SentryReporter.nativeSigtermReportingEnabled(nil))
+        XCTAssertFalse(SentryReporter.nativeSigtermReportingEnabled(""))
+        XCTAssertFalse(SentryReporter.nativeSigtermReportingEnabled("true"))
+        XCTAssertFalse(SentryReporter.nativeSigtermReportingEnabled("0"))
+        XCTAssertTrue(SentryReporter.nativeSigtermReportingEnabled("1"))
+        XCTAssertTrue(SentryReporter.nativeSigtermReportingEnabled(" 1 "))
+    }
+
     func testNetworkRequestFingerprintsUsePathAndStatus() {
         let transcript404 = SentryReporter.diagnosticFingerprint(
             level: "error",

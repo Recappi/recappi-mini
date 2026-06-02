@@ -41,7 +41,7 @@ enum SentryReporter {
             options.enableUncaughtNSExceptionReporting = true
             #endif
             #if !os(watchOS)
-            options.enableSigtermReporting = true
+            options.enableSigtermReporting = configuration.enableSigtermReporting
             #endif
             #if canImport(MetricKit) && !os(tvOS)
             options.enableMetricKit = true
@@ -251,6 +251,10 @@ enum SentryReporter {
             return clampedSampleRate(defaultValue)
         }
         return clampedSampleRate(parsed)
+    }
+
+    static func nativeSigtermReportingEnabled(_ value: String?) -> Bool {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
     }
 
     private static func addBreadcrumb(_ telemetry: DiagnosticTelemetry) {
@@ -593,6 +597,7 @@ private struct ReporterConfiguration: Equatable {
     let debug: Bool
     let traceSampleRate: Double
     let profileSessionSampleRate: Double
+    let enableSigtermReporting: Bool
 
     var releaseName: String {
         "\(bundleIdentifier)@\(version)+\(build)"
@@ -626,6 +631,9 @@ private struct ReporterConfiguration: Equatable {
             environment["RECAPPI_SENTRY_PROFILE_SAMPLE_RATE"] ?? environment["SENTRY_PROFILES_SAMPLE_RATE"],
             default: 0.10
         )
+        let enableSigtermReporting = SentryReporter.nativeSigtermReportingEnabled(
+            environment["RECAPPI_SENTRY_ENABLE_SIGTERM_REPORTING"]
+        )
         return ReporterConfiguration(
             dsn: dsn,
             environment: sentryEnvironment,
@@ -634,7 +642,8 @@ private struct ReporterConfiguration: Equatable {
             bundleIdentifier: bundleIdentifier,
             debug: debug,
             traceSampleRate: traceSampleRate,
-            profileSessionSampleRate: profileSessionSampleRate
+            profileSessionSampleRate: profileSessionSampleRate,
+            enableSigtermReporting: enableSigtermReporting
         )
     }
 }
