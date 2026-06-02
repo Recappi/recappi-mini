@@ -985,7 +985,16 @@ struct LiveCaptionFloatingPanel: View {
         if !joined.isEmpty {
             return joined
         }
-        if let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+        // When the connection is in a status state (connecting / reconnecting /
+        // failed / unavailable), `liveCaptionMessage` carries the backend's
+        // diagnostic error text. That belongs in the header status strip +
+        // retry affordance (see `liveCaptionConnectionStatus`), NOT in the
+        // caption body — otherwise a raw server error like
+        // "Model gpt-realtime-whisper is a transcription model…" renders as if
+        // it were a transcript line. Only fall back to `liveCaptionMessage`
+        // for the body while genuinely streaming (no status phase set).
+        if liveCaptionStatusKind == nil,
+           let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
            !message.isEmpty {
             return message
         }
