@@ -848,7 +848,11 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var sourceStreamTitle: String {
-        Self.streamTitle(role: "Original", languageShortTitle: liveCaptionSourceLanguageShortTitle)
+        // Source language is auto-detected, not a user-chosen target, so we do
+        // NOT suffix it with a language code — `Original · EN` reads like a
+        // "current/locked language" hint. Only the translation side, whose
+        // target the user explicitly picks, carries a language suffix.
+        Self.streamTitle(role: "Original", languageShortTitle: "")
     }
 
     private var translationStreamTitle: String {
@@ -1037,7 +1041,9 @@ struct LiveCaptionFloatingPanel: View {
         sourceLanguageShortTitle: String,
         targetLanguageShortTitle: String
     ) -> [CompactCaptionRow] {
-        let sourceLabel = streamTitle(role: "Original", languageShortTitle: sourceLanguageShortTitle)
+        // Source side shows just "Original" (auto-detected language, no suffix);
+        // only the translation side carries its user-chosen target language.
+        let sourceLabel = streamTitle(role: "Original", languageShortTitle: "")
         let translationLabel = streamTitle(role: "Translation", languageShortTitle: targetLanguageShortTitle)
         let sourceText = compactLine(
             from: captionText,

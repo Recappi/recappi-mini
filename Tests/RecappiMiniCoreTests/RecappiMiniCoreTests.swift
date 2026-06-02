@@ -2812,7 +2812,9 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
 
         XCTAssertEqual(rows.count, 2)
-        XCTAssertEqual(rows[0].label, "Original · EN")
+        // Source side shows just "Original" (auto-detected language, no suffix);
+        // only the user-chosen translation target carries a language code.
+        XCTAssertEqual(rows[0].label, "Original")
         XCTAssertEqual(rows[1].label, "Translation · ZH")
         XCTAssertFalse(rows[0].isPlaceholder)
         XCTAssertFalse(rows[1].isPlaceholder)
@@ -2831,7 +2833,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
 
         XCTAssertEqual(rows.count, 2)
-        XCTAssertEqual(rows[0].label, "Original · EN")
+        XCTAssertEqual(rows[0].label, "Original")
         XCTAssertEqual(rows[0].text, "Listening source stream")
         XCTAssertEqual(rows[1].label, "Translation · ZH")
         XCTAssertEqual(rows[1].text, "Waiting for translation")
