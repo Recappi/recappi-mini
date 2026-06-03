@@ -119,7 +119,7 @@ struct LiveCaptionFloatingPanel: View {
         // gets clamped by intermediate intrinsic-size frames and the
         // viewport stops short of a user-resized window's bottom edge.
         GeometryReader { proxy in
-            let headerBand = Self.expandedHeaderBandHeight
+            let headerBand = chromeVisible ? Self.expandedHeaderBandHeight : 0
             let cardHeight = max(96, proxy.size.height - headerBand)
 
             ZStack(alignment: .top) {

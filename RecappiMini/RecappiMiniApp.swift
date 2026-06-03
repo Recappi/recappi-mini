@@ -162,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     @Published private(set) var isRecording: Bool = false
     @Published private(set) var isLiveCaptionPanelPresented = false
     @Published private(set) var liveCaptionPanelMode: LiveCaptionPanelMode = .expanded
+    private var liveCaptionChromeVisible = false
 
     private var effectiveActiveAudioBundleIDs: Set<String> {
         Set(recorder.runningApps.lazy.filter(\.isActive).map(\.id))
@@ -1135,10 +1136,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func setLiveCaptionChromeVisible(_ visible: Bool) {
-        guard let hostingView = managedWindows.liveCaptionWindow?.contentView as? LiveCaptionPassthroughHostingView<AnyView> else {
+        guard liveCaptionChromeVisible != visible else {
             return
         }
-        hostingView.isExpandedHeaderChromeVisible = visible
+        let previousChromeVisible = liveCaptionChromeVisible
+        liveCaptionChromeVisible = visible
+        guard liveCaptionPanelMode == .expanded,
+              managedWindows.liveCaptionWindow != nil else {
+            return
+        }
+        resizeLiveCaptionWindowForChromeVisibility(previousChromeVisible: previousChromeVisible)
     }
 
     func applyLiveCaptionDisplayPreference() {
@@ -1183,17 +1190,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private func presentLiveCaptionWindow() {
         if let liveCaptionWindow = managedWindows.liveCaptionWindow {
-            if let hostingView = liveCaptionWindow.contentView as? LiveCaptionPassthroughHostingView<AnyView> {
-                hostingView.liveCaptionPanelMode = liveCaptionPanelMode
-            }
-            positionLiveCaptionWindow(liveCaptionWindow)
+            resizeLiveCaptionWindowToContent(animated: false, usesFittingSize: false)
             liveCaptionWindow.orderFrontRegardless()
             isLiveCaptionPanelPresented = true
             return
         }
 
         let hostingView = LiveCaptionPassthroughHostingView(rootView: liveCaptionRootView())
-        hostingView.liveCaptionPanelMode = liveCaptionPanelMode
         // Empty sizingOptions makes NSHostingView track the NSWindow's
         // content bounds (including user resizes) rather than pin to
         // SwiftUI's intrinsic size. `GeometryReader` inside
@@ -1201,17 +1204,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         hostingView.sizingOptions = []
 
         // `.titled` + `.resizable` gives standard NSWindow edge-drag resize
-        // handles; `.fullSizeContentView` lets the custom hosting view own the
-        // hidden header band hit-testing instead of AppKit's titlebar eating
-        // invisible clicks/drags.
+        // handles; `.fullSizeContentView` keeps the SwiftUI header controls in
+        // the draggable titlebar band when that band is visible.
         let window = WindowFactory.createPanel(
             contentView: hostingView,
             spec: WindowFactory.PanelSpec(
-                contentRect: NSRect(origin: .zero, size: liveCaptionPanelMode.defaultWindowSize),
+                contentRect: NSRect(origin: .zero, size: liveCaptionDefaultContentSize()),
                 styleMask: [.nonactivatingPanel, .titled, .resizable, .fullSizeContentView],
                 title: "Recappi Live Captions",
                 hasShadow: true,
-                isMovableByWindowBackground: false,
                 titleVisibility: .hidden,
                 titlebarAppearsTransparent: true,
                 hiddenStandardButtons: [.closeButton, .miniaturizeButton, .zoomButton]
@@ -1224,9 +1225,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         hostingView.layoutSubtreeIfNeeded()
         let fittingSize = hostingView.fittingSize
+        let defaultContentSize = liveCaptionDefaultContentSize()
         window.setContentSize(NSSize(
-            width: max(liveCaptionPanelMode.defaultWindowSize.width, fittingSize.width),
-            height: max(liveCaptionPanelMode.defaultWindowSize.height, fittingSize.height)
+            width: max(defaultContentSize.width, fittingSize.width),
+            height: max(defaultContentSize.height, fittingSize.height)
         ))
         applyLiveCaptionContentSizeConstraints(window, mode: liveCaptionPanelMode)
         positionLiveCaptionWindow(window)
@@ -1241,27 +1243,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     /// compact pins to its nominal default so the two-line caption +
     /// control cluster cannot be squashed.
     private func applyLiveCaptionContentSizeConstraints(_ window: NSWindow, mode: LiveCaptionPanelMode) {
+        let defaultContentSize = liveCaptionDefaultContentSize(mode: mode)
         switch mode {
         case .expanded:
-            window.contentMinSize = mode.defaultWindowSize
-            window.contentMaxSize = NSSize(width: 900, height: 1200)
+            window.contentMinSize = defaultContentSize
+            window.contentMaxSize = liveCaptionMaxContentSize(mode: mode)
         case .compact:
-            window.contentMinSize = mode.defaultWindowSize
-            window.contentMaxSize = NSSize(width: 900, height: mode.defaultWindowSize.height)
+            window.contentMinSize = defaultContentSize
+            window.contentMaxSize = liveCaptionMaxContentSize(mode: mode)
         }
     }
 
     private func liveCaptionResizeFrameSize(_ window: NSWindow, requestedFrameSize: NSSize) -> NSSize {
         let requestedFrameRect = NSRect(origin: .zero, size: requestedFrameSize)
         var requestedContentRect = window.contentRect(forFrameRect: requestedFrameRect)
-        let minContentSize = liveCaptionPanelMode.defaultWindowSize
-        let maxContentSize: NSSize
-        switch liveCaptionPanelMode {
-        case .expanded:
-            maxContentSize = NSSize(width: 900, height: 1200)
-        case .compact:
-            maxContentSize = NSSize(width: 900, height: minContentSize.height)
-        }
+        let minContentSize = liveCaptionDefaultContentSize()
+        let maxContentSize = liveCaptionMaxContentSize()
 
         requestedContentRect.size.width = min(
             max(requestedContentRect.size.width, minContentSize.width),
@@ -1272,6 +1269,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             maxContentSize.height
         )
         return window.frameRect(forContentRect: requestedContentRect).size
+    }
+
+    private func liveCaptionDefaultContentSize(
+        mode: LiveCaptionPanelMode? = nil,
+        chromeVisible: Bool? = nil
+    ) -> NSSize {
+        let mode = mode ?? liveCaptionPanelMode
+        let chromeVisible = chromeVisible ?? liveCaptionChromeVisible
+        var size = mode.defaultWindowSize
+        if mode == .expanded, !chromeVisible {
+            size.height -= LiveCaptionFloatingPanel.expandedHeaderBandHeight
+        }
+        return size
+    }
+
+    private func liveCaptionMaxContentSize(mode: LiveCaptionPanelMode? = nil) -> NSSize {
+        let mode = mode ?? liveCaptionPanelMode
+        switch mode {
+        case .expanded:
+            var size = NSSize(width: 900, height: 1200)
+            if !liveCaptionChromeVisible {
+                size.height -= LiveCaptionFloatingPanel.expandedHeaderBandHeight
+            }
+            return size
+        case .compact:
+            return NSSize(width: 900, height: liveCaptionDefaultContentSize(mode: mode).height)
+        }
+    }
+
+    private func resizeLiveCaptionWindowForChromeVisibility(previousChromeVisible: Bool) {
+        guard let liveCaptionWindow = managedWindows.liveCaptionWindow else {
+            return
+        }
+
+        let previousContentSize = liveCaptionWindow.contentRect(forFrameRect: liveCaptionWindow.frame).size
+        let previousDefaultContentSize = liveCaptionDefaultContentSize(
+            mode: .expanded,
+            chromeVisible: previousChromeVisible
+        )
+        let defaultContentSize = liveCaptionDefaultContentSize(mode: .expanded)
+        let heightDelta = defaultContentSize.height - previousDefaultContentSize.height
+        let maxContentSize = liveCaptionMaxContentSize(mode: .expanded)
+        let targetContentSize = NSSize(
+            width: Swift.min(
+                Swift.max(previousContentSize.width, defaultContentSize.width),
+                maxContentSize.width
+            ),
+            height: Swift.min(
+                Swift.max(previousContentSize.height + heightDelta, defaultContentSize.height),
+                maxContentSize.height
+            )
+        )
+
+        let previousBottomY = liveCaptionWindow.frame.origin.y
+        let previousMaxX = liveCaptionWindow.frame.maxX
+        applyLiveCaptionContentSizeConstraints(liveCaptionWindow, mode: .expanded)
+        var contentRect = liveCaptionWindow.contentRect(forFrameRect: liveCaptionWindow.frame)
+        contentRect.size = targetContentSize
+        var targetFrame = liveCaptionWindow.frameRect(forContentRect: contentRect)
+        targetFrame.origin.x = previousMaxX - targetFrame.width
+        targetFrame.origin.y = previousBottomY
+        liveCaptionWindow.setFrame(targetFrame, display: true)
     }
 
     private func hideLiveCaptionWindow() {
@@ -1300,7 +1359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private func resizeLiveCaptionWindowToContent(animated: Bool = false, usesFittingSize: Bool = true) {
         guard let liveCaptionWindow = managedWindows.liveCaptionWindow,
               let hostingView = liveCaptionWindow.contentView as? LiveCaptionPassthroughHostingView<AnyView> else {
-            managedWindows.liveCaptionWindow?.setContentSize(liveCaptionPanelMode.defaultWindowSize)
+            managedWindows.liveCaptionWindow?.setContentSize(liveCaptionDefaultContentSize())
             if let liveCaptionWindow = managedWindows.liveCaptionWindow {
                 positionLiveCaptionWindow(liveCaptionWindow)
             }
@@ -1312,9 +1371,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             hostingView.layoutSubtreeIfNeeded()
             fittingSize = hostingView.fittingSize
         } else {
-            fittingSize = liveCaptionPanelMode.defaultWindowSize
+            fittingSize = liveCaptionDefaultContentSize()
         }
-        hostingView.liveCaptionPanelMode = liveCaptionPanelMode
 
         // Capture the visual bottom/right edges BEFORE resizing. The
         // panel is parked near the dock and screen edge; mode morphs should
@@ -1322,9 +1380,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         let previousBottomY = liveCaptionWindow.frame.origin.y
         let previousMaxX = liveCaptionWindow.frame.maxX
         applyLiveCaptionContentSizeConstraints(liveCaptionWindow, mode: liveCaptionPanelMode)
+        let defaultContentSize = liveCaptionDefaultContentSize()
         let targetContentSize = NSSize(
-            width: max(liveCaptionPanelMode.defaultWindowSize.width, fittingSize.width),
-            height: max(liveCaptionPanelMode.defaultWindowSize.height, fittingSize.height)
+            width: max(defaultContentSize.width, fittingSize.width),
+            height: max(defaultContentSize.height, fittingSize.height)
         )
         var contentRect = liveCaptionWindow.contentRect(forFrameRect: liveCaptionWindow.frame)
         contentRect.size = targetContentSize
@@ -2114,8 +2173,6 @@ final class LiveCaptionPassthroughHostingView<Content: View>: NSHostingView<Cont
     /// both modes.
     private let cornerRadius: CGFloat = 16
     var refusesFirstResponder = false
-    var liveCaptionPanelMode: LiveCaptionPanelMode = .expanded
-    var isExpandedHeaderChromeVisible = false
 
     override var acceptsFirstResponder: Bool {
         refusesFirstResponder ? false : super.acceptsFirstResponder
@@ -2127,11 +2184,6 @@ final class LiveCaptionPassthroughHostingView<Content: View>: NSHostingView<Cont
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let bounds = self.bounds
-        if liveCaptionPanelMode == .expanded,
-           !isExpandedHeaderChromeVisible,
-           point.y >= bounds.maxY - LiveCaptionFloatingPanel.expandedHeaderBandHeight {
-            return nil
-        }
         // Reject only points outside the rounded rect (the four corner
         // gaps where the surface is fully transparent). Everywhere
         // inside is visible chrome and must keep receiving events.
