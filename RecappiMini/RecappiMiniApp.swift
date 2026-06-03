@@ -1240,11 +1240,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func liveCaptionResizeFrameSize(_ window: NSWindow, requestedFrameSize: NSSize) -> NSSize {
-        guard liveCaptionPanelMode == .compact else { return requestedFrameSize }
-
         let requestedFrameRect = NSRect(origin: .zero, size: requestedFrameSize)
         var requestedContentRect = window.contentRect(forFrameRect: requestedFrameRect)
-        requestedContentRect.size.height = liveCaptionPanelMode.defaultWindowSize.height
+        let minContentSize = liveCaptionPanelMode.defaultWindowSize
+        let maxContentSize: NSSize
+        switch liveCaptionPanelMode {
+        case .expanded:
+            maxContentSize = NSSize(width: 900, height: 1200)
+        case .compact:
+            maxContentSize = NSSize(width: 900, height: minContentSize.height)
+        }
+
+        requestedContentRect.size.width = min(
+            max(requestedContentRect.size.width, minContentSize.width),
+            maxContentSize.width
+        )
+        requestedContentRect.size.height = min(
+            max(requestedContentRect.size.height, minContentSize.height),
+            maxContentSize.height
+        )
         return window.frameRect(forContentRect: requestedContentRect).size
     }
 

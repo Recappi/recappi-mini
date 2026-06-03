@@ -99,7 +99,6 @@ struct LiveCaptionFloatingPanel: View {
                 panelBackground(cornerRadius: cornerRadius)
             }
         }
-        .onHover(perform: updateChromeVisibility)
         .focusable(false)
         .recappiSuppressFocusRing()
         .accessibilityElement(children: .contain)
@@ -195,6 +194,7 @@ struct LiveCaptionFloatingPanel: View {
         // `defaultWindowSize`, so `.infinity` here would blow the
         // SwiftUI fittingSize up to the host's available width.
         .frame(width: mode.contentWidth, alignment: .leading)
+        .onHover(perform: updateChromeVisibility)
     }
 
     private var compactCaptionRowsView: some View {
