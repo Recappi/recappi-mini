@@ -407,6 +407,9 @@ private struct DiagnosticTelemetry {
         if isCancelledNetworkRequest {
             return false
         }
+        if isExpectedClientConnectionFailure {
+            return false
+        }
         if isExpectedMissingTranscript {
             return false
         }
@@ -422,11 +425,25 @@ private struct DiagnosticTelemetry {
         if isExpectedLocalOnlyRecordingDelete404 {
             return false
         }
+        if isExpectedRecordingUploadLayerNoise {
+            return false
+        }
         return true
     }
 
     private var isCancelledNetworkRequest: Bool {
         fields["domain"] == NSURLErrorDomain && fields["code"] == String(NSURLErrorCancelled)
+    }
+
+    private var isExpectedClientConnectionFailure: Bool {
+        switch (fields["domain"], fields["code"]) {
+        case (NSURLErrorDomain, String(NSURLErrorSecureConnectionFailed)),
+             (NSURLErrorDomain, String(NSURLErrorNotConnectedToInternet)),
+             (NSPOSIXErrorDomain, "57"):
+            return true
+        default:
+            return false
+        }
     }
 
     private var isExpectedMissingTranscript: Bool {
@@ -479,12 +496,21 @@ private struct DiagnosticTelemetry {
     }
 
     private var isTransientLiveCaptionSocketDisconnect: Bool {
-        category == "live-caption"
-            && operation == "ws.failed"
-            && fields["cause"] == "receive.throw"
-            && fields["closeCode"] == "1005"
-            && fields["domain"] == NSPOSIXErrorDomain
-            && fields["code"] == "57"
+        guard category == "live-caption",
+              operation == "ws.failed",
+              fields["cause"] == "receive.throw" else {
+            return false
+        }
+
+        if fields["closeCode"] == "1005",
+           fields["domain"] == NSPOSIXErrorDomain,
+           fields["code"] == "57" {
+            return true
+        }
+
+        return fields["closeCode"] == "0"
+            && fields["domain"] == NSURLErrorDomain
+            && fields["code"] == String(NSURLErrorSecureConnectionFailed)
     }
 
     private var isExpectedLocalOnlyRecordingDelete404: Bool {
@@ -500,6 +526,23 @@ private struct DiagnosticTelemetry {
                 && fields["path"]?.contains("/api/recordings/local-") == true
         case ("cloud", "recording.delete.failed"):
             return fields["recordingID"]?.hasPrefix("local-") == true
+        default:
+            return false
+        }
+    }
+
+    private var isExpectedRecordingUploadLayerNoise: Bool {
+        switch (category, operation) {
+        case ("network", "request.failed"):
+            return fields["method"] == "PUT"
+                && normalizedRequestPath?.range(
+                    of: #"^/api/recordings/:id/parts/\d+$"#,
+                    options: .regularExpression
+                ) != nil
+        case ("processing", "upload.attempt.failed"):
+            return true
+        case ("recording-panel", "process_session.failed"):
+            return true
         default:
             return false
         }

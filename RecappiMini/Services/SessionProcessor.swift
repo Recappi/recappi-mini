@@ -83,6 +83,12 @@ final class SessionProcessor {
                 DiagnosticsLog.warning("processing", "process.unauthorized_reauth dir=\(sessionDir.lastPathComponent)")
                 updatePhase(.verifyingSession)
                 _ = try await AuthSessionStore.shared.handleUnauthorized(origin: origin)
+            } catch let failure as UploadFailure {
+                DiagnosticsLog.warning(
+                    "processing",
+                    "process.upload_failed dir=\(sessionDir.lastPathComponent) \(DiagnosticsLog.errorSummary(failure.error))"
+                )
+                throw failure.error
             } catch {
                 DiagnosticsLog.error(
                     "processing",
@@ -453,7 +459,7 @@ final class SessionProcessor {
             failedManifest.errorMessage = failure.error.localizedDescription
             failedManifest.stage = "uploadFailed"
             _ = RecordingStore.saveRemoteManifest(failedManifest, in: sessionDir)
-            throw failure.error
+            throw UploadFailure(error: failure.error)
         }
     }
 
@@ -856,6 +862,10 @@ private struct UploadedRecordingAsset {
 private struct UploadAttemptFailure: Error {
     let error: Error
     let abandonedRecordingID: String?
+}
+
+private struct UploadFailure: Error {
+    let error: Error
 }
 
 enum SessionProcessorError: LocalizedError {

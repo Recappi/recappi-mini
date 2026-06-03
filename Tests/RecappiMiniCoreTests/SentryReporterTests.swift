@@ -110,6 +110,30 @@ final class SentryReporterTests: XCTestCase {
             )
         )
 
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=3 method=PUT path=/api/recordings/rec_123/parts/1 domain=NSURLErrorDomain code=-1200 message=A TLS error caused the secure connection to fail."
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "processing",
+                message: "upload.failed file=recording.m4a recording=rec_123 domain=NSURLErrorDomain code=-1009 message=The Internet connection appears to be offline."
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "ws.failed mode=translation:zh sessionId=mock generation=1 sinceOpenMs=1913 cause=receive.throw closeCode=1005 domain=NSPOSIXErrorDomain code=57 message=Socket is not connected"
+            )
+        )
+
         XCTAssertTrue(
             SentryReporter.shouldCaptureDiagnosticError(
                 level: "error",
@@ -266,12 +290,64 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testRecordingUploadLayerNoiseKeepsOnlyCanonicalUploadFailure() {
+        let errorSummary = "domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 500): upstream down"
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=3 method=PUT path=/api/recordings/e0095f22-edb6-4375-9c5b-0055eaba1586/parts/1 \(errorSummary)"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "processing",
+                message: "upload.attempt.failed recording=e0095f22-edb6-4375-9c5b-0055eaba1586 \(errorSummary)"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "recording-panel",
+                message: "process_session.failed visible=true \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "processing",
+                message: "upload.failed file=recording.m4a recording=e0095f22-edb6-4375-9c5b-0055eaba1586 \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=3 method=GET path=/api/recordings \(errorSummary)"
+            )
+        )
+    }
+
     func testTransientLiveCaptionSocketDisconnectDoesNotCaptureSentryErrors() {
         XCTAssertFalse(
             SentryReporter.shouldCaptureDiagnosticError(
                 level: "error",
                 category: "live-caption",
                 message: "ws.failed mode=translation:zh sessionId=e6e87f05-fdb0-4479-8af5-197ba0d25549 generation=1 sinceOpenMs=1913 cause=receive.throw closeCode=1005 domain=NSPOSIXErrorDomain code=57 message=The operation couldn't be completed. Socket is not connected"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "ws.failed mode=translation:zh sessionId=65d8411f-2df4-4aad-a7d4-5e79cdb06aba generation=1 sinceOpenMs=4171 cause=receive.throw closeCode=0 domain=NSURLErrorDomain code=-1200 message=A TLS error caused the secure connection to fail."
             )
         )
 
