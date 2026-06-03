@@ -124,7 +124,7 @@ struct LiveCaptionFloatingPanel: View {
             // top, shown/hidden purely in SwiftUI via opacity + hit-testing — no
             // dynamic header band that reflows the caption area on hover
             // (peng-xiao 6/3: "header 改成跟 compact 那个模式").
-            ZStack(alignment: .top) {
+            ZStack(alignment: .topTrailing) {
                 liveCaptionWorkspace
                     .frame(height: max(96, proxy.size.height), alignment: .topLeading)
                     .background(panelBackground(cornerRadius: mode.cornerRadius))
@@ -137,8 +137,9 @@ struct LiveCaptionFloatingPanel: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
                 header
-                    .padding(.horizontal, 18)
-                    .padding(.top, 4)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
                     .opacity(chromeVisible ? 1 : 0)
                     .offset(y: chromeVisible ? 0 : -6)
                     .allowsHitTesting(chromeVisible)
@@ -262,20 +263,12 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var header: some View {
-        // Sized down toward the compact chrome capsule (peng-xiao 6/3: header
-        // 太大、靠近 compact 形态) — tighter spacing/padding and the smaller
-        // 9.5/10pt type that compact uses. Icon buttons are already 22pt (same
-        // as compact).
-        HStack(alignment: .center, spacing: 7) {
-            liveCaptionLeadingBadge
-
-            Text(sourceLine)
-                .font(.system(size: 9.5, weight: .regular))
-                .foregroundStyle(glassTextSecondary)
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
+        // Compact-like hover chrome: intrinsic width, pinned top-right, and no
+        // source label. The stream identity already lives in the caption panes;
+        // keeping it out of this overlay avoids the full-width bar peng-xiao
+        // flagged in #205.
+        HStack(alignment: .center, spacing: 5) {
+            compactLiveBadge
             liveCaptionDisplayControl
 
             Text(timeText(recorder.elapsedSeconds))
@@ -284,19 +277,14 @@ struct LiveCaptionFloatingPanel: View {
                 .foregroundStyle(glassTextSecondary)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionElapsedTime)
 
-            if let status = liveCaptionConnectionStatus, status.actionable {
-                liveCaptionRetryButton(tint: status.color)
-                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
-            }
-
             captionControlButtons
         }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
         .background(
             glassShape(Capsule(style: .continuous))
         )
-        .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
+        .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 1.5)
         .onHover(perform: updateChromeVisibility)
         .focusable(false)
         .recappiSuppressFocusRing()
@@ -385,55 +373,6 @@ struct LiveCaptionFloatingPanel: View {
                 .frame(width: dotSize, height: dotSize)
                 .modifier(PulsingModifier())
         }
-    }
-
-    /// Expanded-header leading badge: the red "● Live captions" pill while
-    /// streaming, swapping to a status strip (connecting / reconnecting /
-    /// interrupted / unavailable) otherwise.
-    @ViewBuilder
-    private var liveCaptionLeadingBadge: some View {
-        if let style = liveCaptionConnectionStatus {
-            HStack(spacing: 6) {
-                liveCaptionStatusGlyph(style, dotSize: 5)
-                Text(style.label)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(glassTextPrimary)
-                    .lineLimit(1)
-            }
-            .recappiTooltip(liveCaptionStatusDetail ?? style.label)
-            .accessibilityLabel(style.label)
-            .accessibilityValue(liveCaptionStatusDetail ?? "")
-        } else {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(DT.systemRed)
-                    .frame(width: 5, height: 5)
-                    .modifier(PulsingModifier())
-                Text("Live captions")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(glassTextPrimary)
-            }
-        }
-    }
-
-    /// Trailing reconnect affordance, shown only for actionable states
-    /// (`.failed`, or `.unavailable` when a reconnect is possible). Preserves
-    /// the existing accessibility id + message value so UI tests resolve it.
-    private func liveCaptionRetryButton(tint: Color) -> some View {
-        Button {
-            recorder.reconnectLiveCaptionsNow()
-        } label: {
-            Image(systemName: "arrow.clockwise")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(tint)
-        }
-        .buttonStyle(PanelIconButtonStyle(size: 22))
-        .focusable(false)
-        .recappiSuppressFocusRing()
-        .recappiTooltip(liveCaptionStatusDetail ?? "Reconnect live captions")
-        .accessibilityLabel("Reconnect live captions")
-        .accessibilityValue(liveCaptionStatusDetail ?? "")
-        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionReconnectButton)
     }
 
     private var liveBadge: some View {
@@ -549,14 +488,14 @@ struct LiveCaptionFloatingPanel: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             } else {
                 Image(systemName: "text.alignleft")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 24, height: 20)
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 20, height: 18)
                     .accessibilityLabel("Original captions")
             }
         }
         .foregroundStyle(glassTextSecondary)
-        .padding(.horizontal, liveCaptionShowsTranslation ? 4 : 8)
-        .padding(.vertical, 5)
+        .padding(.horizontal, liveCaptionShowsTranslation ? 3 : 6)
+        .padding(.vertical, 2)
         .background(
             glassShape(Capsule(style: .continuous))
         )
@@ -601,9 +540,9 @@ struct LiveCaptionFloatingPanel: View {
             togglePaneStream(stream)
         } label: {
             Image(systemName: selected ? selectedSystemImage : systemImage)
-                .font(.system(size: 12, weight: selected ? .bold : .semibold))
+                .font(.system(size: 10.5, weight: selected ? .bold : .semibold))
                 .symbolVariant(selected ? .fill : .none)
-                .frame(width: 30, height: 22)
+                .frame(width: 24, height: 18)
         }
         .buttonStyle(LiveCaptionSegmentedButtonStyle(isSelected: selected))
         .focusable(false)
@@ -1170,10 +1109,6 @@ struct LiveCaptionFloatingPanel: View {
 
     private var glassMaterialTint: Color {
         Color.black.opacity(0.30)
-    }
-
-    private var sourceLine: String {
-        recorder.recordingAppName ?? recorder.selectedApp?.name ?? "All system audio"
     }
 
     private func timeText(_ seconds: Int) -> String {
