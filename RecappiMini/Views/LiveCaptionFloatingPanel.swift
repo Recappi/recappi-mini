@@ -215,7 +215,10 @@ struct LiveCaptionFloatingPanel: View {
                 }
             }
         }
-        .shadow(color: Color.white.opacity(isDarkMode ? 0 : 0.34), radius: 0.6, x: 0, y: 0)
+        // Dark contrast shadow on the dark caption scrim (white text needs a
+        // dark halo, not the previous light one) so the compact line stays
+        // legible over any backdrop.
+        .shadow(color: Color.black.opacity(0.5), radius: 0.8, x: 0, y: 0)
         .frame(maxWidth: .infinity, maxHeight: Self.compactCaptionTwoLineHeight, alignment: .center)
     }
 
@@ -1192,24 +1195,31 @@ struct LiveCaptionFloatingPanel: View {
     /// vertically centers 1-line content inside the slot.
     private static let compactCaptionTwoLineHeight: CGFloat = 34
 
+    // The live-caption panel is a floating overlay that sits on top of
+    // arbitrary backdrops (a dark video, a black meeting window, a bright
+    // doc). Unlike the recording pill — which flips its NSAppearance via the
+    // backdrop-luminance observer (task #185) — this panel is NOT wired to
+    // that machinery, so following the app appearance made dark text vanish
+    // over dark content (peng-xiao 6/3 #2). Instead we give it a fixed,
+    // backdrop-independent "subtitle" treatment: a dark scrim surface + white
+    // text, exactly like the system Live Captions overlay and video subtitle
+    // tracks. This guarantees legibility on any backdrop in either appearance.
     private var glassTextPrimary: Color {
-        isDarkMode ? Color.white.opacity(0.94) : Color.black.opacity(0.92)
+        Color.white.opacity(0.96)
     }
 
     private var glassTextSecondary: Color {
-        isDarkMode ? Color.white.opacity(0.68) : Color.black.opacity(0.70)
+        Color.white.opacity(0.70)
     }
 
     private var glassLegibilityFill: Color {
-        isDarkMode ? Color.black.opacity(0.22) : Color.white.opacity(0.12)
+        // Opaque-enough dark scrim so white text always reads, regardless of
+        // what shows through the glass behind it.
+        Color.black.opacity(0.55)
     }
 
     private var glassMaterialTint: Color {
-        isDarkMode ? Color.black.opacity(0.16) : Color.white.opacity(0.12)
-    }
-
-    private var isDarkMode: Bool {
-        colorScheme == .dark
+        Color.black.opacity(0.30)
     }
 
     private var sourceLine: String {
@@ -1274,9 +1284,10 @@ private struct LiveCaptionStreamPane: View {
     }
 
     private var streamLabelColor: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.56)
-            : Color.black.opacity(0.46)
+        // Stream label ("Original" / "Translation · ZH") sits on the same dark
+        // caption scrim, so it stays a muted white in both appearances rather
+        // than flipping to dark (which vanished on the scrim).
+        Color.white.opacity(0.6)
     }
 }
 
@@ -1635,17 +1646,13 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             paragraph.paragraphSpacing = 6
             paragraph.lineBreakMode = .byWordWrapping
             paragraph.alignment = .left
-            let isDarkMode = colorScheme == .dark
-            let foreground: NSColor = if isDarkMode {
-                NSColor.white.withAlphaComponent(isPlaceholder ? 0.66 : 0.94)
-            } else {
-                NSColor.black.withAlphaComponent(isPlaceholder ? 0.62 : 0.92)
-            }
+            // Fixed subtitle treatment: white text + dark shadow regardless of
+            // appearance, so captions stay legible on any backdrop (see the
+            // glassTextPrimary note). Matches the panel's dark scrim surface.
+            let foreground = NSColor.white.withAlphaComponent(isPlaceholder ? 0.66 : 0.96)
             let shadow = NSShadow()
-            shadow.shadowColor = isDarkMode
-                ? NSColor.black.withAlphaComponent(isPlaceholder ? 0.28 : 0.42)
-                : NSColor.white.withAlphaComponent(isPlaceholder ? 0.25 : 0.45)
-            shadow.shadowBlurRadius = 0.8
+            shadow.shadowColor = NSColor.black.withAlphaComponent(isPlaceholder ? 0.45 : 0.6)
+            shadow.shadowBlurRadius = 1.0
             shadow.shadowOffset = .zero
             return [
                 .font: NSFont.systemFont(ofSize: 16, weight: .semibold),
@@ -1662,17 +1669,12 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             paragraph.lineBreakMode = .byWordWrapping
             paragraph.alignment = .left
             let shadow = NSShadow()
-            let isDarkMode = colorScheme == .dark
-            shadow.shadowColor = isDarkMode
-                ? NSColor.black.withAlphaComponent(0.35)
-                : NSColor.white.withAlphaComponent(0.35)
-            shadow.shadowBlurRadius = 0.7
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+            shadow.shadowBlurRadius = 0.9
             shadow.shadowOffset = .zero
             return [
                 .font: NSFont.systemFont(ofSize: 15, weight: .medium),
-                .foregroundColor: isDarkMode
-                    ? NSColor.white.withAlphaComponent(0.72)
-                    : NSColor.black.withAlphaComponent(0.70),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.78),
                 .paragraphStyle: paragraph,
                 .shadow: shadow,
             ]
