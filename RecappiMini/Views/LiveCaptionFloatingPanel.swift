@@ -200,19 +200,17 @@ struct LiveCaptionFloatingPanel: View {
     private var compactCaptionRowsView: some View {
         VStack(alignment: .leading, spacing: Self.compactCaptionLineSpacing) {
             ForEach(compactCaptionRows) { row in
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Text(row.label.uppercased())
-                        .font(.system(size: 9.5, weight: .bold))
-                        .foregroundStyle(glassTextSecondary)
-                        .lineLimit(1)
-                        .frame(width: Self.compactCaptionLabelWidth, alignment: .leading)
-
-                    Text(row.text)
-                        .font(.system(size: Self.compactCaptionFontSize, weight: row.isPlaceholder ? .medium : .semibold))
-                        .foregroundStyle(row.isPlaceholder ? glassTextSecondary : glassTextPrimary)
-                        .lineLimit(row.lineLimit)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                // No ORIGINAL/TRANSLATION text label in compact — it ate a fixed
+                // ~96pt column that squeezed the caption (peng-xiao 6/3: "太占
+                // 空间", and was the source of the truncated "· ZH"). The caption
+                // text now spans the full width. Bilingual rows stay
+                // distinguishable by order + the translation row's dimmer weight.
+                Text(row.text)
+                    .font(.system(size: Self.compactCaptionFontSize, weight: row.isPlaceholder ? .medium : .semibold))
+                    .foregroundStyle(row.isPlaceholder ? glassTextSecondary : glassTextPrimary)
+                    .lineLimit(row.lineLimit)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         // Dark contrast shadow on the dark caption scrim (white text needs a
@@ -1180,11 +1178,14 @@ struct LiveCaptionFloatingPanel: View {
         return String(tail[afterSpace...])
     }
 
-    private nonisolated static let compactCaptionMaxASCIICharacters: Int = 94
-    private nonisolated static let compactCaptionMaxCJKCharacters: Int = 46
-    private nonisolated static let compactCaptionRowMaxASCIICharacters: Int = 72
-    private nonisolated static let compactCaptionRowMaxCJKCharacters: Int = 34
-    private static let compactCaptionLabelWidth: CGFloat = 96
+    // Character budgets for the compact bar. Bumped after dropping the fixed
+    // ~96pt ORIGINAL/TRANSLATION label column (peng-xiao 6/3): the caption now
+    // owns the full content width, so it takes more text per line and the
+    // second line fills out instead of wrapping early.
+    private nonisolated static let compactCaptionMaxASCIICharacters: Int = 116
+    private nonisolated static let compactCaptionMaxCJKCharacters: Int = 56
+    private nonisolated static let compactCaptionRowMaxASCIICharacters: Int = 92
+    private nonisolated static let compactCaptionRowMaxCJKCharacters: Int = 44
     private static let compactCaptionFontSize: CGFloat = 12.5
     private static let compactCaptionLineSpacing: CGFloat = 1
     private static let expandedHeaderBandHeight: CGFloat = 44
