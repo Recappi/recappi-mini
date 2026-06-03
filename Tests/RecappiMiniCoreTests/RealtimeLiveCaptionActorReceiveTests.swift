@@ -535,6 +535,375 @@ final class RealtimeLiveCaptionActorReceiveTests: XCTestCase {
 
         _ = await actor.stop(saveTo: nil)
     }
+
+    // MARK: - 3c.4 Source-transcript stall (translation mode)
+
+    /// In translation mode a single upstream socket carries BOTH the
+    /// source transcript (`session.input_transcript.delta`) and the
+    /// translation (`session.output_transcript.delta`). When the
+    /// upstream silently stops emitting the source transcript while the
+    /// translation keeps flowing, the general inbound clock stays fresh
+    /// (translation deltas reset it), so the ping-based watchdog never
+    /// fires. A ping would succeed anyway — the socket is alive — and
+    /// never recover the dead source stream. The watchdog must instead
+    /// detect the source-specific stall and rotate to a fresh upstream
+    /// session, surfacing a visible reconnecting indicator.
+    func testSourceTranscriptStallReconnectsInTranslationMode() async {
+        let connector = MockRealtimeSessionConnector()
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .translation(targetLanguage: "es"),
+            configuration: .init(reconnectDelays: [0.05])
+        )
+
+        let stream = await actor.captionSnapshots()
+        let recorder = SnapshotRecorder()
+        let consumer = Task {
+            for await snapshot in stream {
+                recorder.append(snapshot)
+            }
+        }
+
+        await actor.start()
+        await connector.waitForClaimResolved()
+        await connector.waitForSocketOpened()
+        await Task.yield()
+        await Task.yield()
+
+        guard let live = await actor.currentLiveIdentityForTesting() else {
+            XCTFail("Expected a live identity.")
+            return
+        }
+        guard let mockSocket = live.socket as? MockRealtimeSocket else {
+            XCTFail("Expected MockRealtimeSocket.")
+            return
+        }
+        // A ping here WOULD succeed (the socket is alive, carrying
+        // translation) — prove the watchdog reconnects without relying
+        // on a ping failure.
+        mockSocket.setPingHandler({ /* success */ })
+
+        // General inbound is FRESH (translation deltas keep resetting
+        // it) but the SOURCE transcript has been silent past threshold
+        // while audio is voiced.
+        let outcome = await actor.runStallWatchdogProbeForTesting(
+            socket: live.socket,
+            generation: live.generation,
+            voicedBuffersSinceInbound: 0,
+            secondsSinceLastInbound: 0,
+            secondsSinceLastVoicedAudio: 0,
+            voicedBuffersSinceSourceInbound: 30,
+            secondsSinceLastSourceInbound: 25
+        )
+        XCTAssertEqual(outcome, .sourceStalledAndReconnected)
+        XCTAssertEqual(mockSocket.pingCallCount, 0, "Source stall must reconnect directly, not ping.")
+
+        // The reconnect must re-claim a fresh upstream session.
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertGreaterThanOrEqual(
+            connector.claimCallCount,
+            2,
+            "Source stall must trigger a new claim."
+        )
+
+        // The freeze + recovery must be visible: a `.reconnecting`
+        // snapshot carrying the transcription-specific message.
+        let reconnecting = recorder.snapshots.first {
+            $0.phase == .reconnecting && $0.message == "Reconnecting transcription…"
+        }
+        XCTAssertNotNil(
+            reconnecting,
+            "Source stall must publish a transcription-specific reconnecting snapshot."
+        )
+
+        consumer.cancel()
+        _ = await actor.stop(saveTo: nil)
+    }
+
+    /// In translation mode, when the source transcript is still fresh
+    /// (below threshold) the watchdog must stay quiet — a healthy
+    /// bilingual session must never be torn down.
+    func testFreshSourceTranscriptDoesNotReconnectInTranslationMode() async {
+        let connector = MockRealtimeSessionConnector()
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .translation(targetLanguage: "es")
+        )
+
+        await actor.start()
+        await connector.waitForClaimResolved()
+        await connector.waitForSocketOpened()
+        await Task.yield()
+        await Task.yield()
+
+        guard let live = await actor.currentLiveIdentityForTesting() else {
+            XCTFail("Expected a live identity.")
+            return
+        }
+
+        let outcome = await actor.runStallWatchdogProbeForTesting(
+            socket: live.socket,
+            generation: live.generation,
+            voicedBuffersSinceInbound: 0,
+            secondsSinceLastInbound: 0,
+            secondsSinceLastVoicedAudio: 0,
+            voicedBuffersSinceSourceInbound: 1,
+            secondsSinceLastSourceInbound: 1
+        )
+        XCTAssertEqual(outcome, .skipped)
+        XCTAssertEqual(connector.claimCallCount, 1, "A fresh source must not reconnect.")
+
+        _ = await actor.stop(saveTo: nil)
+    }
+
+    /// Transcription mode has no translation stream masking a stall, so
+    /// the source-stall branch must NOT apply — a stale transcript there
+    /// keeps the existing ping-first contract. With both clocks past
+    /// threshold and a successful ping, the verdict stays
+    /// `.pingedAndRecovered`, never `.sourceStalledAndReconnected`.
+    func testSourceStallBranchDoesNotApplyInTranscriptionMode() async {
+        let connector = MockRealtimeSessionConnector()
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .transcription,
+            configuration: .init(reconnectDelays: [10])
+        )
+
+        await actor.start()
+        await connector.waitForClaimResolved()
+        await connector.waitForSocketOpened()
+        await Task.yield()
+        await Task.yield()
+
+        guard let live = await actor.currentLiveIdentityForTesting() else {
+            XCTFail("Expected a live identity.")
+            return
+        }
+        guard let mockSocket = live.socket as? MockRealtimeSocket else {
+            XCTFail("Expected MockRealtimeSocket.")
+            return
+        }
+        mockSocket.setPingHandler({ /* success */ })
+
+        let outcome = await actor.runStallWatchdogProbeForTesting(
+            socket: live.socket,
+            generation: live.generation,
+            voicedBuffersSinceInbound: 30,
+            secondsSinceLastInbound: 25,
+            secondsSinceLastVoicedAudio: 0,
+            voicedBuffersSinceSourceInbound: 30,
+            secondsSinceLastSourceInbound: 25
+        )
+        XCTAssertEqual(outcome, .pingedAndRecovered)
+        XCTAssertEqual(mockSocket.pingCallCount, 1, "Transcription mode must still ping first.")
+
+        _ = await actor.stop(saveTo: nil)
+    }
+
+    /// The source-stall reconnect rotates a socket that is still alive
+    /// (carrying translation). Unlike the ping-failure path, the old
+    /// socket is NOT already dead, so it must be explicitly torn down —
+    /// otherwise the upstream session leaks and two sockets can be live
+    /// at once. Mirrors the teardown done by `reconnectNow` / proactive
+    /// age rotation.
+    func testSourceStallReconnectCancelsOldSocket() async {
+        let connector = MockRealtimeSessionConnector()
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .translation(targetLanguage: "es"),
+            configuration: .init(reconnectDelays: [0.05])
+        )
+
+        await actor.start()
+        await connector.waitForClaimResolved()
+        await connector.waitForSocketOpened()
+        await Task.yield()
+        await Task.yield()
+
+        guard let live = await actor.currentLiveIdentityForTesting() else {
+            XCTFail("Expected a live identity.")
+            return
+        }
+        guard let oldSocket = live.socket as? MockRealtimeSocket else {
+            XCTFail("Expected MockRealtimeSocket.")
+            return
+        }
+
+        _ = await actor.runStallWatchdogProbeForTesting(
+            socket: live.socket,
+            generation: live.generation,
+            voicedBuffersSinceInbound: 0,
+            secondsSinceLastInbound: 0,
+            secondsSinceLastVoicedAudio: 0,
+            voicedBuffersSinceSourceInbound: 30,
+            secondsSinceLastSourceInbound: 25
+        )
+
+        XCTAssertTrue(oldSocket.cancelled, "Old (still-live) socket must be closed on source-stall reconnect.")
+        XCTAssertEqual(oldSocket.cancelCode, 1001)
+
+        _ = await actor.stop(saveTo: nil)
+    }
+
+    /// A FULL translation stall — both the source AND the translation
+    /// streams have gone quiet — must NOT be treated as a source-only
+    /// stall. The source-stall branch is for the divergent case
+    /// (translation flowing, source dead); a full stall must keep the
+    /// ping-first contract so a transient output delay recovers via a
+    /// successful ping instead of an avoidable reconnect.
+    func testFullStallInTranslationModeTakesPingFirstPath() async {
+        let connector = MockRealtimeSessionConnector()
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .translation(targetLanguage: "es"),
+            configuration: .init(reconnectDelays: [10])
+        )
+
+        await actor.start()
+        await connector.waitForClaimResolved()
+        await connector.waitForSocketOpened()
+        await Task.yield()
+        await Task.yield()
+
+        guard let live = await actor.currentLiveIdentityForTesting() else {
+            XCTFail("Expected a live identity.")
+            return
+        }
+        guard let mockSocket = live.socket as? MockRealtimeSocket else {
+            XCTFail("Expected MockRealtimeSocket.")
+            return
+        }
+        mockSocket.setPingHandler({ /* success */ })
+
+        // Both clocks are stale: translation is NOT flowing either.
+        let outcome = await actor.runStallWatchdogProbeForTesting(
+            socket: live.socket,
+            generation: live.generation,
+            voicedBuffersSinceInbound: 30,
+            secondsSinceLastInbound: 25,
+            secondsSinceLastVoicedAudio: 0,
+            voicedBuffersSinceSourceInbound: 30,
+            secondsSinceLastSourceInbound: 25
+        )
+        XCTAssertEqual(outcome, .pingedAndRecovered)
+        XCTAssertEqual(mockSocket.pingCallCount, 1, "Full stall must still ping first.")
+
+        _ = await actor.stop(saveTo: nil)
+    }
+
+    /// Regression for "Ping masks full stall recovery": after a FULL
+    /// translation stall (both source AND translation quiet) where the
+    /// watchdog ping SUCCEEDS — a deliberate "defer reconnect, the socket
+    /// is healthy" decision — the NEXT watchdog tick must NOT immediately
+    /// rotate via the source-stall gate.
+    ///
+    /// The ping-success branch resets the general inbound clock. If it
+    /// leaves the source-transcript clock stale, the next tick computes
+    /// `secondsSinceLastInbound < threshold` (fresh purely because of the
+    /// ping) while the source clock is still past threshold — so the
+    /// source-stall gate fires and rotates right after the ping that was
+    /// meant to defer the reconnect.
+    ///
+    /// This drives the REAL cross-tick clock computation through
+    /// `runStallWatchdogTickForTesting` (the explicit-params probe seam
+    /// bypasses it), so the post-ping source-clock freshness is what's
+    /// under test.
+    func testFullStallPingSuccessDoesNotSourceStallRotateOnNextTick() async {
+        let connector = MockRealtimeSessionConnector()
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .translation(targetLanguage: "es"),
+            configuration: .init(reconnectDelays: [10])
+        )
+
+        await actor.start()
+        await connector.waitForClaimResolved()
+        await connector.waitForSocketOpened()
+        await Task.yield()
+        await Task.yield()
+
+        guard let live = await actor.currentLiveIdentityForTesting() else {
+            XCTFail("Expected a live identity.")
+            return
+        }
+        guard let mockSocket = live.socket as? MockRealtimeSocket else {
+            XCTFail("Expected MockRealtimeSocket.")
+            return
+        }
+        mockSocket.setPingHandler({ /* success */ })
+
+        // A small but nonzero quiet threshold so a freshly-reset clock
+        // reads "fresh" (microseconds old) while an un-reset clock reads
+        // "stale" (>= threshold). Voiced threshold 1 so a single voiced
+        // frame trips the "we've been talking" gate.
+        await actor.setStallWatchdogThresholdsForTesting(
+            voicedBuffers: 1,
+            secondsSinceLastInbound: 0.05
+        )
+
+        // Seed both clocks fresh: a source-transcript delta stamps both
+        // the general and the source inbound clocks (markTranscriptOutput
+        // source: true). Then voiced audio lifts both voiced counters.
+        _ = await actor.ingestReceiveEventJSONForTesting(
+            "{\"type\":\"session.input_transcript.delta\",\"delta\":\"hola\"}"
+        )
+        await actor.appendPCM16ForTesting(Self.makeVoicedPCM16(byteCount: 1_600))
+
+        // Let both clocks age past the 50 ms threshold → FULL stall
+        // (neither stream has produced inbound since the seed).
+        try? await Task.sleep(nanoseconds: 80_000_000)
+
+        // Tick 1: full stall → ping-first path; the ping succeeds, which
+        // resets the general clock (and, with the fix, the source clock).
+        let firstOutcome = await actor.runStallWatchdogTickForTesting(
+            socket: live.socket,
+            generation: live.generation
+        )
+        XCTAssertEqual(
+            firstOutcome,
+            .pingedAndRecovered,
+            "Full stall must take the ping-first path and recover on a successful ping."
+        )
+        XCTAssertEqual(mockSocket.pingCallCount, 1, "Full stall must ping exactly once.")
+
+        // Tick 2 immediately (no further sleep): the general clock is
+        // fresh from the ping, the source clock should ALSO have been
+        // refreshed by the ping-success. Without the fix the source clock
+        // is still stale, so the source-stall gate fires and rotates.
+        let secondOutcome = await actor.runStallWatchdogTickForTesting(
+            socket: live.socket,
+            generation: live.generation
+        )
+        XCTAssertNotEqual(
+            secondOutcome,
+            .sourceStalledAndReconnected,
+            "A successful full-stall ping must defer the reconnect — the next tick must not source-stall rotate."
+        )
+        XCTAssertEqual(
+            connector.claimCallCount,
+            1,
+            "Ping-deferred recovery must not have re-claimed a fresh upstream session."
+        )
+
+        _ = await actor.stop(saveTo: nil)
+    }
+
+    /// Make a PCM16 little-endian buffer whose rough RMS clears
+    /// `RealtimeAudioEncoder.containsLikelySpeech`, so the watchdog's
+    /// voiced-buffer counters actually count the frame.
+    private static func makeVoicedPCM16(byteCount: Int) -> Data {
+        var data = Data(count: byteCount)
+        for i in 0..<byteCount {
+            data[i] = (i & 1) == 0 ? 0x40 : 0x10
+        }
+        return data
+    }
 }
 
 // MARK: - Snapshot recorder
