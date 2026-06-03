@@ -67,6 +67,7 @@ struct LiveCaptionFloatingPanel: View {
     let mode: LiveCaptionPanelMode
     let onToggleMode: () -> Void
     let onClose: () -> Void
+    let onChromeVisibilityChange: (Bool) -> Void
 
     struct CompactCaptionRow: Equatable, Identifiable {
         let id: String
@@ -106,6 +107,7 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private func updateChromeVisibility(_ hovering: Bool) {
+        onChromeVisibilityChange(hovering)
         withAnimation(DT.motionAware(DT.ease(DT.Motion.elementPresence))) {
             chromeVisible = hovering
         }
@@ -208,9 +210,10 @@ struct LiveCaptionFloatingPanel: View {
                 Text(row.text)
                     .font(.system(size: Self.compactCaptionFontSize, weight: row.isPlaceholder ? .medium : .semibold))
                     .foregroundStyle(row.isPlaceholder ? glassTextSecondary : glassTextPrimary)
-                    .lineLimit(row.lineLimit)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .bottomLeading)
+                    .frame(height: Self.compactCaptionRowHeight(lineLimit: row.lineLimit), alignment: .bottomLeading)
+                    .clipped()
             }
         }
         // Dark contrast shadow on the dark caption scrim (white text needs a
@@ -1042,36 +1045,15 @@ struct LiveCaptionFloatingPanel: View {
         // only the translation side carries its user-chosen target language.
         let sourceLabel = streamTitle(role: "Original", languageShortTitle: "")
         let translationLabel = streamTitle(role: "Translation", languageShortTitle: targetLanguageShortTitle)
-        let oneLineSourceText = compactLine(
-            from: captionText,
-            asciiBudget: compactCaptionRowMaxASCIICharacters,
-            cjkBudget: compactCaptionRowMaxCJKCharacters
-        )
-        let oneLineTranslationText = compactLine(
-            from: translationText,
-            asciiBudget: compactCaptionRowMaxASCIICharacters,
-            cjkBudget: compactCaptionRowMaxCJKCharacters
-        )
-        let twoLineSourceText = compactLine(
-            from: captionText,
-            asciiBudget: compactCaptionMaxASCIICharacters,
-            cjkBudget: compactCaptionMaxCJKCharacters
-        )
-        let twoLineTranslationText = compactLine(
-            from: translationText,
-            asciiBudget: compactCaptionMaxASCIICharacters,
-            cjkBudget: compactCaptionMaxCJKCharacters
-        )
 
         func row(
             id: String,
             label: String,
-            oneLineText: String,
-            twoLineText: String,
+            sourceText: String,
             placeholderText: String,
             lineLimit: Int
         ) -> CompactCaptionRow {
-            let text = lineLimit > 1 ? twoLineText : oneLineText
+            let text = compactDisplayText(from: sourceText)
             return CompactCaptionRow(
                 id: id,
                 label: label,
@@ -1086,8 +1068,7 @@ struct LiveCaptionFloatingPanel: View {
                 row(
                     id: "original",
                     label: sourceLabel,
-                    oneLineText: oneLineSourceText,
-                    twoLineText: twoLineSourceText,
+                    sourceText: captionText,
                     placeholderText: originalPlaceholderText,
                     lineLimit: 2
                 ),
@@ -1110,8 +1091,7 @@ struct LiveCaptionFloatingPanel: View {
                 row(
                     id: "original",
                     label: sourceLabel,
-                    oneLineText: oneLineSourceText,
-                    twoLineText: twoLineSourceText,
+                    sourceText: captionText,
                     placeholderText: originalPlaceholderText,
                     lineLimit: rowLineLimit
                 )
@@ -1122,8 +1102,7 @@ struct LiveCaptionFloatingPanel: View {
                 row(
                     id: "translation",
                     label: translationLabel,
-                    oneLineText: oneLineTranslationText,
-                    twoLineText: twoLineTranslationText,
+                    sourceText: translationText,
                     placeholderText: translationPlaceholderText,
                     lineLimit: rowLineLimit
                 )
@@ -1134,8 +1113,7 @@ struct LiveCaptionFloatingPanel: View {
                 row(
                     id: "original",
                     label: sourceLabel,
-                    oneLineText: oneLineSourceText,
-                    twoLineText: twoLineSourceText,
+                    sourceText: captionText,
                     placeholderText: originalPlaceholderText,
                     lineLimit: 2
                 ),
@@ -1143,52 +1121,20 @@ struct LiveCaptionFloatingPanel: View {
             : rows
     }
 
-    nonisolated static func compactLine(from text: String) -> String {
-        compactLine(
-            from: text,
-            asciiBudget: compactCaptionMaxASCIICharacters,
-            cjkBudget: compactCaptionMaxCJKCharacters
-        )
-    }
-
-    private nonisolated static func compactLine(
-        from text: String,
-        asciiBudget: Int,
-        cjkBudget: Int
-    ) -> String {
-        let normalized = text
+    nonisolated static func compactDisplayText(from text: String) -> String {
+        text
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
-        let containsCJK = normalized.contains(where: \.isCompactCJK)
-        let budget = containsCJK
-            ? cjkBudget
-            : asciiBudget
-        guard normalized.count > budget else { return normalized }
-        let tail = String(normalized.suffix(budget))
-        // CJK has no word breaks worth respecting — return the raw tail.
-        if containsCJK {
-            return tail
-        }
-        // ASCII / mixed: advance to the next whitespace so the visible
-        // tail starts on a fresh word instead of mid-token. Fall back
-        // to the raw cut for a single very long token.
-        guard let firstSpace = tail.firstIndex(where: \.isWhitespace) else { return tail }
-        let afterSpace = tail.index(after: firstSpace)
-        guard afterSpace < tail.endIndex else { return tail }
-        return String(tail[afterSpace...])
     }
 
-    // Character budgets for the compact bar. Bumped after dropping the fixed
-    // ~96pt ORIGINAL/TRANSLATION label column (peng-xiao 6/3): the caption now
-    // owns the full content width, so it takes more text per line and the
-    // second line fills out instead of wrapping early.
-    private nonisolated static let compactCaptionMaxASCIICharacters: Int = 116
-    private nonisolated static let compactCaptionMaxCJKCharacters: Int = 56
-    private nonisolated static let compactCaptionRowMaxASCIICharacters: Int = 92
-    private nonisolated static let compactCaptionRowMaxCJKCharacters: Int = 44
-    private static let compactCaptionFontSize: CGFloat = 12.5
+    private static func compactCaptionRowHeight(lineLimit: Int) -> CGFloat {
+        guard lineLimit <= 1 else { return compactCaptionTwoLineHeight }
+        return (compactCaptionTwoLineHeight - compactCaptionLineSpacing) / 2
+    }
+
+    nonisolated static let compactCaptionFontSize: CGFloat = 12.5
     private static let compactCaptionLineSpacing: CGFloat = 1
-    private static let expandedHeaderBandHeight: CGFloat = 44
+    static let expandedHeaderBandHeight: CGFloat = 44
 
     /// Height reserved for the compact caption's 2-line slot. System
     /// 12.5pt + lineSpacing 1 measures ~31pt for two lines; rounding
@@ -1747,17 +1693,4 @@ private enum LiveCaptionDebugLayout {
         }
         return UserDefaults.standard.bool(forKey: "live_caption_debug_layout")
     }()
-}
-
-private extension Character {
-    /// True for dense CJK glyphs (Chinese, Japanese kana, Korean Hangul)
-    /// so compact captions can switch to a tighter character budget.
-    var isCompactCJK: Bool {
-        unicodeScalars.contains { scalar in
-            (0x4E00...0x9FFF).contains(scalar.value) ||
-                (0x3400...0x4DBF).contains(scalar.value) ||
-                (0x3040...0x30FF).contains(scalar.value) ||
-                (0xAC00...0xD7AF).contains(scalar.value)
-        }
-    }
 }

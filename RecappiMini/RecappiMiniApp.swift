@@ -1128,9 +1128,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         case .compact:
             liveCaptionPanelMode = .expanded
         }
+        setLiveCaptionChromeVisible(false)
         DispatchQueue.main.async { [weak self] in
             self?.resizeLiveCaptionWindowToContent(animated: false, usesFittingSize: false)
         }
+    }
+
+    func setLiveCaptionChromeVisible(_ visible: Bool) {
+        guard let hostingView = managedWindows.liveCaptionWindow?.contentView as? LiveCaptionPassthroughHostingView<AnyView> else {
+            return
+        }
+        hostingView.isExpandedHeaderChromeVisible = visible
     }
 
     func applyLiveCaptionDisplayPreference() {
@@ -1175,6 +1183,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private func presentLiveCaptionWindow() {
         if let liveCaptionWindow = managedWindows.liveCaptionWindow {
+            if let hostingView = liveCaptionWindow.contentView as? LiveCaptionPassthroughHostingView<AnyView> {
+                hostingView.liveCaptionPanelMode = liveCaptionPanelMode
+            }
             positionLiveCaptionWindow(liveCaptionWindow)
             liveCaptionWindow.orderFrontRegardless()
             isLiveCaptionPanelPresented = true
@@ -1182,6 +1193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         }
 
         let hostingView = LiveCaptionPassthroughHostingView(rootView: liveCaptionRootView())
+        hostingView.liveCaptionPanelMode = liveCaptionPanelMode
         // Empty sizingOptions makes NSHostingView track the NSWindow's
         // content bounds (including user resizes) rather than pin to
         // SwiftUI's intrinsic size. `GeometryReader` inside
@@ -1302,6 +1314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         } else {
             fittingSize = liveCaptionPanelMode.defaultWindowSize
         }
+        hostingView.liveCaptionPanelMode = liveCaptionPanelMode
 
         // Capture the visual bottom/right edges BEFORE resizing. The
         // panel is parked near the dock and screen edge; mode morphs should
@@ -2080,6 +2093,9 @@ private struct LiveCaptionFloatingPanelHost: View {
             },
             onClose: {
                 appDelegate.setLiveCaptionPanelPresented(false)
+            },
+            onChromeVisibilityChange: { visible in
+                appDelegate.setLiveCaptionChromeVisible(visible)
             }
         )
         .environmentObject(AppConfig.shared)
@@ -2098,6 +2114,8 @@ final class LiveCaptionPassthroughHostingView<Content: View>: NSHostingView<Cont
     /// both modes.
     private let cornerRadius: CGFloat = 16
     var refusesFirstResponder = false
+    var liveCaptionPanelMode: LiveCaptionPanelMode = .expanded
+    var isExpandedHeaderChromeVisible = false
 
     override var acceptsFirstResponder: Bool {
         refusesFirstResponder ? false : super.acceptsFirstResponder
@@ -2109,6 +2127,11 @@ final class LiveCaptionPassthroughHostingView<Content: View>: NSHostingView<Cont
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let bounds = self.bounds
+        if liveCaptionPanelMode == .expanded,
+           !isExpandedHeaderChromeVisible,
+           point.y >= bounds.maxY - LiveCaptionFloatingPanel.expandedHeaderBandHeight {
+            return nil
+        }
         // Reject only points outside the rounded rect (the four corner
         // gaps where the surface is fully transparent). Everywhere
         // inside is visible chrome and must keep receiving events.

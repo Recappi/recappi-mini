@@ -53,19 +53,6 @@ struct FloatingPanelChromeView<Content: View>: View {
                 .fill(dragLegibilityFill)
                 .overlay {
                     panelShape
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(isDarkMode ? 0.12 : 0.28),
-                                    Color.clear,
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
-                .overlay {
-                    panelShape
                         .strokeBorder(Color.white.opacity(isDarkMode ? 0.12 : 0.30), lineWidth: 0.6)
                 }
                 .allowsHitTesting(false)
@@ -73,21 +60,6 @@ struct FloatingPanelChromeView<Content: View>: View {
             panelShape
                 .fill(liquidGlassLegibilityFill)
                 .glassEffect(in: panelShape)
-                .overlay {
-                    panelShape
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(isDarkMode ? 0.20 : 0.30),
-                                    Color.white.opacity(isDarkMode ? 0.05 : 0.10),
-                                    Color.clear,
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .blendMode(.screen)
-                }
                 .overlay {
                     panelShape
                         .strokeBorder(Color.white.opacity(isDarkMode ? 0.14 : 0.32), lineWidth: 0.6)
