@@ -235,6 +235,17 @@ actor RealtimeLiveCaptionActor {
     private var voicedAudioBufferCountSinceInbound: Int = 0
     private var lastInboundTranscriptAt: Date?
     private var connectionStartedAt: Date?
+    // Source-transcript freshness, tracked separately from the general
+    // inbound clock above. In translation mode the single upstream
+    // socket carries both the source transcript
+    // (`session.input_transcript.delta`) and the translation
+    // (`session.output_transcript.delta`). The translation stream keeps
+    // `lastInboundTranscriptAt` fresh, which masks a silently-dead
+    // source-transcript stream. These counters reset ONLY on
+    // source-transcript output so the watchdog can detect that case and
+    // rotate the upstream session even while translation keeps flowing.
+    private var voicedAudioBufferCountSinceSourceInbound: Int = 0
+    private var lastInboundSourceTranscriptAt: Date?
 
     // MARK: Dependencies
 
@@ -751,6 +762,7 @@ actor RealtimeLiveCaptionActor {
         let likelySpeech = RealtimeAudioEncoder.containsLikelySpeech(payload)
         if likelySpeech {
             voicedAudioBufferCountSinceInbound += 1
+            voicedAudioBufferCountSinceSourceInbound += 1
         }
         do {
             try await socket.send(text: text)
@@ -1015,6 +1027,8 @@ actor RealtimeLiveCaptionActor {
             connectionStartedAt = Date()
             lastInboundTranscriptAt = nil
             voicedAudioBufferCountSinceInbound = 0
+            lastInboundSourceTranscriptAt = nil
+            voicedAudioBufferCountSinceSourceInbound = 0
             // Manual-commit window resets per socket so a new live
             // session doesn't try to commit bytes that belonged to
             // the previous session (Codex Finding #5).
@@ -1112,11 +1126,16 @@ actor RealtimeLiveCaptionActor {
             let voiced = voicedAudioBufferCountSinceInbound
             let lastInboundReference = lastInboundTranscriptAt ?? connectionStartedAt ?? Date()
             let quietFor = Date().timeIntervalSince(lastInboundReference)
+            let voicedSource = voicedAudioBufferCountSinceSourceInbound
+            let lastSourceReference = lastInboundSourceTranscriptAt ?? connectionStartedAt ?? Date()
+            let quietSourceFor = Date().timeIntervalSince(lastSourceReference)
             _ = await runStallWatchdogProbe(
                 socket: socket,
                 generation: generation,
                 voicedBuffersSinceInbound: voiced,
-                secondsSinceLastInbound: quietFor
+                secondsSinceLastInbound: quietFor,
+                voicedBuffersSinceSourceInbound: voicedSource,
+                secondsSinceLastSourceInbound: quietSourceFor
             )
         }
     }
@@ -1352,9 +1371,12 @@ actor RealtimeLiveCaptionActor {
         case "session.created", "transcription_session.created":
             // Reset the stall counters so the watchdog waits for fresh
             // post-warmup traffic before considering the session
-            // stalled.
+            // stalled. The source-transcript clock is seeded too so the
+            // source-stall gate also honours the warmup window.
             voicedAudioBufferCountSinceInbound = 0
             lastInboundTranscriptAt = Date()
+            voicedAudioBufferCountSinceSourceInbound = 0
+            lastInboundSourceTranscriptAt = Date()
             // Arm the context-hint sender. The actual `await
             // socket.send(...)` runs in the receive loop after this
             // handler returns so `handleReceiveSuccess` stays sync.
@@ -1382,7 +1404,7 @@ actor RealtimeLiveCaptionActor {
                 key: event.transcriptItemKey,
                 previousItemID: event.previousItemID
             ) {
-                markTranscriptOutput()
+                markTranscriptOutput(source: true)
                 publishSnapshot(snapshot)
             }
         case "conversation.item.input_audio_transcription.completed":
@@ -1391,19 +1413,23 @@ actor RealtimeLiveCaptionActor {
                 key: event.transcriptItemKey,
                 previousItemID: event.previousItemID
             ) {
-                markTranscriptOutput()
+                markTranscriptOutput(source: true)
                 publishSnapshot(snapshot)
             }
         case "session.input_transcript.delta":
             if let delta = event.delta, !delta.isEmpty,
                let snapshot = ingestBilingualDelta(.source, text: delta) {
-                markTranscriptOutput()
+                markTranscriptOutput(source: true)
                 publishSnapshot(snapshot)
             }
         case "session.output_transcript.delta":
             if let delta = event.delta, !delta.isEmpty,
                let snapshot = ingestBilingualDelta(.translation, text: delta) {
-                markTranscriptOutput()
+                // Translation deltas refresh the general inbound clock
+                // (proving the socket is alive) but deliberately do NOT
+                // refresh the source-transcript clock — otherwise a
+                // dead source stream would stay masked. `source: false`.
+                markTranscriptOutput(source: false)
                 publishSnapshot(snapshot)
             }
         case "error":
@@ -1424,9 +1450,21 @@ actor RealtimeLiveCaptionActor {
         return nil
     }
 
-    private func markTranscriptOutput() {
+    /// Refresh the inbound-liveness clocks after a transcript event.
+    /// The general clock (`lastInboundTranscriptAt`) is refreshed for
+    /// any transcript output — it proves the upstream socket is alive.
+    /// The source-transcript clock is refreshed ONLY when the event is a
+    /// source transcript (`source: true`); translation deltas pass
+    /// `source: false` so a silently-dead source stream stays detectable
+    /// even while translation keeps flowing. See the source-stall gate
+    /// in `runStallWatchdogProbe`.
+    private func markTranscriptOutput(source: Bool) {
         voicedAudioBufferCountSinceInbound = 0
         lastInboundTranscriptAt = Date()
+        if source {
+            voicedAudioBufferCountSinceSourceInbound = 0
+            lastInboundSourceTranscriptAt = Date()
+        }
     }
 
     private func logFirstInboundEventIfNeeded(_ type: String) {
@@ -1798,6 +1836,10 @@ actor RealtimeLiveCaptionActor {
         case skipped
         case pingedAndRecovered
         case pingFailedAndReconnected
+        /// Translation mode only: the source-transcript stream went
+        /// silent while translation kept flowing, so we rotated to a
+        /// fresh upstream session rather than ping (the socket is alive).
+        case sourceStalledAndReconnected
     }
 
     /// Run the stall-watchdog probe against the supplied socket /
@@ -1811,7 +1853,9 @@ actor RealtimeLiveCaptionActor {
         socket: RealtimeSocket,
         generation: Int,
         voicedBuffersSinceInbound: Int,
-        secondsSinceLastInbound: TimeInterval
+        secondsSinceLastInbound: TimeInterval,
+        voicedBuffersSinceSourceInbound: Int,
+        secondsSinceLastSourceInbound: TimeInterval
     ) async -> StallWatchdogOutcome {
         // Pre-ping identity guard + cancellation check. The recurring
         // watchdog loop already bails before entering the probe on a
@@ -1823,6 +1867,39 @@ actor RealtimeLiveCaptionActor {
         guard !Task.isCancelled,
               isCurrent(socket: socket, generation: generation) else {
             return .skipped
+        }
+        // Source-transcript stall gate (translation mode only). In
+        // translation mode a single upstream socket carries BOTH the
+        // source transcript (`session.input_transcript.delta`) and the
+        // translation (`session.output_transcript.delta`). The
+        // translation stream keeps the general inbound clock fresh, so
+        // the ping gate below never trips even after the upstream has
+        // silently stopped emitting the source transcript. A ping would
+        // succeed anyway — the socket is alive, still carrying
+        // translation — and never revive the dead source stream. So when
+        // translation is STILL flowing (general inbound fresh) but the
+        // source transcript specifically has gone quiet past threshold
+        // while audio is voiced, rotate to a fresh upstream session
+        // instead of pinging.
+        //
+        // The `secondsSinceLastInbound < threshold` guard is what makes
+        // this a SOURCE-ONLY stall: when translation has stalled too
+        // (full stall), we fall through to the ping-first path below so
+        // a transient output delay can recover via a successful ping
+        // rather than an avoidable reconnect. Gated to translation mode
+        // because in transcription mode the source IS the only stream,
+        // so a genuine stall already trips the ping gate below.
+        if mode.isTranslation,
+           secondsSinceLastInbound < stallWatchdogSecondsSinceInbound,
+           voicedBuffersSinceSourceInbound >= stallWatchdogVoicedBuffers,
+           secondsSinceLastSourceInbound >= stallWatchdogSecondsSinceInbound {
+            trace("ws.watchdog.source_stall", "quietForSec=\(Int(secondsSinceLastSourceInbound))")
+            DiagnosticsLog.warning(
+                "live-caption",
+                "source_transcript_stall mode=\(Self.modeLabel(mode)) sessionId=\(lastClaimedSessionId ?? "unknown") quietSec=\(Int(secondsSinceLastSourceInbound))"
+            )
+            await rotateLiveSocketForSourceStall()
+            return .sourceStalledAndReconnected
         }
         // Threshold gate. The legacy class folds this into the
         // `evaluateStallWatchdog` capture; we keep it explicit so tests
@@ -1911,6 +1988,32 @@ actor RealtimeLiveCaptionActor {
         liveOpenedAt = nil
         await beginClaim(attempt: 0)
         return true
+    }
+
+    /// Tear down the current live socket and immediately re-claim a
+    /// fresh upstream session after a source-transcript stall. Unlike
+    /// `scheduleReconnect` (used when the socket is already dead and the
+    /// receive loop has already exited), the socket here is STILL ALIVE
+    /// and carrying translation — so it must be explicitly cancelled,
+    /// along with its receive/watchdog tasks, before a replacement is
+    /// claimed. Skipping that would leak the upstream session and leave
+    /// two sockets live at once. Mirrors `rotateSessionForAgeIfNeeded`'s
+    /// teardown (another healthy-socket rotation) plus a visible
+    /// reconnecting indicator carrying the transcription-specific
+    /// message. Immediate re-claim (`attempt: 0`, no backoff) because
+    /// nothing failed — we are deliberately rotating a healthy socket.
+    private func rotateLiveSocketForSourceStall() async {
+        guard case .live(let socket, _, let receiveTask, let watchdogTask) = lifecycle else { return }
+        receiveTask.cancel()
+        watchdogTask.cancel()
+        socket.cancel(
+            code: 1001,
+            reason: "source transcript stall".data(using: .utf8)
+        )
+        liveOpenedAt = nil
+        publishReconnectingSnapshot(message: "Reconnecting transcription…")
+        publishListeningOnNextLive = true
+        await beginClaim(attempt: 0)
     }
 
     /// First-resume-wins race between a ping and a timeout. Unlike
@@ -2040,8 +2143,8 @@ actor RealtimeLiveCaptionActor {
         await beginClaim(attempt: attempt + 1)
     }
 
-    private func publishReconnectingSnapshot() {
-        publishSnapshot(.statusOnly(phase: .reconnecting, message: "Live captions are reconnecting…"))
+    private func publishReconnectingSnapshot(message: String = "Live captions are reconnecting…") {
+        publishSnapshot(.statusOnly(phase: .reconnecting, message: message))
     }
 
     private func reconnectDelay(forAttempt attempt: Int) -> TimeInterval {
@@ -2254,14 +2357,18 @@ actor RealtimeLiveCaptionActor {
         generation: Int,
         voicedBuffersSinceInbound: Int,
         secondsSinceLastInbound: TimeInterval,
-        secondsSinceLastVoicedAudio: TimeInterval
+        secondsSinceLastVoicedAudio: TimeInterval,
+        voicedBuffersSinceSourceInbound: Int = 0,
+        secondsSinceLastSourceInbound: TimeInterval = 0
     ) async -> StallWatchdogOutcome {
         _ = secondsSinceLastVoicedAudio
         return await runStallWatchdogProbe(
             socket: socket,
             generation: generation,
             voicedBuffersSinceInbound: voicedBuffersSinceInbound,
-            secondsSinceLastInbound: secondsSinceLastInbound
+            secondsSinceLastInbound: secondsSinceLastInbound,
+            voicedBuffersSinceSourceInbound: voicedBuffersSinceSourceInbound,
+            secondsSinceLastSourceInbound: secondsSinceLastSourceInbound
         )
     }
 
