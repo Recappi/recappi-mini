@@ -1371,13 +1371,20 @@ private struct LiveCaptionCompactTextLine: NSViewRepresentable {
         weak var textView: NSTextView?
         private var appliedText = ""
         private var appliedPlaceholder = false
+        private var lastTargetY: CGFloat?
 
         func apply(text: String, isPlaceholder: Bool) {
             guard let textView else { return }
             if text == appliedText && isPlaceholder == appliedPlaceholder {
-                scrollToBottom()
+                // Re-layout pass (e.g. resize), not new speech — keep pinned to
+                // the bottom without animating.
+                scrollToBottom(animated: false)
                 return
             }
+            // New caption content arrived: animate the upward scroll so the
+            // latest line slides into view instead of hard-jumping — but only
+            // once there's prior content (don't animate the first fill).
+            let animate = !isPlaceholder && !appliedText.isEmpty
 
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineSpacing = 0
@@ -1401,10 +1408,10 @@ private struct LiveCaptionCompactTextLine: NSViewRepresentable {
             ))
             appliedText = text
             appliedPlaceholder = isPlaceholder
-            scrollToBottom()
+            scrollToBottom(animated: animate)
         }
 
-        func scrollToBottom() {
+        func scrollToBottom(animated: Bool = false) {
             guard let scrollView,
                   let docView = scrollView.documentView,
                   let textView = textView,
@@ -1416,8 +1423,29 @@ private struct LiveCaptionCompactTextLine: NSViewRepresentable {
             frame.size.height = max(scrollView.contentView.bounds.height, ceil(usedRect.height))
             textView.frame = frame
             let targetY = max(0, docView.frame.height - scrollView.contentView.bounds.height)
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
+            let clip = scrollView.contentView
+
+            // Only animate a real downward advance (new content pushing the
+            // latest line up). First paint, no-op re-scrolls, and any upward
+            // jump fall back to an instant set so nothing drifts or stutters.
+            let shouldAnimate = animated
+                && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                && lastTargetY.map { targetY - $0 > 0.5 } == true
+            lastTargetY = targetY
+
+            guard shouldAnimate else {
+                clip.scroll(to: NSPoint(x: 0, y: targetY))
+                scrollView.reflectScrolledClipView(clip)
+                return
+            }
+
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.18
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                ctx.allowsImplicitAnimation = true
+                clip.animator().setBoundsOrigin(NSPoint(x: 0, y: targetY))
+                scrollView.reflectScrolledClipView(clip)
+            }
         }
     }
 }
