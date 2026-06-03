@@ -240,7 +240,7 @@ struct LiveCaptionFloatingPanel: View {
                 Image(systemName: mode.toggleIcon)
                     .font(.system(size: 9, weight: .bold))
             }
-            .buttonStyle(PanelIconButtonStyle(size: 22))
+            .buttonStyle(PanelIconButtonStyle(size: 22, backdropAdaptiveForeground: true))
             .focusable(false)
             .recappiSuppressFocusRing()
             .recappiTooltip(mode.toggleTitle)
@@ -250,7 +250,7 @@ struct LiveCaptionFloatingPanel: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
             }
-            .buttonStyle(PanelIconButtonStyle(size: 22))
+            .buttonStyle(PanelIconButtonStyle(size: 22, backdropAdaptiveForeground: true))
             .focusable(false)
             .recappiSuppressFocusRing()
             .recappiTooltip("Hide live captions for this meeting")
@@ -1360,14 +1360,13 @@ private struct LiveCaptionErrorBanner: View {
                 .font(.system(size: 12, weight: .medium))
                 .lineLimit(2)
         }
-        .foregroundStyle(Color.black.opacity(0.56))
+        .foregroundStyle(Color.white.opacity(0.9))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.thinMaterial)
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.28)))
-                .glassEffect(.clear.tint(Color.white.opacity(0.08)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .fill(Color.black.opacity(0.35))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.06)))
         )
     }
 }
@@ -1376,17 +1375,19 @@ private struct LiveCaptionSegmentedButtonStyle: ButtonStyle {
     let isSelected: Bool
 
     func makeBody(configuration: Configuration) -> some View {
+        // The panel surface is a fixed dark scrim (see glassLegibilityFill), so
+        // both selected and unselected segments use light foregrounds — dark
+        // text/fills vanished on the scrim (peng-xiao 6/3 #2 header contrast).
         configuration.label
-            .foregroundStyle(isSelected ? Color.black.opacity(0.94) : Color.black.opacity(0.46))
+            .foregroundStyle(isSelected ? Color.white.opacity(0.96) : Color.white.opacity(0.55))
             .background(
                 Capsule(style: .continuous)
                     .fill(
                         isSelected
-                            ? Color.white.opacity(0.48)
-                            : (configuration.isPressed ? Color.black.opacity(0.06) : Color.clear)
+                            ? Color.white.opacity(0.20)
+                            : (configuration.isPressed ? Color.white.opacity(0.10) : Color.clear)
                     )
             )
-            .shadow(color: isSelected ? Color.white.opacity(0.30) : Color.clear, radius: 1.5, x: 0, y: 0)
             .contentShape(Capsule(style: .continuous))
     }
 }
