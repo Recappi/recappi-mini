@@ -262,20 +262,24 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 9) {
+        // Sized down toward the compact chrome capsule (peng-xiao 6/3: header
+        // 太大、靠近 compact 形态) — tighter spacing/padding and the smaller
+        // 9.5/10pt type that compact uses. Icon buttons are already 22pt (same
+        // as compact).
+        HStack(alignment: .center, spacing: 7) {
             liveCaptionLeadingBadge
 
             Text(sourceLine)
-                .font(.system(size: 10, weight: .regular))
+                .font(.system(size: 9.5, weight: .regular))
                 .foregroundStyle(glassTextSecondary)
                 .lineLimit(1)
 
-            Spacer(minLength: 10)
+            Spacer(minLength: 8)
 
             liveCaptionDisplayControl
 
             Text(timeText(recorder.elapsedSeconds))
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(glassTextSecondary)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionElapsedTime)
@@ -287,12 +291,12 @@ struct LiveCaptionFloatingPanel: View {
 
             captionControlButtons
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
         .background(
             glassShape(Capsule(style: .continuous))
         )
-        .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
+        .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
         .onHover(perform: updateChromeVisibility)
         .focusable(false)
         .recappiSuppressFocusRing()
@@ -392,7 +396,7 @@ struct LiveCaptionFloatingPanel: View {
             HStack(spacing: 6) {
                 liveCaptionStatusGlyph(style, dotSize: 5)
                 Text(style.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(glassTextPrimary)
                     .lineLimit(1)
             }
@@ -406,7 +410,7 @@ struct LiveCaptionFloatingPanel: View {
                     .frame(width: 5, height: 5)
                     .modifier(PulsingModifier())
                 Text("Live captions")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(glassTextPrimary)
             }
         }
