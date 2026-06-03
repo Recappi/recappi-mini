@@ -2790,6 +2790,33 @@ final class RecappiMiniCoreTests: XCTestCase {
         )
     }
 
+    func testLiveCaptionModeSwapKeepsTopRightAnchor() {
+        let previousFrame = NSRect(x: 320, y: 180, width: 542, height: 94)
+        let targetFrame = AppDelegate.liveCaptionFrameAnchoredToTopRight(
+            previousFrame: previousFrame,
+            targetFrameSize: NSSize(width: 560, height: 216),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1200, height: 900)
+        )
+
+        XCTAssertEqual(targetFrame.maxX, previousFrame.maxX, accuracy: 0.001)
+        XCTAssertEqual(targetFrame.maxY, previousFrame.maxY, accuracy: 0.001)
+        XCTAssertEqual(targetFrame.origin.y, previousFrame.maxY - targetFrame.height, accuracy: 0.001)
+    }
+
+    func testLiveCaptionModeSwapClampsExpandedFrameIntoVisibleArea() {
+        let previousFrame = NSRect(x: 320, y: 12, width: 542, height: 94)
+        let visibleFrame = NSRect(x: 0, y: 0, width: 1200, height: 900)
+        let targetFrame = AppDelegate.liveCaptionFrameAnchoredToTopRight(
+            previousFrame: previousFrame,
+            targetFrameSize: NSSize(width: 560, height: 216),
+            visibleFrame: visibleFrame
+        )
+
+        XCTAssertEqual(targetFrame.maxX, previousFrame.maxX, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(targetFrame.origin.y, visibleFrame.minY + 8)
+        XCTAssertLessThanOrEqual(targetFrame.maxY, visibleFrame.maxY - 8)
+    }
+
     func testLiveCaptionStreamTitlesIncludeRoleAndLanguage() {
         XCTAssertEqual(
             LiveCaptionFloatingPanel.streamTitle(role: "Original", languageShortTitle: "EN"),

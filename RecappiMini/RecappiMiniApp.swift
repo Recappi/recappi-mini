@@ -1122,6 +1122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func toggleLiveCaptionPanelMode() {
+        let resizeAnchor = managedWindows.liveCaptionWindow?.frame
         switch liveCaptionPanelMode {
         case .expanded:
             liveCaptionPanelMode = .compact
@@ -1129,7 +1130,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             liveCaptionPanelMode = .expanded
         }
         DispatchQueue.main.async { [weak self] in
-            self?.resizeLiveCaptionWindowToContent(animated: false, usesFittingSize: false)
+            self?.resizeLiveCaptionWindowToContent(
+                animated: false,
+                usesFittingSize: false,
+                resizeAnchor: resizeAnchor
+            )
         }
     }
 
@@ -1285,7 +1290,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         restoreAccessoryActivationPolicyIfPossible()
     }
 
-    private func resizeLiveCaptionWindowToContent(animated: Bool = false, usesFittingSize: Bool = true) {
+    private func resizeLiveCaptionWindowToContent(
+        animated: Bool = false,
+        usesFittingSize: Bool = true,
+        resizeAnchor: NSRect? = nil
+    ) {
         guard let liveCaptionWindow = managedWindows.liveCaptionWindow,
               let hostingView = liveCaptionWindow.contentView as? LiveCaptionPassthroughHostingView<AnyView> else {
             managedWindows.liveCaptionWindow?.setContentSize(liveCaptionPanelMode.defaultWindowSize)
@@ -1303,11 +1312,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             fittingSize = liveCaptionPanelMode.defaultWindowSize
         }
 
-        // Capture the visual bottom/right edges BEFORE resizing. The
-        // panel is parked near the dock and screen edge; mode morphs should
-        // feel anchored there instead of popping from the top-left.
-        let previousBottomY = liveCaptionWindow.frame.origin.y
-        let previousMaxX = liveCaptionWindow.frame.maxX
+        // Capture the visual top/right edges BEFORE changing mode. SwiftUI may
+        // re-render the root view before this async resize runs; using the
+        // pre-toggle frame prevents compact/expanded swaps from accumulating
+        // small frame drift. The caption strip reads visually as a top-anchored
+        // overlay, so mode height changes should grow downward instead of
+        // pushing the strip upward.
+        let anchorFrame = resizeAnchor ?? liveCaptionWindow.frame
         applyLiveCaptionContentSizeConstraints(liveCaptionWindow, mode: liveCaptionPanelMode)
         let targetContentSize = NSSize(
             width: max(liveCaptionPanelMode.defaultWindowSize.width, fittingSize.width),
@@ -1316,8 +1327,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         var contentRect = liveCaptionWindow.contentRect(forFrameRect: liveCaptionWindow.frame)
         contentRect.size = targetContentSize
         var targetFrame = liveCaptionWindow.frameRect(forContentRect: contentRect)
-        targetFrame.origin.x = previousMaxX - targetFrame.width
-        targetFrame.origin.y = previousBottomY
+        targetFrame = Self.liveCaptionFrameAnchoredToTopRight(
+            previousFrame: anchorFrame,
+            targetFrameSize: targetFrame.size,
+            visibleFrame: (liveCaptionWindow.screen ?? NSScreen.main)?.visibleFrame
+        )
 
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
               animated,
@@ -1352,6 +1366,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         frame.origin.x = visibleFrame.maxX - frame.width - 24
         frame.origin.y = visibleFrame.minY + 24
         window.setFrame(frame, display: true)
+    }
+
+    nonisolated static func liveCaptionFrameAnchoredToTopRight(
+        previousFrame: NSRect,
+        targetFrameSize: NSSize,
+        visibleFrame: NSRect? = nil
+    ) -> NSRect {
+        var frame = NSRect(
+            x: previousFrame.maxX - targetFrameSize.width,
+            y: previousFrame.maxY - targetFrameSize.height,
+            width: targetFrameSize.width,
+            height: targetFrameSize.height
+        )
+
+        guard let visibleFrame, !visibleFrame.isEmpty else {
+            return frame
+        }
+
+        let margin: CGFloat = 8
+        let minX = visibleFrame.minX + margin
+        let maxX = visibleFrame.maxX - frame.width - margin
+        if minX <= maxX {
+            frame.origin.x = min(max(frame.origin.x, minX), maxX)
+        } else {
+            frame.origin.x = visibleFrame.minX
+        }
+
+        let minY = visibleFrame.minY + margin
+        let maxY = visibleFrame.maxY - frame.height - margin
+        if minY <= maxY {
+            frame.origin.y = min(max(frame.origin.y, minY), maxY)
+        } else {
+            frame.origin.y = visibleFrame.minY
+        }
+
+        return frame
     }
 
     /// Present the first-launch onboarding modal. Called by
