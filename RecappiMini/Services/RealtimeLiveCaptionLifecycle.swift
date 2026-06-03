@@ -1123,21 +1123,36 @@ actor RealtimeLiveCaptionActor {
             if await rotateSessionForAgeIfNeeded(socket: socket, generation: generation) {
                 return
             }
-            let voiced = voicedAudioBufferCountSinceInbound
-            let lastInboundReference = lastInboundTranscriptAt ?? connectionStartedAt ?? Date()
-            let quietFor = Date().timeIntervalSince(lastInboundReference)
-            let voicedSource = voicedAudioBufferCountSinceSourceInbound
-            let lastSourceReference = lastInboundSourceTranscriptAt ?? connectionStartedAt ?? Date()
-            let quietSourceFor = Date().timeIntervalSince(lastSourceReference)
-            _ = await runStallWatchdogProbe(
-                socket: socket,
-                generation: generation,
-                voicedBuffersSinceInbound: voiced,
-                secondsSinceLastInbound: quietFor,
-                voicedBuffersSinceSourceInbound: voicedSource,
-                secondsSinceLastSourceInbound: quietSourceFor
-            )
+            _ = await runStallWatchdogTick(socket: socket, generation: generation)
         }
+    }
+
+    /// One watchdog tick: compute the inbound-liveness clocks from
+    /// current actor state, then run the probe. Extracted from the loop
+    /// so the DEBUG seam `runStallWatchdogTickForTesting` can drive the
+    /// SAME compute-from-state path the loop uses — the explicit-params
+    /// `runStallWatchdogProbeForTesting` bypasses this computation, so it
+    /// can't cover the cross-tick clock interaction the source-stall gate
+    /// depends on.
+    @discardableResult
+    private func runStallWatchdogTick(
+        socket: RealtimeSocket,
+        generation: Int
+    ) async -> StallWatchdogOutcome {
+        let voiced = voicedAudioBufferCountSinceInbound
+        let lastInboundReference = lastInboundTranscriptAt ?? connectionStartedAt ?? Date()
+        let quietFor = Date().timeIntervalSince(lastInboundReference)
+        let voicedSource = voicedAudioBufferCountSinceSourceInbound
+        let lastSourceReference = lastInboundSourceTranscriptAt ?? connectionStartedAt ?? Date()
+        let quietSourceFor = Date().timeIntervalSince(lastSourceReference)
+        return await runStallWatchdogProbe(
+            socket: socket,
+            generation: generation,
+            voicedBuffersSinceInbound: voiced,
+            secondsSinceLastInbound: quietFor,
+            voicedBuffersSinceSourceInbound: voicedSource,
+            secondsSinceLastSourceInbound: quietSourceFor
+        )
     }
 
     private func runReceiveLoop(socket: RealtimeSocket, generation: Int) async {
@@ -1938,8 +1953,21 @@ actor RealtimeLiveCaptionActor {
 
         switch pingResult {
         case .success:
+            // A successful ping is a deliberate "the socket is healthy,
+            // defer the reconnect" decision, so give BOTH stall clocks a
+            // fresh window. Resetting only the general clock leaves the
+            // source-transcript clock stale; the next tick would then read
+            // `secondsSinceLastInbound < threshold` (fresh purely because
+            // of this ping) while the source clock is still past threshold
+            // and fire the source-stall gate — rotating right after the
+            // ping that was meant to defer it. A genuine subsequent
+            // source-only stall still re-triggers correctly: real
+            // translation deltas keep the general clock fresh on their own
+            // while the source clock goes stale again past this window.
             voicedAudioBufferCountSinceInbound = 0
             lastInboundTranscriptAt = Date()
+            voicedAudioBufferCountSinceSourceInbound = 0
+            lastInboundSourceTranscriptAt = Date()
             return .pingedAndRecovered
         case .failure(let error):
             await scheduleReconnect(after: error, attempt: 1)
@@ -2370,6 +2398,20 @@ actor RealtimeLiveCaptionActor {
             voicedBuffersSinceSourceInbound: voicedBuffersSinceSourceInbound,
             secondsSinceLastSourceInbound: secondsSinceLastSourceInbound
         )
+    }
+
+    /// Test seam: run ONE real watchdog tick — compute the inbound /
+    /// source clocks from current actor state, then probe. Unlike
+    /// `runStallWatchdogProbeForTesting` (explicit params, bypasses the
+    /// loop's state computation) this exercises the cross-tick clock
+    /// interaction: a ping-success on one tick changing what the NEXT
+    /// tick computes for the source-stall gate. Returns the same
+    /// `StallWatchdogOutcome` the production loop produces.
+    func runStallWatchdogTickForTesting(
+        socket: RealtimeSocket,
+        generation: Int
+    ) async -> StallWatchdogOutcome {
+        await runStallWatchdogTick(socket: socket, generation: generation)
     }
 
     /// Test seam: replace the production watchdog cadence with a much

@@ -795,6 +795,115 @@ final class RealtimeLiveCaptionActorReceiveTests: XCTestCase {
 
         _ = await actor.stop(saveTo: nil)
     }
+
+    /// Regression for "Ping masks full stall recovery": after a FULL
+    /// translation stall (both source AND translation quiet) where the
+    /// watchdog ping SUCCEEDS — a deliberate "defer reconnect, the socket
+    /// is healthy" decision — the NEXT watchdog tick must NOT immediately
+    /// rotate via the source-stall gate.
+    ///
+    /// The ping-success branch resets the general inbound clock. If it
+    /// leaves the source-transcript clock stale, the next tick computes
+    /// `secondsSinceLastInbound < threshold` (fresh purely because of the
+    /// ping) while the source clock is still past threshold — so the
+    /// source-stall gate fires and rotates right after the ping that was
+    /// meant to defer the reconnect.
+    ///
+    /// This drives the REAL cross-tick clock computation through
+    /// `runStallWatchdogTickForTesting` (the explicit-params probe seam
+    /// bypasses it), so the post-ping source-clock freshness is what's
+    /// under test.
+    func testFullStallPingSuccessDoesNotSourceStallRotateOnNextTick() async {
+        let connector = MockRealtimeSessionConnector()
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .translation(targetLanguage: "es"),
+            configuration: .init(reconnectDelays: [10])
+        )
+
+        await actor.start()
+        await connector.waitForClaimResolved()
+        await connector.waitForSocketOpened()
+        await Task.yield()
+        await Task.yield()
+
+        guard let live = await actor.currentLiveIdentityForTesting() else {
+            XCTFail("Expected a live identity.")
+            return
+        }
+        guard let mockSocket = live.socket as? MockRealtimeSocket else {
+            XCTFail("Expected MockRealtimeSocket.")
+            return
+        }
+        mockSocket.setPingHandler({ /* success */ })
+
+        // A small but nonzero quiet threshold so a freshly-reset clock
+        // reads "fresh" (microseconds old) while an un-reset clock reads
+        // "stale" (>= threshold). Voiced threshold 1 so a single voiced
+        // frame trips the "we've been talking" gate.
+        await actor.setStallWatchdogThresholdsForTesting(
+            voicedBuffers: 1,
+            secondsSinceLastInbound: 0.05
+        )
+
+        // Seed both clocks fresh: a source-transcript delta stamps both
+        // the general and the source inbound clocks (markTranscriptOutput
+        // source: true). Then voiced audio lifts both voiced counters.
+        _ = await actor.ingestReceiveEventJSONForTesting(
+            "{\"type\":\"session.input_transcript.delta\",\"delta\":\"hola\"}"
+        )
+        await actor.appendPCM16ForTesting(Self.makeVoicedPCM16(byteCount: 1_600))
+
+        // Let both clocks age past the 50 ms threshold → FULL stall
+        // (neither stream has produced inbound since the seed).
+        try? await Task.sleep(nanoseconds: 80_000_000)
+
+        // Tick 1: full stall → ping-first path; the ping succeeds, which
+        // resets the general clock (and, with the fix, the source clock).
+        let firstOutcome = await actor.runStallWatchdogTickForTesting(
+            socket: live.socket,
+            generation: live.generation
+        )
+        XCTAssertEqual(
+            firstOutcome,
+            .pingedAndRecovered,
+            "Full stall must take the ping-first path and recover on a successful ping."
+        )
+        XCTAssertEqual(mockSocket.pingCallCount, 1, "Full stall must ping exactly once.")
+
+        // Tick 2 immediately (no further sleep): the general clock is
+        // fresh from the ping, the source clock should ALSO have been
+        // refreshed by the ping-success. Without the fix the source clock
+        // is still stale, so the source-stall gate fires and rotates.
+        let secondOutcome = await actor.runStallWatchdogTickForTesting(
+            socket: live.socket,
+            generation: live.generation
+        )
+        XCTAssertNotEqual(
+            secondOutcome,
+            .sourceStalledAndReconnected,
+            "A successful full-stall ping must defer the reconnect — the next tick must not source-stall rotate."
+        )
+        XCTAssertEqual(
+            connector.claimCallCount,
+            1,
+            "Ping-deferred recovery must not have re-claimed a fresh upstream session."
+        )
+
+        _ = await actor.stop(saveTo: nil)
+    }
+
+    /// Make a PCM16 little-endian buffer whose rough RMS clears
+    /// `RealtimeAudioEncoder.containsLikelySpeech`, so the watchdog's
+    /// voiced-buffer counters actually count the frame.
+    private static func makeVoicedPCM16(byteCount: Int) -> Data {
+        var data = Data(count: byteCount)
+        for i in 0..<byteCount {
+            data[i] = (i & 1) == 0 ? 0x40 : 0x10
+        }
+        return data
+    }
 }
 
 // MARK: - Snapshot recorder
