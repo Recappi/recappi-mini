@@ -119,18 +119,18 @@ struct LiveCaptionFloatingPanel: View {
         // gets clamped by intermediate intrinsic-size frames and the
         // viewport stops short of a user-resized window's bottom edge.
         GeometryReader { proxy in
-            let headerBand = chromeVisible ? Self.expandedHeaderBandHeight : 0
-            let cardHeight = max(96, proxy.size.height - headerBand)
-
+            // Header is a floating overlay (same model as compact's chrome):
+            // the workspace always uses the full height and the header floats on
+            // top, shown/hidden purely in SwiftUI via opacity + hit-testing — no
+            // dynamic header band that reflows the caption area on hover
+            // (peng-xiao 6/3: "header 改成跟 compact 那个模式").
             ZStack(alignment: .top) {
                 liveCaptionWorkspace
-                    .frame(height: cardHeight, alignment: .topLeading)
+                    .frame(height: max(96, proxy.size.height), alignment: .topLeading)
                     .background(panelBackground(cornerRadius: mode.cornerRadius))
-                    .padding(.top, headerBand)
 
                 minimalLiveDot
                     .padding(12)
-                    .padding(.top, headerBand)
                     .opacity(chromeVisible ? 0 : 1)
                     .scaleEffect(chromeVisible ? 0.88 : 1)
                     .allowsHitTesting(false)
@@ -139,8 +139,8 @@ struct LiveCaptionFloatingPanel: View {
                 header
                     .padding(.horizontal, 18)
                     .padding(.top, 4)
-                    .opacity(chromeVisible ? 1 : 0.001)
-                    .offset(y: chromeVisible ? 0 : headerBand)
+                    .opacity(chromeVisible ? 1 : 0)
+                    .offset(y: chromeVisible ? 0 : -6)
                     .allowsHitTesting(chromeVisible)
                     .zIndex(2)
             }
@@ -153,6 +153,7 @@ struct LiveCaptionFloatingPanel: View {
                 color: .red,
                 label: "expanded \(Int(proxy.size.width))×\(Int(proxy.size.height))"
             ))
+            .animation(DT.motionAware(DT.ease(DT.Motion.elementPresence)), value: chromeVisible)
         }
     }
 
@@ -1133,7 +1134,6 @@ struct LiveCaptionFloatingPanel: View {
 
     nonisolated static let compactCaptionFontSize: CGFloat = 12.5
     private static let compactCaptionLineSpacing: CGFloat = 1
-    static let expandedHeaderBandHeight: CGFloat = 44
 
     /// Height reserved for the compact caption's 2-line slot. Keep this to
     /// exact line-height math: extra breathing room exposes partial hidden
