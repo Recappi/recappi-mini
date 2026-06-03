@@ -1239,6 +1239,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         }
     }
 
+    private func liveCaptionResizeFrameSize(_ window: NSWindow, requestedFrameSize: NSSize) -> NSSize {
+        guard liveCaptionPanelMode == .compact else { return requestedFrameSize }
+
+        let requestedFrameRect = NSRect(origin: .zero, size: requestedFrameSize)
+        var requestedContentRect = window.contentRect(forFrameRect: requestedFrameRect)
+        requestedContentRect.size.height = liveCaptionPanelMode.defaultWindowSize.height
+        return window.frameRect(forContentRect: requestedContentRect).size
+    }
+
     private func hideLiveCaptionWindow() {
         closeLiveCaptionWindow()
     }
@@ -1959,6 +1968,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     func windowDidMove(_ notification: Notification) {
         syncPanelVisibility()
+    }
+
+    func windowWillResize(_ sender: NSWindow, toFrameSize frameSize: NSSize) -> NSSize {
+        guard sender === managedWindows.liveCaptionWindow else {
+            return frameSize
+        }
+        return liveCaptionResizeFrameSize(sender, requestedFrameSize: frameSize)
+    }
+
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
+        guard window === managedWindows.liveCaptionWindow else {
+            return true
+        }
+        return false
     }
 
     func windowDidResize(_ notification: Notification) {

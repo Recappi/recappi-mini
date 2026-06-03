@@ -73,6 +73,7 @@ struct LiveCaptionFloatingPanel: View {
         let label: String
         let text: String
         let isPlaceholder: Bool
+        let lineLimit: Int
     }
 
     var body: some View {
@@ -131,6 +132,7 @@ struct LiveCaptionFloatingPanel: View {
                     .padding(.top, headerBand)
                     .opacity(chromeVisible ? 0 : 1)
                     .scaleEffect(chromeVisible ? 0.88 : 1)
+                    .allowsHitTesting(false)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
                 header
@@ -138,6 +140,7 @@ struct LiveCaptionFloatingPanel: View {
                     .padding(.top, 4)
                     .opacity(chromeVisible ? 1 : 0.001)
                     .offset(y: chromeVisible ? 0 : headerBand)
+                    .allowsHitTesting(chromeVisible)
                     .zIndex(2)
             }
             .frame(
@@ -183,6 +186,7 @@ struct LiveCaptionFloatingPanel: View {
             )
             .opacity(chromeVisible ? 1 : 0)
             .offset(x: chromeVisible ? 0 : 8)
+            .allowsHitTesting(chromeVisible)
             .accessibilityHidden(!chromeVisible)
         }
         .padding(.horizontal, 14)
@@ -206,7 +210,7 @@ struct LiveCaptionFloatingPanel: View {
                     Text(row.text)
                         .font(.system(size: Self.compactCaptionFontSize, weight: row.isPlaceholder ? .medium : .semibold))
                         .foregroundStyle(row.isPlaceholder ? glassTextSecondary : glassTextPrimary)
-                        .lineLimit(1)
+                        .lineLimit(row.lineLimit)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -1008,19 +1012,11 @@ struct LiveCaptionFloatingPanel: View {
         return "Listening for meeting audio"
     }
 
-    /// Caption fragment shown in compact mode. Pre-truncated to fit
-    /// cleanly in two visual lines so SwiftUI's `lineLimit(2)` never
-    /// has to insert a "…" indicator. The expanded panel renders the
-    /// full transcript via `LiveCaptionAppKitTextView`.
-    private var compactCaptionLine: String {
-        Self.compactLine(from: captionLine)
-    }
-
     private var compactCaptionRows: [CompactCaptionRow] {
         Self.compactCaptionRows(
             showsTranslation: liveCaptionShowsTranslation,
             paneVisibility: effectivePaneVisibility,
-            captionText: compactCaptionLine,
+            captionText: captionLine,
             translationText: translationStreamText,
             sourceLanguageShortTitle: liveCaptionSourceLanguageShortTitle,
             targetLanguageShortTitle: liveCaptionTargetLanguageShortTitle
@@ -1045,53 +1041,104 @@ struct LiveCaptionFloatingPanel: View {
         // only the translation side carries its user-chosen target language.
         let sourceLabel = streamTitle(role: "Original", languageShortTitle: "")
         let translationLabel = streamTitle(role: "Translation", languageShortTitle: targetLanguageShortTitle)
-        let sourceText = compactLine(
+        let oneLineSourceText = compactLine(
             from: captionText,
             asciiBudget: compactCaptionRowMaxASCIICharacters,
             cjkBudget: compactCaptionRowMaxCJKCharacters
         )
-        let translationLine = compactLine(
+        let oneLineTranslationText = compactLine(
             from: translationText,
             asciiBudget: compactCaptionRowMaxASCIICharacters,
             cjkBudget: compactCaptionRowMaxCJKCharacters
         )
-        let sourceContent = sourceText.isEmpty ? originalPlaceholderText : sourceText
-        let translationContent = translationLine.isEmpty ? translationPlaceholderText : translationLine
+        let twoLineSourceText = compactLine(
+            from: captionText,
+            asciiBudget: compactCaptionMaxASCIICharacters,
+            cjkBudget: compactCaptionMaxCJKCharacters
+        )
+        let twoLineTranslationText = compactLine(
+            from: translationText,
+            asciiBudget: compactCaptionMaxASCIICharacters,
+            cjkBudget: compactCaptionMaxCJKCharacters
+        )
+
+        func row(
+            id: String,
+            label: String,
+            oneLineText: String,
+            twoLineText: String,
+            placeholderText: String,
+            lineLimit: Int
+        ) -> CompactCaptionRow {
+            let text = lineLimit > 1 ? twoLineText : oneLineText
+            return CompactCaptionRow(
+                id: id,
+                label: label,
+                text: text.isEmpty ? placeholderText : text,
+                isPlaceholder: text.isEmpty,
+                lineLimit: lineLimit
+            )
+        }
 
         guard showsTranslation else {
             return [
-                CompactCaptionRow(
+                row(
                     id: "original",
                     label: sourceLabel,
-                    text: sourceContent,
-                    isPlaceholder: sourceText.isEmpty
+                    oneLineText: oneLineSourceText,
+                    twoLineText: twoLineSourceText,
+                    placeholderText: originalPlaceholderText,
+                    lineLimit: 2
                 ),
             ]
         }
 
+        let selectedStreamCount: Int
+        switch paneVisibility {
+        case .both:
+            selectedStreamCount = 2
+        case .captionOnly:
+            selectedStreamCount = 1
+        case .translationOnly:
+            selectedStreamCount = 1
+        }
+        let rowLineLimit = selectedStreamCount == 1 ? 2 : 1
         var rows: [CompactCaptionRow] = []
         if paneVisibility.showsCaption {
             rows.append(
-                CompactCaptionRow(
+                row(
                     id: "original",
                     label: sourceLabel,
-                    text: sourceContent,
-                    isPlaceholder: sourceText.isEmpty
+                    oneLineText: oneLineSourceText,
+                    twoLineText: twoLineSourceText,
+                    placeholderText: originalPlaceholderText,
+                    lineLimit: rowLineLimit
                 )
             )
         }
         if paneVisibility.showsTranslation {
             rows.append(
-                CompactCaptionRow(
+                row(
                     id: "translation",
                     label: translationLabel,
-                    text: translationContent,
-                    isPlaceholder: translationLine.isEmpty
+                    oneLineText: oneLineTranslationText,
+                    twoLineText: twoLineTranslationText,
+                    placeholderText: translationPlaceholderText,
+                    lineLimit: rowLineLimit
                 )
             )
         }
         return rows.isEmpty
-            ? [CompactCaptionRow(id: "original", label: sourceLabel, text: sourceContent, isPlaceholder: sourceText.isEmpty)]
+            ? [
+                row(
+                    id: "original",
+                    label: sourceLabel,
+                    oneLineText: oneLineSourceText,
+                    twoLineText: twoLineSourceText,
+                    placeholderText: originalPlaceholderText,
+                    lineLimit: 2
+                ),
+            ]
             : rows
     }
 
@@ -1700,7 +1747,7 @@ private enum LiveCaptionDebugLayout {
 
 private extension Character {
     /// True for dense CJK glyphs (Chinese, Japanese kana, Korean Hangul)
-    /// so `compactCaptionLine` can switch to a tighter character budget.
+    /// so compact captions can switch to a tighter character budget.
     var isCompactCJK: Bool {
         unicodeScalars.contains { scalar in
             (0x4E00...0x9FFF).contains(scalar.value) ||

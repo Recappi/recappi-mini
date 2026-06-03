@@ -2818,8 +2818,43 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(rows[1].label, "Translation · ZH")
         XCTAssertFalse(rows[0].isPlaceholder)
         XCTAssertFalse(rows[1].isPlaceholder)
+        XCTAssertEqual(rows.map(\.lineLimit), [1, 1])
         XCTAssertTrue(rows[0].text.contains("latest source line"))
         XCTAssertTrue(rows[1].text.contains("qboard"))
+    }
+
+    func testLiveCaptionCompactRowsAllowTwoLinesForOriginalOnly() {
+        let rows = LiveCaptionFloatingPanel.compactCaptionRows(
+            showsTranslation: false,
+            paneVisibility: .captionOnly,
+            captionText: "The compact panel should keep more of the original transcript visible when it is the only selected live caption stream",
+            translationText: "",
+            sourceLanguageShortTitle: "EN",
+            targetLanguageShortTitle: "ZH"
+        )
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].label, "Original")
+        XCTAssertEqual(rows[0].lineLimit, 2)
+        XCTAssertFalse(rows[0].isPlaceholder)
+        XCTAssertTrue(rows[0].text.contains("only selected live caption stream"))
+    }
+
+    func testLiveCaptionCompactRowsAllowTwoLinesForTranslationOnly() {
+        let rows = LiveCaptionFloatingPanel.compactCaptionRows(
+            showsTranslation: true,
+            paneVisibility: .translationOnly,
+            captionText: "Hidden original stream",
+            translationText: "翻译单独显示的时候也要保留两行空间，避免 compact 模式浪费第二行高度",
+            sourceLanguageShortTitle: "EN",
+            targetLanguageShortTitle: "ZH"
+        )
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].label, "Translation · ZH")
+        XCTAssertEqual(rows[0].lineLimit, 2)
+        XCTAssertFalse(rows[0].isPlaceholder)
+        XCTAssertTrue(rows[0].text.contains("第二行高度"))
     }
 
     func testLiveCaptionCompactRowsKeepTranslationPlaceholderVisible() {
@@ -2837,6 +2872,7 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(rows[0].text, "Listening source stream")
         XCTAssertEqual(rows[1].label, "Translation · ZH")
         XCTAssertEqual(rows[1].text, "Waiting for translation")
+        XCTAssertEqual(rows.map(\.lineLimit), [1, 1])
         XCTAssertTrue(rows[1].isPlaceholder)
     }
 
