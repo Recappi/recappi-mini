@@ -1200,18 +1200,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         // `LiveCaptionFloatingPanel` then reads that real height.
         hostingView.sizingOptions = []
 
-        // `.titled` + `.resizable` (without `.fullSizeContentView`) is
-        // what gives us standard NSWindow edge-drag resize handles —
-        // a pure `.borderless` panel does not honor `.resizable` on
-        // macOS. The title chrome is hidden below so visually it still
-        // reads as a floating panel.
+        // `.titled` + `.resizable` gives standard NSWindow edge-drag resize
+        // handles; `.fullSizeContentView` lets the custom hosting view own the
+        // hidden header band hit-testing instead of AppKit's titlebar eating
+        // invisible clicks/drags.
         let window = WindowFactory.createPanel(
             contentView: hostingView,
             spec: WindowFactory.PanelSpec(
                 contentRect: NSRect(origin: .zero, size: liveCaptionPanelMode.defaultWindowSize),
-                styleMask: [.nonactivatingPanel, .titled, .resizable],
+                styleMask: [.nonactivatingPanel, .titled, .resizable, .fullSizeContentView],
                 title: "Recappi Live Captions",
                 hasShadow: true,
+                isMovableByWindowBackground: false,
                 titleVisibility: .hidden,
                 titlebarAppearsTransparent: true,
                 hiddenStandardButtons: [.closeButton, .miniaturizeButton, .zoomButton]

@@ -2840,6 +2840,22 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertTrue(rows[0].text.contains("only selected live caption stream"))
     }
 
+    func testLiveCaptionCompactRowsDoNotPretruncateLongText() {
+        let text = "First sentence should remain present while later words continue filling the compact live caption viewport without head or tail ellipsis"
+        let rows = LiveCaptionFloatingPanel.compactCaptionRows(
+            showsTranslation: false,
+            paneVisibility: .captionOnly,
+            captionText: text,
+            translationText: "",
+            sourceLanguageShortTitle: "EN",
+            targetLanguageShortTitle: "ZH"
+        )
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].text, text)
+        XCTAssertFalse(rows[0].text.contains("…"))
+    }
+
     func testLiveCaptionCompactRowsAllowTwoLinesForTranslationOnly() {
         let rows = LiveCaptionFloatingPanel.compactCaptionRows(
             showsTranslation: true,

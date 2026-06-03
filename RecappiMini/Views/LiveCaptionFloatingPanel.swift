@@ -207,13 +207,13 @@ struct LiveCaptionFloatingPanel: View {
                 // 空间", and was the source of the truncated "· ZH"). The caption
                 // text now spans the full width. Bilingual rows stay
                 // distinguishable by order + the translation row's dimmer weight.
-                Text(row.text)
-                    .font(.system(size: Self.compactCaptionFontSize, weight: row.isPlaceholder ? .medium : .semibold))
-                    .foregroundStyle(row.isPlaceholder ? glassTextSecondary : glassTextPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .bottomLeading)
-                    .frame(height: Self.compactCaptionRowHeight(lineLimit: row.lineLimit), alignment: .bottomLeading)
-                    .clipped()
+                LiveCaptionCompactTextLine(
+                    text: row.text,
+                    isPlaceholder: row.isPlaceholder,
+                    lineLimit: row.lineLimit
+                )
+                .frame(maxWidth: .infinity, alignment: .bottomLeading)
+                .frame(height: Self.compactCaptionRowHeight(lineLimit: row.lineLimit), alignment: .bottomLeading)
             }
         }
         // Dark contrast shadow on the dark caption scrim (white text needs a
@@ -1128,19 +1128,18 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private static func compactCaptionRowHeight(lineLimit: Int) -> CGFloat {
-        guard lineLimit <= 1 else { return compactCaptionTwoLineHeight }
-        return (compactCaptionTwoLineHeight - compactCaptionLineSpacing) / 2
+        compactCaptionLineHeight * CGFloat(max(1, lineLimit))
     }
 
     nonisolated static let compactCaptionFontSize: CGFloat = 12.5
     private static let compactCaptionLineSpacing: CGFloat = 1
     static let expandedHeaderBandHeight: CGFloat = 44
 
-    /// Height reserved for the compact caption's 2-line slot. System
-    /// 12.5pt + lineSpacing 1 measures ~31pt for two lines; rounding
-    /// to 34 gives ascender clearance and a little breathing room that
-    /// vertically centers 1-line content inside the slot.
-    private static let compactCaptionTwoLineHeight: CGFloat = 34
+    /// Height reserved for the compact caption's 2-line slot. Keep this to
+    /// exact line-height math: extra breathing room exposes partial hidden
+    /// lines when the compact viewport is bottom-anchored to the latest text.
+    private static let compactCaptionLineHeight: CGFloat = 15
+    private static let compactCaptionTwoLineHeight: CGFloat = (compactCaptionLineHeight * 2) + compactCaptionLineSpacing
 
     // The live-caption panel is a floating overlay that sits on top of
     // arbitrary backdrops (a dark video, a black meeting window, a bright
@@ -1315,6 +1314,111 @@ private struct LiveCaptionErrorBanner: View {
                 .fill(Color.black.opacity(0.35))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.06)))
         )
+    }
+}
+
+private struct LiveCaptionCompactTextLine: NSViewRepresentable {
+    let text: String
+    let isPlaceholder: Bool
+    let lineLimit: Int
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.verticalScrollElasticity = .none
+        scrollView.horizontalScrollElasticity = .none
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+
+        let textView = NSTextView(frame: .zero)
+        textView.isEditable = false
+        textView.isSelectable = false
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.allowsUndo = false
+        textView.textContainerInset = .zero
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.lineBreakMode = .byWordWrapping
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+        context.coordinator.scrollView = scrollView
+        context.coordinator.apply(text: text, isPlaceholder: isPlaceholder)
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.apply(text: text, isPlaceholder: isPlaceholder)
+        context.coordinator.scrollToBottom()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var scrollView: NSScrollView?
+        weak var textView: NSTextView?
+        private var appliedText = ""
+        private var appliedPlaceholder = false
+
+        func apply(text: String, isPlaceholder: Bool) {
+            guard let textView else { return }
+            if text == appliedText && isPlaceholder == appliedPlaceholder {
+                scrollToBottom()
+                return
+            }
+
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = 0
+            paragraph.paragraphSpacing = 0
+            paragraph.lineBreakMode = .byWordWrapping
+            paragraph.alignment = .left
+
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(isPlaceholder ? 0.45 : 0.6)
+            shadow.shadowBlurRadius = 0.8
+            shadow.shadowOffset = .zero
+
+            textView.textStorage?.setAttributedString(NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: LiveCaptionFloatingPanel.compactCaptionFontSize, weight: isPlaceholder ? .medium : .semibold),
+                    .foregroundColor: NSColor.white.withAlphaComponent(isPlaceholder ? 0.70 : 0.96),
+                    .paragraphStyle: paragraph,
+                    .shadow: shadow,
+                ]
+            ))
+            appliedText = text
+            appliedPlaceholder = isPlaceholder
+            scrollToBottom()
+        }
+
+        func scrollToBottom() {
+            guard let scrollView,
+                  let docView = scrollView.documentView,
+                  let textView = textView,
+                  let textContainer = textView.textContainer else { return }
+            textView.layoutManager?.ensureLayout(for: textContainer)
+            let usedRect = textView.layoutManager?.usedRect(for: textContainer) ?? .zero
+            var frame = textView.frame
+            frame.size.width = scrollView.contentView.bounds.width
+            frame.size.height = max(scrollView.contentView.bounds.height, ceil(usedRect.height))
+            textView.frame = frame
+            let targetY = max(0, docView.frame.height - scrollView.contentView.bounds.height)
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
     }
 }
 
