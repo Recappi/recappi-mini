@@ -159,45 +159,49 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var compactBody: some View {
-        ZStack(alignment: .trailing) {
-            Color.clear
-                .frame(
-                    maxWidth: .infinity,
-                    minHeight: Self.compactCaptionTwoLineHeight,
-                    maxHeight: Self.compactCaptionTwoLineHeight
-                )
-                .overlay(alignment: .leading) {
-                    compactCaptionRowsView
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(compactAccessibilityText))
-                .accessibilityValue(Text(compactAccessibilityText))
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
+        // The compact window allows horizontal resize (contentMinSize 542 →
+        // maxSize 900 wide). Track the actual width via GeometryReader and size
+        // the caption rows to it, instead of pinning a fixed 530 that mismatched
+        // the full-width panel background and clipped the capsule corners when
+        // the window was wider/narrower (peng-xiao 6/4). Height stays fixed.
+        GeometryReader { proxy in
+            ZStack(alignment: .trailing) {
+                Color.clear
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: Self.compactCaptionTwoLineHeight,
+                        maxHeight: Self.compactCaptionTwoLineHeight
+                    )
+                    .overlay(alignment: .leading) {
+                        compactCaptionRowsView
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(compactAccessibilityText))
+                    .accessibilityValue(Text(compactAccessibilityText))
+                    .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaption)
 
-            HStack(alignment: .center, spacing: 7) {
-                compactLiveBadge
-                Text(timeText(recorder.elapsedSeconds))
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(glassTextSecondary)
-                    .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionElapsedTime)
-                captionControlButtons
+                HStack(alignment: .center, spacing: 7) {
+                    compactLiveBadge
+                    Text(timeText(recorder.elapsedSeconds))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(glassTextSecondary)
+                        .accessibilityIdentifier(AccessibilityIDs.Cloud.currentMeetingCaptionElapsedTime)
+                    captionControlButtons
+                }
+                .padding(.leading, 10)
+                .background(
+                    glassShape(Capsule(style: .continuous))
+                )
+                .opacity(chromeVisible ? 1 : 0)
+                .offset(x: chromeVisible ? 0 : 8)
+                .allowsHitTesting(chromeVisible)
+                .accessibilityHidden(!chromeVisible)
             }
-            .padding(.leading, 10)
-            .background(
-                glassShape(Capsule(style: .continuous))
-            )
-            .opacity(chromeVisible ? 1 : 0)
-            .offset(x: chromeVisible ? 0 : 8)
-            .allowsHitTesting(chromeVisible)
-            .accessibilityHidden(!chromeVisible)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        // Pin to nominal content width: the compact NSWindow is fixed to
-        // `defaultWindowSize`, so `.infinity` here would blow the
-        // SwiftUI fittingSize up to the host's available width.
-        .frame(width: mode.contentWidth, alignment: .leading)
         .onHover(perform: updateChromeVisibility)
     }
 
@@ -961,6 +965,9 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var compactCaptionRows: [CompactCaptionRow] {
+        // Row text is the full caption; the AppKit compact viewport
+        // (LiveCaptionCompactTextLine) wraps/clips it to whatever width it's
+        // laid out at, so the row model itself is width-independent.
         Self.compactCaptionRows(
             showsTranslation: liveCaptionShowsTranslation,
             paneVisibility: effectivePaneVisibility,
