@@ -70,6 +70,28 @@ private final class RecappiTooltipModel: ObservableObject {
     @Published var text: String = ""
     @Published var pillFrame: CGRect = .zero
     @Published var isVisible: Bool = false
+    /// Which edge of the pill carries the arrow that points back at the
+    /// hovered control. `.top` when the pill sits below its anchor (arrow
+    /// points up), `.bottom` when it sits above (arrow points down).
+    @Published var arrowEdge: TooltipArrowEdge = .top
+    /// Horizontal distance from the pill centre to the anchor centre. The
+    /// arrow tracks this so it stays under the button even when the pill is
+    /// clamped to the screen edge; `TooltipBubbleShape` clamps it to the
+    /// pill's rounded corners.
+    @Published var arrowOffset: CGFloat = 0
+}
+
+/// Visual constants shared between size estimation, placement, and the
+/// bubble shape so the reserved arrow strip always matches what's drawn.
+private enum TooltipMetrics {
+    static let cornerRadius: CGFloat = 8
+    static let arrowWidth: CGFloat = 12
+    static let arrowHeight: CGFloat = 5
+}
+
+enum TooltipArrowEdge: Equatable {
+    case top
+    case bottom
 }
 
 @MainActor
@@ -149,6 +171,8 @@ final class RecappiTooltipController {
         ensureCarrierWindow(frame: placement.carrierFrame, hostWindow: hostWindow)
         model.text = text
         model.pillFrame = placement.pillFrameInCarrier
+        model.arrowEdge = placement.arrowEdge
+        model.arrowOffset = placement.arrowOffset
         model.isVisible = false
         window?.orderFrontRegardless()
         installClickMonitorIfNeeded()
@@ -170,6 +194,8 @@ final class RecappiTooltipController {
         withAnimation(.smooth(duration: Self.carrierMorphDuration)) {
             model.text = text
             model.pillFrame = placement.pillFrameInCarrier
+            model.arrowEdge = placement.arrowEdge
+            model.arrowOffset = placement.arrowOffset
             model.isVisible = true
         }
     }
@@ -276,11 +302,16 @@ final class RecappiTooltipController {
         let belowFits = belowY >= visible.minY + inset
         let aboveFits = aboveY + tooltipSize.height <= visible.maxY - inset
 
+        // Screen space is y-up: a pill placed *below* the anchor carries its
+        // arrow on the top edge (pointing up at the control), and vice versa.
         let y: CGFloat
+        let arrowEdge: TooltipArrowEdge
         if belowFits {
             y = belowY
+            arrowEdge = .top
         } else if aboveFits {
             y = aboveY
+            arrowEdge = .bottom
         } else {
             // Neither side fits cleanly — choose whichever leaves more room
             // and clamp the corner so we are never partially off-screen.
@@ -288,8 +319,10 @@ final class RecappiTooltipController {
             let aboveRoom = visible.maxY - (aboveY + tooltipSize.height)
             if belowRoom >= aboveRoom {
                 y = max(visible.minY + inset, belowY)
+                arrowEdge = .top
             } else {
                 y = min(visible.maxY - tooltipSize.height - inset, aboveY)
+                arrowEdge = .bottom
             }
         }
 
@@ -300,19 +333,32 @@ final class RecappiTooltipController {
             width: pillFrameOnScreen.width,
             height: pillFrameOnScreen.height
         )
-        return TooltipPlacement(carrierFrame: visible, pillFrameInCarrier: pillFrameInCarrier)
+        // x grows the same way in screen and carrier space, so the centre
+        // delta carries over directly; the shape clamps it to the corners.
+        let arrowOffset = anchorOnScreen.midX - pillFrameOnScreen.midX
+        return TooltipPlacement(
+            carrierFrame: visible,
+            pillFrameInCarrier: pillFrameInCarrier,
+            arrowEdge: arrowEdge,
+            arrowOffset: arrowOffset
+        )
     }
 
     private func tooltipSize(for text: String) -> CGSize {
         let font = NSFont.systemFont(ofSize: 11, weight: .medium)
         let rawSize = (text as NSString).size(withAttributes: [.font: font])
-        return CGSize(width: ceil(rawSize.width) + 22, height: ceil(font.ascender - font.descender) + 14)
+        // Reserve the arrow strip on top of the body height so the pill body
+        // stays the same size whichever edge the arrow lands on.
+        let bodyHeight = ceil(font.ascender - font.descender) + 14
+        return CGSize(width: ceil(rawSize.width) + 22, height: bodyHeight + TooltipMetrics.arrowHeight)
     }
 }
 
 private struct TooltipPlacement {
     var carrierFrame: NSRect
     var pillFrameInCarrier: NSRect
+    var arrowEdge: TooltipArrowEdge
+    var arrowOffset: CGFloat
 }
 
 private final class RecappiTooltipWindow: NSPanel {
@@ -353,26 +399,198 @@ private struct RecappiTooltipContent: View {
                     .minimumScaleFactor(0.98)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
+                    // Keep the label inside the body, clear of the arrow strip.
+                    .padding(model.arrowEdge == .top ? .top : .bottom, TooltipMetrics.arrowHeight)
                     // `.opacity` content transition cross-fades the label
                     // when the string changes mid-flight, while the pill's
                     // frame moves inside a fixed carrier window.
                     .contentTransition(.opacity)
                     .frame(width: model.pillFrame.width, height: model.pillFrame.height)
                     .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        let shape = TooltipBubbleShape(
+                            cornerRadius: TooltipMetrics.cornerRadius,
+                            arrowWidth: TooltipMetrics.arrowWidth,
+                            arrowHeight: TooltipMetrics.arrowHeight,
+                            arrowEdge: model.arrowEdge,
+                            arrowOffset: model.arrowOffset
+                        )
+                        shape
                             .fill(.ultraThinMaterial)
                             .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(Palette.borderHairline, lineWidth: 0.5)
+                                shape.stroke(Palette.borderHairline, lineWidth: 0.5)
                             }
                             .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 3)
                     }
                     .position(x: model.pillFrame.midX, y: model.pillFrame.midY)
                     .transition(.opacity)
                     .animation(.smooth(duration: RecappiTooltipController.carrierMorphDuration), value: model.pillFrame)
+                    .animation(.smooth(duration: RecappiTooltipController.carrierMorphDuration), value: model.arrowOffset)
                     .animation(.smooth(duration: 0.14), value: model.text)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+}
+
+/// Rounded pill with a small arrow on the top or bottom edge that points
+/// back at the hovered control. Ported from cueboard's `TooltipKit`
+/// (`HoverTooltipBubbleShape`): the arrow tip is softened with a quad curve
+/// and its centre is clamped to the rounded corners so it never detaches
+/// from the body, even when the pill is pushed against a screen edge.
+private struct TooltipBubbleShape: Shape {
+    var cornerRadius: CGFloat
+    var arrowWidth: CGFloat
+    var arrowHeight: CGFloat
+    var arrowEdge: TooltipArrowEdge
+    var arrowOffset: CGFloat
+
+    var animatableData: CGFloat {
+        get { arrowOffset }
+        set { arrowOffset = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        switch arrowEdge {
+        case .top:
+            topArrowPath(in: rect)
+        case .bottom:
+            bottomArrowPath(in: rect)
+        }
+    }
+
+    private func bottomArrowPath(in rect: CGRect) -> Path {
+        let bodyMaxY = rect.maxY - arrowHeight
+        let bodyHeight = max(0, bodyMaxY - rect.minY)
+        let radius = min(cornerRadius, rect.width / 2, bodyHeight / 2)
+        let arrowHalfWidth = min(arrowWidth / 2, max(0, rect.width / 2 - radius))
+        let arrowCenterX = clampedArrowCenter(
+            proposed: rect.midX + arrowOffset,
+            minValue: rect.minX + radius + arrowHalfWidth,
+            maxValue: rect.maxX - radius - arrowHalfWidth
+        )
+        let tipHalfWidth: CGFloat = 2
+        let tipY = rect.maxY - 1.2
+
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY + radius),
+            control: CGPoint(x: rect.maxX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: bodyMaxY - radius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - radius, y: bodyMaxY),
+            control: CGPoint(x: rect.maxX, y: bodyMaxY)
+        )
+        path.addLine(to: CGPoint(x: arrowCenterX + arrowHalfWidth, y: bodyMaxY))
+        path.addLine(to: CGPoint(x: arrowCenterX + tipHalfWidth, y: tipY))
+        path.addQuadCurve(
+            to: CGPoint(x: arrowCenterX - tipHalfWidth, y: tipY),
+            control: CGPoint(x: arrowCenterX, y: rect.maxY + 0.2)
+        )
+        path.addLine(to: CGPoint(x: arrowCenterX - arrowHalfWidth, y: bodyMaxY))
+        path.addLine(to: CGPoint(x: rect.minX + radius, y: bodyMaxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: bodyMaxY - radius),
+            control: CGPoint(x: rect.minX, y: bodyMaxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + radius, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY)
+        )
+        path.closeSubpath()
+        return path
+    }
+
+    private func topArrowPath(in rect: CGRect) -> Path {
+        let bodyMinY = rect.minY + arrowHeight
+        let bodyHeight = max(0, rect.maxY - bodyMinY)
+        let radius = min(cornerRadius, rect.width / 2, bodyHeight / 2)
+        let arrowHalfWidth = min(arrowWidth / 2, max(0, rect.width / 2 - radius))
+        let arrowCenterX = clampedArrowCenter(
+            proposed: rect.midX + arrowOffset,
+            minValue: rect.minX + radius + arrowHalfWidth,
+            maxValue: rect.maxX - radius - arrowHalfWidth
+        )
+        let tipHalfWidth: CGFloat = 2
+        let tipY = rect.minY + 1.2
+
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + radius, y: bodyMinY))
+        path.addLine(to: CGPoint(x: arrowCenterX - arrowHalfWidth, y: bodyMinY))
+        path.addLine(to: CGPoint(x: arrowCenterX - tipHalfWidth, y: tipY))
+        path.addQuadCurve(
+            to: CGPoint(x: arrowCenterX + tipHalfWidth, y: tipY),
+            control: CGPoint(x: arrowCenterX, y: rect.minY - 0.2)
+        )
+        path.addLine(to: CGPoint(x: arrowCenterX + arrowHalfWidth, y: bodyMinY))
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: bodyMinY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: bodyMinY + radius),
+            control: CGPoint(x: rect.maxX, y: bodyMinY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - radius, y: rect.maxY),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.maxY - radius),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX, y: bodyMinY + radius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + radius, y: bodyMinY),
+            control: CGPoint(x: rect.minX, y: bodyMinY)
+        )
+        path.closeSubpath()
+        return path
+    }
+
+    private func clampedArrowCenter(proposed: CGFloat, minValue: CGFloat, maxValue: CGFloat) -> CGFloat {
+        guard minValue <= maxValue else {
+            return (minValue + maxValue) / 2
+        }
+        return min(max(proposed, minValue), maxValue)
+    }
+}
+
+#Preview("Tooltip arrow bubble") {
+    func sample(_ label: String, edge: TooltipArrowEdge, offset: CGFloat) -> some View {
+        let shape = TooltipBubbleShape(
+            cornerRadius: TooltipMetrics.cornerRadius,
+            arrowWidth: TooltipMetrics.arrowWidth,
+            arrowHeight: TooltipMetrics.arrowHeight,
+            arrowEdge: edge,
+            arrowOffset: offset
+        )
+        return Text(label)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .padding(edge == .top ? .top : .bottom, TooltipMetrics.arrowHeight)
+            .background {
+                shape
+                    .fill(.ultraThinMaterial)
+                    .overlay { shape.stroke(Color.white.opacity(0.12), lineWidth: 0.5) }
+                    .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+            }
+    }
+
+    return VStack(spacing: 26) {
+        sample("Start recording (⏎)", edge: .top, offset: 0)
+        sample("Centered above", edge: .bottom, offset: 0)
+        HStack(spacing: 22) {
+            sample("Clamped left", edge: .top, offset: -40)
+            sample("Clamped right", edge: .top, offset: 40)
+        }
+    }
+    .padding(40)
+    .frame(width: 360)
+    .background(Color.black.opacity(0.25))
+    .preferredColorScheme(.dark)
 }
