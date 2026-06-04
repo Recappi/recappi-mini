@@ -3,6 +3,11 @@ import AppKit
 import CoreAudio
 @preconcurrency import ScreenCaptureKit
 
+private struct AudioAppBundleMetadata {
+    let displayName: String?
+    let icon: NSImage?
+}
+
 @MainActor
 final class AudioRecorder: NSObject, ObservableObject {
     @Published var state: RecorderState = .idle
@@ -96,6 +101,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     static let spectrumBucketCount = AudioSpectrumConfiguration.bucketCount
     private static let historySampleInterval: CFTimeInterval = 0.18
+    private static var audioAppBundleMetadataByID: [String: AudioAppBundleMetadata] = [:]
 
     var currentSessionDir: URL? { sessionDir }
 
@@ -456,15 +462,35 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     /// Prefer the real display name from the application bundle so e.g.
     /// "Google Chrome Helper (Renderer)" collapses to "Google Chrome".
-    private static func displayName(for bundleID: String, fallback: String) -> String {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID),
-           let bundle = Bundle(url: url),
-           let name = (bundle.localizedInfoDictionary?["CFBundleDisplayName"] as? String)
-               ?? (bundle.infoDictionary?["CFBundleDisplayName"] as? String)
-               ?? (bundle.infoDictionary?["CFBundleName"] as? String) {
-            return name
+    private static func displayName(
+        from metadata: AudioAppBundleMetadata,
+        bundleID: String,
+        fallback: String
+    ) -> String {
+        metadata.displayName ?? BundleCollapser.browserDisplayName(for: bundleID, fallback: fallback)
+    }
+
+    private static func audioAppBundleMetadata(for bundleID: String) -> AudioAppBundleMetadata {
+        if let cached = audioAppBundleMetadataByID[bundleID] {
+            return cached
         }
-        return BundleCollapser.browserDisplayName(for: bundleID, fallback: fallback)
+
+        let metadata = resolveAudioAppBundleMetadata(for: bundleID)
+        audioAppBundleMetadataByID[bundleID] = metadata
+        return metadata
+    }
+
+    private static func resolveAudioAppBundleMetadata(for bundleID: String) -> AudioAppBundleMetadata {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return AudioAppBundleMetadata(displayName: nil, icon: nil)
+        }
+
+        let bundle = Bundle(url: url)
+        let name = (bundle?.localizedInfoDictionary?["CFBundleDisplayName"] as? String)
+            ?? (bundle?.infoDictionary?["CFBundleDisplayName"] as? String)
+            ?? (bundle?.infoDictionary?["CFBundleName"] as? String)
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        return AudioAppBundleMetadata(displayName: name, icon: icon)
     }
 
     private func applyRunningApps(_ apps: [AudioApp]) {
@@ -577,11 +603,11 @@ final class AudioRecorder: NSObject, ObservableObject {
         active: Set<String>,
         scApp: SCRunningApplication?
     ) -> AudioApp? {
-        let name = displayName(for: bundleID, fallback: fallbackName)
+        let metadata = audioAppBundleMetadata(for: bundleID)
+        let name = displayName(from: metadata, bundleID: bundleID, fallback: fallbackName)
         guard !name.isEmpty else { return nil }
 
-        let rawIcon = NSWorkspace.shared.icon(forFile:
-            NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?.path ?? "")
+        let rawIcon = (metadata.icon?.copy() as? NSImage) ?? NSImage()
         rawIcon.size = NSSize(width: 16, height: 16)
 
         return AudioApp(

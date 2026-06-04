@@ -41,10 +41,15 @@ final class BackdropLuminanceObserver: ObservableObject {
     /// across the threshold every tick.
     private let hysteresisInterval: TimeInterval = 1.0
 
-    /// How often we re-sample. A panel doesn't move per frame; 0.5 s is
-    /// plenty to feel responsive to backdrop changes without burning
-    /// power on a CGWindowListCreateImage every tick.
-    private let sampleInterval: TimeInterval = 0.5
+    /// Heartbeat re-sample cadence. The panel is anchored (top-right) and
+    /// doesn't move on its own, so the verdict only needs to change when
+    /// the backdrop *content* shifts under a static panel (a video plays,
+    /// another window repaints). User-driven changes (dragging the panel,
+    /// screen/space changes) are handled event-driven below, so this
+    /// heartbeat can be slow. A fixed-2 Hz poll was the dominant CPU cost
+    /// during recording — each tick runs a full ScreenCaptureKit
+    /// roundtrip, which also contends with the audio-capture SCStream.
+    private let sampleInterval: TimeInterval = 2.0
 
     /// Pending verdict that hasn't yet survived the hysteresis window.
     private var pendingVerdict: Bool?
@@ -52,8 +57,21 @@ final class BackdropLuminanceObserver: ObservableObject {
 
     private var samplingTimer: Timer?
     private weak var trackedWindow: NSWindow?
-    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private var samplingInFlight: Bool = false
+
+    /// Event-driven re-sample tokens. These fire an immediate sample on the
+    /// only moments the backdrop genuinely changes under user action, which
+    /// is what lets the heartbeat above stay slow without feeling laggy.
+    private var windowMoveToken: NSObjectProtocol?
+    private var screenParamsToken: NSObjectProtocol?
+    private var spaceChangeToken: NSObjectProtocol?
+
+    /// Mirrors `FloatingPanel.applyAdaptiveAppearance`: in a dark system
+    /// appearance the panel inherits the host appearance and the backdrop
+    /// verdict is discarded, so sampling is pure wasted work.
+    private var systemUsesDarkAppearance: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
 
     /// Start sampling the backdrop beneath the given window. Idempotent;
     /// calling again with the same window is a no-op.
@@ -78,6 +96,7 @@ final class BackdropLuminanceObserver: ObservableObject {
     func detach() {
         samplingTimer?.invalidate()
         samplingTimer = nil
+        removeEventObservers()
         trackedWindow = nil
         pendingVerdict = nil
         pendingVerdictStart = nil
@@ -85,6 +104,7 @@ final class BackdropLuminanceObserver: ObservableObject {
 
     private func startTimer() {
         samplingTimer?.invalidate()
+        installEventObservers()
         // Sample once immediately so the chrome doesn't briefly flash
         // the default before the first tick lands.
         sampleNow()
@@ -95,27 +115,80 @@ final class BackdropLuminanceObserver: ObservableObject {
         }
     }
 
+    /// Subscribe to the events that actually change the backdrop so the
+    /// heartbeat can run slowly. Each fires a coalesced `sampleNow()`
+    /// (which no-ops while a sample is in flight or in dark appearance).
+    private func installEventObservers() {
+        removeEventObservers()
+        let center = NotificationCenter.default
+        if let window = trackedWindow {
+            windowMoveToken = center.addObserver(
+                forName: NSWindow.didMoveNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.sampleNow() }
+            }
+        }
+        screenParamsToken = center.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.sampleNow() }
+        }
+        spaceChangeToken = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.sampleNow() }
+        }
+    }
+
+    private func removeEventObservers() {
+        if let token = windowMoveToken {
+            NotificationCenter.default.removeObserver(token)
+            windowMoveToken = nil
+        }
+        if let token = screenParamsToken {
+            NotificationCenter.default.removeObserver(token)
+            screenParamsToken = nil
+        }
+        if let token = spaceChangeToken {
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+            spaceChangeToken = nil
+        }
+    }
+
     private func sampleNow() {
         guard let window = trackedWindow, window.isVisible else { return }
+        // Skip the ScreenCaptureKit roundtrip when the verdict won't be
+        // used. The slow heartbeat keeps ticking, so switching back to a
+        // light system appearance self-corrects within one interval.
+        guard !systemUsesDarkAppearance else { return }
         guard !samplingInFlight else { return }
 
         let frame = window.frame
         guard frame.width > 4, frame.height > 4 else { return }
         let windowNumber = CGWindowID(window.windowNumber)
         guard let display = window.screen else { return }
+        let displayFrame = display.frame
+        let threshold = darknessThreshold
 
         samplingInFlight = true
-        Task { [weak self] in
+        Task.detached(priority: .utility) { [weak self] in
             let verdict = await Self.sampleBackdropVerdict(
                 windowFrame: frame,
                 excludingWindowID: windowNumber,
-                screen: display,
-                threshold: self?.darknessThreshold ?? 0.55,
-                ciContext: self?.ciContext
+                displayFrame: displayFrame,
+                threshold: threshold
             )
             await MainActor.run { [weak self] in
-                self?.samplingInFlight = false
-                self?.applyVerdict(verdict)
+                guard let self else { return }
+                self.samplingInFlight = false
+                guard self.trackedWindow?.windowNumber == Int(windowNumber) else { return }
+                self.applyVerdict(verdict)
             }
         }
     }
@@ -123,12 +196,11 @@ final class BackdropLuminanceObserver: ObservableObject {
     /// Performs the ScreenCaptureKit roundtrip off the main actor. Always
     /// returns a verdict — falls back to `true` (dark chrome) on any
     /// error, since that's the safe default per peng-xiao's complaint.
-    private static func sampleBackdropVerdict(
+    private nonisolated static func sampleBackdropVerdict(
         windowFrame: CGRect,
         excludingWindowID: CGWindowID,
-        screen: NSScreen,
-        threshold: Double,
-        ciContext: CIContext?
+        displayFrame: CGRect,
+        threshold: Double
     ) async -> Bool {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(
@@ -147,7 +219,6 @@ final class BackdropLuminanceObserver: ObservableObject {
             let configuration = SCStreamConfiguration()
             // Translate Cocoa screen-space (y from bottom) to SCStream's
             // flipped display-local space (y from top of `display.frame`).
-            let displayFrame = screen.frame
             let displayLocalX = windowFrame.origin.x - displayFrame.origin.x
             let displayLocalY = (displayFrame.maxY - windowFrame.maxY)
             configuration.sourceRect = CGRect(
@@ -165,7 +236,7 @@ final class BackdropLuminanceObserver: ObservableObject {
                 contentFilter: filter,
                 configuration: configuration
             )
-            guard let context = ciContext else { return true }
+            let context = CIContext(options: [.useSoftwareRenderer: false])
             let luminance = averageLuminance(of: cgImage, using: context)
             return luminance < threshold
         } catch {
@@ -173,7 +244,7 @@ final class BackdropLuminanceObserver: ObservableObject {
         }
     }
 
-    private static func averageLuminance(of cgImage: CGImage, using context: CIContext) -> Double {
+    private nonisolated static func averageLuminance(of cgImage: CGImage, using context: CIContext) -> Double {
         let ciImage = CIImage(cgImage: cgImage)
         let extent = ciImage.extent
         guard let filter = CIFilter(name: "CIAreaAverage") else { return 0.5 }

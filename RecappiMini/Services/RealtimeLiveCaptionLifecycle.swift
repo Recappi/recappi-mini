@@ -746,14 +746,7 @@ actor RealtimeLiveCaptionActor {
         let eventType = mode.isTranslation
             ? "session.input_audio_buffer.append"
             : "input_audio_buffer.append"
-        let event: [String: Any] = [
-            "type": eventType,
-            "audio": payload.base64EncodedString(),
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: event),
-              let text = String(data: data, encoding: .utf8) else {
-            return
-        }
+        let text = Self.audioAppendEventText(eventType: eventType, payload: payload)
         // Stall-watchdog accounting: count this as a voiced buffer
         // when the rough RMS estimate trips the same threshold the
         // legacy class uses. The watchdog needs both "we are sending
@@ -794,6 +787,10 @@ actor RealtimeLiveCaptionActor {
                 await commitPendingAudio(on: socket)
             }
         }
+    }
+
+    private static func audioAppendEventText(eventType: String, payload: Data) -> String {
+        "{\"type\":\"\(eventType)\",\"audio\":\"\(payload.base64EncodedString())\"}"
     }
 
     /// Escalate a `socket.send(...)` failure into the lifecycle's
