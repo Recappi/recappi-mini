@@ -52,6 +52,20 @@ enum Palette {
     static let labelTertiary   = dynamicAlpha(light: (0x000000, 0.40), dark: (0xFFFFFF, 0.38))
     static let labelQuaternary = dynamicAlpha(light: (0x000000, 0.20), dark: (0xFFFFFF, 0.16))
 
+    // MARK: - Glass-shell text (recording floating panel)
+    //
+    // The recording pill / status toast float on a translucent glass shell over
+    // arbitrary desktop content. The `BackdropLuminanceObserver` (task #185)
+    // flips this shell's appearance by average backdrop luminance, so text here
+    // still tracks light/dark — but the regular `label*` weak tiers wash out
+    // when a busy/colorful wallpaper bleeds through the glass (peng-xiao 6/4).
+    // These carry the same appearance behavior with higher minimum contrast,
+    // especially the tertiary tier. Use them for non-semantic copy on the
+    // recording shell; keep `label*` for opaque app pages (Cloud/Settings).
+    static let recordingGlassTextPrimary   = dynamicAlpha(light: (0x000000, 0.95), dark: (0xFFFFFF, 0.95))
+    static let recordingGlassTextSecondary = dynamicAlpha(light: (0x000000, 0.78), dark: (0xFFFFFF, 0.80))
+    static let recordingGlassTextTertiary  = dynamicAlpha(light: (0x000000, 0.62), dark: (0xFFFFFF, 0.64))
+
     // MARK: - Accent
 
     /// Recappi green should not be the same physical color in both

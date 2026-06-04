@@ -55,9 +55,9 @@ struct DoneState: View {
             Text(formatTime(result.duration))
                 .font(.system(size: 11, design: .monospaced))
                 .monospacedDigit()
-                // Bumped tertiary→secondary: at 0.38 alpha the time washed out
-                // on the translucent panel over a busy backdrop (peng-xiao 6/4).
-                .foregroundStyle(Color.dtLabelSecondary)
+                // Backdrop-safe glass text (tertiary tier) — the plain label
+                // tiers washed out over a busy wallpaper through the glass.
+                .foregroundStyle(DT.recordingGlassTextTertiary)
 
             Spacer(minLength: 10)
 
@@ -81,14 +81,14 @@ struct DoneState: View {
         case .syncFailed, .transcriptionFailed:
             return Color(red: 0.95, green: 0.46, blue: 0.32)
         case .savedLocally, .uploading, .pending, .queued, .transcribing:
-            return Color.dtLabelSecondary
+            return DT.recordingGlassTextSecondary
         }
     }
 
     private var separator: some View {
         Text("·")
             .font(.system(size: 11))
-            .foregroundStyle(Color.dtLabelTertiary)
+            .foregroundStyle(DT.recordingGlassTextTertiary)
     }
 
     private var primaryActionChip: some View {
@@ -117,9 +117,9 @@ struct DoneState: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 10.5, weight: .medium))
-                // Bumped secondary→primary so "Dismiss" stays legible on the
-                // translucent panel over a busy backdrop (peng-xiao 6/4).
-                .foregroundStyle(Palette.labelPrimary)
+                // Backdrop-safe glass text (secondary tier) so "Dismiss" stays
+                // legible on the translucent shell over a busy backdrop.
+                .foregroundStyle(DT.recordingGlassTextSecondary)
                 .padding(.horizontal, 4)
                 .frame(height: Metrics.actionHeight)
                 .contentShape(Rectangle())

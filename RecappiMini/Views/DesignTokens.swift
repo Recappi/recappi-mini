@@ -51,6 +51,15 @@ enum DT {
     /// either appearance.
     static let recordingChip = Palette.surfaceChip
 
+    /// Backdrop-safe text tiers for non-semantic copy on the recording glass
+    /// shell (pill / status toast). Appearance-aware like `Palette.label*` but
+    /// with higher minimum contrast so weak text doesn't wash out when a busy
+    /// wallpaper bleeds through the glass (peng-xiao 6/4). Semantic colors
+    /// (Ready green / destructive red / live blue) stay as-is.
+    static let recordingGlassTextPrimary = Palette.recordingGlassTextPrimary
+    static let recordingGlassTextSecondary = Palette.recordingGlassTextSecondary
+    static let recordingGlassTextTertiary = Palette.recordingGlassTextTertiary
+
     /// Recording waveform accent. Keep this in the Recappi green family, but
     /// avoid the old neon mint on light/glass surfaces where it blooms too
     /// brightly.
