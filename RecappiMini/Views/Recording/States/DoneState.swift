@@ -55,7 +55,9 @@ struct DoneState: View {
             Text(formatTime(result.duration))
                 .font(.system(size: 11, design: .monospaced))
                 .monospacedDigit()
-                .foregroundStyle(Color.dtLabelTertiary)
+                // Bumped tertiary→secondary: at 0.38 alpha the time washed out
+                // on the translucent panel over a busy backdrop (peng-xiao 6/4).
+                .foregroundStyle(Color.dtLabelSecondary)
 
             Spacer(minLength: 10)
 
@@ -115,7 +117,9 @@ struct DoneState: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(Color.dtLabelSecondary)
+                // Bumped secondary→primary so "Dismiss" stays legible on the
+                // translucent panel over a busy backdrop (peng-xiao 6/4).
+                .foregroundStyle(Palette.labelPrimary)
                 .padding(.horizontal, 4)
                 .frame(height: Metrics.actionHeight)
                 .contentShape(Rectangle())
