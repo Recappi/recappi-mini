@@ -35,6 +35,24 @@ enum LiveCaptionPanelMode: String {
         }
     }
 
+    var minimumWindowSize: NSSize {
+        switch self {
+        case .expanded:
+            return defaultWindowSize
+        case .compact:
+            return NSSize(width: 300, height: defaultWindowSize.height)
+        }
+    }
+
+    var maximumWindowSize: NSSize {
+        switch self {
+        case .expanded:
+            return NSSize(width: 900, height: 1200)
+        case .compact:
+            return NSSize(width: 900, height: defaultWindowSize.height)
+        }
+    }
+
     var windowPadding: CGFloat {
         switch self {
         case .expanded:
@@ -159,7 +177,7 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var compactBody: some View {
-        // The compact window allows horizontal resize (contentMinSize 542 →
+        // The compact window allows horizontal resize (contentMinSize 300 →
         // maxSize 900 wide). Track the actual width via GeometryReader and size
         // the caption rows to it, instead of pinning a fixed 530 that mismatched
         // the full-width panel background and clipped the capsule corners when

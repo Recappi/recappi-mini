@@ -2817,6 +2817,43 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertLessThanOrEqual(targetFrame.maxY, visibleFrame.maxY - 8)
     }
 
+    func testLiveCaptionCompactResizeBoundsKeepHeightFixedAndAllowNarrowWidth() {
+        XCTAssertEqual(LiveCaptionPanelMode.compact.defaultWindowSize.width, 542)
+        XCTAssertEqual(LiveCaptionPanelMode.compact.defaultWindowSize.height, 94)
+        XCTAssertEqual(LiveCaptionPanelMode.compact.minimumWindowSize.width, 300)
+        XCTAssertEqual(LiveCaptionPanelMode.compact.minimumWindowSize.height, 94)
+        XCTAssertEqual(LiveCaptionPanelMode.compact.maximumWindowSize.width, 900)
+        XCTAssertEqual(LiveCaptionPanelMode.compact.maximumWindowSize.height, 94)
+    }
+
+    @MainActor
+    func testLiveCaptionCompactPanelKeepsHiddenTitlebarOutOfFrameBounds() {
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: LiveCaptionPanelMode.compact.defaultWindowSize),
+            styleMask: AppDelegate.liveCaptionPanelStyleMask,
+            backing: .buffered,
+            defer: false
+        )
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.contentMinSize = LiveCaptionPanelMode.compact.minimumWindowSize
+        panel.contentMaxSize = LiveCaptionPanelMode.compact.maximumWindowSize
+        panel.minSize = panel.frameRect(
+            forContentRect: NSRect(origin: .zero, size: LiveCaptionPanelMode.compact.minimumWindowSize)
+        ).size
+        panel.maxSize = panel.frameRect(
+            forContentRect: NSRect(origin: .zero, size: LiveCaptionPanelMode.compact.maximumWindowSize)
+        ).size
+
+        XCTAssertTrue(AppDelegate.liveCaptionPanelStyleMask.contains(.fullSizeContentView))
+        XCTAssertEqual(panel.frame.size.width, 542)
+        XCTAssertEqual(panel.frame.size.height, 94)
+        XCTAssertEqual(panel.minSize.width, 300)
+        XCTAssertEqual(panel.minSize.height, 94)
+        XCTAssertEqual(panel.maxSize.width, 900)
+        XCTAssertEqual(panel.maxSize.height, 94)
+    }
+
     func testLiveCaptionStreamTitlesIncludeRoleAndLanguage() {
         XCTAssertEqual(
             LiveCaptionFloatingPanel.streamTitle(role: "Original", languageShortTitle: "EN"),

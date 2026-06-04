@@ -163,6 +163,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     @Published private(set) var isLiveCaptionPanelPresented = false
     @Published private(set) var liveCaptionPanelMode: LiveCaptionPanelMode = .expanded
 
+    nonisolated static let liveCaptionPanelStyleMask: NSWindow.StyleMask = [
+        .nonactivatingPanel,
+        .titled,
+        .resizable,
+        .fullSizeContentView,
+    ]
+
     private var effectiveActiveAudioBundleIDs: Set<String> {
         Set(recorder.runningApps.lazy.filter(\.isActive).map(\.id))
     }
@@ -1193,16 +1200,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         // `LiveCaptionFloatingPanel` then reads that real height.
         hostingView.sizingOptions = []
 
-        // `.titled` + `.resizable` (without `.fullSizeContentView`) is
-        // what gives us standard NSWindow edge-drag resize handles —
-        // a pure `.borderless` panel does not honor `.resizable` on
-        // macOS. The title chrome is hidden below so visually it still
-        // reads as a floating panel.
+        // `.titled` + `.resizable` gives standard NSWindow edge-drag resize
+        // handles; `.fullSizeContentView` keeps the hidden titlebar from
+        // adding a 32pt chrome band to the compact caption strip.
         let window = WindowFactory.createPanel(
             contentView: hostingView,
             spec: WindowFactory.PanelSpec(
                 contentRect: NSRect(origin: .zero, size: liveCaptionPanelMode.defaultWindowSize),
-                styleMask: [.nonactivatingPanel, .titled, .resizable],
+                styleMask: Self.liveCaptionPanelStyleMask,
                 title: "Recappi Live Captions",
                 hasShadow: true,
                 titleVisibility: .hidden,
@@ -1231,30 +1236,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     /// Width/height floor + ceiling for the live caption NSPanel.
     /// Expanded reserves space for the header + a usable viewport;
-    /// compact pins to its nominal default so the two-line caption +
-    /// control cluster cannot be squashed.
+    /// compact keeps height fixed while allowing a narrower horizontal
+    /// resize range for short lyrics-style captions.
     private func applyLiveCaptionContentSizeConstraints(_ window: NSWindow, mode: LiveCaptionPanelMode) {
-        switch mode {
-        case .expanded:
-            window.contentMinSize = mode.defaultWindowSize
-            window.contentMaxSize = NSSize(width: 900, height: 1200)
-        case .compact:
-            window.contentMinSize = mode.defaultWindowSize
-            window.contentMaxSize = NSSize(width: 900, height: mode.defaultWindowSize.height)
-        }
+        let minimumSize = mode.minimumWindowSize
+        let maximumSize = mode.maximumWindowSize
+        window.contentMinSize = minimumSize
+        window.contentMaxSize = maximumSize
+        window.minSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: minimumSize)).size
+        window.maxSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: maximumSize)).size
     }
 
     private func liveCaptionResizeFrameSize(_ window: NSWindow, requestedFrameSize: NSSize) -> NSSize {
         let requestedFrameRect = NSRect(origin: .zero, size: requestedFrameSize)
         var requestedContentRect = window.contentRect(forFrameRect: requestedFrameRect)
-        let minContentSize = liveCaptionPanelMode.defaultWindowSize
-        let maxContentSize: NSSize
-        switch liveCaptionPanelMode {
-        case .expanded:
-            maxContentSize = NSSize(width: 900, height: 1200)
-        case .compact:
-            maxContentSize = NSSize(width: 900, height: minContentSize.height)
-        }
+        let minContentSize = liveCaptionPanelMode.minimumWindowSize
+        let maxContentSize = liveCaptionPanelMode.maximumWindowSize
 
         requestedContentRect.size.width = min(
             max(requestedContentRect.size.width, minContentSize.width),
@@ -2049,6 +2046,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func windowDidResize(_ notification: Notification) {
+        if let window = notification.object as? NSWindow,
+           window === managedWindows.liveCaptionWindow {
+            let clampedSize = liveCaptionResizeFrameSize(window, requestedFrameSize: window.frame.size)
+            if abs(clampedSize.width - window.frame.width) > 0.5
+                || abs(clampedSize.height - window.frame.height) > 0.5 {
+                var frame = window.frame
+                frame.size = clampedSize
+                window.setFrame(frame, display: true)
+            }
+        }
         syncPanelVisibility()
     }
 
