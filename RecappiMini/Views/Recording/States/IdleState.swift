@@ -77,7 +77,7 @@ struct IdleState: View {
         return HStack(spacing: 4) {
             Text(parts.prefix)
                 .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(Color.dtLabelSecondary)
+                .foregroundStyle(DT.recordingGlassTextSecondary)
                 .lineLimit(1)
 
             if let source = parts.source {
@@ -90,7 +90,7 @@ struct IdleState: View {
                 }
                 Text(source)
                     .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(Color.dtLabelSecondary)
+                    .foregroundStyle(DT.recordingGlassTextSecondary)
                     .lineLimit(1)
             }
         }

@@ -20,13 +20,13 @@ struct AudioSourcePill: View {
                 }
                 Text(currentLabel)
                     .font(.system(size: 12.5))
-                    .foregroundStyle(Color.dtLabel)
+                    .foregroundStyle(DT.recordingGlassTextPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Color.dtLabelSecondary)
+                    .foregroundStyle(DT.recordingGlassTextSecondary)
             }
             .padding(.leading, 9)
             .padding(.trailing, 7)

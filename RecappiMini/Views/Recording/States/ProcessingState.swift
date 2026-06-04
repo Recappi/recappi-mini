@@ -20,12 +20,12 @@ struct ProcessingState: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
                         .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(Color.dtLabel)
+                        .foregroundStyle(DT.recordingGlassTextPrimary)
                         .accessibilityIdentifier(AccessibilityIDs.Panel.processingTitle)
                     Text(step)
                         .font(.system(size: 11, design: .monospaced))
                         .monospacedDigit()
-                        .foregroundStyle(Color.dtLabelSecondary)
+                        .foregroundStyle(DT.recordingGlassTextSecondary)
                         .accessibilityIdentifier(AccessibilityIDs.Panel.processingDetail)
                 }
 

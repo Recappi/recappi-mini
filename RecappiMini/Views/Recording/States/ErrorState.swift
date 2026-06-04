@@ -21,24 +21,27 @@ struct ErrorState: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(Color.dtLabel)
+                        .foregroundStyle(DT.recordingGlassTextPrimary)
                         .accessibilityIdentifier(AccessibilityIDs.Panel.errorTitle)
                     Text(message)
                         .font(.system(size: 11.5))
-                        .foregroundStyle(Color.dtLabelSecondary)
+                        .foregroundStyle(DT.recordingGlassTextSecondary)
                         .lineLimit(4)
                         .fixedSize(horizontal: false, vertical: true)
                     if let technicalDetails {
                         Text(technicalDetails)
                             .font(.system(size: 10.5, design: .monospaced))
-                            .foregroundStyle(Color.dtLabelTertiary)
+                            .foregroundStyle(DT.recordingGlassTextTertiary)
                             .lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 5)
                             .background(
+                                // Independent subtle glass fill, not derived from
+                                // the text token, so the detail box stays readable
+                                // regardless of the foreground tier.
                                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(Color.dtLabel.opacity(0.035))
+                                    .fill(Color.black.opacity(0.18))
                             )
                             .padding(.top, 3)
                     }

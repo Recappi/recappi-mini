@@ -44,10 +44,10 @@ struct RecordingState: View {
                 Text(formatTime(recorder.elapsedSeconds))
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .monospacedDigit()
-                    .foregroundStyle(Palette.labelPrimary)
+                    .foregroundStyle(DT.recordingGlassTextPrimary)
                 Text("·")
                     .font(.system(size: 11))
-                    .foregroundStyle(Palette.labelTertiary)
+                    .foregroundStyle(DT.recordingGlassTextTertiary)
                 recordingSourceView
                 Spacer(minLength: 0)
                 if appDelegate.canShowLiveCaptionPanel {
@@ -121,7 +121,7 @@ struct RecordingState: View {
 
             Text("Meeting ended?")
                 .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(Palette.labelPrimary)
+                .foregroundStyle(DT.recordingGlassTextPrimary)
                 .lineLimit(1)
                 .layoutPriority(1)
 
@@ -156,7 +156,7 @@ struct RecordingState: View {
 
             Text("Discard recording?")
                 .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(Palette.labelPrimary)
+                .foregroundStyle(DT.recordingGlassTextPrimary)
                 .lineLimit(1)
                 .layoutPriority(1)
 
@@ -206,7 +206,7 @@ struct RecordingState: View {
                     .foregroundStyle(
                         recorder.includesMicrophoneAudio
                             ? DT.recordingLiveBlue
-                            : Palette.labelTertiary
+                            : DT.recordingGlassTextTertiary
                     )
                     .frame(width: 28, height: 28)
                     .animation(DT.motionAware(DT.ease(0.16)), value: recorder.includesMicrophoneAudio)
@@ -316,7 +316,7 @@ struct RecordingState: View {
 
             Text(recordingSourceLabel)
                 .font(.system(size: 11))
-                .foregroundStyle(Palette.labelSecondary)
+                .foregroundStyle(DT.recordingGlassTextSecondary)
                 .lineLimit(1)
         }
         .recappiTooltip(recordingSourceIcon == nil ? "Recording all system audio" : "Recording \(recordingSourceLabel)")
@@ -372,7 +372,7 @@ private struct RecordingInlineConfirmButtonStyle: ButtonStyle {
         var body: some View {
             label
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(destructive ? DT.recordingDestructiveRed : Palette.labelPrimary)
+                .foregroundStyle(destructive ? DT.recordingDestructiveRed : DT.recordingGlassTextPrimary)
                 .padding(.horizontal, 8)
                 .frame(height: 24)
                 .background(
