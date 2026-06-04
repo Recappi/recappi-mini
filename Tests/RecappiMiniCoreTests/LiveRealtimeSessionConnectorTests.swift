@@ -198,6 +198,55 @@ final class LiveRealtimeSessionConnectorTests: XCTestCase {
         XCTAssertEqual(URLSessionWebSocketTask.CloseCode(rawValue: 1000), .normalClosure)
     }
 
+    func testURLSessionWebSocketSocketPingIgnoresDuplicateCompletion() async throws {
+        let completion = PingCompletionBox()
+        let ping = Task {
+            try await URLSessionWebSocketSocket.awaitURLSessionPingForTesting { callback in
+                completion.store(callback)
+            }
+        }
+
+        while !completion.hasCallback {
+            await Task.yield()
+        }
+
+        completion.resume(nil)
+        completion.resume(NSError(
+            domain: NSPOSIXErrorDomain,
+            code: 53,
+            userInfo: [NSLocalizedDescriptionKey: "Software caused connection abort"]
+        ))
+
+        try await ping.value
+    }
+
+    func testURLSessionWebSocketSocketPingIgnoresDuplicateSuccessAfterError() async {
+        struct PingError: Error, Equatable {}
+
+        let completion = PingCompletionBox()
+        let ping = Task {
+            try await URLSessionWebSocketSocket.awaitURLSessionPingForTesting { callback in
+                completion.store(callback)
+            }
+        }
+
+        while !completion.hasCallback {
+            await Task.yield()
+        }
+
+        completion.resume(PingError())
+        completion.resume(nil)
+
+        do {
+            try await ping.value
+            XCTFail("The first ping completion error should win.")
+        } catch let error as PingError {
+            XCTAssertEqual(error, PingError())
+        } catch {
+            XCTFail("Unexpected ping error: \(error)")
+        }
+    }
+
     // MARK: - Bugbot Round 2 Finding B — URLSession retain cycle
 
     /// `URLSession` strongly retains its delegate (Apple's documented
@@ -311,6 +360,32 @@ final class LiveRealtimeSessionConnectorTests: XCTestCase {
         ]
         // swiftlint:disable:next force_try
         return try! JSONSerialization.data(withJSONObject: payload)
+    }
+}
+
+private final class PingCompletionBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var callback: (@Sendable (Error?) -> Void)?
+
+    var hasCallback: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return callback != nil
+    }
+
+    func store(_ callback: @escaping @Sendable (Error?) -> Void) {
+        lock.lock()
+        self.callback = callback
+        lock.unlock()
+    }
+
+    func resume(_ error: Error?) {
+        let callbackToCall: (@Sendable (Error?) -> Void)? = {
+            lock.lock()
+            defer { lock.unlock() }
+            return callback
+        }()
+        callbackToCall?(error)
     }
 }
 

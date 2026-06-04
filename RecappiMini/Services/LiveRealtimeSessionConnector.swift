@@ -177,13 +177,20 @@ final class URLSessionWebSocketSocket: NSObject, RealtimeSocket, URLSessionWebSo
 
     func sendPing() async throws {
         let task = self.task
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        try await Self.awaitURLSessionPing { completion in
             task.sendPing { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
+                completion(error)
+            }
+        }
+    }
+
+    private static func awaitURLSessionPing(
+        _ startPing: (@escaping @Sendable (Error?) -> Void) -> Void
+    ) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let gate = PingContinuationGate(continuation: continuation)
+            startPing { error in
+                gate.resume(with: error)
             }
         }
     }
@@ -347,7 +354,35 @@ final class URLSessionWebSocketSocket: NSObject, RealtimeSocket, URLSessionWebSo
     func signalClosedForTesting() {
         signalClosed()
     }
+
+    static func awaitURLSessionPingForTesting(
+        _ startPing: (@escaping @Sendable (Error?) -> Void) -> Void
+    ) async throws {
+        try await awaitURLSessionPing(startPing)
+    }
 #endif
+}
+
+private final class PingContinuationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    init(continuation: CheckedContinuation<Void, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(with error: Error?) {
+        let continuationToResume = lock.withLock { () -> CheckedContinuation<Void, Error>? in
+            defer { continuation = nil }
+            return continuation
+        }
+        guard let continuationToResume else { return }
+        if let error {
+            continuationToResume.resume(throwing: error)
+        } else {
+            continuationToResume.resume()
+        }
+    }
 }
 
 private extension NSLock {
