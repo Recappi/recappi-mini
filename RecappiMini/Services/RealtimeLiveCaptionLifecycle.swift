@@ -195,6 +195,43 @@ actor RealtimeLiveCaptionActor {
     /// (or any timeline mutation runs), we retry the placement.
     /// Mirrors the legacy class's `pendingPreviousItemIDByKey`.
     private var pendingPreviousItemIDByKey: [RealtimeTranscriptKey: String] = [:]
+    /// Per-item normalization memo (perf pass). `publishTimelineSnapshot()`
+    /// runs on EVERY inbound delta and walks the whole transcript backlog
+    /// twice — `displaySegments()` re-runs `normalizedSegmentText(...)`
+    /// (split-on-whitespace + join) for every item, and
+    /// `computeDrainEntriesSnapshot()` re-runs the `trimmingCharacters`
+    /// emptiness probe for every item — even though a finalized item's
+    /// raw text never changes again. Over a long meeting the backlog
+    /// grows toward `maxSavedEntryCount` (10_000) so re-deriving the
+    /// whole backlog per delta dominates CPU.
+    ///
+    /// This cache keys each `RealtimeTranscriptKey` to the LAST raw text
+    /// we derived from plus the two derivations of it. A lookup recomputes
+    /// ONLY when the item's current `text` differs from the cached
+    /// `rawText`; an unchanged item (every finalized item, plus every item
+    /// other than the one a delta just touched) reuses the cached values.
+    ///
+    /// Correctness: the cache is consulted via an exact `rawText ==
+    /// item.text` equality, so it can never serve a derivation that
+    /// doesn't match the live text — stale text is structurally
+    /// impossible. The `rawTextIsBlank` slot stores the SAME predicate
+    /// the drain path uses (`trimmingCharacters(in: .whitespacesAndNewlines)
+    /// .isEmpty`), NOT `normalizedText.isEmpty`, because those two
+    /// emptiness notions are not guaranteed identical for every Unicode
+    /// input and the drain output must stay byte-identical.
+    ///
+    /// Bounded to the transcript: `transcriptItems` is append-only within
+    /// one actor instance (a new session constructs a fresh actor, so the
+    /// transcript dict is never cleared mid-life), and the cache is pruned
+    /// to the live key set on each rebuild, so it can never exceed the
+    /// backlog. Cleared alongside any future transcript-state reset via
+    /// `resetTranscriptNormalizationCache()`.
+    private struct NormalizedTextMemo {
+        let rawText: String
+        let normalizedText: String
+        let rawTextIsBlank: Bool
+    }
+    private var normalizedTextMemo: [RealtimeTranscriptKey: NormalizedTextMemo] = [:]
     /// Translation-mode segment builder. nil for transcription mode.
     private var bilingualBuilder: RealtimeBilingualSegmentBuilder?
     /// Publishers for the caption snapshot stream(s). Each call to
@@ -546,9 +583,19 @@ actor RealtimeLiveCaptionActor {
             return Array(orderedEntries)
         }
 
-        let orderedEntries = transcriptTimeline
-            .compactMap { transcriptItems[$0] }
-            .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        // Walk the timeline in order, keeping every non-blank item. The
+        // blank probe (`text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // .isEmpty`) is memoized per item so a finalized item isn't
+        // re-trimmed on every subsequent delta. Order is preserved exactly
+        // as the prior `compactMap { items[$0] }.filter { ... }` chain
+        // produced it, so `.suffix` / `.map` see an identical sequence.
+        var nonBlankItems: [RealtimeTranscriptItem] = []
+        for key in transcriptTimeline {
+            guard let item = transcriptItems[key] else { continue }
+            guard !normalizationMemo(for: key, text: item.text).rawTextIsBlank else { continue }
+            nonBlankItems.append(item)
+        }
+        let orderedEntries = nonBlankItems
             .suffix(Self.maxSavedEntryCount)
             .map {
                 LiveCaptionEntry(
@@ -1624,6 +1671,11 @@ actor RealtimeLiveCaptionActor {
         // session, and it always finishes through here.
         updateDrainMirror()
         let segments = displaySegments()
+        // Keep the normalization memo bounded by the live transcript.
+        // Cheap in steady state: `transcriptItems` is append-only within
+        // one actor instance, so the count guard short-circuits and no
+        // filtering runs unless a future reset starts deleting keys.
+        pruneNormalizationCacheToTranscript()
         guard !segments.isEmpty else { return nil }
         if segments == lastPublishedSegments { return nil }
         lastPublishedSegments = segments
@@ -1664,7 +1716,9 @@ actor RealtimeLiveCaptionActor {
 
         for key in transcriptTimeline {
             guard let item = transcriptItems[key] else { continue }
-            let normalized = Self.normalizedSegmentText(item.text)
+            // Memoized `normalizedSegmentText(item.text)` — recomputed
+            // only when this item's raw text changed since the last walk.
+            let normalized = normalizationMemo(for: key, text: item.text).normalizedText
             guard !normalized.isEmpty else { continue }
 
             if var active = current {
@@ -1698,6 +1752,53 @@ actor RealtimeLiveCaptionActor {
             segments.append(current.liveCaptionSegment)
         }
         return segments
+    }
+
+    /// Resolve the per-item normalization memo for `key` against the
+    /// item's CURRENT raw text. Returns the cached derivations when the
+    /// item's text is unchanged since the last lookup; otherwise
+    /// recomputes both derivations and refreshes the memo. The two
+    /// derivations are computed together so a single `rawText` equality
+    /// check serves both `displaySegments()` (normalized text) and
+    /// `computeDrainEntriesSnapshot()` (the blank probe) without ever
+    /// re-walking the string twice for one item. Behaviour-preserving:
+    /// the returned `normalizedText` / `rawTextIsBlank` are byte-for-byte
+    /// what the un-memoized `normalizedSegmentText(text)` /
+    /// `text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty`
+    /// would produce.
+    private func normalizationMemo(
+        for key: RealtimeTranscriptKey,
+        text: String
+    ) -> NormalizedTextMemo {
+        if let cached = normalizedTextMemo[key], cached.rawText == text {
+            return cached
+        }
+        let memo = NormalizedTextMemo(
+            rawText: text,
+            normalizedText: Self.normalizedSegmentText(text),
+            rawTextIsBlank: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        )
+        normalizedTextMemo[key] = memo
+        return memo
+    }
+
+    /// Drop memo entries for keys no longer present in `transcriptItems`
+    /// so the cache stays bounded by the live transcript. `transcriptItems`
+    /// is append-only within one actor instance today, so this is a
+    /// belt-and-suspenders bound rather than steady-state work — it only
+    /// removes anything if a future reset path starts deleting keys.
+    private func pruneNormalizationCacheToTranscript() {
+        guard normalizedTextMemo.count > transcriptItems.count else { return }
+        normalizedTextMemo = normalizedTextMemo.filter { transcriptItems[$0.key] != nil }
+    }
+
+    /// Clear the normalization memo. Call from any transcript-state
+    /// reset/clear path so the cache can never outlive the transcript it
+    /// describes. (No such path exists today — `transcriptItems` is never
+    /// cleared mid-actor-life — but the hook is here so a future reset
+    /// can't silently leave stale derivations behind.)
+    private func resetTranscriptNormalizationCache() {
+        normalizedTextMemo.removeAll()
     }
 
     /// Stable id used by the UI / translation cache. Combining

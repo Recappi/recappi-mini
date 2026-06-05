@@ -31,7 +31,23 @@ private final class AudioSpectrumAnalysisPlan: @unchecked Sendable {
     let window: [Float]
     let buckets: [Bucket]
     private let fft: vDSP.FFT<DSPSplitComplex>
-    private let fftLock = NSLock()
+
+    // `computeLock` guards both the FFT plan (which is not documented as
+    // re-entrant) and the persistent scratch buffers below. `meterFrame` runs
+    // concurrently on two capture queues (system audio + microphone), so the
+    // shared scratch must not be touched by both at once. Serializing the
+    // ~24 short FFTs/sec each queue produces is cheap and keeps the buffers
+    // race-free without per-frame allocation.
+    private let computeLock = NSLock()
+
+    // Persistent FFT scratch, reused across frames instead of allocating four
+    // `[Float]` of `fftSize` (plus a magnitude buffer) on every gated frame.
+    // Only ever read/written while holding `computeLock`.
+    private var inReal: [Float]
+    private var inImag: [Float]
+    private var outReal: [Float]
+    private var outImag: [Float]
+    private var magnitudes: [Float]
 
     static func plan(sampleRate: Double, bucketCount: Int) -> AudioSpectrumAnalysisPlan? {
         let key = Key(sampleRate: Int(sampleRate.rounded()), bucketCount: bucketCount)
@@ -60,6 +76,12 @@ private final class AudioSpectrumAnalysisPlan: @unchecked Sendable {
         self.window = window
 
         let halfCount = fftSize / 2
+        self.inReal = [Float](repeating: 0, count: fftSize)
+        self.inImag = [Float](repeating: 0, count: fftSize)
+        self.outReal = [Float](repeating: 0, count: fftSize)
+        self.outImag = [Float](repeating: 0, count: fftSize)
+        self.magnitudes = [Float](repeating: 0, count: halfCount)
+
         let nyquist = sampleRate / 2
         let minFrequency = max(90.0, sampleRate / Double(fftSize))
         // This view is a compact "player-style" spectrum, not a lab-grade
@@ -92,10 +114,70 @@ private final class AudioSpectrumAnalysisPlan: @unchecked Sendable {
         }
     }
 
-    func forward(input: DSPSplitComplex, output: inout DSPSplitComplex) {
-        fftLock.lock()
-        fft.forward(input: input, output: &output)
-        fftLock.unlock()
+    /// Window `samples` (last `fftSize` of them), run the real FFT, and return
+    /// the per-bin magnitudes (`hypot(re, im)`) for bins `0..<fftSize/2`.
+    ///
+    /// The closure receives the magnitude buffer while `computeLock` is still
+    /// held so the shared scratch cannot be reused by the other capture queue
+    /// mid-read; callers must finish reading before returning.
+    func magnitudeSpectrum<Result>(
+        of samples: [Float],
+        _ body: (_ magnitudes: UnsafeBufferPointer<Float>) -> Result
+    ) -> Result {
+        let fftSize = AudioSpectrumConfiguration.fftSize
+        let halfCount = fftSize / 2
+
+        computeLock.lock()
+        defer { computeLock.unlock() }
+
+        let inputCount = min(samples.count, fftSize)
+        let sourceStart = samples.count - inputCount
+
+        // Window the most-recent `inputCount` samples (windowed = samples *
+        // Hann) with vDSP instead of a scalar multiply loop, then zero the
+        // unused tail of the real buffer so stale data from a longer previous
+        // frame can't leak in.
+        inReal.withUnsafeMutableBufferPointer { inRealPtr in
+            samples.withUnsafeBufferPointer { samplePtr in
+                window.withUnsafeBufferPointer { windowPtr in
+                    if inputCount > 0 {
+                        vDSP_vmul(
+                            samplePtr.baseAddress! + sourceStart, 1,
+                            windowPtr.baseAddress!, 1,
+                            inRealPtr.baseAddress!, 1,
+                            vDSP_Length(inputCount)
+                        )
+                    }
+                }
+            }
+            if inputCount < fftSize {
+                vDSP_vclr(inRealPtr.baseAddress! + inputCount, 1, vDSP_Length(fftSize - inputCount))
+            }
+        }
+        // Imaginary input is always zero for a real signal; clear it in case a
+        // prior FFT wrote into the split-complex output aliasing scratch.
+        inImag.withUnsafeMutableBufferPointer { ptr in
+            vDSP_vclr(ptr.baseAddress!, 1, vDSP_Length(fftSize))
+        }
+
+        return inReal.withUnsafeMutableBufferPointer { inRealPtr in
+            inImag.withUnsafeMutableBufferPointer { inImagPtr in
+                outReal.withUnsafeMutableBufferPointer { outRealPtr in
+                    outImag.withUnsafeMutableBufferPointer { outImagPtr in
+                        let input = DSPSplitComplex(realp: inRealPtr.baseAddress!, imagp: inImagPtr.baseAddress!)
+                        var output = DSPSplitComplex(realp: outRealPtr.baseAddress!, imagp: outImagPtr.baseAddress!)
+                        fft.forward(input: input, output: &output)
+                        return magnitudes.withUnsafeMutableBufferPointer { magPtr in
+                            // |bin| = hypot(re, im); vDSP_zvabs computes exactly
+                            // sqrt(re^2 + im^2) per element, matching the prior
+                            // scalar `hypot` loop.
+                            vDSP_zvabs(&output, 1, magPtr.baseAddress!, 1, vDSP_Length(halfCount))
+                            return body(UnsafeBufferPointer(magPtr))
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -168,10 +250,12 @@ enum AudioLevelExtractor {
                 let totalFrames = count / channels
                 let frameCount = min(totalFrames, maxMeterFrames)
                 let startFrame = max(totalFrames - frameCount, 0)
-                let mono = collapseToMono(frameCount: frameCount, channels: channels) { frame, channel in
-                    let index = ((startFrame + frame) * channels) + channel
-                    return index < count ? ptr[index] : 0
-                }
+                let mono = collapseFloatToMono(
+                    base: ptr + (startFrame * channels),
+                    frameCount: frameCount,
+                    channels: channels,
+                    available: count - (startFrame * channels)
+                )
                 return analyze(samples: mono, sampleRate: Double(asbd.mSampleRate), bucketCount: bucketCount)
             }
         }
@@ -189,10 +273,12 @@ enum AudioLevelExtractor {
                 let totalFrames = count / channels
                 let frameCount = min(totalFrames, maxMeterFrames)
                 let startFrame = max(totalFrames - frameCount, 0)
-                let mono = collapseToMono(frameCount: frameCount, channels: channels) { frame, channel in
-                    let index = ((startFrame + frame) * channels) + channel
-                    return index < count ? Float(ptr[index]) / 32768 : 0
-                }
+                let mono = collapseInt16ToMono(
+                    base: ptr + (startFrame * channels),
+                    frameCount: frameCount,
+                    channels: channels,
+                    available: count - (startFrame * channels)
+                )
                 return analyze(samples: mono, sampleRate: Double(asbd.mSampleRate), bucketCount: bucketCount)
             }
         }
@@ -200,19 +286,109 @@ enum AudioLevelExtractor {
         return silence(bucketCount: bucketCount)
     }
 
-    private static func collapseToMono(
+    /// Collapse interleaved 32-bit float frames to a mono buffer
+    /// (`mean across channels`), matching the previous scalar averaging.
+    ///
+    /// `base` must point at the first sample of the first frame to read;
+    /// `available` is the number of valid `Float` samples remaining from `base`
+    /// (so a truncated final frame reads 0 for the missing channels, exactly as
+    /// the old closure-based path did).
+    private static func collapseFloatToMono(
+        base: UnsafePointer<Float>,
         frameCount: Int,
         channels: Int,
-        sampleAt: (_ frame: Int, _ channel: Int) -> Float
+        available: Int
     ) -> [Float] {
         guard frameCount > 0 else { return [] }
         var mono = [Float](repeating: 0, count: frameCount)
+        let invChannels = 1 / Float(channels)
+
+        // Fast path: the buffer holds every channel of every frame we read.
+        // Sum the channels with vDSP_vadd then scale by 1/channels.
+        if available >= frameCount * channels {
+            mono.withUnsafeMutableBufferPointer { out in
+                if channels == 1 {
+                    vDSP_vsmul(base, 1, [invChannels], out.baseAddress!, 1, vDSP_Length(frameCount))
+                    return
+                }
+                // Seed the accumulator with channel 0 (stride = channels), then
+                // add each remaining channel in place.
+                vDSP_vsadd(base, channels, [0], out.baseAddress!, 1, vDSP_Length(frameCount))
+                for channel in 1..<channels {
+                    vDSP_vadd(
+                        base + channel, channels,
+                        out.baseAddress!, 1,
+                        out.baseAddress!, 1,
+                        vDSP_Length(frameCount)
+                    )
+                }
+                vDSP_vsmul(out.baseAddress!, 1, [invChannels], out.baseAddress!, 1, vDSP_Length(frameCount))
+            }
+            return mono
+        }
+
+        // Slow path: a truncated trailing frame. Mirror the old behaviour of
+        // treating out-of-range channels as 0 before averaging.
         for frame in 0..<frameCount {
             var sum: Float = 0
             for channel in 0..<channels {
-                sum += sampleAt(frame, channel)
+                let index = (frame * channels) + channel
+                sum += index < available ? base[index] : 0
             }
-            mono[frame] = sum / Float(channels)
+            mono[frame] = sum * invChannels
+        }
+        return mono
+    }
+
+    /// Collapse interleaved 16-bit signed integer frames to a normalised mono
+    /// buffer (`Float(sample) / 32768`, averaged across channels), matching the
+    /// previous scalar averaging. See `collapseFloatToMono` for the `available`
+    /// contract.
+    private static func collapseInt16ToMono(
+        base: UnsafePointer<Int16>,
+        frameCount: Int,
+        channels: Int,
+        available: Int
+    ) -> [Float] {
+        guard frameCount > 0 else { return [] }
+        var mono = [Float](repeating: 0, count: frameCount)
+        // Average then normalise: (sum / channels) / 32768.
+        let scale = 1 / (Float(channels) * 32_768)
+
+        if available >= frameCount * channels {
+            mono.withUnsafeMutableBufferPointer { out in
+                if channels == 1 {
+                    vDSP_vflt16(base, 1, out.baseAddress!, 1, vDSP_Length(frameCount))
+                } else {
+                    // Convert + sum channels. Use a single-channel temp because
+                    // vDSP integer→float conversion has no strided accumulate.
+                    var temp = [Float](repeating: 0, count: frameCount)
+                    temp.withUnsafeMutableBufferPointer { tmp in
+                        vDSP_vflt16(base, channels, out.baseAddress!, 1, vDSP_Length(frameCount))
+                        for channel in 1..<channels {
+                            vDSP_vflt16(base + channel, channels, tmp.baseAddress!, 1, vDSP_Length(frameCount))
+                            vDSP_vadd(
+                                out.baseAddress!, 1,
+                                tmp.baseAddress!, 1,
+                                out.baseAddress!, 1,
+                                vDSP_Length(frameCount)
+                            )
+                        }
+                    }
+                }
+                vDSP_vsmul(out.baseAddress!, 1, [scale], out.baseAddress!, 1, vDSP_Length(frameCount))
+            }
+            return mono
+        }
+
+        // Slow path: truncated trailing frame. Out-of-range channels read 0.
+        for frame in 0..<frameCount {
+            var sum: Float = 0
+            for channel in 0..<channels {
+                let index = (frame * channels) + channel
+                sum += index < available ? Float(base[index]) : 0
+            }
+            mono[frame] = sum * scale
         }
         return mono
     }
@@ -224,14 +400,18 @@ enum AudioLevelExtractor {
         guard !samples.isEmpty else {
             return silence(bucketCount: bucketCount)
         }
-        guard sampleRate.isFinite, sampleRate > 0 else {
-            let peak = min(samples.reduce(Float(0)) { max($0, abs($1)) }, 1)
-            return AudioMeterFrame(peak: peak, bands: Array(repeating: peak, count: bucketCount))
+
+        // Peak = max(|sample|). vDSP_maxmgv computes the maximum magnitude in a
+        // single pass, replacing the scalar `reduce(max(abs))`.
+        var peak: Float = 0
+        samples.withUnsafeBufferPointer { ptr in
+            vDSP_maxmgv(ptr.baseAddress!, 1, &peak, vDSP_Length(ptr.count))
         }
 
-        let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
+        guard sampleRate.isFinite, sampleRate > 0 else {
+            return AudioMeterFrame(peak: min(peak, 1), bands: Array(repeating: min(peak, 1), count: bucketCount))
+        }
 
-        let fftSize = AudioSpectrumConfiguration.fftSize
         guard samples.count >= 32 else {
             let clampedPeak = min(peak, 1)
             return AudioMeterFrame(peak: clampedPeak, bands: Array(repeating: clampedPeak, count: bucketCount))
@@ -240,46 +420,29 @@ enum AudioLevelExtractor {
             return AudioMeterFrame(peak: min(peak, 1), bands: Array(repeating: 0, count: bucketCount))
         }
 
-        var inReal = [Float](repeating: 0, count: fftSize)
-        let inputCount = min(samples.count, fftSize)
-        let sourceStart = samples.count - inputCount
-        for index in 0..<inputCount {
-            inReal[index] = samples[sourceStart + index] * plan.window[index]
-        }
-        var inImag = [Float](repeating: 0, count: fftSize)
-        var outReal = [Float](repeating: 0, count: fftSize)
-        var outImag = [Float](repeating: 0, count: fftSize)
-
-        inReal.withUnsafeMutableBufferPointer { inRealPtr in
-            inImag.withUnsafeMutableBufferPointer { inImagPtr in
-                outReal.withUnsafeMutableBufferPointer { outRealPtr in
-                    outImag.withUnsafeMutableBufferPointer { outImagPtr in
-                        let input = DSPSplitComplex(realp: inRealPtr.baseAddress!, imagp: inImagPtr.baseAddress!)
-                        var output = DSPSplitComplex(realp: outRealPtr.baseAddress!, imagp: outImagPtr.baseAddress!)
-                        plan.forward(input: input, output: &output)
-                    }
-                }
-            }
-        }
-
         var bandMagnitudes = [Float](repeating: 0, count: bucketCount)
 
-        for (bucketIndex, bucket) in plan.buckets.enumerated() {
-            var strongest: Float = 0
-            var energySum: Float = 0
+        // Window + FFT + per-bin magnitude happen on shared scratch under the
+        // plan's lock; the per-bucket reduction reads from the magnitude buffer
+        // while the lock is still held.
+        plan.magnitudeSpectrum(of: samples) { magnitude in
+            for (bucketIndex, bucket) in plan.buckets.enumerated() {
+                var strongest: Float = 0
+                var energySum: Float = 0
 
-            for bin in bucket.bins {
-                let magnitude = hypot(outReal[bin], outImag[bin])
-                strongest = max(strongest, magnitude)
-                energySum += magnitude * magnitude
+                for bin in bucket.bins {
+                    let value = magnitude[bin]
+                    strongest = max(strongest, value)
+                    energySum += value * value
+                }
+
+                let count = bucket.bins.count
+                let rms = count > 0 ? sqrt(energySum / Float(count)) : 0
+                let bucketEnergy = (rms * 0.78) + (strongest * 0.22)
+                // Counterbalance the natural low-frequency bias of music / voice
+                // so the compact visualizer behaves more like a traditional player.
+                bandMagnitudes[bucketIndex] = bucketEnergy * bucket.tilt
             }
-
-            let count = bucket.bins.count
-            let rms = count > 0 ? sqrt(energySum / Float(count)) : 0
-            let bucketEnergy = (rms * 0.78) + (strongest * 0.22)
-            // Counterbalance the natural low-frequency bias of music / voice
-            // so the compact visualizer behaves more like a traditional player.
-            bandMagnitudes[bucketIndex] = bucketEnergy * bucket.tilt
         }
 
         var smoothedBands = [Float]()

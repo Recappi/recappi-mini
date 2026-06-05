@@ -78,10 +78,15 @@ enum SentryReporter {
     }
 
     static func recordDiagnostic(level: String, category: String, message: String) {
+        // Hot path: `DiagnosticsLog.append` calls this for every event/warning/error.
+        // When Sentry is disabled for this process the breadcrumb/scope/capture work
+        // below is unreachable, and the recording-context state is only ever read while
+        // enabled — so bail before constructing `DiagnosticTelemetry` (several regex
+        // passes + tokenize) or taking the `updateRecordingContext` lock.
+        guard state.isEnabledForCurrentProcess, SentrySDK.isEnabled else { return }
+
         let telemetry = DiagnosticTelemetry(level: level, category: category, message: message)
         let contextSnapshot = state.updateRecordingContext(from: telemetry)
-
-        guard state.isEnabledForCurrentProcess, SentrySDK.isEnabled else { return }
 
         addBreadcrumb(telemetry)
         if let contextSnapshot {

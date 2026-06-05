@@ -82,6 +82,17 @@ struct LiveCaptionFloatingPanel: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var paneVisibility: LiveCaptionPaneVisibility = .both
     @State private var chromeVisible = false
+    /// Reference-type memo for the sentence-splitter-derived panes. `body`
+    /// re-evaluates on every recorder change — including ~20Hz meter and 1Hz
+    /// elapsed-clock ticks where `liveCaptionSegments` is byte-for-byte
+    /// identical. Without this, `normalizedStreamText` + the full-string
+    /// `LiveCaptionSentenceSplitter.split` ran several times per render even
+    /// when the caption text was unchanged. The memo recomputes only when the
+    /// underlying segments value actually differs (keyed by `Equatable`
+    /// comparison), so the rendered output is identical — it is a pure cache,
+    /// never mutating SwiftUI-observed state. Held via `@State` so the box
+    /// survives the view struct being recreated.
+    @State private var derived = LiveCaptionDerivedCache()
     let mode: LiveCaptionPanelMode
     let onToggleMode: () -> Void
     let onClose: () -> Void
@@ -633,39 +644,41 @@ struct LiveCaptionFloatingPanel: View {
     nonisolated static let originalPlaceholderText = "Listening for original audio"
     nonisolated static let translationPlaceholderText = "Waiting for translation"
 
+    /// `LIVE_CAPTION_DEBUG_TEXT` is read once at process start. Environment
+    /// variables are fixed at launch, so re-reading them on every ~20Hz
+    /// meter/clock-driven `body` re-evaluation only burned a dictionary
+    /// lookup for an answer that never changes within a process. Stored
+    /// here (and normalized to `nil` when empty) so every call site can use
+    /// the same already-resolved value. No test mutates this env var at
+    /// runtime (the panel file is its only reader), so caching is safe.
+    nonisolated static let liveCaptionDebugText: String? = {
+        guard let value = ProcessInfo.processInfo.environment["LIVE_CAPTION_DEBUG_TEXT"],
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }()
+
     private var sourceStreamText: String {
-        if let debugText = ProcessInfo.processInfo.environment["LIVE_CAPTION_DEBUG_TEXT"],
-           !debugText.isEmpty {
+        if let debugText = Self.liveCaptionDebugText {
             return debugText
         }
-        return normalizedStreamText(recorder.liveCaptionSegments.map(\.sourceText))
+        return derived.sourceStreamText(for: recorder.liveCaptionSegments, debugText: nil)
     }
 
     private var translationStreamText: String {
-        let translated = recorder.liveCaptionSegments.compactMap { segment in
-            let text = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return text.isEmpty ? nil : text
-        }
-        return normalizedStreamText(translated)
+        derived.translationStreamText(for: recorder.liveCaptionSegments, debugText: Self.liveCaptionDebugText)
     }
 
     private var sourcePaneSegments: [LiveCaptionSegment] {
-        paneSegments(
-            text: sourceStreamText,
-            mode: .source,
-            idPrefix: "caption"
-        )
+        derived.sourcePaneSegments(for: recorder.liveCaptionSegments, debugText: Self.liveCaptionDebugText)
     }
 
     private var translationPaneSegments: [LiveCaptionSegment] {
-        paneSegments(
-            text: translationStreamText,
-            mode: .translation,
-            idPrefix: "translation"
-        )
+        derived.translationPaneSegments(for: recorder.liveCaptionSegments, debugText: Self.liveCaptionDebugText)
     }
 
-    private func normalizedStreamText(_ chunks: [String]) -> String {
+    nonisolated static func normalizedStreamText(_ chunks: [String]) -> String {
         chunks
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -674,7 +687,7 @@ struct LiveCaptionFloatingPanel: View {
             .joined(separator: " ")
     }
 
-    private func paneSegments(
+    nonisolated static func paneSegments(
         text: String,
         mode: LiveCaptionSentenceSplitter.Mode,
         idPrefix: String
@@ -689,6 +702,52 @@ struct LiveCaptionFloatingPanel: View {
                 sequence: index
             )
         }
+    }
+
+    /// The four sentence-splitter-derived values that the panel reads from
+    /// `recorder.liveCaptionSegments`. Bundled together so the memo (and its
+    /// equivalence test) compute them through one reference function — the
+    /// memo merely caches the result of this exact computation.
+    struct DerivedPanes: Equatable {
+        var sourceStreamText: String
+        var translationStreamText: String
+        var sourcePaneSegments: [LiveCaptionSegment]
+        var translationPaneSegments: [LiveCaptionSegment]
+    }
+
+    /// Reference (un-memoized) derivation of the caption panes. Mirrors the
+    /// original inline computed-property pipeline exactly:
+    ///   - `sourceStreamText` honors the `debugText` override; otherwise it is
+    ///     the normalized join of every segment's `sourceText`.
+    ///   - `translationStreamText` is the normalized join of the non-empty,
+    ///     trimmed `translatedText`s (never overridden by `debugText`).
+    ///   - each pane is the sentence-split of its resolved stream text.
+    /// The memo caches the output of this function; the equivalence test pins
+    /// this function against the hand-written reference so a future edit to
+    /// either side fails loudly.
+    nonisolated static func derivedPanes(
+        for segments: [LiveCaptionSegment],
+        debugText: String?
+    ) -> DerivedPanes {
+        // Match the original `sourceStreamText` guard precisely: only a
+        // *non-empty* override substitutes for the real source text. An empty
+        // string falls through to the recorder segments (the production
+        // `liveCaptionDebugText` already normalizes empty → nil, but treating
+        // it here too keeps the function robust for any caller / test).
+        let override = (debugText?.isEmpty == false) ? debugText : nil
+        let resolvedSource = override
+            ?? normalizedStreamText(segments.map(\.sourceText))
+        let translatedChunks = segments.compactMap { segment -> String? in
+            let text = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return text.isEmpty ? nil : text
+        }
+        let resolvedTranslation = normalizedStreamText(translatedChunks)
+        return DerivedPanes(
+            sourceStreamText: resolvedSource,
+            translationStreamText: resolvedTranslation,
+            sourcePaneSegments: paneSegments(text: resolvedSource, mode: .source, idPrefix: "caption"),
+            translationPaneSegments: paneSegments(text: resolvedTranslation, mode: .translation, idPrefix: "translation")
+        )
     }
 
     @ViewBuilder
@@ -917,8 +976,7 @@ struct LiveCaptionFloatingPanel: View {
     /// Honors the `LIVE_CAPTION_DEBUG_TEXT` override so debug fixtures
     /// look like real captions to the UI.
     private var hasLiveCaptionSegments: Bool {
-        if let debugText = ProcessInfo.processInfo.environment["LIVE_CAPTION_DEBUG_TEXT"],
-           !debugText.isEmpty {
+        if Self.liveCaptionDebugText != nil {
             return true
         }
         return !recorder.liveCaptionSegments.isEmpty
@@ -929,8 +987,7 @@ struct LiveCaptionFloatingPanel: View {
     /// fixture segment when `LIVE_CAPTION_DEBUG_TEXT` is set so the
     /// AppKit text view exercises the same code path under tests.
     private var viewportSegments: [LiveCaptionSegment] {
-        if let debugText = ProcessInfo.processInfo.environment["LIVE_CAPTION_DEBUG_TEXT"],
-           !debugText.isEmpty {
+        if let debugText = Self.liveCaptionDebugText {
             return [
                 LiveCaptionSegment(
                     id: "debug-fixture",
@@ -948,8 +1005,7 @@ struct LiveCaptionFloatingPanel: View {
         // Debug hook: when `LIVE_CAPTION_DEBUG_TEXT` is set, override the
         // caption with fixture text so layout/scroll can be exercised
         // without a live recording.
-        if let debugText = ProcessInfo.processInfo.environment["LIVE_CAPTION_DEBUG_TEXT"],
-           !debugText.isEmpty {
+        if let debugText = Self.liveCaptionDebugText {
             return debugText
         }
         // Natural paragraph breaks: each segment becomes its own line.
@@ -1142,6 +1198,84 @@ struct LiveCaptionFloatingPanel: View {
         let s = seconds % 60
         if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
         return String(format: "%02d:%02d", m, s)
+    }
+}
+
+/// Per-view memo of the sentence-splitter-derived caption panes.
+///
+/// `LiveCaptionFloatingPanel.body` re-evaluates on every change the
+/// `AudioRecorder` publishes — meter (~20Hz), elapsed clock (1Hz), and
+/// caption deltas. The source/translation stream text and their
+/// `LiveCaptionSentenceSplitter`-split panes are pure functions of
+/// `recorder.liveCaptionSegments` (plus the process-fixed debug override),
+/// but were recomputed from scratch — several times — on every render, even
+/// the meter/clock ticks where the caption segments never changed.
+///
+/// This class caches each derived value keyed on the exact inputs (the
+/// `Equatable` segments array + the debug text). On a cache hit it returns the
+/// stored value verbatim, so the rendered output is byte-for-byte identical to
+/// the un-memoized path; it only skips the recomputation. It is a *pure* cache
+/// — held by the view via `@State`, mutated only inside its own accessors, and
+/// it never touches any SwiftUI-observed state, so reading it during `body`
+/// does not trigger a re-render.
+///
+/// NOTE: the debug-override semantics mirror the original computed properties
+/// exactly — `sourceStreamText` honors `LIVE_CAPTION_DEBUG_TEXT`, while
+/// `translationStreamText` does not (it only ever reflected real recorder
+/// translations). `sourcePaneSegments` splits whichever source text the
+/// override resolves to, matching the old `sourceStreamText` plumbing.
+///
+/// Deliberately *not* `@MainActor`-isolated or `ObservableObject`: it is
+/// constructed in the `@State` default-value autoclosure (a nonisolated
+/// context) and only ever touched synchronously from the panel's `body` on
+/// the main actor, so it needs no isolation of its own and must not publish
+/// changes (publishing would defeat the no-re-render purpose). It never
+/// escapes to another isolation domain.
+private final class LiveCaptionDerivedCache {
+    private var cachedSegments: [LiveCaptionSegment]?
+    private var cachedDebugText: String?
+    private var cached = LiveCaptionFloatingPanel.DerivedPanes(
+        sourceStreamText: "",
+        translationStreamText: "",
+        sourcePaneSegments: [],
+        translationPaneSegments: []
+    )
+
+    /// Recompute all derived values iff the inputs differ from the last
+    /// computation. The `Equatable` array comparison short-circuits cheaply
+    /// when the count or a leading element differs (the common
+    /// caption-delta case) and is far cheaper than re-running the
+    /// normalize + full-string split pipeline that the reference derivation
+    /// performs on a miss. The cached value is produced by exactly the same
+    /// `derivedPanes` function the equivalence test pins, so a hit returns a
+    /// byte-for-byte-identical result to recomputing every render.
+    private func refresh(segments: [LiveCaptionSegment], debugText: String?) {
+        if cachedSegments == segments, cachedDebugText == debugText {
+            return
+        }
+        cached = LiveCaptionFloatingPanel.derivedPanes(for: segments, debugText: debugText)
+        cachedSegments = segments
+        cachedDebugText = debugText
+    }
+
+    func sourceStreamText(for segments: [LiveCaptionSegment], debugText: String?) -> String {
+        refresh(segments: segments, debugText: debugText)
+        return cached.sourceStreamText
+    }
+
+    func translationStreamText(for segments: [LiveCaptionSegment], debugText: String?) -> String {
+        refresh(segments: segments, debugText: debugText)
+        return cached.translationStreamText
+    }
+
+    func sourcePaneSegments(for segments: [LiveCaptionSegment], debugText: String?) -> [LiveCaptionSegment] {
+        refresh(segments: segments, debugText: debugText)
+        return cached.sourcePaneSegments
+    }
+
+    func translationPaneSegments(for segments: [LiveCaptionSegment], debugText: String?) -> [LiveCaptionSegment] {
+        refresh(segments: segments, debugText: debugText)
+        return cached.translationPaneSegments
     }
 }
 
@@ -1542,6 +1676,29 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
         private var appliedText: String = ""
         private var appliedPlaceholder: Bool = false
 
+        // Last-applied inputs to `applySegments`. SwiftUI invokes the
+        // representable's `update` (→ `applySegments`) on *every* re-render of
+        // the panel — including the ~20Hz audio-meter and 1Hz elapsed-clock
+        // ticks where the caption segments are byte-for-byte identical.
+        // Without this guard, each such tick still rescanned the segments for
+        // bilingual rows and rebuilt the joined flat string / whole
+        // NSAttributedString before the inner `appliedText` dedupe could bail.
+        // We snapshot the inputs after a real apply so an unchanged update can
+        // early-out before touching NSTextStorage at all — while still
+        // reproducing the exact follow-tail scroll the resolved branch would
+        // have performed on a no-op re-layout pass. `hasAppliedInputs` guards
+        // the very first update (empty segments must still flow through).
+        private var hasAppliedInputs = false
+        private var lastSegments: [LiveCaptionSegment] = []
+        private var lastPlaceholderText: String = ""
+        private var lastIsPlaceholder: Bool = false
+        private var lastColorScheme: ColorScheme = .light
+        /// Whether the last applied update resolved to the bilingual branch.
+        /// The bilingual no-change path returns *without* scrolling, whereas
+        /// the flat / placeholder no-change paths scroll-to-bottom when asked;
+        /// the guard mirrors that asymmetry exactly.
+        private var lastResolvedBilingual = false
+
         @objc func scrollDidChange(_ notification: Notification) {
             guard let scrollView = scrollView,
                   let docView = scrollView.documentView else { return }
@@ -1564,6 +1721,26 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
         ) {
             guard let textView = textView, let storage = textView.textStorage else { return }
 
+            // No-change fast path: the segments + placeholder + appearance are
+            // identical to the last applied update, so the resolved attributed
+            // string is guaranteed identical too. Skip the bilingual rescan and
+            // the flat/attributed rebuild entirely, but still honor the
+            // follow-tail scroll exactly as the resolved branch would on a
+            // no-op re-layout pass: flat / placeholder branches scroll-to-bottom
+            // when asked; the bilingual branch does not (it returns before its
+            // own scroll). `scrollToBottom` is intentionally *not* part of the
+            // key — it carries the follow-tail intent and is reapplied here.
+            if hasAppliedInputs,
+               isPlaceholder == lastIsPlaceholder,
+               colorScheme == lastColorScheme,
+               placeholderText == lastPlaceholderText,
+               segments == lastSegments {
+                if scrollToBottom, !lastResolvedBilingual {
+                    scrollViewToBottom()
+                }
+                return
+            }
+
             // Bilingual mode is detected per-update from segment payload:
             // any non-empty `translatedText` triggers attributed-string
             // rendering with secondary-color translation rows. Pure-
@@ -1571,6 +1748,16 @@ private struct LiveCaptionAppKitTextView: NSViewRepresentable {
             // incremental path so streaming deltas don't reflow the
             // whole transcript on every glyph.
             let isBilingual = segments.contains { ($0.translatedText?.isEmpty == false) }
+
+            // Snapshot the inputs + resolved branch for the next update's
+            // no-change guard. Recorded before dispatching so the values match
+            // the branch we are about to run.
+            hasAppliedInputs = true
+            lastSegments = segments
+            lastPlaceholderText = placeholderText
+            lastIsPlaceholder = isPlaceholder
+            lastColorScheme = colorScheme
+            lastResolvedBilingual = !isPlaceholder && isBilingual
 
             if isPlaceholder {
                 applyFlatText(placeholderText, isPlaceholder: true, colorScheme: colorScheme, scrollToBottom: scrollToBottom, storage: storage)

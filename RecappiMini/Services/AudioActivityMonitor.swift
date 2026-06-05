@@ -107,11 +107,43 @@ final class AudioActivityMonitor: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private let queryService = AudioActivityQueryService()
 
-    /// Default 2s cadence — fast enough to feel responsive when a Zoom call
-    /// starts, slow enough that the HAL query doesn't become a background tax.
-    func start(pollInterval: TimeInterval = 2.0) {
+    /// The cadence the timer is currently scheduled at. Tracked so a
+    /// back-off request that matches the live interval is a cheap no-op
+    /// instead of tearing down and rebuilding the timer on every recorder
+    /// state transition.
+    private var currentPollInterval: TimeInterval?
+
+    /// Default idle cadence — fast enough to feel responsive when a Zoom
+    /// call starts, slow enough that the HAL query doesn't become a
+    /// background tax.
+    static let idlePollInterval: TimeInterval = 2.0
+
+    /// Relaxed cadence used while a recording is in flight. The HAL query's
+    /// only idle-state consumer (the auto-prompt) is dormant then, and the
+    /// detected-meeting auto-stop loop still reads the activity set — just a
+    /// few seconds staler — so we keep polling but lighten the per-tick HAL
+    /// syscall tax instead of pausing outright.
+    static let busyPollInterval: TimeInterval = 5.0
+
+    func start(pollInterval: TimeInterval = idlePollInterval) {
         refresh()
+        schedule(pollInterval: pollInterval)
+    }
+
+    /// Adjusts the poll cadence in place without disturbing the published
+    /// `activeBundleIDs` value or the enumeration logic. Re-arms the timer
+    /// only when the interval actually changes, so flipping recorder state
+    /// repeatedly doesn't churn the run loop. No-op until `start()` has armed
+    /// the timer.
+    func setPollInterval(_ pollInterval: TimeInterval) {
+        guard timer != nil else { return }
+        guard currentPollInterval != pollInterval else { return }
+        schedule(pollInterval: pollInterval)
+    }
+
+    private func schedule(pollInterval: TimeInterval) {
         timer?.invalidate()
+        currentPollInterval = pollInterval
         timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -121,6 +153,7 @@ final class AudioActivityMonitor: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        currentPollInterval = nil
         refreshTask?.cancel()
         refreshTask = nil
     }

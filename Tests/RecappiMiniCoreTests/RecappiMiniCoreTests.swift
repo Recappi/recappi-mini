@@ -3399,9 +3399,14 @@ final class RecappiMiniCoreTests: XCTestCase {
             bands: Array(repeating: 0.9, count: AudioRecorder.spectrumBucketCount)
         )
 
+        // Frame 1 opens a publish window; frame 2 accumulates the mic
+        // peak between publishes; frame 3 (silent) must cross the next
+        // publish boundary so the accumulated peak still surfaces. The
+        // third timestamp is spaced past the ~20 Hz publish interval
+        // (1/20 = 0.05s); it was 0.04s back when the cadence was 30 Hz.
         recorder.ingestMeterFrameForTesting(silent, now: 1.0)
         recorder.ingestMeterFrameForTesting(mic, now: 1.01)
-        recorder.ingestMeterFrameForTesting(silent, now: 1.04)
+        recorder.ingestMeterFrameForTesting(silent, now: 1.06)
 
         XCTAssertGreaterThan(recorder.audioLevel, 0.8)
         XCTAssertGreaterThan(recorder.audioSpectrumLevels.max() ?? 0, 0.8)

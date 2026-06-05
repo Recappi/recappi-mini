@@ -367,6 +367,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                 let previous = self.previousRecorderState
                 self.previousRecorderState = state
 
+                // The CoreAudio HAL poll only feeds the idle-state auto-prompt
+                // and the (already self-throttling) detected-meeting auto-stop
+                // loop. Once we leave idle the per-tick syscall sweep is mostly
+                // wasted, so relax its cadence and restore the responsive 2s
+                // sweep the moment we return to idle.
+                self.recorder.activityMonitor.setPollInterval(
+                    state == .idle
+                        ? AudioActivityMonitor.idlePollInterval
+                        : AudioActivityMonitor.busyPollInterval
+                )
+
                 let isRecording = state.isRecording
                 if self.isRecording != isRecording {
                     self.isRecording = isRecording
