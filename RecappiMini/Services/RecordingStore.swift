@@ -6,10 +6,26 @@ struct RecordingStore {
         return docs.appendingPathComponent("Recappi Mini", isDirectory: true)
     }()
 
-    static func createSessionDirectory() throws -> URL {
+    // DateFormatter / ISO8601DateFormatter allocation is one of the more
+    // expensive small ops on Apple platforms, so the formatters used in the
+    // save paths are hoisted to reused statics. Configuration is identical to
+    // the original per-call instances, keeping emitted strings byte-identical.
+    // These are thread-safe for read-only (formatting) use once configured and
+    // are never mutated after creation. `DateFormatter` is `Sendable`, so it
+    // needs no extra annotation; `ISO8601DateFormatter` is not `Sendable`, so —
+    // because `RecordingStore` is a non-isolated value type and the static is a
+    // nonisolated global — it carries `nonisolated(unsafe)`, the sound
+    // annotation for a value that is provably only read concurrently.
+    private static let sessionDirectoryNameFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
-        let name = formatter.string(from: Date())
+        return formatter
+    }()
+
+    private nonisolated(unsafe) static let manifestTimestampFormatter = ISO8601DateFormatter()
+
+    static func createSessionDirectory() throws -> URL {
+        let name = sessionDirectoryNameFormatter.string(from: Date())
         let dir = baseDirectory.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
@@ -74,7 +90,7 @@ struct RecordingStore {
     @discardableResult
     static func saveRemoteManifest(_ manifest: RemoteSessionManifest, in sessionDir: URL) -> RemoteSessionManifest {
         var next = manifest
-        next.updatedAt = ISO8601DateFormatter().string(from: Date())
+        next.updatedAt = manifestTimestampFormatter.string(from: Date())
         let url = remoteManifestURL(in: sessionDir)
         if let data = try? JSONEncoder().encode(next) {
             try? data.write(to: url)

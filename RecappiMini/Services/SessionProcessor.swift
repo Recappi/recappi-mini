@@ -6,6 +6,23 @@ final class SessionProcessor {
     private static let transcriptionPollingTimeout: TimeInterval = 15 * 60
     private var activeProcessesBySessionPath: [String: ActiveProcess] = [:]
 
+    // Allocating a DateFormatter / ISO8601DateFormatter per call is one of the
+    // more expensive small ops on Apple platforms. These parsing formatters are
+    // reused by the `nonisolated static` helpers below. The ISO formatter still
+    // needs an explicit escape hatch; `DateFormatter` is `Sendable` under this
+    // toolchain, so the directory parser can be a plain `nonisolated static`.
+    // Both are configured once and then only used for reads. Configuration is
+    // identical to the previous per-call instances, so parsed results are
+    // unchanged.
+    private nonisolated(unsafe) static let startedAtFormatter = ISO8601DateFormatter()
+
+    private nonisolated static let sessionDirectoryDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        return formatter
+    }()
+
     private init() {}
 
     func process(
@@ -763,7 +780,7 @@ final class SessionProcessor {
         fileManager: FileManager = .default
     ) -> Date {
         if let startedAt = metadata?.startedAt,
-           let date = ISO8601DateFormatter().date(from: startedAt) {
+           let date = startedAtFormatter.date(from: startedAt) {
             return date
         }
 
@@ -785,10 +802,7 @@ final class SessionProcessor {
     }
 
     private nonisolated static func sessionDirectoryDate(from name: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
-        return formatter.date(from: name)
+        sessionDirectoryDateFormatter.date(from: name)
     }
 
     private nonisolated static func cloudRecordingStatus(from raw: String) -> CloudRecordingStatus {

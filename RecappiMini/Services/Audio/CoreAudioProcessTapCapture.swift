@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import AppKit
 import AudioToolbox
@@ -275,15 +276,19 @@ private struct CoreAudioBufferListView {
     private let buffers: [AudioBuffer]
 
     init(_ audioBufferList: UnsafePointer<AudioBufferList>) {
-        var collected: [AudioBuffer] = []
-        withUnsafePointer(to: audioBufferList.pointee.mBuffers) { firstBufferPointer in
-            let bufferPointer = UnsafeBufferPointer(
-                start: firstBufferPointer,
-                count: Int(audioBufferList.pointee.mNumberBuffers)
-            )
-            collected = Array(bufferPointer)
-        }
-        buffers = collected
+        // `AudioBufferList` is a C struct whose `mBuffers` is a flexible array
+        // member: the second and later buffers live in memory *after* the inline
+        // first one, not inside it. Reading them requires walking from the real
+        // `mBuffers` address. `withUnsafePointer(to: list.pointee.mBuffers)` would
+        // instead hand back a pointer to a stack *copy* of just the first buffer,
+        // so any `mNumberBuffers > 1` (non-interleaved / multi-buffer taps) would
+        // read adjacent stack garbage for the trailing buffers. Use the standard
+        // `UnsafeMutableAudioBufferListPointer` walker, which indexes the flexible
+        // array correctly. The pointer is only read here; the cast to mutable is
+        // safe because the walker never writes through it.
+        let mutableList = UnsafeMutablePointer(mutating: audioBufferList)
+        let listPointer = UnsafeMutableAudioBufferListPointer(mutableList)
+        buffers = Array(listPointer)
     }
 
     var isEmpty: Bool { buffers.isEmpty }
@@ -298,11 +303,26 @@ private struct CoreAudioBufferListView {
     }
 }
 
-private final class CoreAudioTapSampleBufferFactory {
+/// Builds the output PCM `CMSampleBuffer` from raw tap buffers.
+///
+/// Confinement: every mutating method here is only ever called from the single
+/// CoreAudio IOProc block, which runs on one serial `captureQueue` per capture
+/// instance (see `CoreAudioProcessTapCapture.handleInput`). `nextFramePosition`
+/// and the reused `scratchSamples` buffer therefore have a single producer and
+/// need no locking. `internal` (rather than `private`) only so the equivalence
+/// tests can exercise the conversion math directly; nothing else references it.
+final class CoreAudioTapSampleBufferFactory {
     private let sourceFormat: AudioStreamBasicDescription
     private let outputFormat: AudioStreamBasicDescription
     private let formatDescription: CMAudioFormatDescription
     private var nextFramePosition: Int64 = 0
+
+    /// Reused interleaved-float32 scratch for the conversion/remap paths. Grown
+    /// (never shrunk) as buffer sizes demand so the ~100 buffers/s hot path stops
+    /// allocating a fresh `[Float]` per callback. Only the leading
+    /// `frameCount * outputChannels` elements are meaningful on any given call;
+    /// callers must never read past that. Confined to the single IOProc producer.
+    private var scratchSamples: [Float] = []
 
     init(sourceFormat: AudioStreamBasicDescription) throws {
         self.sourceFormat = sourceFormat
@@ -344,37 +364,108 @@ private final class CoreAudioTapSampleBufferFactory {
         from audioBufferList: UnsafePointer<AudioBufferList>,
         inputTime: AudioTimeStamp?
     ) throws -> CMSampleBuffer? {
-        let samples = try interleavedFloat32Samples(from: audioBufferList)
-        let channelCount = Int(outputFormat.mChannelsPerFrame)
-        guard channelCount > 0, !samples.isEmpty else { return nil }
+        // Fast path (Option A): the source is already a single packed,
+        // interleaved float32 buffer whose channel count matches the output
+        // (the dominant 48k/2ch case). The bytes are bit-for-bit the layout we
+        // emit, so we copy them once straight into the CMBlockBuffer and skip
+        // both the intermediate `[Float]` and the scalar element copy.
+        if let direct = try directFloat32SampleBuffer(from: audioBufferList, inputTime: inputTime) {
+            return direct
+        }
 
-        let frameCount = samples.count / channelCount
+        // Conversion / channel-remap path. `fillScratch` writes the interleaved
+        // float32 result into the reused `scratchSamples` buffer and returns the
+        // count of meaningful leading elements; we never read past that.
+        let sampleCount = try fillScratch(from: audioBufferList)
+        let channelCount = Int(outputFormat.mChannelsPerFrame)
+        guard channelCount > 0, sampleCount > 0 else { return nil }
+
+        let frameCount = sampleCount / channelCount
         guard frameCount > 0 else { return nil }
 
-        let ptsFrame: Int64
+        let ptsFrame = advancePTS(frameCount: frameCount, inputTime: inputTime)
+        let byteCount = sampleCount * MemoryLayout<Float>.stride
+        return try scratchSamples.withUnsafeBytes { rawBuffer -> CMSampleBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                throw CoreAudioStatusError(operation: "scratchSamples empty base", status: -1)
+            }
+            return try makeCMSampleBuffer(
+                bytes: baseAddress,
+                byteCount: byteCount,
+                frameCount: frameCount,
+                ptsFrame: ptsFrame
+            )
+        }
+    }
+
+    /// Advances `nextFramePosition` and returns the presentation frame for this
+    /// buffer. Identical timing logic for every path so PTS stays byte-stable.
+    private func advancePTS(frameCount: Int, inputTime: AudioTimeStamp?) -> Int64 {
         if let inputTime,
            inputTime.mFlags.contains(.sampleTimeValid),
            inputTime.mSampleTime.isFinite,
            inputTime.mSampleTime >= 0 {
-            ptsFrame = Int64(inputTime.mSampleTime.rounded())
+            let ptsFrame = Int64(inputTime.mSampleTime.rounded())
             nextFramePosition = ptsFrame + Int64(frameCount)
-        } else {
-            ptsFrame = nextFramePosition
-            nextFramePosition += Int64(frameCount)
+            return ptsFrame
         }
+        let ptsFrame = nextFramePosition
+        nextFramePosition += Int64(frameCount)
+        return ptsFrame
+    }
 
+    /// Option A. Returns a finished sample buffer built with a single copy when
+    /// the source is one packed interleaved float32 buffer with the output
+    /// channel count, otherwise `nil` so the caller takes the conversion path.
+    ///
+    /// Equivalence with the old code: the legacy fast path copied
+    /// `ptr[frame * sourceChannels + min(channel, sourceChannels - 1)]` for
+    /// `frames = availableSamples / sourceChannels` frames. When
+    /// `sourceChannels == outputChannels` that index reduces to
+    /// `ptr[frame * outputChannels + channel]`, i.e. a verbatim copy of the
+    /// leading `frames * outputChannels` floats, with any partial-frame
+    /// remainder dropped. We reproduce that exactly: same frame count, same
+    /// leading bytes.
+    private func directFloat32SampleBuffer(
+        from audioBufferList: UnsafePointer<AudioBufferList>,
+        inputTime: AudioTimeStamp?
+    ) throws -> CMSampleBuffer? {
+        let sourceChannels = max(Int(sourceFormat.mChannelsPerFrame), 1)
+        let outputChannels = Int(outputFormat.mChannelsPerFrame)
+        guard outputChannels > 0, sourceChannels == outputChannels else { return nil }
+
+        let sourceIsFloat = (sourceFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let sourceIsNonInterleaved = (sourceFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+        guard sourceIsFloat, sourceFormat.mBitsPerChannel == 32, !sourceIsNonInterleaved else { return nil }
+
+        let buffers = CoreAudioBufferListView(audioBufferList)
+        guard buffers.count == 1, let data = buffers[0].mData else { return nil }
+
+        let availableSamples = Int(buffers[0].mDataByteSize) / MemoryLayout<Float>.size
+        let frameCount = availableSamples / sourceChannels
+        guard frameCount > 0 else { return nil }
+
+        let ptsFrame = advancePTS(frameCount: frameCount, inputTime: inputTime)
+        let byteCount = frameCount * outputChannels * MemoryLayout<Float>.stride
         return try makeCMSampleBuffer(
-            samples: samples,
+            bytes: data,
+            byteCount: byteCount,
             frameCount: frameCount,
             ptsFrame: ptsFrame
         )
     }
 
-    private func interleavedFloat32Samples(
+    /// Fills `scratchSamples` with the interleaved float32 conversion of the
+    /// source buffers (non-interleaved / multi-buffer float32, or any int16
+    /// source, or float32 with a channel-count mismatch) and returns the count
+    /// of valid leading elements. Reuses the scratch storage across calls; only
+    /// the returned prefix is meaningful. Behaviour matches the previous
+    /// per-call `[Float]` allocation element-for-element.
+    private func fillScratch(
         from audioBufferList: UnsafePointer<AudioBufferList>
-    ) throws -> [Float] {
+    ) throws -> Int {
         let buffers = CoreAudioBufferListView(audioBufferList)
-        guard !buffers.isEmpty else { return [] }
+        guard !buffers.isEmpty else { return 0 }
         let sourceChannels = max(Int(sourceFormat.mChannelsPerFrame), 1)
         let outputChannels = Int(outputFormat.mChannelsPerFrame)
         let sourceIsFloat = (sourceFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0
@@ -387,31 +478,51 @@ private final class CoreAudioTapSampleBufferFactory {
                     in: buffers,
                     bytesPerSample: MemoryLayout<Float>.size
                 )
-                guard frameCount > 0 else { return [] }
-                var samples = [Float](repeating: 0, count: frameCount * outputChannels)
-                for channel in 0..<outputChannels {
-                    let bufferIndex = min(channel, buffers.count - 1)
-                    guard let data = buffers[bufferIndex].mData else { continue }
-                    let ptr = data.assumingMemoryBound(to: Float.self)
-                    for frame in 0..<frameCount {
-                        samples[frame * outputChannels + channel] = ptr[frame]
+                guard frameCount > 0 else { return 0 }
+                let total = frameCount * outputChannels
+                reserveScratch(total)
+                return scratchSamples.withUnsafeMutableBufferPointer { samples -> Int in
+                    // The old code allocated a zero-filled `[Float]`, so a channel
+                    // whose source buffer is nil stayed silent. The reused scratch
+                    // may hold stale data, so clear the meaningful prefix first.
+                    if let baseAddress = samples.baseAddress {
+                        memset(baseAddress, 0, total * MemoryLayout<Float>.size)
                     }
+                    for channel in 0..<outputChannels {
+                        let bufferIndex = min(channel, buffers.count - 1)
+                        guard let data = buffers[bufferIndex].mData else { continue }
+                        let ptr = data.assumingMemoryBound(to: Float.self)
+                        if outputChannels == 1 {
+                            // Contiguous destination: straight copy.
+                            memcpy(samples.baseAddress!, ptr, frameCount * MemoryLayout<Float>.size)
+                        } else {
+                            // Scatter channel `channel` into the interleaved layout.
+                            for frame in 0..<frameCount {
+                                samples[frame * outputChannels + channel] = ptr[frame]
+                            }
+                        }
+                    }
+                    return total
                 }
-                return samples
             }
 
-            guard let data = buffers[0].mData else { return [] }
+            // Single interleaved buffer that did NOT match the fast path, i.e.
+            // sourceChannels != outputChannels: keep the scalar remap.
+            guard let data = buffers[0].mData else { return 0 }
             let availableSamples = Int(buffers[0].mDataByteSize) / MemoryLayout<Float>.size
             let frames = availableSamples / sourceChannels
-            guard frames > 0 else { return [] }
+            guard frames > 0 else { return 0 }
+            let total = frames * outputChannels
+            reserveScratch(total)
             let ptr = data.assumingMemoryBound(to: Float.self)
-            var samples = [Float](repeating: 0, count: frames * outputChannels)
-            for frame in 0..<frames {
-                for channel in 0..<outputChannels {
-                    samples[frame * outputChannels + channel] = ptr[frame * sourceChannels + min(channel, sourceChannels - 1)]
+            return scratchSamples.withUnsafeMutableBufferPointer { samples -> Int in
+                for frame in 0..<frames {
+                    for channel in 0..<outputChannels {
+                        samples[frame * outputChannels + channel] = ptr[frame * sourceChannels + min(channel, sourceChannels - 1)]
+                    }
                 }
+                return total
             }
-            return samples
         }
 
         if sourceFormat.mBitsPerChannel == 16 {
@@ -420,34 +531,74 @@ private final class CoreAudioTapSampleBufferFactory {
                     in: buffers,
                     bytesPerSample: MemoryLayout<Int16>.size
                 )
-                guard frameCount > 0 else { return [] }
-                var samples = [Float](repeating: 0, count: frameCount * outputChannels)
-                for channel in 0..<outputChannels {
-                    let bufferIndex = min(channel, buffers.count - 1)
-                    guard let data = buffers[bufferIndex].mData else { continue }
-                    let ptr = data.assumingMemoryBound(to: Int16.self)
-                    for frame in 0..<frameCount {
-                        samples[frame * outputChannels + channel] = Float(ptr[frame]) / 32768.0
+                guard frameCount > 0 else { return 0 }
+                let total = frameCount * outputChannels
+                reserveScratch(total)
+                return scratchSamples.withUnsafeMutableBufferPointer { samples -> Int in
+                    // Same stale-scratch guard as the float32 multi-buffer path:
+                    // a nil source buffer must read back as silence, not leftovers.
+                    if let baseAddress = samples.baseAddress {
+                        memset(baseAddress, 0, total * MemoryLayout<Float>.size)
                     }
+                    for channel in 0..<outputChannels {
+                        let bufferIndex = min(channel, buffers.count - 1)
+                        guard let data = buffers[bufferIndex].mData else { continue }
+                        let ptr = data.assumingMemoryBound(to: Int16.self)
+                        if outputChannels == 1 {
+                            // Contiguous destination: vectorised Int16 -> Float / 32768.
+                            convertInt16ToFloat(source: ptr, destination: samples.baseAddress!, count: frameCount)
+                        } else {
+                            for frame in 0..<frameCount {
+                                samples[frame * outputChannels + channel] = Float(ptr[frame]) / 32768.0
+                            }
+                        }
+                    }
+                    return total
                 }
-                return samples
             }
 
-            guard let data = buffers[0].mData else { return [] }
+            guard let data = buffers[0].mData else { return 0 }
             let availableSamples = Int(buffers[0].mDataByteSize) / MemoryLayout<Int16>.size
             let frames = availableSamples / sourceChannels
-            guard frames > 0 else { return [] }
+            guard frames > 0 else { return 0 }
+            let total = frames * outputChannels
+            reserveScratch(total)
             let ptr = data.assumingMemoryBound(to: Int16.self)
-            var samples = [Float](repeating: 0, count: frames * outputChannels)
-            for frame in 0..<frames {
-                for channel in 0..<outputChannels {
-                    samples[frame * outputChannels + channel] = Float(ptr[frame * sourceChannels + min(channel, sourceChannels - 1)]) / 32768.0
+            return scratchSamples.withUnsafeMutableBufferPointer { samples -> Int in
+                for frame in 0..<frames {
+                    for channel in 0..<outputChannels {
+                        samples[frame * outputChannels + channel] = Float(ptr[frame * sourceChannels + min(channel, sourceChannels - 1)]) / 32768.0
+                    }
                 }
+                return total
             }
-            return samples
         }
 
         throw CoreAudioStatusError(operation: "Unsupported tap format bytesPerSample=\(bytesPerSample)", status: -1)
+    }
+
+    /// Grows `scratchSamples` to at least `count` elements without shrinking it.
+    /// New tail elements are zero, but only the prefix the caller fills + returns
+    /// is ever read downstream.
+    private func reserveScratch(_ count: Int) {
+        if scratchSamples.count < count {
+            scratchSamples.append(contentsOf: repeatElement(0, count: count - scratchSamples.count))
+        }
+    }
+
+    /// Vectorised `Int16 -> Float / 32768.0` matching the scalar `Float(x) / 32768.0`.
+    /// `vDSP_vflt16` widens to Float, then `vDSP_vsdiv` divides by 32768. The
+    /// result is bit-identical to the scalar form because both operands are
+    /// exactly representable and IEEE division is deterministic.
+    private func convertInt16ToFloat(
+        source: UnsafePointer<Int16>,
+        destination: UnsafeMutablePointer<Float>,
+        count: Int
+    ) {
+        guard count > 0 else { return }
+        vDSP_vflt16(source, 1, destination, 1, vDSP_Length(count))
+        var divisor: Float = 32768.0
+        vDSP_vsdiv(destination, 1, &divisor, destination, 1, vDSP_Length(count))
     }
 
     private func minimumFrameCount(
@@ -464,12 +615,18 @@ private final class CoreAudioTapSampleBufferFactory {
         return result ?? 0
     }
 
+    /// Builds the output `CMSampleBuffer` by copying exactly `byteCount` bytes
+    /// starting at `bytes` into a fresh CMBlockBuffer. The single copy is the
+    /// same `CMBlockBufferReplaceDataBytes` the previous implementation used; the
+    /// only change is that the source is now a raw pointer (the source tap buffer
+    /// in the fast path, or the reused scratch in the conversion path) instead of
+    /// a freshly allocated `[Float]`.
     private func makeCMSampleBuffer(
-        samples: [Float],
+        bytes: UnsafeRawPointer,
+        byteCount: Int,
         frameCount: Int,
         ptsFrame: Int64
     ) throws -> CMSampleBuffer {
-        let byteCount = samples.count * MemoryLayout<Float>.stride
         var blockBuffer: CMBlockBuffer?
         var status = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
@@ -486,17 +643,14 @@ private final class CoreAudioTapSampleBufferFactory {
             throw CoreAudioStatusError(operation: "CMBlockBufferCreateWithMemoryBlock", status: status)
         }
 
-        try samples.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else { return }
-            status = CMBlockBufferReplaceDataBytes(
-                with: baseAddress,
-                blockBuffer: blockBuffer,
-                offsetIntoDestination: 0,
-                dataLength: byteCount
-            )
-            guard status == kCMBlockBufferNoErr else {
-                throw CoreAudioStatusError(operation: "CMBlockBufferReplaceDataBytes", status: status)
-            }
+        status = CMBlockBufferReplaceDataBytes(
+            with: bytes,
+            blockBuffer: blockBuffer,
+            offsetIntoDestination: 0,
+            dataLength: byteCount
+        )
+        guard status == kCMBlockBufferNoErr else {
+            throw CoreAudioStatusError(operation: "CMBlockBufferReplaceDataBytes", status: status)
         }
 
         let sampleRate = max(Int32(outputFormat.mSampleRate.rounded()), 1)

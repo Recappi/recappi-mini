@@ -367,6 +367,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                 let previous = self.previousRecorderState
                 self.previousRecorderState = state
 
+                // The CoreAudio HAL poll only feeds the idle-state auto-prompt
+                // and the (already self-throttling) detected-meeting auto-stop
+                // loop. Once we leave idle the per-tick syscall sweep is mostly
+                // wasted, so relax its cadence and restore the responsive 2s
+                // sweep the moment we return to idle.
+                self.recorder.activityMonitor.setPollInterval(
+                    state == .idle
+                        ? AudioActivityMonitor.idlePollInterval
+                        : AudioActivityMonitor.busyPollInterval
+                )
+
                 let isRecording = state.isRecording
                 if self.isRecording != isRecording {
                     self.isRecording = isRecording
@@ -2126,11 +2137,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
 private struct LiveCaptionFloatingPanelHost: View {
     @ObservedObject var appDelegate: AppDelegate
-    @ObservedObject var recorder: AudioRecorder
+    @StateObject private var panelState: LiveCaptionPanelStore
+
+    init(appDelegate: AppDelegate, recorder: AudioRecorder) {
+        self.appDelegate = appDelegate
+        _panelState = StateObject(wrappedValue: LiveCaptionPanelStore(recorder: recorder))
+    }
 
     var body: some View {
         LiveCaptionFloatingPanel(
-            recorder: recorder,
+            panelState: panelState,
             mode: appDelegate.liveCaptionPanelMode,
             onToggleMode: {
                 appDelegate.toggleLiveCaptionPanelMode()
@@ -2140,7 +2156,6 @@ private struct LiveCaptionFloatingPanelHost: View {
             },
             onChromeVisibilityChange: { _ in }
         )
-        .environmentObject(AppConfig.shared)
     }
 }
 

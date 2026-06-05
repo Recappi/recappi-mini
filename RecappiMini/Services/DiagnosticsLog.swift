@@ -188,11 +188,24 @@ final class DiagnosticsFileWriter: @unchecked Sendable {
             .appendingPathExtension(ext)
     }
 
-    private static func timestamp() -> String {
+    /// Cached once. Allocating an `ISO8601DateFormatter` per appended line is the
+    /// single most expensive part of `append` on the hot path (`DiagnosticsLog`
+    /// can emit dozens of lines/second during a recording). `ISO8601DateFormatter`
+    /// is thread-safe for formatting, so a shared instance is safe here even though
+    /// `append` is invoked from arbitrary threads before hopping onto `queue`.
+    /// Output is byte-identical to the previous per-call formatter (same options +
+    /// UTC timezone). The formatter is non-Sendable and lives in a nonisolated
+    /// context, so `nonisolated(unsafe)` is the sound annotation for a value that
+    /// is configured once and thereafter only read (formatted) concurrently.
+    private nonisolated(unsafe) static let timestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: Date())
+        return formatter
+    }()
+
+    private static func timestamp() -> String {
+        timestampFormatter.string(from: Date())
     }
 }
 

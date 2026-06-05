@@ -41,10 +41,7 @@ struct RecordingState: View {
                     .frame(width: 6, height: 6)
                     .shadow(color: DT.recordingLiveBlue.opacity(0.6), radius: 2)
                     .modifier(PulsingModifier())
-                Text(formatTime(recorder.elapsedSeconds))
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(DT.recordingGlassTextPrimary)
+                RecordingElapsedText(runtimeState: recorder.runtimeState)
                 Text("·")
                     .font(.system(size: 11))
                     .foregroundStyle(DT.recordingGlassTextTertiary)
@@ -258,12 +255,7 @@ struct RecordingState: View {
 
     @ViewBuilder
     private var waveformView: some View {
-        switch waveformMode {
-        case .spectrum:
-            DotMatrixWaveform(levels: recorder.audioSpectrumLevels)
-        case .history:
-            DotMatrixWaveform(levels: recorder.audioLevelHistory)
-        }
+        RecordingWaveformView(runtimeState: recorder.runtimeState, mode: waveformMode)
     }
 
     private var moreMenu: some View {
@@ -345,10 +337,35 @@ struct RecordingState: View {
         toggleWaveformMode()
     }
 
-    private func formatTime(_ seconds: Int) -> String {
-        let h = seconds / 3600, m = (seconds % 3600) / 60, s = seconds % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%02d:%02d", m, s)
+    private struct RecordingElapsedText: View {
+        @ObservedObject var runtimeState: RecordingRuntimeState
+
+        var body: some View {
+            Text(formatTime(runtimeState.elapsedSeconds))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(DT.recordingGlassTextPrimary)
+        }
+
+        private func formatTime(_ seconds: Int) -> String {
+            let h = seconds / 3600, m = (seconds % 3600) / 60, s = seconds % 60
+            if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+            return String(format: "%02d:%02d", m, s)
+        }
+    }
+
+    private struct RecordingWaveformView: View {
+        @ObservedObject var runtimeState: RecordingRuntimeState
+        let mode: WaveformMode
+
+        var body: some View {
+            switch mode {
+            case .spectrum:
+                DotMatrixWaveform(levels: runtimeState.audioSpectrumLevels)
+            case .history:
+                DotMatrixWaveform(levels: runtimeState.audioLevelHistory)
+            }
+        }
     }
 }
 

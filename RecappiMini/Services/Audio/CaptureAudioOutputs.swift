@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreMedia
+import os
 @preconcurrency import ScreenCaptureKit
 
 final class RecordingPerformanceProbe: @unchecked Sendable {
@@ -206,13 +207,26 @@ struct CaptureAudioHealth: Codable, Equatable {
 // MARK: - System audio receiver
 
 final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
+    /// All mutable state that the per-buffer handler shares with the metering
+    /// setter and the (off-thread) health snapshot reader. Previously each of
+    /// these lived behind a serial `DispatchQueue`, which charged a full
+    /// queue round-trip on *every* audio buffer (~100/s) just to bump a couple
+    /// of counters and read a flag. An `OSAllocatedUnfairLock` gives the same
+    /// mutual exclusion and memory visibility for a tiny fraction of the cost.
+    /// `meterGate` is folded in here too: it is only ever touched on the
+    /// capture queue, but holding it under the same lock keeps its mutation
+    /// memory-visible and removes the only piece of state that used to live
+    /// outside the synchronized region.
+    private struct State {
+        var meterGate = AudioMeterFrameGate()
+        var isMeteringEnabled = true
+        var bufferCount = 0
+        var firstBufferUptime: TimeInterval?
+        var lastBufferUptime: TimeInterval?
+    }
+
     private let writer: SegmentedAudioWriter
-    private let stateQueue = DispatchQueue(label: "RecappiMini.SystemAudioOutput.state")
-    private var meterGate = AudioMeterFrameGate()
-    private var isMeteringEnabled = true
-    private var bufferCount = 0
-    private var firstBufferUptime: TimeInterval?
-    private var lastBufferUptime: TimeInterval?
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     /// Called on the capture queue for each buffer with a peak + spectrum
     /// snapshot. Recording and live captions still receive every audio buffer;
@@ -226,9 +240,7 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     }
 
     func setMeteringEnabled(_ enabled: Bool) {
-        stateQueue.sync {
-            isMeteringEnabled = enabled
-        }
+        state.withLock { $0.isMeteringEnabled = enabled }
     }
 
     func stream(
@@ -243,28 +255,34 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
         guard sampleBuffer.isValid else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        let state = stateQueue.sync {
-            bufferCount += 1
-            let meteringEnabled = isMeteringEnabled
-            if firstBufferUptime == nil {
-                firstBufferUptime = now
-                lastBufferUptime = now
-                return (true, meteringEnabled)
+        // One short critical section per buffer: bump the counter, read the
+        // metering flag, and advance the meter gate together so the gate stays
+        // memory-consistent with the rest of the capture state.
+        let decision = state.withLock { state -> (isFirst: Bool, meteringEnabled: Bool, shouldEmit: Bool) in
+            state.bufferCount += 1
+            let meteringEnabled = state.isMeteringEnabled
+            let isFirst: Bool
+            if state.firstBufferUptime == nil {
+                state.firstBufferUptime = now
+                isFirst = true
+            } else {
+                isFirst = false
             }
-            lastBufferUptime = now
-            return (false, meteringEnabled)
+            state.lastBufferUptime = now
+            let shouldEmit = meteringEnabled && state.meterGate.shouldEmit(at: now)
+            return (isFirst, meteringEnabled, shouldEmit)
         }
-        if state.0 {
+        if decision.isFirst {
             DiagnosticsLog.event("recording", "system.first_buffer")
         }
         writer.append(sampleBuffer)
         onLiveCaptionSampleBuffer?(sampleBuffer)
         RecordingPerformanceProbe.shared.noteAudioBuffer(source: .system, at: now)
-        guard state.1 else {
+        guard decision.meteringEnabled else {
             RecordingPerformanceProbe.shared.noteMeterSkipped(source: .system, at: now)
             return
         }
-        if meterGate.shouldEmit(at: now) {
+        if decision.shouldEmit {
             let frame = RecordingPerformanceProbe.shared.measureMeterExtraction(source: .system) {
                 AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount)
             }
@@ -279,14 +297,14 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     }
 
     func healthSnapshot(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> CaptureAudioHealth {
-        stateQueue.sync {
+        state.withLock { state in
             CaptureAudioHealth(
                 source: "system",
-                bufferCount: bufferCount,
+                bufferCount: state.bufferCount,
                 includedBufferCount: nil,
-                firstBufferUptime: firstBufferUptime,
-                lastBufferUptime: lastBufferUptime,
-                secondsSinceLastBuffer: lastBufferUptime.map { max(now - $0, 0) }
+                firstBufferUptime: state.firstBufferUptime,
+                lastBufferUptime: state.lastBufferUptime,
+                secondsSinceLastBuffer: state.lastBufferUptime.map { max(now - $0, 0) }
             )
         }
     }
@@ -295,17 +313,26 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
 // MARK: - Microphone receiver
 
 final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
+    /// Mirror of `SystemAudioOutput.State`: all per-buffer counters, flags and
+    /// the meter gate that used to round-trip a serial `DispatchQueue` on every
+    /// microphone buffer. Replaced by a single `OSAllocatedUnfairLock` to keep
+    /// the same single-writer + memory-visibility guarantees at a fraction of
+    /// the per-buffer cost. `meterGate` is included so it is mutated under the
+    /// lock rather than (as before) outside any synchronization.
+    private struct State {
+        var meterGate = AudioMeterFrameGate()
+        var isMeteringEnabled = true
+        var includesAudio = true
+        var didLogFirstBuffer = false
+        var didLogFirstIncludedBuffer = false
+        var bufferCount = 0
+        var includedBufferCount = 0
+        var firstBufferUptime: TimeInterval?
+        var lastBufferUptime: TimeInterval?
+    }
+
     private let writer: SegmentedAudioWriter
-    private let stateQueue = DispatchQueue(label: "RecappiMini.MicAudioOutput.state")
-    private var meterGate = AudioMeterFrameGate()
-    private var isMeteringEnabled = true
-    private var includesAudio = true
-    private var didLogFirstBuffer = false
-    private var didLogFirstIncludedBuffer = false
-    private var bufferCount = 0
-    private var includedBufferCount = 0
-    private var firstBufferUptime: TimeInterval?
-    private var lastBufferUptime: TimeInterval?
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     var onMeterFrame: ((AudioMeterFrame) -> Void)?
 
@@ -314,15 +341,11 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     }
 
     func setIncludesAudio(_ included: Bool) {
-        stateQueue.sync {
-            includesAudio = included
-        }
+        state.withLock { $0.includesAudio = included }
     }
 
     func setMeteringEnabled(_ enabled: Bool) {
-        stateQueue.sync {
-            isMeteringEnabled = enabled
-        }
+        state.withLock { $0.isMeteringEnabled = enabled }
     }
 
     func captureOutput(
@@ -332,45 +355,58 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     ) {
         guard sampleBuffer.isValid else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        let state = stateQueue.sync {
-            let included = includesAudio
-            bufferCount += 1
-            if firstBufferUptime == nil {
-                firstBufferUptime = now
+        let decision = state.withLock {
+            state -> (
+                included: Bool,
+                shouldLogFirstBuffer: Bool,
+                shouldLogFirstIncludedBuffer: Bool,
+                meteringEnabled: Bool,
+                shouldEmit: Bool
+            ) in
+            let included = state.includesAudio
+            state.bufferCount += 1
+            if state.firstBufferUptime == nil {
+                state.firstBufferUptime = now
             }
-            lastBufferUptime = now
+            state.lastBufferUptime = now
 
             var shouldLogFirstBuffer = false
-            if !didLogFirstBuffer {
-                didLogFirstBuffer = true
+            if !state.didLogFirstBuffer {
+                state.didLogFirstBuffer = true
                 shouldLogFirstBuffer = true
             }
 
             var shouldLogFirstIncludedBuffer = false
             if included {
-                includedBufferCount += 1
-                if !didLogFirstIncludedBuffer {
-                    didLogFirstIncludedBuffer = true
+                state.includedBufferCount += 1
+                if !state.didLogFirstIncludedBuffer {
+                    state.didLogFirstIncludedBuffer = true
                     shouldLogFirstIncludedBuffer = true
                 }
             }
 
-            return (included, shouldLogFirstBuffer, shouldLogFirstIncludedBuffer, isMeteringEnabled)
+            let meteringEnabled = state.isMeteringEnabled
+            // The meter gate is only advanced when we would actually emit a
+            // frame (metering enabled AND this buffer is included), matching
+            // the original ordering where `shouldEmit(at:)` lived behind the
+            // `guard isMeteringEnabled` and the `included` check.
+            let shouldEmit = meteringEnabled && included && state.meterGate.shouldEmit(at: now)
+            return (included, shouldLogFirstBuffer, shouldLogFirstIncludedBuffer, meteringEnabled, shouldEmit)
         }
-        let included = state.0
-        if state.1 {
+        let included = decision.included
+        if decision.shouldLogFirstBuffer {
             DiagnosticsLog.event("recording", "mic.first_buffer included=\(included)")
         }
-        if state.2 {
+        if decision.shouldLogFirstIncludedBuffer {
             DiagnosticsLog.event("recording", "mic.first_included_buffer")
         }
         writer.append(sampleBuffer, muted: !included)
         RecordingPerformanceProbe.shared.noteAudioBuffer(source: .mic, at: now)
-        guard state.3 else {
+        guard decision.meteringEnabled else {
             RecordingPerformanceProbe.shared.noteMeterSkipped(source: .mic, at: now)
             return
         }
-        if included, meterGate.shouldEmit(at: now) {
+        if decision.shouldEmit {
             let frame = RecordingPerformanceProbe.shared.measureMeterExtraction(source: .mic) {
                 AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount)
             }
@@ -385,14 +421,14 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
     }
 
     func healthSnapshot(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> CaptureAudioHealth {
-        stateQueue.sync {
+        state.withLock { state in
             CaptureAudioHealth(
                 source: "mic",
-                bufferCount: bufferCount,
-                includedBufferCount: includedBufferCount,
-                firstBufferUptime: firstBufferUptime,
-                lastBufferUptime: lastBufferUptime,
-                secondsSinceLastBuffer: lastBufferUptime.map { max(now - $0, 0) }
+                bufferCount: state.bufferCount,
+                includedBufferCount: state.includedBufferCount,
+                firstBufferUptime: state.firstBufferUptime,
+                lastBufferUptime: state.lastBufferUptime,
+                secondsSinceLastBuffer: state.lastBufferUptime.map { max(now - $0, 0) }
             )
         }
     }

@@ -38,8 +38,13 @@ final class BackdropLuminanceObserver: ObservableObject {
     /// Hysteresis window — a new luminance verdict only wins after it
     /// has been consistent for at least this long. Prevents flickering
     /// when a panel sits on the edge of a window and the average wobbles
-    /// across the threshold every tick.
-    private let hysteresisInterval: TimeInterval = 1.0
+    /// across the threshold every tick. Measured in wall-clock time, so
+    /// it must stay >= `sampleInterval` to still require a *second*
+    /// confirming sample before committing a flip; at the 2.0 s sampling
+    /// rate that means a flip needs two consecutive matching ticks, which
+    /// keeps the original "be consistent across samples" anti-flicker
+    /// guarantee.
+    private let hysteresisInterval: TimeInterval = 2.0
 
     /// Heartbeat re-sample cadence. The panel is anchored (top-right) and
     /// doesn't move on its own, so the verdict only needs to change when

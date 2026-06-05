@@ -11,7 +11,6 @@ private struct AudioAppBundleMetadata {
 @MainActor
 final class AudioRecorder: NSObject, ObservableObject {
     @Published var state: RecorderState = .idle
-    @Published var elapsedSeconds: Int = 0
     @Published var runningApps: [AudioApp] = []
     @Published var selectedApp: AudioApp?
     @Published var recordingSuggestion: RecordingSuggestion?
@@ -19,9 +18,23 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var recordingAppName: String?
     @Published private(set) var detectedMeetingRecordingContext: DetectedMeetingRecordingContext?
     @Published private(set) var autoStopRequest: AutoStopRecordingRequest?
-    @Published var audioLevel: Float = 0
-    @Published var audioSpectrumLevels: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
-    @Published var audioLevelHistory: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
+    let runtimeState = RecordingRuntimeState(bucketCount: AudioRecorder.spectrumBucketCount)
+    var elapsedSeconds: Int {
+        get { runtimeState.elapsedSeconds }
+        set { runtimeState.elapsedSeconds = newValue }
+    }
+    var audioLevel: Float {
+        get { runtimeState.audioLevel }
+        set { runtimeState.audioLevel = newValue }
+    }
+    var audioSpectrumLevels: [Float] {
+        get { runtimeState.audioSpectrumLevels }
+        set { runtimeState.audioSpectrumLevels = newValue }
+    }
+    var audioLevelHistory: [Float] {
+        get { runtimeState.audioLevelHistory }
+        set { runtimeState.audioLevelHistory = newValue }
+    }
     /// Ordered live-caption segments produced by the active transcriber.
     /// Empty when no caption history has been accumulated yet (or after
     /// an explicit reset). UI consumers branch on `isEmpty` for the
@@ -31,6 +44,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published private(set) var liveCaptionMessage: String?
     @Published private(set) var liveCaptionStatusPhase: LiveCaptionSnapshot.Phase?
     @Published private(set) var activeLiveCaptionConfiguration: LiveCaptionRecordingConfiguration?
+    @Published private(set) var liveCaptionLifecycleRevision: UInt64 = 0
     /// True when every segment in `liveCaptionSegments` is `isFinal`. UI
     /// can use this to gate animations or styling for "stable" captions.
     @Published private(set) var liveCaptionIsFinal: Bool = false
@@ -53,7 +67,9 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// provider. `.transitioning` is observable to `stopRecording`, so
     /// a stop arriving mid-restart no longer drops caption history.
     /// See `LiveCaptionState` for the case semantics.
-    private var liveCaptionState: LiveCaptionState = .none
+    private var liveCaptionState: LiveCaptionState = .none {
+        didSet { liveCaptionLifecycleRevision &+= 1 }
+    }
     /// Per-`liveCaptionState` snapshot subscription. Created when a
     /// `RealtimeLiveCaptionActor` is installed as the active provider,
     /// cancelled when the state advances past `.running(.backend(...))`.
@@ -82,12 +98,24 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private var sessionDir: URL?
     private var timer: Timer?
-    /// Timestamp of the last `audioLevel` publish; capped at 30 Hz so
-    /// SwiftUI doesn't burn a re-render per ScreenCaptureKit buffer.
+    /// Timestamp of the last `audioLevel` publish; capped at
+    /// `levelPublishInterval` (~20 Hz) so SwiftUI doesn't burn a
+    /// re-render per ScreenCaptureKit buffer. The capture-side meter
+    /// gate only emits ~12 Hz/source, so above ~20 Hz the extra publish
+    /// ticks carry decay-only updates while re-rendering every view that
+    /// observes this object — pure cost until the meter splits onto its
+    /// own observable.
     private var lastLevelPublish: CFTimeInterval = 0
     private var lastHistoryPublish: CFTimeInterval = 0
     private var pendingMeterPeak: Float = 0
     private var pendingMeterBands: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
+    /// Reused storage for the per-publish spectrum compute. Held across
+    /// publishes so `ingestMeterFrame` no longer allocates a `decayed`
+    /// intermediate + a fresh result array on every publish; it is
+    /// filled element-wise from the live `audioSpectrumLevels` (decay)
+    /// and `pendingMeterBands` (peak), then assigned once so the
+    /// `@Published` property still fires exactly one change per publish.
+    private var spectrumPublishScratch: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
     private let uiTestMode = UITestModeConfiguration.shared
     private var uiTestInjectedAudioApps: [String: AudioApp] = [:]
     private var uiTestInjectedActiveBundleIDs: Set<String> = []
@@ -100,6 +128,13 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var recordingActivityToken: NSObjectProtocol?
 
     static let spectrumBucketCount = AudioSpectrumConfiguration.bucketCount
+    /// Minimum spacing between `audioLevel` / `audioSpectrumLevels`
+    /// publishes (~20 Hz). Lowered from 30 Hz: the capture meter gate
+    /// emits ~12 Hz/source, so ticks above ~20 Hz mostly re-render the
+    /// whole UI with decay-only deltas. The peak-decay smoothing math
+    /// (0.82 hold / 0.72 spectrum decay) is unchanged; only the publish
+    /// cadence drops, so the visible meter is ~33% fewer full re-renders.
+    private static let levelPublishInterval: CFTimeInterval = 1.0 / 20.0
     private static let historySampleInterval: CFTimeInterval = 0.18
     private static var audioAppBundleMetadataByID: [String: AudioAppBundleMetadata] = [:]
 
@@ -250,6 +285,21 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// flush logic without bringing up ScreenCaptureKit / mic / etc.
     func finalizeLiveCaptionsForStopTesting(saveTo sessionDir: URL?) async {
         await finalizeLiveCaptionsForStop(saveTo: sessionDir)
+    }
+
+    func applyLiveCaptionSnapshotForTesting(_ snapshot: LiveCaptionSnapshot) {
+        applyLiveCaptionSnapshot(snapshot)
+    }
+
+    func installReconnectableBackendLiveCaptionProviderForTesting() {
+        let client = RecappiAPIClient(origin: "https://example.test", bearerToken: "test-token")
+        let connector = LiveRealtimeSessionConnector(client: client)
+        let actor = RealtimeLiveCaptionActor(connector: connector, language: "en", mode: .transcription)
+        liveCaptionState = .running(provider: .backend(actor), locale: "en-US", generation: restartGeneration)
+    }
+
+    func clearLiveCaptionProviderForTesting() {
+        liveCaptionState = .none
     }
 #endif
 
@@ -1089,8 +1139,9 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// Merge the latest peak + spectrum from either audio source into the
     /// live recording meter. Called from the capture queues. We accumulate
     /// the max of system + mic frames between UI publishes; otherwise a
-    /// high-frequency silent system stream can consume the 30 Hz throttle
-    /// window and starve microphone frames from the visible waveform.
+    /// high-frequency silent system stream can consume the publish-throttle
+    /// window (~20 Hz, `levelPublishInterval`) and starve microphone frames
+    /// from the visible waveform.
     nonisolated func ingestMeterFrame(_ frame: AudioMeterFrame) {
         RecordingPerformanceProbe.shared.noteMeterTaskScheduled()
         Task { @MainActor [weak self] in
@@ -1110,20 +1161,47 @@ final class AudioRecorder: NSObject, ObservableObject {
             pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
         }
         pendingMeterPeak = max(pendingMeterPeak, frame.peak)
-        pendingMeterBands = zip(pendingMeterBands, incoming).map(max)
+        // In-place max-merge into the reused accumulator. `incoming` is
+        // `spectrumBucketCount`-long (normalizeSpectrum) and
+        // `pendingMeterBands` was just re-sized to match, so the indices
+        // align. This runs every frame (~12 Hz/source) — replacing the
+        // old `zip(...).map(max)` here removes a per-frame array alloc.
+        for i in pendingMeterBands.indices {
+            pendingMeterBands[i] = max(pendingMeterBands[i], incoming[i])
+        }
 
         // Hold peak with light decay so a single-buffer spike still reads
         // visually over the publish window.
         let smoothed = max(audioLevel * 0.82, pendingMeterPeak)
 
-        if now - lastLevelPublish >= 1.0 / 30.0 {
+        if now - lastLevelPublish >= Self.levelPublishInterval {
             lastLevelPublish = now
             audioLevel = smoothed
 
-            let decayed = audioSpectrumLevels.map { $0 * 0.72 }
-            audioSpectrumLevels = zip(decayed, pendingMeterBands).map(max)
+            // Compute decay (×0.72) max'd with the accumulated bands into
+            // reused scratch, then assign once. Same values + same single
+            // `@Published` fire as the old `decayed`/`zip(...).map(max)`
+            // pair, but without their two per-publish allocations. We read
+            // decay from the live `audioSpectrumLevels` (not scratch) so an
+            // external replacement of that property — e.g. the UI-test
+            // `seedStateBoardMeterIfNeeded` fixture — is still respected.
+            let current = audioSpectrumLevels
+            if spectrumPublishScratch.count != Self.spectrumBucketCount {
+                spectrumPublishScratch = Array(repeating: 0, count: Self.spectrumBucketCount)
+            }
+            let bandCount = min(current.count, pendingMeterBands.count)
+            for i in 0..<Self.spectrumBucketCount {
+                let decayed = i < current.count ? current[i] * 0.72 : 0
+                let band = i < bandCount ? pendingMeterBands[i] : 0
+                spectrumPublishScratch[i] = max(decayed, band)
+            }
+            audioSpectrumLevels = spectrumPublishScratch
             pendingMeterPeak = 0
-            pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
+            // Zero the accumulator in place — reuses the buffer instead of
+            // allocating a fresh zero array each publish.
+            for i in pendingMeterBands.indices {
+                pendingMeterBands[i] = 0
+            }
             RecordingPerformanceProbe.shared.noteLevelPublish()
         }
 
