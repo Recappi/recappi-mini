@@ -11,7 +11,6 @@ private struct AudioAppBundleMetadata {
 @MainActor
 final class AudioRecorder: NSObject, ObservableObject {
     @Published var state: RecorderState = .idle
-    @Published var elapsedSeconds: Int = 0
     @Published var runningApps: [AudioApp] = []
     @Published var selectedApp: AudioApp?
     @Published var recordingSuggestion: RecordingSuggestion?
@@ -19,9 +18,23 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published var recordingAppName: String?
     @Published private(set) var detectedMeetingRecordingContext: DetectedMeetingRecordingContext?
     @Published private(set) var autoStopRequest: AutoStopRecordingRequest?
-    @Published var audioLevel: Float = 0
-    @Published var audioSpectrumLevels: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
-    @Published var audioLevelHistory: [Float] = Array(repeating: 0, count: AudioRecorder.spectrumBucketCount)
+    let runtimeState = RecordingRuntimeState(bucketCount: AudioRecorder.spectrumBucketCount)
+    var elapsedSeconds: Int {
+        get { runtimeState.elapsedSeconds }
+        set { runtimeState.elapsedSeconds = newValue }
+    }
+    var audioLevel: Float {
+        get { runtimeState.audioLevel }
+        set { runtimeState.audioLevel = newValue }
+    }
+    var audioSpectrumLevels: [Float] {
+        get { runtimeState.audioSpectrumLevels }
+        set { runtimeState.audioSpectrumLevels = newValue }
+    }
+    var audioLevelHistory: [Float] {
+        get { runtimeState.audioLevelHistory }
+        set { runtimeState.audioLevelHistory = newValue }
+    }
     /// Ordered live-caption segments produced by the active transcriber.
     /// Empty when no caption history has been accumulated yet (or after
     /// an explicit reset). UI consumers branch on `isEmpty` for the
@@ -269,6 +282,10 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// flush logic without bringing up ScreenCaptureKit / mic / etc.
     func finalizeLiveCaptionsForStopTesting(saveTo sessionDir: URL?) async {
         await finalizeLiveCaptionsForStop(saveTo: sessionDir)
+    }
+
+    func applyLiveCaptionSnapshotForTesting(_ snapshot: LiveCaptionSnapshot) {
+        applyLiveCaptionSnapshot(snapshot)
     }
 #endif
 

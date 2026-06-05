@@ -2137,11 +2137,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
 private struct LiveCaptionFloatingPanelHost: View {
     @ObservedObject var appDelegate: AppDelegate
-    @ObservedObject var recorder: AudioRecorder
+    @StateObject private var panelState: LiveCaptionPanelStore
+
+    init(appDelegate: AppDelegate, recorder: AudioRecorder) {
+        self.appDelegate = appDelegate
+        _panelState = StateObject(wrappedValue: LiveCaptionPanelStore(recorder: recorder))
+    }
 
     var body: some View {
         LiveCaptionFloatingPanel(
-            recorder: recorder,
+            panelState: panelState,
             mode: appDelegate.liveCaptionPanelMode,
             onToggleMode: {
                 appDelegate.toggleLiveCaptionPanelMode()
@@ -2151,7 +2156,6 @@ private struct LiveCaptionFloatingPanelHost: View {
             },
             onChromeVisibilityChange: { _ in }
         )
-        .environmentObject(AppConfig.shared)
     }
 }
 

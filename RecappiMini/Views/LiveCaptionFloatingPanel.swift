@@ -77,8 +77,7 @@ enum LiveCaptionPanelMode: String {
 }
 
 struct LiveCaptionFloatingPanel: View {
-    @ObservedObject var recorder: AudioRecorder
-    @EnvironmentObject private var config: AppConfig
+    @ObservedObject var panelState: LiveCaptionPanelStore
     @Environment(\.colorScheme) private var colorScheme
     @State private var paneVisibility: LiveCaptionPaneVisibility = .both
     @State private var chromeVisible = false
@@ -211,7 +210,7 @@ struct LiveCaptionFloatingPanel: View {
 
                 HStack(alignment: .center, spacing: 7) {
                     compactLiveBadge
-                    Text(timeText(recorder.elapsedSeconds))
+                    Text(timeText(panelState.elapsedSeconds))
                         .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .monospacedDigit()
                         .foregroundStyle(glassTextSecondary)
@@ -304,7 +303,7 @@ struct LiveCaptionFloatingPanel: View {
             compactLiveBadge
             liveCaptionDisplayControl
 
-            Text(timeText(recorder.elapsedSeconds))
+            Text(timeText(panelState.elapsedSeconds))
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(glassTextSecondary)
@@ -354,7 +353,7 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var liveCaptionStatusKind: LiveCaptionStatusKind? {
-        switch recorder.liveCaptionStatusPhase {
+        switch panelState.statusPhase {
         case .preparing?: return .connecting
         case .reconnecting?: return .reconnecting
         case .failed?: return .interrupted
@@ -382,7 +381,7 @@ struct LiveCaptionFloatingPanel: View {
         case .unavailable:
             return .init(kind: kind, color: DT.systemOrange, label: "Live captions unavailable",
                          shortLabel: "Unavailable", systemImage: "exclamationmark.octagon.fill",
-                         actionable: recorder.canReconnectLiveCaptions)
+                         actionable: panelState.canReconnect)
         }
     }
 
@@ -390,7 +389,7 @@ struct LiveCaptionFloatingPanel: View {
     /// detail. The primary user-facing copy is mapped from the phase above so
     /// it stays consistent and localizable.
     private var liveCaptionStatusDetail: String? {
-        let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = panelState.message?.trimmingCharacters(in: .whitespacesAndNewlines)
         return message?.isEmpty == false ? message : nil
     }
 
@@ -448,7 +447,7 @@ struct LiveCaptionFloatingPanel: View {
 
             if style.actionable {
                 Button {
-                    recorder.reconnectLiveCaptionsNow()
+                    panelState.reconnectLiveCaptionsNow()
                 } label: {
                     pill
                 }
@@ -663,19 +662,19 @@ struct LiveCaptionFloatingPanel: View {
         if let debugText = Self.liveCaptionDebugText {
             return debugText
         }
-        return derived.sourceStreamText(for: recorder.liveCaptionSegments, debugText: nil)
+        return derived.sourceStreamText(for: panelState.segments, debugText: nil)
     }
 
     private var translationStreamText: String {
-        derived.translationStreamText(for: recorder.liveCaptionSegments, debugText: Self.liveCaptionDebugText)
+        derived.translationStreamText(for: panelState.segments, debugText: Self.liveCaptionDebugText)
     }
 
     private var sourcePaneSegments: [LiveCaptionSegment] {
-        derived.sourcePaneSegments(for: recorder.liveCaptionSegments, debugText: Self.liveCaptionDebugText)
+        derived.sourcePaneSegments(for: panelState.segments, debugText: Self.liveCaptionDebugText)
     }
 
     private var translationPaneSegments: [LiveCaptionSegment] {
-        derived.translationPaneSegments(for: recorder.liveCaptionSegments, debugText: Self.liveCaptionDebugText)
+        derived.translationPaneSegments(for: panelState.segments, debugText: Self.liveCaptionDebugText)
     }
 
     nonisolated static func normalizedStreamText(_ chunks: [String]) -> String {
@@ -857,8 +856,8 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var liveCaptionShowsTranslation: Bool {
-        recorder.activeLiveCaptionConfiguration?.showsTranslation
-            ?? config.liveCaptionsBilingualEnabled
+        panelState.activeConfiguration?.showsTranslation
+            ?? panelState.fallbackShowsTranslation
     }
 
     private var liveCaptionDisplayTitle: String {
@@ -893,13 +892,13 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var liveCaptionSourceLanguageShortTitle: String {
-        SpeechLanguageOption.option(for: config.cloudLanguage).shortCode
+        SpeechLanguageOption.option(for: panelState.cloudLanguage).shortCode
     }
 
     private var liveCaptionTargetLanguageShortTitle: String {
-        let lockedConfig = recorder.activeLiveCaptionConfiguration
+        let lockedConfig = panelState.activeConfiguration
         return LiveCaptionTranslationTargetLanguageOption
-            .option(for: lockedConfig?.targetLanguage ?? config.liveCaptionsTranslationTargetLanguage)
+            .option(for: lockedConfig?.targetLanguage ?? panelState.fallbackTargetLanguage)
             .shortTitle
     }
 
@@ -912,7 +911,7 @@ struct LiveCaptionFloatingPanel: View {
     }
 
     private var bilingualViewportSegments: [LiveCaptionSegment] {
-        let pairedSegments = recorder.liveCaptionSegments.filter { segment in
+        let pairedSegments = panelState.segments.filter { segment in
             let source = segment.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
             let translated = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return !source.isEmpty || !translated.isEmpty
@@ -979,7 +978,7 @@ struct LiveCaptionFloatingPanel: View {
         if Self.liveCaptionDebugText != nil {
             return true
         }
-        return !recorder.liveCaptionSegments.isEmpty
+        return !panelState.segments.isEmpty
     }
 
     /// Segment list passed into the expanded viewport. Mirrors the
@@ -998,7 +997,7 @@ struct LiveCaptionFloatingPanel: View {
                 )
             ]
         }
-        return recorder.liveCaptionSegments
+        return panelState.segments
     }
 
     private var captionLine: String {
@@ -1012,7 +1011,7 @@ struct LiveCaptionFloatingPanel: View {
         // The expanded NSTextView happily renders these `\n`s; the
         // compact bar applies `lineLimit(2)` and pre-truncation so the
         // joined text still fits in two lines.
-        let joined = recorder.liveCaptionSegments
+        let joined = panelState.segments
             .map(\.sourceText)
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1028,7 +1027,7 @@ struct LiveCaptionFloatingPanel: View {
         // it were a transcript line. Only fall back to `liveCaptionMessage`
         // for the body while genuinely streaming (no status phase set).
         if liveCaptionStatusKind == nil,
-           let message = recorder.liveCaptionMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let message = panelState.message?.trimmingCharacters(in: .whitespacesAndNewlines),
            !message.isEmpty {
             return message
         }
