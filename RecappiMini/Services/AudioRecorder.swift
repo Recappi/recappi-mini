@@ -44,6 +44,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published private(set) var liveCaptionMessage: String?
     @Published private(set) var liveCaptionStatusPhase: LiveCaptionSnapshot.Phase?
     @Published private(set) var activeLiveCaptionConfiguration: LiveCaptionRecordingConfiguration?
+    @Published private(set) var liveCaptionLifecycleRevision: UInt64 = 0
     /// True when every segment in `liveCaptionSegments` is `isFinal`. UI
     /// can use this to gate animations or styling for "stable" captions.
     @Published private(set) var liveCaptionIsFinal: Bool = false
@@ -66,7 +67,9 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// provider. `.transitioning` is observable to `stopRecording`, so
     /// a stop arriving mid-restart no longer drops caption history.
     /// See `LiveCaptionState` for the case semantics.
-    private var liveCaptionState: LiveCaptionState = .none
+    private var liveCaptionState: LiveCaptionState = .none {
+        didSet { liveCaptionLifecycleRevision &+= 1 }
+    }
     /// Per-`liveCaptionState` snapshot subscription. Created when a
     /// `RealtimeLiveCaptionActor` is installed as the active provider,
     /// cancelled when the state advances past `.running(.backend(...))`.
@@ -286,6 +289,17 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     func applyLiveCaptionSnapshotForTesting(_ snapshot: LiveCaptionSnapshot) {
         applyLiveCaptionSnapshot(snapshot)
+    }
+
+    func installReconnectableBackendLiveCaptionProviderForTesting() {
+        let client = RecappiAPIClient(origin: "https://example.test", bearerToken: "test-token")
+        let connector = LiveRealtimeSessionConnector(client: client)
+        let actor = RealtimeLiveCaptionActor(connector: connector, language: "en", mode: .transcription)
+        liveCaptionState = .running(provider: .backend(actor), locale: "en-US", generation: restartGeneration)
+    }
+
+    func clearLiveCaptionProviderForTesting() {
+        liveCaptionState = .none
     }
 #endif
 

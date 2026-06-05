@@ -111,4 +111,31 @@ final class RecordingRuntimeStateObservationTests: XCTestCase {
         XCTAssertEqual(store.statusPhase, .listening)
     }
 
+    func testLiveCaptionPanelStoreRefreshesReconnectWhenLifecycleChangesWithoutPhase() {
+        var cancellables: Set<AnyCancellable> = []
+        let recorder = AudioRecorder()
+        let store = LiveCaptionPanelStore(recorder: recorder)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertFalse(store.canReconnect)
+
+        let reconnectEnabled = expectation(description: "backend lifecycle enables reconnect")
+        store.objectWillChange
+            .sink { _ in
+                Task { @MainActor in
+                    if store.canReconnect {
+                        reconnectEnabled.fulfill()
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
+        recorder.installReconnectableBackendLiveCaptionProviderForTesting()
+
+        wait(for: [reconnectEnabled], timeout: 0.3)
+        XCTAssertTrue(store.canReconnect)
+
+        recorder.clearLiveCaptionProviderForTesting()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertFalse(store.canReconnect)
+    }
 }

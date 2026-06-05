@@ -76,6 +76,13 @@ final class LiveCaptionPanelStore: ObservableObject {
             }
             .store(in: &cancellables)
 
+        recorder.$liveCaptionLifecycleRevision
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.refreshCanReconnect()
+            }
+            .store(in: &cancellables)
+
         recorder.$state
             .removeDuplicates()
             .sink { [weak self] _ in
