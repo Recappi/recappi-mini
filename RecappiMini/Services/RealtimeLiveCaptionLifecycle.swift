@@ -1343,12 +1343,16 @@ actor RealtimeLiveCaptionActor {
         guard cause == "receive.throw" else { return false }
         if closeCode == 1005,
            nsError.domain == NSPOSIXErrorDomain,
-           nsError.code == 57 {
+           Self.isTransientPOSIXSocketCode(nsError.code) {
             return true
         }
         return closeCode == 0
             && nsError.domain == NSURLErrorDomain
             && nsError.code == NSURLErrorSecureConnectionFailed
+    }
+
+    private static func isTransientPOSIXSocketCode(_ code: Int) -> Bool {
+        code == 54 || code == 57
     }
 
     /// Decode the optional close-reason payload into a sanitized

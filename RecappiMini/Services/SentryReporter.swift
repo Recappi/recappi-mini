@@ -444,6 +444,7 @@ private struct DiagnosticTelemetry {
         switch (fields["domain"], fields["code"]) {
         case (NSURLErrorDomain, String(NSURLErrorSecureConnectionFailed)),
              (NSURLErrorDomain, String(NSURLErrorNotConnectedToInternet)),
+             (NSPOSIXErrorDomain, "54"),
              (NSPOSIXErrorDomain, "57"):
             return true
         default:
@@ -509,13 +510,17 @@ private struct DiagnosticTelemetry {
 
         if fields["closeCode"] == "1005",
            fields["domain"] == NSPOSIXErrorDomain,
-           fields["code"] == "57" {
+           Self.isTransientPOSIXSocketCode(fields["code"]) {
             return true
         }
 
         return fields["closeCode"] == "0"
             && fields["domain"] == NSURLErrorDomain
             && fields["code"] == String(NSURLErrorSecureConnectionFailed)
+    }
+
+    private static func isTransientPOSIXSocketCode(_ code: String?) -> Bool {
+        code == "54" || code == "57"
     }
 
     private var isExpectedLocalOnlyRecordingDelete404: Bool {

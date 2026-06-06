@@ -347,6 +347,14 @@ final class SentryReporterTests: XCTestCase {
             SentryReporter.shouldCaptureDiagnosticError(
                 level: "error",
                 category: "live-caption",
+                message: "ws.failed mode=transcription sessionId=e6e87f05-fdb0-4479-8af5-197ba0d25549 generation=6 sinceOpenMs=474000 cause=receive.throw closeCode=1005 domain=NSPOSIXErrorDomain code=54 message=Connection reset by peer"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
                 message: "ws.failed mode=translation:zh sessionId=65d8411f-2df4-4aad-a7d4-5e79cdb06aba generation=1 sinceOpenMs=4171 cause=receive.throw closeCode=0 domain=NSURLErrorDomain code=-1200 message=A TLS error caused the secure connection to fail."
             )
         )
