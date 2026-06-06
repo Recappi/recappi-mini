@@ -1,4 +1,5 @@
 import Foundation
+import Sentry
 import XCTest
 @testable import RecappiMini
 
@@ -398,6 +399,106 @@ final class SentryReporterTests: XCTestCase {
 
         SentryReporter.setUserIdentity(session)
         SentryReporter.clearUserIdentity()
+    }
+
+    func testAppHangRenderContextUsesLowCardinalityTagsAndFingerprint() {
+        let snapshot = AppHangRenderContextSnapshot(
+            recordingState: "processing.polling",
+            recordingPanelVisible: true,
+            liveCaptionPanelMode: "expanded",
+            liveCaptionPanelVisible: true,
+            visibleFloatingSurfaceCount: 6,
+            recordingBackdropSampling: "active",
+            recordingBackdropChrome: "dark",
+            appearance: "light",
+            screenCount: 5
+        )
+
+        XCTAssertEqual(snapshot.tags["app_hang.recording_state"], "processing.polling")
+        XCTAssertEqual(snapshot.tags["app_hang.recording_panel"], "visible")
+        XCTAssertEqual(snapshot.tags["app_hang.live_caption_panel"], "expanded")
+        XCTAssertEqual(snapshot.tags["app_hang.floating_surfaces"], "4+")
+        XCTAssertEqual(snapshot.tags["app_hang.glass_surfaces"], "recording+live_caption")
+        XCTAssertEqual(snapshot.tags["app_hang.backdrop_sampling"], "active")
+        XCTAssertEqual(snapshot.tags["app_hang.backdrop_chrome"], "dark")
+        XCTAssertEqual(snapshot.tags["app_hang.appearance"], "light")
+        XCTAssertEqual(snapshot.tags["app_hang.screen_count"], "4+")
+        XCTAssertEqual(snapshot.context["floating_surface_count"], "6")
+        XCTAssertEqual(snapshot.context["recording_backdrop_sampling"], "active")
+        XCTAssertEqual(snapshot.context["recording_backdrop_chrome"], "dark")
+        XCTAssertEqual(
+            SentryReporter.appHangFingerprint(for: snapshot),
+            [
+                "{{ default }}",
+                "recappi-app-hang",
+                "recording:processing.polling",
+                "captions:expanded",
+                "surfaces:4+",
+                "glass:recording+live_caption",
+            ]
+        )
+    }
+
+    func testAppHangRenderContextSanitizesDynamicValues() {
+        let snapshot = AppHangRenderContextSnapshot(
+            recordingState: "error /Users/friend/private token=secret",
+            recordingPanelVisible: true,
+            liveCaptionPanelMode: "expanded; session=abc",
+            liveCaptionPanelVisible: false,
+            visibleFloatingSurfaceCount: -3,
+            recordingBackdropSampling: "",
+            recordingBackdropChrome: "system dark",
+            appearance: "Light Aqua",
+            screenCount: -1
+        )
+
+        XCTAssertEqual(snapshot.recordingState, "error-token-redacted")
+        XCTAssertEqual(snapshot.liveCaptionPanelMode, "none")
+        XCTAssertEqual(snapshot.visibleFloatingSurfaceCount, 0)
+        XCTAssertEqual(snapshot.recordingBackdropSampling, "unknown")
+        XCTAssertEqual(snapshot.recordingBackdropChrome, "system-dark")
+        XCTAssertEqual(snapshot.appearance, "light-aqua")
+        XCTAssertEqual(snapshot.screenCount, 0)
+    }
+
+    func testAppHangEventEnrichmentAddsContextAndFingerprint() {
+        let event = Event(level: .error)
+        let exception = Exception(value: "App hanging for at least 2000 ms.", type: "App Hanging")
+        event.exceptions = [exception]
+
+        let snapshot = AppHangRenderContextSnapshot(
+            recordingState: "recording",
+            recordingPanelVisible: true,
+            liveCaptionPanelMode: "compact",
+            liveCaptionPanelVisible: true,
+            visibleFloatingSurfaceCount: 2,
+            recordingBackdropSampling: "active",
+            recordingBackdropChrome: "light",
+            appearance: "light",
+            screenCount: 1
+        )
+
+        SentryReporter.enrichAppHangEventForTesting(event, renderContext: snapshot)
+
+        XCTAssertEqual(event.tags?["app_hang.recording_state"], "recording")
+        XCTAssertEqual(event.tags?["app_hang.recording_panel"], "visible")
+        XCTAssertEqual(event.tags?["app_hang.live_caption_panel"], "compact")
+        XCTAssertEqual(event.tags?["app_hang.floating_surfaces"], "2")
+        XCTAssertEqual(event.tags?["app_hang.glass_surfaces"], "recording+live_caption")
+        XCTAssertEqual(event.fingerprint, SentryReporter.appHangFingerprint(for: snapshot))
+
+        let context = event.context?["recappi_app_hang"] as? [String: String]
+        XCTAssertEqual(context?["recording_state"], "recording")
+        XCTAssertEqual(context?["live_caption_panel_mode"], "compact")
+        XCTAssertEqual(context?["recording_backdrop_chrome"], "light")
+    }
+
+    func testAppHangExceptionTypeRecognitionStaysNarrow() {
+        XCTAssertTrue(SentryReporter.isAppHangExceptionType("App Hanging"))
+        XCTAssertTrue(SentryReporter.isAppHangExceptionType("App Hang Fully Blocked"))
+        XCTAssertTrue(SentryReporter.isAppHangExceptionType("Fatal App Hang Non Fully Blocked"))
+        XCTAssertFalse(SentryReporter.isAppHangExceptionType("NSException"))
+        XCTAssertFalse(SentryReporter.isAppHangExceptionType(nil))
     }
 
     func testAppHangTrackingPauseGateReferenceCountsModalAlerts() {

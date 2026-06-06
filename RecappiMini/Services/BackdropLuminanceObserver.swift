@@ -78,6 +78,23 @@ final class BackdropLuminanceObserver: ObservableObject {
         NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
+    var diagnosticsSamplingState: String {
+        if UITestModeConfiguration.shared.forceAdaptiveDarkChromeForTesting {
+            return "forced"
+        }
+        guard trackedWindow != nil, samplingTimer != nil else {
+            return "inactive"
+        }
+        return systemUsesDarkAppearance ? "inactive:system_dark" : "active"
+    }
+
+    var diagnosticsChromeMode: String {
+        if systemUsesDarkAppearance {
+            return "system_dark"
+        }
+        return prefersDarkChrome ? "dark" : "light"
+    }
+
     /// Start sampling the backdrop beneath the given window. Idempotent;
     /// calling again with the same window is a no-op.
     ///

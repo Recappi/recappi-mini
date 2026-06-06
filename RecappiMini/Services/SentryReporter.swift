@@ -33,6 +33,9 @@ enum SentryReporter {
             options.enableAutoSessionTracking = true
             options.enableAppHangTracking = true
             options.appHangTimeoutInterval = 2.0
+            options.beforeSend = { event in
+                prepareEventForSend(event)
+            }
             options.swiftAsyncStacktraces = true
             options.tracesSampleRate = NSNumber(value: configuration.traceSampleRate)
             options.enableCaptureFailedRequests = false
@@ -126,6 +129,10 @@ enum SentryReporter {
             SentrySDK.resumeAppHangTracking()
         }
         DiagnosticsLog.event("sentry", "app_hang_tracking.resume reason=\(reason)")
+    }
+
+    static func setAppHangRenderContext(_ snapshot: AppHangRenderContextSnapshot) {
+        state.updateAppHangRenderContext(snapshot)
     }
 
     static func sentryUser(for session: UserSession) -> User {
@@ -262,6 +269,31 @@ enum SentryReporter {
         value?.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
     }
 
+    static func isAppHangExceptionType(_ type: String?) -> Bool {
+        switch type {
+        case "App Hanging",
+             "App Hang Fully Blocked",
+             "App Hang Non Fully Blocked",
+             "Fatal App Hang Fully Blocked",
+             "Fatal App Hang Non Fully Blocked":
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func appHangFingerprint(for snapshot: AppHangRenderContextSnapshot) -> [String] {
+        snapshot.fingerprint
+    }
+
+    @discardableResult
+    static func enrichAppHangEventForTesting(
+        _ event: Event,
+        renderContext: AppHangRenderContextSnapshot
+    ) -> Event {
+        enrichAppHangEvent(event, renderContext: renderContext, recordingContext: RecordingContextSnapshot())
+    }
+
     private static func addBreadcrumb(_ telemetry: DiagnosticTelemetry) {
         let breadcrumb = Breadcrumb(
             level: sentryLevel(for: telemetry.level),
@@ -343,6 +375,52 @@ enum SentryReporter {
             }
             scope.setContext(value: snapshot.context, key: "recappi_recording")
         }
+    }
+
+    private static func prepareEventForSend(_ event: Event) -> Event? {
+        guard isAppHangEvent(event) else { return event }
+        return enrichAppHangEvent(
+            event,
+            renderContext: state.appHangRenderContextSnapshot(),
+            recordingContext: state.recordingContextSnapshot()
+        )
+    }
+
+    private static func isAppHangEvent(_ event: Event) -> Bool {
+        guard event.exceptions?.count == 1 else { return false }
+        return isAppHangExceptionType(event.exceptions?.first?.type)
+    }
+
+    @discardableResult
+    private static func enrichAppHangEvent(
+        _ event: Event,
+        renderContext: AppHangRenderContextSnapshot,
+        recordingContext: RecordingContextSnapshot
+    ) -> Event {
+        var tags = event.tags ?? [:]
+        for (key, value) in recordingContext.tags {
+            tags[key] = value
+        }
+        for (key, value) in renderContext.tags {
+            tags[key] = value
+        }
+        event.tags = tags
+
+        var context = event.context ?? [:]
+        context["recappi_app_hang"] = renderContext.context.reduce(into: [String: Any]()) { result, pair in
+            result[pair.key] = pair.value
+        }
+        if !recordingContext.context.isEmpty {
+            context["recappi_recording"] = recordingContext.context.reduce(into: [String: Any]()) { result, pair in
+                result[pair.key] = pair.value
+            }
+        }
+        event.context = context
+
+        if event.fingerprint == nil || event.fingerprint?.isEmpty == true {
+            event.fingerprint = renderContext.fingerprint
+        }
+        return event
     }
 
     private static func sentryLevel(for level: String) -> SentryLevel {
@@ -729,6 +807,117 @@ private struct RecordingContextSnapshot: Equatable {
     }
 }
 
+struct AppHangRenderContextSnapshot: Equatable {
+    var recordingState: String
+    var recordingPanelVisible: Bool
+    var liveCaptionPanelMode: String
+    var liveCaptionPanelVisible: Bool
+    var visibleFloatingSurfaceCount: Int
+    var recordingBackdropSampling: String
+    var recordingBackdropChrome: String
+    var appearance: String
+    var screenCount: Int
+
+    init(
+        recordingState: String = "unknown",
+        recordingPanelVisible: Bool = false,
+        liveCaptionPanelMode: String = "none",
+        liveCaptionPanelVisible: Bool = false,
+        visibleFloatingSurfaceCount: Int = 0,
+        recordingBackdropSampling: String = "unknown",
+        recordingBackdropChrome: String = "unknown",
+        appearance: String = "unknown",
+        screenCount: Int = 0
+    ) {
+        self.recordingState = Self.safeToken(recordingState, fallback: "unknown")
+        self.recordingPanelVisible = recordingPanelVisible
+        self.liveCaptionPanelVisible = liveCaptionPanelVisible
+        self.liveCaptionPanelMode = liveCaptionPanelVisible
+            ? Self.safeToken(liveCaptionPanelMode, fallback: "unknown")
+            : "none"
+        self.visibleFloatingSurfaceCount = max(0, min(8, visibleFloatingSurfaceCount))
+        self.recordingBackdropSampling = Self.safeToken(recordingBackdropSampling, fallback: "unknown")
+        self.recordingBackdropChrome = Self.safeToken(recordingBackdropChrome, fallback: "unknown")
+        self.appearance = Self.safeToken(appearance, fallback: "unknown")
+        self.screenCount = max(0, min(8, screenCount))
+    }
+
+    var tags: [String: String] {
+        [
+            "app_hang.recording_state": recordingState,
+            "app_hang.recording_panel": recordingPanelVisible ? "visible" : "hidden",
+            "app_hang.live_caption_panel": liveCaptionPanelMode,
+            "app_hang.floating_surfaces": floatingSurfaceBucket,
+            "app_hang.glass_surfaces": glassSurfaceState,
+            "app_hang.backdrop_sampling": recordingBackdropSampling,
+            "app_hang.backdrop_chrome": recordingBackdropChrome,
+            "app_hang.appearance": appearance,
+            "app_hang.screen_count": screenCountBucket,
+        ]
+    }
+
+    var context: [String: String] {
+        [
+            "recording_state": recordingState,
+            "recording_panel_visible": String(recordingPanelVisible),
+            "live_caption_panel_mode": liveCaptionPanelMode,
+            "live_caption_panel_visible": String(liveCaptionPanelVisible),
+            "floating_surface_count": String(visibleFloatingSurfaceCount),
+            "floating_surface_bucket": floatingSurfaceBucket,
+            "glass_surfaces": glassSurfaceState,
+            "recording_backdrop_sampling": recordingBackdropSampling,
+            "recording_backdrop_chrome": recordingBackdropChrome,
+            "appearance": appearance,
+            "screen_count": String(screenCount),
+            "screen_count_bucket": screenCountBucket,
+        ]
+    }
+
+    var fingerprint: [String] {
+        [
+            "{{ default }}",
+            "recappi-app-hang",
+            "recording:\(recordingState)",
+            "captions:\(liveCaptionPanelMode)",
+            "surfaces:\(floatingSurfaceBucket)",
+            "glass:\(glassSurfaceState)",
+        ]
+    }
+
+    private var floatingSurfaceBucket: String {
+        visibleFloatingSurfaceCount >= 4 ? "4+" : String(visibleFloatingSurfaceCount)
+    }
+
+    private var screenCountBucket: String {
+        screenCount >= 4 ? "4+" : String(screenCount)
+    }
+
+    private var glassSurfaceState: String {
+        switch (recordingPanelVisible, liveCaptionPanelVisible) {
+        case (true, true):
+            return "recording+live_caption"
+        case (true, false):
+            return "recording"
+        case (false, true):
+            return "live_caption"
+        case (false, false):
+            return "none"
+        }
+    }
+
+    private static func safeToken(_ value: String, fallback: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return fallback }
+        let scrubbed = SentryReporter.sanitizedTelemetryMessage(trimmed, maxLength: 64)
+        let normalized = scrubbed
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9_.+:-]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-_.+:"))
+        guard !normalized.isEmpty else { return fallback }
+        return String(normalized.prefix(64))
+    }
+}
+
 private final class ReporterState: @unchecked Sendable {
     private let lock = NSLock()
     private var didStart = false
@@ -736,6 +925,7 @@ private final class ReporterState: @unchecked Sendable {
     private var disabledReason: String?
     private var configuration: ReporterConfiguration?
     private var recordingContext = RecordingContextSnapshot()
+    private var appHangRenderContext = AppHangRenderContextSnapshot()
     private var appHangPauseGate = AppHangTrackingPauseGate()
 
     var isEnabledForCurrentProcess: Bool {
@@ -810,6 +1000,17 @@ private final class ReporterState: @unchecked Sendable {
 
     func recordingContextSnapshot() -> RecordingContextSnapshot {
         lock.withLock { recordingContext }
+    }
+
+    func updateAppHangRenderContext(_ snapshot: AppHangRenderContextSnapshot) {
+        lock.withLock {
+            guard appHangRenderContext != snapshot else { return }
+            appHangRenderContext = snapshot
+        }
+    }
+
+    func appHangRenderContextSnapshot() -> AppHangRenderContextSnapshot {
+        lock.withLock { appHangRenderContext }
     }
 }
 

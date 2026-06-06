@@ -153,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         didSet {
             panelVisible = panelTargetVisible
             recorder.setRecordingMeterVisible(panelTargetVisible)
+            refreshSentryAppHangRenderContext()
         }
     }
 
@@ -218,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         // first surface (status item, floating panel, onboarding) comes up
         // in the correct appearance.
         ThemeManager.shared.startObserving()
+        refreshSentryAppHangRenderContext()
         NSApp.setActivationPolicy(.accessory)
         if uiTestMode.stateBoardVisualFixtureEnabled {
             UserDefaults.standard.set(true, forKey: "recordingIncludeMicrophoneAudio")
@@ -334,6 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         self.panel = panel
         syncPanelVisibility()
+        refreshSentryAppHangRenderContext()
         schedulePanelPresentationVerification(for: panelTransitionToken, activateApp: false)
 
         installWorkspaceObservers()
@@ -384,6 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                     self.updateStatusItemRecordingState(isRecording)
                     self.recorder.setRecordingMeterVisible(self.panelTargetVisible && isRecording)
                 }
+                self.refreshSentryAppHangRenderContext()
 
                 self.notifyHiddenProcessingTransitionIfNeeded(from: previous, to: state)
                 self.handleDetectedMeetingRecordingActivity(self.effectiveActiveAudioBundleIDs)
@@ -1147,6 +1151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         case .compact:
             liveCaptionPanelMode = .expanded
         }
+        refreshSentryAppHangRenderContext()
         DispatchQueue.main.async { [weak self] in
             self?.resizeLiveCaptionWindowToContent(
                 animated: false,
@@ -1201,6 +1206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             positionLiveCaptionWindow(liveCaptionWindow)
             liveCaptionWindow.orderFrontRegardless()
             isLiveCaptionPanelPresented = true
+            refreshSentryAppHangRenderContext()
             return
         }
 
@@ -1243,6 +1249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         managedWindows.liveCaptionWindow = window
         isLiveCaptionPanelPresented = true
+        refreshSentryAppHangRenderContext()
     }
 
     /// Width/height floor + ceiling for the live caption NSPanel.
@@ -1287,10 +1294,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private func closeLiveCaptionWindow() {
         guard let window = managedWindows.liveCaptionWindow else {
             isLiveCaptionPanelPresented = false
+            refreshSentryAppHangRenderContext()
             return
         }
         managedWindows.clear(.liveCaptions)
         isLiveCaptionPanelPresented = false
+        refreshSentryAppHangRenderContext()
         window.orderOut(nil)
         window.contentView = nil
         window.delegate = nil
@@ -1527,6 +1536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         if let liveCaptionWindow = managedWindows.liveCaptionWindow, liveCaptionWindow.isVisible {
             positionLiveCaptionWindow(liveCaptionWindow)
         }
+        refreshSentryAppHangRenderContext()
     }
 
     private func installUITestCommandPollingIfNeeded() {
@@ -1903,6 +1913,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         guard !isSyncingPanelVisibility else { return }
         guard let panel else {
             panelVisible = false
+            refreshSentryAppHangRenderContext()
             return
         }
         guard !panel.isFloatingTransitioning else { return }
@@ -1913,6 +1924,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         guard panelTargetVisible else {
             FloatingPanelController.snapToHidden(panel)
             panelVisible = false
+            refreshSentryAppHangRenderContext()
             return
         }
 
@@ -1921,6 +1933,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             panel.ignoresMouseEvents = false
         }
         panelVisible = panelTargetVisible
+        refreshSentryAppHangRenderContext()
+    }
+
+    private func refreshSentryAppHangRenderContext() {
+        let recordingPanelVisible = panel.map { panel in
+            panelTargetVisible
+                && panel.isVisible
+                && FloatingPanelController.isPresented(panel)
+        } ?? false
+        let liveCaptionPanelVisible = isLiveCaptionPanelPresented
+            && managedWindows.liveCaptionWindow?.isVisible == true
+        let visibleFloatingSurfaceCount =
+            (recordingPanelVisible ? 1 : 0)
+            + (liveCaptionPanelVisible ? 1 : 0)
+
+        SentryReporter.setAppHangRenderContext(AppHangRenderContextSnapshot(
+            recordingState: recorder.state.appHangContextName,
+            recordingPanelVisible: recordingPanelVisible,
+            liveCaptionPanelMode: liveCaptionPanelVisible ? liveCaptionPanelMode.rawValue : "none",
+            liveCaptionPanelVisible: liveCaptionPanelVisible,
+            visibleFloatingSurfaceCount: visibleFloatingSurfaceCount,
+            recordingBackdropSampling: backdropLuminance.diagnosticsSamplingState,
+            recordingBackdropChrome: backdropLuminance.diagnosticsChromeMode,
+            appearance: Self.effectiveAppearanceName,
+            screenCount: NSScreen.screens.count
+        ))
     }
 
     private func bringPanelToFront(_ panel: FloatingPanel, activateApp: Bool) {
@@ -2101,6 +2139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             releaseForegroundWindowDemand()
         case .liveCaptions:
             isLiveCaptionPanelPresented = false
+            refreshSentryAppHangRenderContext()
             restoreAccessoryActivationPolicyIfPossible()
         case .onboarding:
             // The native title-bar close button is the onboarding escape
@@ -2132,6 +2171,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         completionHandler([.banner, .list, .sound])
+    }
+}
+
+private extension RecorderState {
+    var appHangContextName: String {
+        switch self {
+        case .idle:
+            return "idle"
+        case .starting:
+            return "starting"
+        case .recording:
+            return "recording"
+        case .processing(let phase):
+            return "processing.\(phase.appHangContextName)"
+        case .done:
+            return "done"
+        case .error:
+            return "error"
+        }
+    }
+}
+
+private extension ProcessingPhase {
+    var appHangContextName: String {
+        switch self {
+        case .savingAudio:
+            return "saving_audio"
+        case .preparingUploadWav:
+            return "preparing_upload_wav"
+        case .verifyingSession:
+            return "verifying_session"
+        case .creatingRecording:
+            return "creating_recording"
+        case .uploading:
+            return "uploading"
+        case .completingUpload:
+            return "completing_upload"
+        case .startingTranscription:
+            return "starting_transcription"
+        case .polling:
+            return "polling"
+        case .fetchingTranscript:
+            return "fetching_transcript"
+        }
     }
 }
 
