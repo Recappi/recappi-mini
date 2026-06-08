@@ -8,6 +8,15 @@ private struct AudioAppBundleMetadata {
     let icon: NSImage?
 }
 
+private struct PreparedMicrophoneCapture: @unchecked Sendable {
+    let session: AVCaptureSession
+    let output: MicAudioOutput
+
+    func startRunning() {
+        session.startRunning()
+    }
+}
+
 @MainActor
 final class AudioRecorder: NSObject, ObservableObject {
     @Published var state: RecorderState = .idle
@@ -687,6 +696,75 @@ final class AudioRecorder: NSObject, ObservableObject {
         return notable.contains(bid)
     }
 
+    private func prepareMicrophoneCapture(micURL: URL) async throws -> PreparedMicrophoneCapture {
+        let selectedMicrophoneID = AppConfig.shared.recordingMicrophoneDeviceID
+        let selectionLogValue = Self.microphoneSelectionLogValue(for: selectedMicrophoneID)
+        let shouldIncludeMicrophoneAudio = includesMicrophoneAudio
+        let queue = micCaptureQueue
+
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async { [weak self] in
+                do {
+                    guard let micDevice = Self.preferredMicrophoneDevice(
+                        selectedID: selectedMicrophoneID,
+                        selectionLogValue: selectionLogValue
+                    ) else {
+                        throw RecorderError.noMicrophone
+                    }
+                    DiagnosticsLog.event(
+                        "recording",
+                        "mic.device name=\(DiagnosticsLog.sanitize(micDevice.localizedName, maxLength: 80)) uniqueIDHash=\(micDevice.uniqueID.hashValue) selection=\(selectionLogValue)"
+                    )
+
+                    let captureSession = AVCaptureSession()
+                    let deviceInput = try AVCaptureDeviceInput(device: micDevice)
+                    guard captureSession.canAddInput(deviceInput) else {
+                        throw RecorderError.micSetupFailed
+                    }
+                    captureSession.addInput(deviceInput)
+
+                    let mcWriter = SegmentedAudioWriter(finalURL: micURL, processingQueue: queue)
+                    let mcOut = MicAudioOutput(writer: mcWriter)
+                    mcOut.setIncludesAudio(shouldIncludeMicrophoneAudio)
+                    mcOut.onMeterFrame = { [weak self] frame in
+                        self?.ingestMeterFrame(frame)
+                    }
+
+                    let captureOutput = AVCaptureAudioDataOutput()
+                    captureOutput.audioSettings = [
+                        AVFormatIDKey: kAudioFormatLinearPCM,
+                        AVSampleRateKey: 48_000,
+                        AVNumberOfChannelsKey: 1,
+                        AVLinearPCMBitDepthKey: 32,
+                        AVLinearPCMIsFloatKey: true,
+                        AVLinearPCMIsNonInterleaved: false,
+                    ]
+                    captureOutput.setSampleBufferDelegate(mcOut, queue: queue)
+                    guard captureSession.canAddOutput(captureOutput) else {
+                        throw RecorderError.micSetupFailed
+                    }
+                    captureSession.addOutput(captureOutput)
+
+                    continuation.resume(
+                        returning: PreparedMicrophoneCapture(session: captureSession, output: mcOut)
+                    )
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func startMicrophoneSession(_ capture: PreparedMicrophoneCapture) async {
+        let queue = micCaptureQueue
+        await withCheckedContinuation { continuation in
+            queue.async {
+                capture.startRunning()
+                continuation.resume()
+            }
+        }
+    }
+
     // MARK: - Start / Stop
 
     func startRecording() async throws {
@@ -801,42 +879,9 @@ final class AudioRecorder: NSObject, ObservableObject {
             }
 
             // --- Microphone pipeline ---
-            let captureSession = AVCaptureSession()
-            guard let micDevice = preferredMicrophoneDevice() else {
-                throw RecorderError.noMicrophone
-            }
-            DiagnosticsLog.event(
-                "recording",
-                "mic.device name=\(DiagnosticsLog.sanitize(micDevice.localizedName, maxLength: 80)) uniqueIDHash=\(micDevice.uniqueID.hashValue) selection=\(microphoneSelectionLogValue)"
-            )
-            let deviceInput = try AVCaptureDeviceInput(device: micDevice)
-            guard captureSession.canAddInput(deviceInput) else {
-                throw RecorderError.micSetupFailed
-            }
-            captureSession.addInput(deviceInput)
-
-            let mcWriter = SegmentedAudioWriter(finalURL: micURL, processingQueue: micCaptureQueue)
-            let mcOut = MicAudioOutput(writer: mcWriter)
-            mcOut.setIncludesAudio(includesMicrophoneAudio)
-            mcOut.onMeterFrame = { [weak self] frame in
-                self?.ingestMeterFrame(frame)
-            }
-            let captureOutput = AVCaptureAudioDataOutput()
-            captureOutput.audioSettings = [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: 1,
-                AVLinearPCMBitDepthKey: 32,
-                AVLinearPCMIsFloatKey: true,
-                AVLinearPCMIsNonInterleaved: false,
-            ]
-            captureOutput.setSampleBufferDelegate(mcOut, queue: micCaptureQueue)
-            guard captureSession.canAddOutput(captureOutput) else {
-                throw RecorderError.micSetupFailed
-            }
-            captureSession.addOutput(captureOutput)
-            self.micSession = captureSession
-            self.micOutput = mcOut
+            let microphoneCapture = try await prepareMicrophoneCapture(micURL: micURL)
+            self.micSession = microphoneCapture.session
+            self.micOutput = microphoneCapture.output
 
             // --- Start both pipelines ---
             try startMonitoringOutputDeviceChanges()
@@ -846,8 +891,8 @@ final class AudioRecorder: NSObject, ObservableObject {
             case .coreAudioProcessTap:
                 break
             }
-            captureSession.startRunning()
-            mcOut.setIncludesAudio(includesMicrophoneAudio)
+            await startMicrophoneSession(microphoneCapture)
+            microphoneCapture.output.setIncludesAudio(includesMicrophoneAudio)
             DiagnosticsLog.event(
                 "recording",
                 "capture.started dir=\(sessionDir.lastPathComponent) selectedBundle=\(selectedApp?.id ?? "all-system-audio") includeMic=\(includesMicrophoneAudio) microphone=\(microphoneSelectionLogValue) outputDevice=\(outputAudioDeviceID)"
@@ -2243,17 +2288,33 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     private var microphoneSelectionLogValue: String {
         let selected = AppConfig.shared.recordingMicrophoneDeviceID.trimmingCharacters(in: .whitespacesAndNewlines)
-        return selected.isEmpty ? "system-default" : "configured:\(selected.hashValue)"
+        return Self.microphoneSelectionLogValue(for: selected)
     }
 
     private func preferredMicrophoneDevice() -> AVCaptureDevice? {
         let selected = AppConfig.shared.recordingMicrophoneDeviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Self.preferredMicrophoneDevice(
+            selectedID: selected,
+            selectionLogValue: Self.microphoneSelectionLogValue(for: selected)
+        )
+    }
+
+    nonisolated private static func microphoneSelectionLogValue(for selectedID: String) -> String {
+        let selected = selectedID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return selected.isEmpty ? "system-default" : "configured:\(selected.hashValue)"
+    }
+
+    nonisolated private static func preferredMicrophoneDevice(
+        selectedID: String,
+        selectionLogValue: String
+    ) -> AVCaptureDevice? {
+        let selected = selectedID.trimmingCharacters(in: .whitespacesAndNewlines)
         let device = MicrophoneInputDevice.captureDevice(preferredUniqueID: selected)
 
         if !selected.isEmpty, device?.uniqueID != selected {
             DiagnosticsLog.warning(
                 "recording",
-                "microphone.selected_unavailable selectionHash=\(selected.hashValue) fallback=\(DiagnosticsLog.sanitize(device?.localizedName ?? "none", maxLength: 80))"
+                "microphone.selected_unavailable selection=\(selectionLogValue) fallback=\(DiagnosticsLog.sanitize(device?.localizedName ?? "none", maxLength: 80))"
             )
         }
 
