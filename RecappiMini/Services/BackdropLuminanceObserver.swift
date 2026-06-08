@@ -35,41 +35,48 @@ final class BackdropLuminanceObserver: ObservableObject {
     /// windows stay in light chrome.
     private let darknessThreshold: Double = 0.55
 
-    /// Hysteresis window — a new luminance verdict only wins after it
-    /// has been consistent for at least this long. Prevents flickering
-    /// when a panel sits on the edge of a window and the average wobbles
-    /// across the threshold every tick. Measured in wall-clock time, so
-    /// it must stay >= `sampleInterval` to still require a *second*
-    /// confirming sample before committing a flip; at the 2.0 s sampling
-    /// rate that means a flip needs two consecutive matching ticks, which
-    /// keeps the original "be consistent across samples" anti-flicker
-    /// guarantee.
+    /// Hysteresis window — a new luminance verdict only wins after it has
+    /// been confirmed by a *second* sample taken at least this long after
+    /// the first. Sampling is event-driven (see below), so consecutive
+    /// samples can be seconds or minutes apart; the window only guards
+    /// against a single transient sample flipping the chrome, while a
+    /// genuine backdrop change is confirmed by the next event's sample.
     private let hysteresisInterval: TimeInterval = 2.0
 
-    /// Heartbeat re-sample cadence. The panel is anchored (top-right) and
-    /// doesn't move on its own, so the verdict only needs to change when
-    /// the backdrop *content* shifts under a static panel (a video plays,
-    /// another window repaints). User-driven changes (dragging the panel,
-    /// screen/space changes) are handled event-driven below, so this
-    /// heartbeat can be slow. A fixed-2 Hz poll was the dominant CPU cost
-    /// during recording — each tick runs a full ScreenCaptureKit
-    /// roundtrip, which also contends with the audio-capture SCStream.
-    private let sampleInterval: TimeInterval = 2.0
+    /// Minimum spacing between ScreenCaptureKit roundtrips. Event triggers
+    /// (app switches, space changes) can arrive in quick bursts; this caps
+    /// the capture rate so a burst can't reintroduce the render-server
+    /// contention the periodic heartbeat used to cause.
+    private let minSampleInterval: TimeInterval = 1.5
 
     /// Pending verdict that hasn't yet survived the hysteresis window.
     private var pendingVerdict: Bool?
     private var pendingVerdictStart: Date?
 
-    private var samplingTimer: Timer?
     private weak var trackedWindow: NSWindow?
     private var samplingInFlight: Bool = false
+    private var lastSampleStartedAt: Date?
+    private var confirmWorkItem: DispatchWorkItem?
 
-    /// Event-driven re-sample tokens. These fire an immediate sample on the
-    /// only moments the backdrop genuinely changes under user action, which
-    /// is what lets the heartbeat above stay slow without feeling laggy.
+    /// Whether we are attached to a window and listening for re-sample
+    /// events. Sampling is now purely event-driven — there is no periodic
+    /// timer — because a fixed-interval ScreenCaptureKit poll competed with
+    /// the floating panels' CoreAnimation surface allocation on the render
+    /// server and produced ≥2s App Hangs while a recording panel sat
+    /// visible (Sentry APPLE-MACOS-E/10: done-state, glass surface, active
+    /// backdrop sampling, multi-display). The panel is anchored and the
+    /// backdrop only changes on a few discrete events, all observed below.
+    private var isSampling = false
+
+    /// Event-driven re-sample tokens. These fire a (throttled, coalesced)
+    /// sample on the moments the backdrop genuinely changes: the panel
+    /// moves, the screen/space changes, or the frontmost app switches
+    /// (which is when the window *behind* a stationary panel changes — the
+    /// case the old heartbeat existed to catch).
     private var windowMoveToken: NSObjectProtocol?
     private var screenParamsToken: NSObjectProtocol?
     private var spaceChangeToken: NSObjectProtocol?
+    private var appActivationToken: NSObjectProtocol?
 
     /// Mirrors `FloatingPanel.applyAdaptiveAppearance`: in a dark system
     /// appearance the panel inherits the host appearance and the backdrop
@@ -82,7 +89,7 @@ final class BackdropLuminanceObserver: ObservableObject {
         if UITestModeConfiguration.shared.forceAdaptiveDarkChromeForTesting {
             return "forced"
         }
-        guard trackedWindow != nil, samplingTimer != nil else {
+        guard trackedWindow != nil, isSampling else {
             return "inactive"
         }
         return systemUsesDarkAppearance ? "inactive:system_dark" : "active"
@@ -105,36 +112,33 @@ final class BackdropLuminanceObserver: ObservableObject {
     func attach(to window: NSWindow) {
         if UITestModeConfiguration.shared.forceAdaptiveDarkChromeForTesting {
             trackedWindow = window
-            samplingTimer?.invalidate()
-            samplingTimer = nil
+            removeEventObservers()
+            isSampling = false
             prefersDarkChrome = true
             return
         }
-        if trackedWindow === window, samplingTimer != nil { return }
+        if trackedWindow === window, isSampling { return }
         trackedWindow = window
-        startTimer()
+        startSampling()
     }
 
     func detach() {
-        samplingTimer?.invalidate()
-        samplingTimer = nil
         removeEventObservers()
+        isSampling = false
+        confirmWorkItem?.cancel()
+        confirmWorkItem = nil
         trackedWindow = nil
         pendingVerdict = nil
         pendingVerdictStart = nil
     }
 
-    private func startTimer() {
-        samplingTimer?.invalidate()
+    private func startSampling() {
         installEventObservers()
-        // Sample once immediately so the chrome doesn't briefly flash
-        // the default before the first tick lands.
+        isSampling = true
+        // Sample once immediately so the chrome reflects the current
+        // backdrop instead of flashing the default; subsequent samples are
+        // driven only by the events installed above.
         sampleNow()
-        samplingTimer = Timer.scheduledTimer(withTimeInterval: sampleInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.sampleNow()
-            }
-        }
     }
 
     /// Subscribe to the events that actually change the backdrop so the
@@ -166,6 +170,17 @@ final class BackdropLuminanceObserver: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.sampleNow() }
         }
+        // Frontmost-app switches are the one backdrop change a stationary
+        // panel can't observe via its own move/screen events: the window
+        // *behind* the panel changes. Re-sampling here replaces the old
+        // periodic heartbeat for that case, without the per-tick capture.
+        appActivationToken = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.sampleNow() }
+        }
     }
 
     private func removeEventObservers() {
@@ -181,15 +196,25 @@ final class BackdropLuminanceObserver: ObservableObject {
             NSWorkspace.shared.notificationCenter.removeObserver(token)
             spaceChangeToken = nil
         }
+        if let token = appActivationToken {
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+            appActivationToken = nil
+        }
     }
 
     private func sampleNow() {
         guard let window = trackedWindow, window.isVisible else { return }
         // Skip the ScreenCaptureKit roundtrip when the verdict won't be
-        // used. The slow heartbeat keeps ticking, so switching back to a
-        // light system appearance self-corrects within one interval.
+        // used: in a dark system appearance the panel inherits the host
+        // chrome and the verdict is discarded.
         guard !systemUsesDarkAppearance else { return }
         guard !samplingInFlight else { return }
+        // Throttle event bursts (e.g. rapid app switching) so they can't
+        // reintroduce render-server contention.
+        if let last = lastSampleStartedAt, Date().timeIntervalSince(last) < minSampleInterval {
+            return
+        }
+        lastSampleStartedAt = Date()
 
         let frame = window.frame
         guard frame.width > 4, frame.height > 4 else { return }
@@ -297,6 +322,8 @@ final class BackdropLuminanceObserver: ObservableObject {
             // Already in the right state; drop any pending opposite verdict.
             pendingVerdict = nil
             pendingVerdictStart = nil
+            confirmWorkItem?.cancel()
+            confirmWorkItem = nil
             return
         }
 
@@ -306,11 +333,31 @@ final class BackdropLuminanceObserver: ObservableObject {
                 prefersDarkChrome = newVerdict
                 pendingVerdict = nil
                 pendingVerdictStart = nil
+                confirmWorkItem?.cancel()
+                confirmWorkItem = nil
             }
             return
         }
 
         pendingVerdict = newVerdict
         pendingVerdictStart = now
+        // Sampling is event-driven, so a confirming sample is not guaranteed
+        // to arrive on its own (a single app switch may be the only event).
+        // Schedule exactly one follow-up sample past the hysteresis window so
+        // a genuine backdrop change still commits without a periodic timer.
+        scheduleConfirmSample()
+    }
+
+    /// Schedule a single delayed re-sample to confirm a pending verdict.
+    /// Fires just past `hysteresisInterval` so the confirming sample's
+    /// timestamp clears the window; cancelled as soon as the verdict commits
+    /// or clears. This is one capture per genuine change — not a heartbeat.
+    private func scheduleConfirmSample() {
+        confirmWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in self?.sampleNow() }
+        }
+        confirmWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + hysteresisInterval + 0.1, execute: work)
     }
 }
