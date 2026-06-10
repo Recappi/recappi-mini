@@ -22,6 +22,42 @@ import XCTest
 /// rather than constructing real CMSampleBuffers — cheaper to set up and
 /// lets the assertions focus on routing, ordering, and back-pressure.
 final class RealtimeLiveCaptionActorAudioTests: XCTestCase {
+    func testSystemAudioOutputFansOutSampleBufferToLiveCaptions() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("recappi-live-caption-routing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let writer = SegmentedAudioWriter(
+            finalURL: root.appendingPathComponent("system.caf"),
+            processingQueue: DispatchQueue(label: "RecappiMini.LiveCaptionRouting.writer")
+        )
+        let output = SystemAudioOutput(writer: writer)
+        output.setMeteringEnabled(false)
+
+        let sampleBuffer = try Self.makeInterleavedFloatSampleBuffer(
+            sampleRate: 48_000,
+            channelCount: 2,
+            frames: [
+                0.2, 0.4,
+                0.6, 0.8,
+                -0.2, -0.4,
+                -0.6, -0.8,
+            ]
+        )
+        let expected = try XCTUnwrap(RealtimeAudioEncoder.pcm16Data(from: sampleBuffer))
+        var routedPayloads: [Data] = []
+        output.onLiveCaptionSampleBuffer = { sampleBuffer in
+            if let payload = RealtimeAudioEncoder.pcm16Data(from: sampleBuffer) {
+                routedPayloads.append(payload)
+            }
+        }
+
+        output.handleAudioSampleBuffer(sampleBuffer)
+
+        XCTAssertEqual(routedPayloads, [expected])
+    }
+
     func testRealtimeAudioEncoderDownsamplesCommonFloatBufferWithoutConverterFallback() throws {
         let sampleBuffer = try Self.makeInterleavedFloatSampleBuffer(
             sampleRate: 48_000,
