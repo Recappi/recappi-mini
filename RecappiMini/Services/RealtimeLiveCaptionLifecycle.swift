@@ -530,12 +530,13 @@ actor RealtimeLiveCaptionActor {
 
     /// Read-only snapshot of the transcript / bilingual state as
     /// `[LiveCaptionEntry]`. Mirrors the legacy class's
-    /// `currentEntriesSnapshot()` so the on-disk shape stays
-    /// byte-identical across the refactor:
+    /// `currentEntriesSnapshot()` for the compatibility `text` field while
+    /// also preserving structured source / translation fields for Cloud's
+    /// in-progress transcript preview:
     ///
-    /// - Bilingual: each finalized + pending segment becomes one entry
-    ///   whose `text` is the trimmed source line joined with the
-    ///   translation line via `\n`.
+    /// - Bilingual: each finalized + pending segment becomes one entry whose
+    ///   `text` keeps the legacy source-then-translation newline fallback, and
+    ///   whose `sourceText` / `translationText` preserve the two streams.
     /// - Transcription: every non-empty timeline item becomes an entry;
     ///   when at least one final entry exists, only finals are
     ///   surfaced (so a stop mid-utterance doesn't persist a partial),
@@ -566,15 +567,12 @@ actor RealtimeLiveCaptionActor {
             let orderedEntries = builder.snapshot()
                 .suffix(Self.maxSavedEntryCount)
                 .compactMap { segment -> LiveCaptionEntry? in
-                    let text = [segment.sourceText, segment.translatedText]
-                        .compactMap { value -> String? in
-                            let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                            return trimmed.isEmpty ? nil : trimmed
-                        }
-                        .joined(separator: "\n")
-                    guard !text.isEmpty else { return nil }
+                    let source = segment.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let translation = segment.translatedText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !source.isEmpty || translation?.isEmpty == false else { return nil }
                     return LiveCaptionEntry(
-                        text: text,
+                        sourceText: source,
+                        translationText: translation?.isEmpty == false ? translation : nil,
                         isFinal: segment.isFinal,
                         startedAtMs: nil,
                         endedAtMs: nil
@@ -602,7 +600,8 @@ actor RealtimeLiveCaptionActor {
                     text: $0.text,
                     isFinal: $0.isFinal,
                     startedAtMs: nil,
-                    endedAtMs: nil
+                    endedAtMs: nil,
+                    sourceText: $0.text
                 )
             }
         let finalEntries = orderedEntries.filter(\.isFinal)

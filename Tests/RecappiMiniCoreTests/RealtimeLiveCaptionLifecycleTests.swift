@@ -89,7 +89,7 @@ final class RealtimeLiveCaptionLifecycleTests: XCTestCase {
     // MARK: - Stop during live
 
     /// `.live → .stopping → .stopped` on a clean stop. The accumulated
-    /// entries must be returned.
+    /// entries must be returned in the persisted drain shape.
     func testStopDuringLiveReturnsAccumulatedEntries() async {
         let connector = MockRealtimeSessionConnector()
         let actor = RealtimeLiveCaptionActor(
@@ -108,10 +108,14 @@ final class RealtimeLiveCaptionLifecycleTests: XCTestCase {
             LiveCaptionEntry(text: "hello", isFinal: true, startedAtMs: nil, endedAtMs: nil),
             LiveCaptionEntry(text: "world", isFinal: true, startedAtMs: nil, endedAtMs: nil),
         ]
+        let expected: [LiveCaptionEntry] = [
+            LiveCaptionEntry(text: "hello", isFinal: true, startedAtMs: nil, endedAtMs: nil, sourceText: "hello"),
+            LiveCaptionEntry(text: "world", isFinal: true, startedAtMs: nil, endedAtMs: nil, sourceText: "world"),
+        ]
         await actor.appendEntriesForTesting(seed)
 
         let entries = await actor.stop(saveTo: nil)
-        XCTAssertEqual(entries, seed, "stop() must return accumulated entries verbatim.")
+        XCTAssertEqual(entries, expected, "stop() must return accumulated entries in persisted shape.")
 
         let afterStop = await actor.lifecycleSnapshotForTesting()
         XCTAssertEqual(afterStop, .stopped)

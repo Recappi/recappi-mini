@@ -176,6 +176,8 @@ final class RealtimeLiveCaptionActorRenderingTests: XCTestCase {
         let entries = await actor.drainEntriesForTesting()
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries.first?.text, "hello\n你好")
+        XCTAssertEqual(entries.first?.sourceText, "hello")
+        XCTAssertEqual(entries.first?.translationText, "你好")
         XCTAssertEqual(entries.first?.isFinal, true)
     }
 
@@ -192,6 +194,7 @@ final class RealtimeLiveCaptionActorRenderingTests: XCTestCase {
         )
         let entries = await actor.drainEntriesForTesting()
         XCTAssertEqual(entries.map(\.text), ["Hello."])
+        XCTAssertEqual(entries.map(\.sourceText), ["Hello."])
         XCTAssertEqual(entries.map(\.isFinal), [true])
     }
 

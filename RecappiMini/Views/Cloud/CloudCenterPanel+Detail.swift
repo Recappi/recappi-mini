@@ -71,6 +71,7 @@ extension CloudCenterPanel {
                 latestJob: store.selectedLatestTranscriptionJob,
                 transcriptionJobs: store.selectedTranscriptionJobs,
                 transcript: store.selectedTranscript,
+                liveCaptionTranscriptState: store.selectedLiveCaptionTranscriptState,
                 transcriptErrorMessage: store.transcriptErrorMessage,
                 retranscriptionLimitMessage: store.retranscriptionLimitMessage,
                 localSessionURL: store.selectedLocalSessionURL,
@@ -119,6 +120,7 @@ extension CloudCenterPanel {
                 }
             )
             .task(id: recording.id) {
+                await store.loadLiveCaptionTranscriptForSelection()
                 await store.loadTranscriptForSelection()
                 await store.loadJobHistoryForSelection()
             }

@@ -116,6 +116,26 @@ extension CloudLibraryStore {
         localSessionURLsByRecordingID = links
     }
 
+    func loadLiveCaptionTranscriptForSelection() async {
+        guard let recordingID = selectedRecordingID else { return }
+        if localSessionURLsByRecordingID[recordingID] == nil {
+            await refreshLocalSessionLinks()
+        }
+        guard selectedRecordingID == recordingID else { return }
+
+        guard let sessionURL = localSessionURLsByRecordingID[recordingID] else {
+            liveCaptionTranscriptStatesByRecordingID[recordingID] = .unavailable
+            return
+        }
+
+        let state = await Task.detached(priority: .utility) {
+            LiveCaptionTranscriptReader.load(from: sessionURL)
+        }.value
+
+        guard selectedRecordingID == recordingID else { return }
+        liveCaptionTranscriptStatesByRecordingID[recordingID] = state
+    }
+
     nonisolated static func localSessionLinks(
         in baseDirectory: URL,
         fileManager: FileManager = .default

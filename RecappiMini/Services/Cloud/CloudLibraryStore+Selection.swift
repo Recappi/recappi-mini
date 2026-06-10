@@ -75,6 +75,7 @@ extension CloudLibraryStore {
         locallyManagedRecordingUpdatedAt.removeValue(forKey: recordingID)
         playbackAudioURLsByRecordingID.removeValue(forKey: recordingID)
         localSessionURLsByRecordingID.removeValue(forKey: recordingID)
+        liveCaptionTranscriptStatesByRecordingID.removeValue(forKey: recordingID)
         summaryRefreshAttemptedRecordingIDs.remove(recordingID)
         if selectedRecordingID == recordingID {
             selectedRecordingID = recordings.first?.id
@@ -116,6 +117,10 @@ extension CloudLibraryStore {
         }
         if let localURL = localSessionURLsByRecordingID.removeValue(forKey: oldID) {
             localSessionURLsByRecordingID[newID] = localURL
+        }
+        if let liveCaptionState = liveCaptionTranscriptStatesByRecordingID.removeValue(forKey: oldID),
+           liveCaptionTranscriptStatesByRecordingID[newID] == nil {
+            liveCaptionTranscriptStatesByRecordingID[newID] = liveCaptionState
         }
         if let audioURL = playbackAudioURLsByRecordingID.removeValue(forKey: oldID),
            playbackAudioURLsByRecordingID[newID] == nil {

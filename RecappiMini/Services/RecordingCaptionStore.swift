@@ -13,7 +13,9 @@ import Foundation
 ///   `[LiveCaptionEntry]` snapshots here and the store appends.
 /// - `currentEntries()` is the read side; tests and the final
 ///   `stopRecording` flush use it.
-/// - `flush(to:)` writes a single `live-captions.json` atomically.
+/// - `flush(to:)` writes a single `live-captions.json` atomically. New entries
+///   preserve source / translation fields independently while retaining the
+///   legacy `text` fallback so older files and simple readers still work.
 ///   The legacy `saveEntries` swallowed errors via `try?`; this one
 ///   throws so an unwritable session directory is surfaced rather
 ///   than silently dropping captions.

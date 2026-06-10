@@ -46,18 +46,22 @@ final class AudioRecorderBugbotFindingsTests: XCTestCase {
             LiveCaptionEntry(text: "alpha", isFinal: true, startedAtMs: nil, endedAtMs: nil),
             LiveCaptionEntry(text: "beta", isFinal: true, startedAtMs: nil, endedAtMs: nil),
         ]
+        let expectedDrainShape: [LiveCaptionEntry] = [
+            LiveCaptionEntry(text: "alpha", isFinal: true, startedAtMs: nil, endedAtMs: nil, sourceText: "alpha"),
+            LiveCaptionEntry(text: "beta", isFinal: true, startedAtMs: nil, endedAtMs: nil, sourceText: "beta"),
+        ]
         await actor.appendEntriesForTesting(seed)
 
         // The synchronous nonisolated read must return the same
         // entries an on-actor `drainEntries()` would, with no
         // blocking, no semaphore, no Task hop.
         let mirrored = actor.drainEntriesNonblocking()
-        XCTAssertEqual(mirrored, seed, "Mirror must match the on-actor drain shape.")
+        XCTAssertEqual(mirrored, expectedDrainShape, "Mirror must match the on-actor drain shape.")
 
         // And the on-actor drain itself must still return the same
         // entries — the mirror is an adjunct, not a replacement.
         let onActor = await actor.drainEntriesForTesting()
-        XCTAssertEqual(onActor, seed, "On-actor drainEntries must match the seeded timeline.")
+        XCTAssertEqual(onActor, expectedDrainShape, "On-actor drainEntries must match the seeded timeline.")
     }
 
     /// Before any transcript activity, the mirror is empty — matching

@@ -46,6 +46,7 @@ struct CloudRecordingDetail: View {
     let latestJob: TranscriptionJob?
     let transcriptionJobs: [TranscriptionJob]
     let transcript: TranscriptResponse?
+    let liveCaptionTranscriptState: LiveCaptionTranscriptLoadState
     let transcriptErrorMessage: String?
     let retranscriptionLimitMessage: String?
     let localSessionURL: URL?

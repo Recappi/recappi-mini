@@ -44,6 +44,7 @@ final class CloudLibraryStore: ObservableObject {
     @Published var isLoadingBilling = false
     @Published var isOpeningBilling = false
     @Published var localSessionURLsByRecordingID: [String: URL] = [:]
+    @Published var liveCaptionTranscriptStatesByRecordingID: [String: LiveCaptionTranscriptLoadState] = [:]
     @Published var playbackAudioURLsByRecordingID: [String: URL] = [:]
     @Published var isPreparingPlaybackAudio = false
     @Published var playbackErrorMessage: String?
@@ -139,6 +140,11 @@ final class CloudLibraryStore: ObservableObject {
     var selectedLocalSessionURL: URL? {
         guard let selectedRecordingID else { return nil }
         return localSessionURLsByRecordingID[selectedRecordingID]
+    }
+
+    var selectedLiveCaptionTranscriptState: LiveCaptionTranscriptLoadState {
+        guard let selectedRecordingID else { return .unavailable }
+        return liveCaptionTranscriptStatesByRecordingID[selectedRecordingID] ?? .unavailable
     }
 
     var selectedPlaybackAudioURL: URL? {
