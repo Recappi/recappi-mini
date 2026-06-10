@@ -2780,6 +2780,15 @@ struct CloudRecordingDetail: View {
         return rows
     }
 
+    /// Live captions to show in place of a not-yet-ready transcript. `nil`
+    /// when the reader found nothing readable for this recording's linked
+    /// session, so the existing empty/placeholder states still apply.
+    private var liveCaptionPreviewTranscript: LiveCaptionTranscript? {
+        guard let transcript = liveCaptionTranscriptState.transcript,
+              !transcript.lines.isEmpty else { return nil }
+        return transcript
+    }
+
     @ViewBuilder
     private var transcriptCard: some View {
         let segmentRows = computeSegmentRowsWithPerfLogging()
@@ -2809,6 +2818,15 @@ struct CloudRecordingDetail: View {
                 .animation(DT.motionAware(DT.easeSpring(0.20)), value: activeSegmentID)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.transcriptText)
+            } else if !isViewingHistoricalVersion, let liveTranscript = liveCaptionPreviewTranscript {
+                // No official transcript yet — bridge the transcribing wait
+                // (and local-only recordings) with the captions captured live
+                // during recording. Replaced by the real transcript above once
+                // its segment rows arrive.
+                CloudDetailLiveCaptionsPreview(
+                    transcript: liveTranscript,
+                    isProcessing: isTranscriptGenerationProcessing
+                )
             } else if shouldShowTranscriptGenerationEmptyState {
                 transcriptGenerationEmptyState(showsAction: false, minHeight: 280)
                     .background(
