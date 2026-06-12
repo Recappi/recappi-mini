@@ -1145,7 +1145,12 @@ struct CloudRecordingDetail: View {
 
             summaryGroupedListCard(insights: insights)
         }
+        // Cap the summary at a readable width, then centre that column in the
+        // pane. Without the second frame the 760pt block hugs the leading edge
+        // on wide windows and the summary reads as "not centred" (right-side
+        // whitespace). Inner card text/labels stay leading.
         .frame(maxWidth: 760, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder
