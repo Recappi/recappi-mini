@@ -226,6 +226,42 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testCloudSignInRequiredDoesNotCaptureSentryErrors() {
+        let errorSummary = "domain=RecappiMini.RecappiSessionError code=3 message=Sign in to Recappi Cloud in Settings before processing this recording."
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "processing",
+                message: "process.failed dir=2026-06-12_110223 \(errorSummary)"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "recording-panel",
+                message: "process_session.failed visible=true \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "processing",
+                message: "process.failed dir=2026-06-12_110223 domain=RecappiMini.RecappiSessionError code=4 message=Recappi Cloud sign-in returned to an unexpected callback."
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "cloud",
+                message: "transcription.start.failed recordingID=rec_123 \(errorSummary)"
+            )
+        )
+    }
+
     func testRealtimeClaimRateLimitDoesNotCaptureSentryErrors() {
         let errorSummary = "domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 429): OpenAI Realtime session claim rate exceeded (10/minute)."
 
