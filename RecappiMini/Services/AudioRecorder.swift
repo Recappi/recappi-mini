@@ -147,7 +147,19 @@ final class AudioRecorder: NSObject, ObservableObject {
     private static let historySampleInterval: CFTimeInterval = 0.18
     private static var audioAppBundleMetadataByID: [String: AudioAppBundleMetadata] = [:]
 
+    override init() {
+        super.init()
+        warmMicrophoneDeviceCache()
+    }
+
     var currentSessionDir: URL? { sessionDir }
+
+    private func warmMicrophoneDeviceCache() {
+        let queue = micCaptureQueue
+        queue.async {
+            MicrophoneInputDevice.warmDeviceCache()
+        }
+    }
 
     func setRecordingMeterVisible(_ visible: Bool) {
         systemOutput?.setMeteringEnabled(visible)

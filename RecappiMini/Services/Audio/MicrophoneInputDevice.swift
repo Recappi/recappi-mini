@@ -1,7 +1,12 @@
 import AVFoundation
 
-struct MicrophoneInputDevice: Identifiable, Hashable {
+struct MicrophoneInputDevice: Identifiable, Hashable, Sendable {
     static let systemDefaultID = ""
+    static let systemDefaultPlaceholder = MicrophoneInputDevice(
+        id: Self.systemDefaultID,
+        title: "System Default",
+        isUnavailable: false
+    )
 
     let id: String
     let title: String
@@ -41,6 +46,17 @@ struct MicrophoneInputDevice: Identifiable, Hashable {
         return options
     }
 
+    static func pickerOptionsAsync(selectedID: String) async -> [MicrophoneInputDevice] {
+        await Task.detached(priority: .utility) {
+            pickerOptions(selectedID: selectedID)
+        }.value
+    }
+
+    static func warmDeviceCache() {
+        _ = AVCaptureDevice.default(for: .audio)
+        _ = availableDevices().count
+    }
+
     static func captureDevice(preferredUniqueID: String) -> AVCaptureDevice? {
         let preferredUniqueID = preferredUniqueID.trimmingCharacters(in: .whitespacesAndNewlines)
         if !preferredUniqueID.isEmpty,
@@ -61,7 +77,7 @@ struct MicrophoneInputDevice: Identifiable, Hashable {
         let suffix = defaultDevice.map { " (\($0.localizedName))" } ?? ""
         return MicrophoneInputDevice(
             id: Self.systemDefaultID,
-            title: "System Default\(suffix)",
+            title: "\(Self.systemDefaultPlaceholder.title)\(suffix)",
             isUnavailable: false
         )
     }

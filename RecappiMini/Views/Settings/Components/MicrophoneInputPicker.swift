@@ -7,7 +7,8 @@ struct MicrophoneInputPicker: View {
     var hidesLabel = false
     var accessibilityIdentifier: String
 
-    @State private var options = MicrophoneInputDevice.pickerOptions(selectedID: AppConfig.shared.recordingMicrophoneDeviceID)
+    @State private var options = [MicrophoneInputDevice.systemDefaultPlaceholder]
+    @State private var refreshTask: Task<Void, Never>?
 
     var body: some View {
         Picker(title, selection: normalizedSelectionBinding) {
@@ -21,6 +22,10 @@ struct MicrophoneInputPicker: View {
         .pickerStyle(.menu)
         .accessibilityIdentifier(accessibilityIdentifier)
         .onAppear(perform: refreshOptions)
+        .onDisappear {
+            refreshTask?.cancel()
+            refreshTask = nil
+        }
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
             refreshOptions()
         }
@@ -41,7 +46,13 @@ struct MicrophoneInputPicker: View {
     }
 
     private func refreshOptions() {
-        options = MicrophoneInputDevice.pickerOptions(selectedID: selection)
+        let selectedID = selection
+        refreshTask?.cancel()
+        refreshTask = Task {
+            let refreshedOptions = await MicrophoneInputDevice.pickerOptionsAsync(selectedID: selectedID)
+            guard !Task.isCancelled else { return }
+            options = refreshedOptions
+        }
     }
 }
 
