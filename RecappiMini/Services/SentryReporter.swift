@@ -499,6 +499,9 @@ private struct DiagnosticTelemetry {
         if isExpectedSubscriptionRenewal {
             return false
         }
+        if isExpectedCloudSignInRequired {
+            return false
+        }
         if isExpectedRealtimeClaimRateLimit {
             return false
         }
@@ -556,6 +559,21 @@ private struct DiagnosticTelemetry {
         case ("network", "request.failed"),
              ("processing", "upload.failed"),
              ("processing", "process.failed"):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var isExpectedCloudSignInRequired: Bool {
+        guard fields["domain"] == "RecappiMini.RecappiSessionError",
+              fields["code"] == "3" else {
+            return false
+        }
+
+        switch (category, operation) {
+        case ("processing", "process.failed"),
+             ("recording-panel", "process_session.failed"):
             return true
         default:
             return false
