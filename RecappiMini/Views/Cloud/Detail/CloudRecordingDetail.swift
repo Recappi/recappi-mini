@@ -1101,8 +1101,11 @@ struct CloudRecordingDetail: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         } else if let summaryStatusMessage {
-            summaryStatusEmptyState(message: summaryStatusMessage)
-                .accessibilityIdentifier(AccessibilityIDs.Cloud.summaryText)
+            summaryStatusEmptyState(
+                message: summaryStatusMessage,
+                showsViewTranscript: hasActualTranscriptContent
+            )
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.summaryText)
         } else if shouldShowTranscriptGenerationEmptyState {
             transcriptGenerationEmptyState(showsAction: true, minHeight: 430)
                 .accessibilityIdentifier(AccessibilityIDs.Cloud.summaryText)
@@ -1748,7 +1751,7 @@ struct CloudRecordingDetail: View {
         }
     }
 
-    private func summaryStatusEmptyState(message: String) -> some View {
+    private func summaryStatusEmptyState(message: String, showsViewTranscript: Bool = false) -> some View {
         VStack(spacing: 14) {
             ZStack {
                 Circle()
@@ -1776,6 +1779,19 @@ struct CloudRecordingDetail: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: 440)
+            }
+
+            // When the summary is still pending (or failed) but the transcript
+            // is already available, don't leave the Summary tab as a dead-end:
+            // the recording reads as "stuck generating" even though the
+            // transcript is ready in the next tab. Offer a direct jump there.
+            if showsViewTranscript {
+                Button("View transcript") {
+                    activeDetailSection = .transcript
+                }
+                .buttonStyle(PanelPushButtonStyle())
+                .padding(.top, 2)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.summaryViewTranscriptButton)
             }
         }
         .padding(.horizontal, 28)

@@ -135,6 +135,7 @@ enum AccessibilityIDs {
         static let summaryText = "recappi.cloud.summaryText"
         static let actionItemsText = "recappi.cloud.actionItemsText"
         static let transcriptText = "recappi.cloud.transcriptText"
+        static let summaryViewTranscriptButton = "recappi.cloud.summaryViewTranscriptButton"
         static let liveCaptionsPreview = "recappi.cloud.liveCaptionsPreview"
         static let transcriptSegmentTextPrefix = "recappi.cloud.transcriptSegmentText."
         static let searchField = "recappi.cloud.searchField"
