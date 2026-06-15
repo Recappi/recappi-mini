@@ -3960,12 +3960,19 @@ final class RecappiMiniCoreTests: XCTestCase {
 
     // MARK: - CloudLibraryStore.shouldDropForMissingSummary
 
-    private func makeTranscript(summary: String?, hasInsights: Bool) throws -> TranscriptResponse {
+    private func makeTranscript(
+        summary: String?,
+        hasInsights: Bool,
+        summaryStatus: TranscriptSummaryStatus? = nil
+    ) throws -> TranscriptResponse {
         var dict: [String: Any] = [
             "id": "trans-test",
             "text": "hello",
             "segments": [],
         ]
+        if let summaryStatus {
+            dict["summaryStatus"] = summaryStatus.rawValue
+        }
         if let summary {
             dict["summary"] = summary
         }
@@ -3982,6 +3989,15 @@ final class RecappiMiniCoreTests: XCTestCase {
         }
         let data = try JSONSerialization.data(withJSONObject: dict)
         return try JSONDecoder().decode(TranscriptResponse.self, from: data)
+    }
+
+    func test_transcriptSummaryStatusActiveIncludesPendingQueuedAndRunning() {
+        XCTAssertTrue(TranscriptSummaryStatus.pending.isActive)
+        XCTAssertTrue(TranscriptSummaryStatus.queued.isActive)
+        XCTAssertTrue(TranscriptSummaryStatus.running.isActive)
+        XCTAssertFalse(TranscriptSummaryStatus.succeeded.isActive)
+        XCTAssertFalse(TranscriptSummaryStatus.failed.isActive)
+        XCTAssertFalse(TranscriptSummaryStatus.skipped.isActive)
     }
 
     func test_shouldDropForMissingSummary_returnsTrue_whenReadyAndNoSummary() throws {
@@ -4048,6 +4064,71 @@ final class RecappiMiniCoreTests: XCTestCase {
             recordingStatus: .ready,
             alreadyAttempted: false
         ))
+    }
+
+    func test_shouldPollSummary_returnsTrue_forReadyRecordingWithActiveSummaryStatus() throws {
+        let transcript = try makeTranscript(summary: nil, hasInsights: false, summaryStatus: .running)
+
+        XCTAssertTrue(CloudLibraryStore.shouldPollSummary(
+            cachedTranscript: transcript,
+            recordingStatus: .ready
+        ))
+    }
+
+    func test_shouldPollSummary_returnsFalse_forTerminalOrNonReadySummary() throws {
+        let succeeded = try makeTranscript(summary: "done", hasInsights: false, summaryStatus: .succeeded)
+        let failed = try makeTranscript(summary: nil, hasInsights: false, summaryStatus: .failed)
+        let running = try makeTranscript(summary: nil, hasInsights: false, summaryStatus: .running)
+
+        XCTAssertFalse(CloudLibraryStore.shouldPollSummary(
+            cachedTranscript: succeeded,
+            recordingStatus: .ready
+        ))
+        XCTAssertFalse(CloudLibraryStore.shouldPollSummary(
+            cachedTranscript: failed,
+            recordingStatus: .ready
+        ))
+        XCTAssertFalse(CloudLibraryStore.shouldPollSummary(
+            cachedTranscript: running,
+            recordingStatus: .failed
+        ))
+    }
+
+    @MainActor
+    func test_selectedActiveJobPollingKeyIncludesActiveSummaryStatus() throws {
+        let store = CloudLibraryStore()
+        let recording = CloudRecording(
+            id: "rec-summary",
+            userId: "user-1",
+            title: "Ready recording",
+            summaryTitle: nil,
+            sourceTitle: nil,
+            sourceAppName: nil,
+            sourceAppBundleID: nil,
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .ready,
+            sizeBytes: 1_024,
+            durationMs: 60_000,
+            sampleRate: nil,
+            channels: nil,
+            contentType: "audio/aac",
+            activeTranscriptId: "trans-test",
+            createdAt: nil,
+            updatedAt: nil
+        )
+        store.recordings = [recording]
+        store.selectedRecordingID = recording.id
+        store.transcriptCache[recording.id] = try makeTranscript(
+            summary: nil,
+            hasInsights: false,
+            summaryStatus: .running
+        )
+
+        XCTAssertEqual(
+            store.selectedActiveJobPollingKey,
+            "summary:rec-summary:trans-test:running"
+        )
     }
 
     func test_shouldClearNewerVersionFlag_returnsTrue_whenLoadedTranscriptMatchesActive() {

@@ -43,34 +43,57 @@ extension CloudLibraryStore {
         guard let recording = selectedRecording else { return }
         let activeJobs = (transcriptionJobsByRecordingID[recording.id] ?? [])
             .filter { $0.status.isActive }
-        guard !activeJobs.isEmpty else { return }
+        let shouldPollSummary = transcriptCache[recording.id].map {
+            Self.shouldPollSummary(
+                cachedTranscript: $0,
+                recordingStatus: recording.status
+            )
+        } ?? false
+        guard !activeJobs.isEmpty || shouldPollSummary else { return }
 
         await pollActiveJobsUntilTerminal(
             recordingID: recording.id,
-            jobIDs: activeJobs.map(\.id)
+            jobIDs: activeJobs.map(\.id),
+            pollSummary: shouldPollSummary
         )
     }
 
     func pollActiveJobsUntilTerminal(
         recordingID: String,
         jobIDs: [String],
+        pollSummary: Bool = false,
         onJobUpdate: (@MainActor @Sendable (TranscriptionJob) -> Void)? = nil
     ) async {
         var idsToRefresh = jobIDs
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        guard !idsToRefresh.isEmpty else { return }
+        var shouldPollSummary = pollSummary
+        guard !idsToRefresh.isEmpty || shouldPollSummary else { return }
 
         while !Task.isCancelled {
-            await refreshJobs(
-                recordingID: recordingID,
-                jobIDs: idsToRefresh,
-                onJobUpdate: onJobUpdate
-            )
+            if !idsToRefresh.isEmpty {
+                await refreshJobs(
+                    recordingID: recordingID,
+                    jobIDs: idsToRefresh,
+                    onJobUpdate: onJobUpdate
+                )
+            }
+            if shouldPollSummary {
+                await refreshActiveSummaryForRecordingIfNeeded(recordingID: recordingID)
+            }
             idsToRefresh = (transcriptionJobsByRecordingID[recordingID] ?? [])
                 .filter { $0.status.isActive }
                 .map(\.id)
-            guard !idsToRefresh.isEmpty else { return }
+            if let recording = recordings.first(where: { $0.id == recordingID }),
+               let transcript = transcriptCache[recordingID] {
+                shouldPollSummary = Self.shouldPollSummary(
+                    cachedTranscript: transcript,
+                    recordingStatus: recording.status
+                )
+            } else {
+                shouldPollSummary = false
+            }
+            guard !idsToRefresh.isEmpty || shouldPollSummary else { return }
             try? await Task.sleep(for: .seconds(2))
         }
     }
@@ -203,6 +226,14 @@ extension CloudLibraryStore {
         return !hasSummaryContent(cachedTranscript)
     }
 
+    nonisolated static func shouldPollSummary(
+        cachedTranscript: TranscriptResponse,
+        recordingStatus: CloudRecordingStatus
+    ) -> Bool {
+        guard recordingStatus == .ready else { return false }
+        return cachedTranscript.summaryStatus?.isActive == true
+    }
+
 
     func refreshJobs(
         recordingID: String,
@@ -249,6 +280,55 @@ extension CloudLibraryStore {
         jobs.insert(job, at: 0)
         jobs.sort { ($0.enqueuedAt ?? 0) > ($1.enqueuedAt ?? 0) }
         transcriptionJobsByRecordingID[recordingID] = Array(jobs.prefix(10))
+    }
+
+    private func refreshActiveSummaryForRecordingIfNeeded(recordingID: String) async {
+        guard let recording = recordings.first(where: { $0.id == recordingID }),
+              let cachedTranscript = transcriptCache[recordingID],
+              Self.shouldPollSummary(
+                  cachedTranscript: cachedTranscript,
+                  recordingStatus: recording.status
+              ) else {
+            return
+        }
+
+        do {
+            let transcript = try await runAuthorized { client in
+                try await client.getRecordingTranscript(id: recordingID)
+            }
+            try Task.checkCancellation()
+            let currentTranscript = transcriptCache[recordingID] ?? cachedTranscript
+            guard Self.shouldPollSummary(
+                cachedTranscript: currentTranscript,
+                recordingStatus: recording.status
+            ) else {
+                return
+            }
+
+            let didChange = transcriptCache[recordingID] != transcript
+            transcriptCache[recordingID] = transcript
+            applySummaryTitleFromTranscript(transcript, to: recordingID)
+            try syncTranscriptToLocalSessionIfLinked(recording: recording, transcript: transcript)
+            clearNewerVersionFlagIfCurrent(recordingID: recordingID, transcript: transcript)
+            if let updatedAt = recording.updatedAt {
+                transcriptCacheRecordingUpdatedAt[recordingID] = updatedAt
+            }
+            if !Self.shouldPollSummary(cachedTranscript: transcript, recordingStatus: recording.status) {
+                summaryRefreshAttemptedRecordingIDs.remove(recordingID)
+            }
+            if didChange {
+                await persistCacheSnapshot()
+            }
+        } catch is CancellationError {
+            return
+        } catch let error as RecappiAPIError where error == .unauthorized {
+            apply(error: error)
+        } catch {
+            DiagnosticsLog.warning(
+                "cloud",
+                "summary.refresh.failed recordingID=\(recordingID) \(DiagnosticsLog.errorSummary(error))"
+            )
+        }
     }
 
     func seedFailedRecordingJobPlaceholdersIfNeeded() {

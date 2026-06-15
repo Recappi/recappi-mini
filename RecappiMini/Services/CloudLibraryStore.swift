@@ -131,10 +131,20 @@ final class CloudLibraryStore: ObservableObject {
     }
 
     var selectedActiveJobPollingKey: String {
-        selectedTranscriptionJobs
+        var parts = selectedTranscriptionJobs
             .filter { $0.status.isActive }
             .map(\.id)
-            .joined(separator: ",")
+        if let selectedRecordingID,
+           let recording = selectedRecording,
+           let transcript = selectedTranscript,
+           Self.shouldPollSummary(
+               cachedTranscript: transcript,
+               recordingStatus: recording.status
+           ) {
+            let status = transcript.summaryStatus?.rawValue ?? "unknown"
+            parts.append("summary:\(selectedRecordingID):\(transcript.id):\(status)")
+        }
+        return parts.joined(separator: ",")
     }
 
     var selectedLocalSessionURL: URL? {

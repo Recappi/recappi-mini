@@ -117,7 +117,7 @@ enum TranscriptSummaryStatus: String, Codable, Equatable, Sendable {
     case skipped
 
     var isActive: Bool {
-        self == .queued || self == .running
+        self == .pending || self == .queued || self == .running
     }
 }
 
