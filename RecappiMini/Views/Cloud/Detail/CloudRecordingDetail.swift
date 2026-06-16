@@ -1241,6 +1241,22 @@ struct CloudRecordingDetail: View {
 
     enum SummaryBullet { case nextStep }
 
+    /// Splits an action item like "Speaker 1 — Do the thing" into an owner
+    /// label + action text. Only a short, label-like lead-in counts as an owner
+    /// so a normal sentence that happens to contain a dash isn't mistaken for one.
+    private func parseActionItemOwner(_ raw: String) -> (owner: String?, text: String) {
+        for sep in [" — ", " – ", " - "] {
+            guard let r = raw.range(of: sep) else { continue }
+            let owner = raw[raw.startIndex..<r.lowerBound].trimmingCharacters(in: .whitespaces)
+            let text = raw[r.upperBound...].trimmingCharacters(in: .whitespaces)
+            if !owner.isEmpty, !text.isEmpty, owner.count <= 28,
+               owner.split(separator: " ").count <= 4 {
+                return (owner, text)
+            }
+        }
+        return (nil, raw)
+    }
+
     @ViewBuilder
     private func summaryGroupedSubsection(label: String, items: [String], bullet: SummaryBullet?) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1251,15 +1267,31 @@ struct CloudRecordingDetail: View {
                 .textCase(.uppercase)
                 .tracking(0.6)
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: bullet == .nextStep ? 14 : 10) {
                 ForEach(Array(items.prefix(6).enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .top, spacing: 10) {
-                        if bullet == .nextStep {
-                            Image(systemName: "circle")
-                                .font(.system(size: 11, weight: .regular))
-                                .foregroundStyle(DT.appAccent)
-                                .padding(.top, 4)
+                    if bullet == .nextStep {
+                        // Action items carry an owner ("Speaker 1 — do X"): show
+                        // the owner as a small accent label above the action, no
+                        // decorative marker. Body text stays flush-left so every
+                        // subsection shares one left edge.
+                        let parsed = parseActionItemOwner(item)
+                        VStack(alignment: .leading, spacing: 3) {
+                            if let owner = parsed.owner {
+                                Text(owner)
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .tracking(0.4)
+                                    .textCase(.uppercase)
+                                    .foregroundStyle(DT.appAccent)
+                            }
+                            markdownText(parsed.text)
+                                .font(.body)
+                                .foregroundStyle(Color.dtLabel)
+                                .lineSpacing(4)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
                         markdownText(item)
                             .font(.body)
                             .foregroundStyle(Color.dtLabel)
