@@ -140,6 +140,49 @@ final class RealtimeLiveCaptionActorRenderingTests: XCTestCase {
         XCTAssertEqual(completed?.segments.first?.translatedText, "回顾这些 mini 自动化冒烟测试。")
     }
 
+    /// The OpenAI translation endpoint emits source transcript deltas
+    /// as word-sized chunks without leading spaces. The bilingual
+    /// builder must restore word boundaries before the UI sees the
+    /// Original row; otherwise it renders `Goodmorningteam`.
+    func testBilingualSourceDeltasRestoreEnglishWordBoundaries() async {
+        let actor = Self.makeActor(language: "en", mode: .translation(targetLanguage: "zh"))
+        var snapshot: LiveCaptionSnapshot?
+        for delta in ["Good", "morning", "team", ".", "Today", "we", "test"] {
+            snapshot = await actor.ingestReceiveEventJSONForTesting(Self.sourceDeltaJSON(delta))
+        }
+
+        XCTAssertEqual(snapshot?.segments.first?.sourceText, "Good morning team. Today we test")
+    }
+
+    /// The same spacing rule applies to translated text when the
+    /// target language uses spaces, but must not add spaces inside CJK
+    /// source text.
+    func testBilingualDeltasDoNotInsertSpacesInsideCJKText() async {
+        let actor = Self.makeActor(language: "zh", mode: .translation(targetLanguage: "en"))
+        var snapshot: LiveCaptionSnapshot?
+        for delta in ["今天", "我们", "测试", "。", "继续"] {
+            snapshot = await actor.ingestReceiveEventJSONForTesting(Self.sourceDeltaJSON(delta))
+        }
+        for delta in ["Today", "we", "test", ".", "Continue"] {
+            snapshot = await actor.ingestReceiveEventJSONForTesting(Self.translationDeltaJSON(delta))
+        }
+
+        XCTAssertEqual(snapshot?.segments.first?.sourceText, "今天我们测试。继续")
+        XCTAssertEqual(snapshot?.segments.first?.translatedText, "Today we test. Continue")
+    }
+
+    /// Delimiter punctuation is not a word boundary. This keeps split
+    /// deltas around contractions and hyphenated words readable.
+    func testBilingualSpacingDoesNotSplitApostrophesOrHyphens() async {
+        let actor = Self.makeActor(language: "en", mode: .translation(targetLanguage: "zh"))
+        var snapshot: LiveCaptionSnapshot?
+        for delta in ["We", "'", "re", "testing", "real", "-", "time", "captions"] {
+            snapshot = await actor.ingestReceiveEventJSONForTesting(Self.sourceDeltaJSON(delta))
+        }
+
+        XCTAssertEqual(snapshot?.segments.first?.sourceText, "We're testing real-time captions")
+    }
+
     /// Translation deltas trailing behind multi-sentence source must
     /// stay in the same in-flight bilingual segment until the
     /// translation catches up.

@@ -1845,7 +1845,7 @@ actor RealtimeLiveCaptionActor {
         text.contains(where: \.isCJK) ? 72 : 140
     }
 
-    private static func appendDisplayText(_ fragment: String, to result: inout String) {
+    fileprivate static func appendDisplayText(_ fragment: String, to result: inout String) {
         guard !fragment.isEmpty else { return }
         guard let previous = result.last, let next = fragment.first else {
             result.append(fragment)
@@ -1857,11 +1857,13 @@ actor RealtimeLiveCaptionActor {
         result.append(fragment)
     }
 
-    private static func shouldInsertDisplaySpace(between previous: Character, and next: Character) -> Bool {
+    fileprivate static func shouldInsertDisplaySpace(between previous: Character, and next: Character) -> Bool {
         if previous.isWhitespace || next.isWhitespace { return false }
         if next.isPunctuation || next.isSymbol { return false }
-        if previous.isPunctuation || previous.isSymbol { return true }
         if previous.isCJK || next.isCJK { return false }
+        if previous.isPunctuation || previous.isSymbol {
+            return previous.prefersFollowingLiveCaptionWordSpace
+        }
         return true
     }
 
@@ -3047,10 +3049,14 @@ final class RealtimeBilingualSegmentBuilder {
     func append(stream: RealtimeBilingualStream, delta: String) {
         switch stream {
         case .source:
-            pending.sourceText += delta
+            Self.appendStreamText(delta, to: &pending.sourceText)
         case .translation:
-            pending.translatedText += delta
+            Self.appendStreamText(delta, to: &pending.translatedText)
         }
+    }
+
+    private static func appendStreamText(_ delta: String, to text: inout String) {
+        RealtimeLiveCaptionActor.appendDisplayText(delta, to: &text)
     }
 
     func finalizePending() {
@@ -3101,6 +3107,15 @@ fileprivate extension Character {
     /// English.
     var isLiveCaptionSentenceEnding: Bool {
         [".", "!", "?", "。", "！", "？"].contains(self)
+    }
+
+    /// Punctuation that should be followed by a space before the next
+    /// Latin word chunk. Delimiters such as apostrophes and hyphens are
+    /// intentionally excluded so split deltas like `We` + `'` + `re`
+    /// and `real` + `-` + `time` do not turn into `We' re` /
+    /// `real- time`.
+    var prefersFollowingLiveCaptionWordSpace: Bool {
+        [".", "!", "?", ",", ";", ":", ")", "]", "}"].contains(self)
     }
 
     /// Rough CJK / Hangul / kana detector used by the segmenter to pick
