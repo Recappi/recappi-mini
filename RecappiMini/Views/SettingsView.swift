@@ -24,6 +24,18 @@ enum SettingsItem: Hashable {
             320
         }
     }
+
+    /// Window title for this tab. The Settings window title follows the selected
+    /// tab (System Settings style) instead of a fixed app string.
+    var windowTitle: String {
+        switch self {
+        case .general: "General"
+        case .account: "Account"
+        case .permissions: "Permissions"
+        case .transcription: "Transcription"
+        case .updates: "About"
+        }
+    }
 }
 
 let settingsWindowContentWidth: CGFloat = 560
@@ -90,7 +102,7 @@ struct SettingsView: View {
                 .tag(SettingsItem.updates)
         }
         .frame(width: settingsWindowContentWidth)
-        .navigationTitle("Recappi Mini Settings")
+        .navigationTitle(selection.windowTitle)
         .background(
             SettingsWindowConfigurator(
                 selection: selection,
@@ -145,17 +157,16 @@ private struct SettingsWindowConfigurator: NSViewRepresentable {
     }
 
     private func applyChrome(to window: NSWindow) {
-        window.title = "Recappi Mini Settings"
+        // Title follows the selected tab and matches `.navigationTitle`, so the
+        // imperative set and SwiftUI agree (no title flash on tab switch). The
+        // old code pinned a fixed string here and re-asserted it on a deferred
+        // Task, which fought SwiftUI's tab-name title and caused the flicker.
+        window.title = selection.windowTitle
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.toolbarStyle = .preference
         window.styleMask.remove(.resizable)
         window.standardWindowButton(.zoomButton)?.isEnabled = false
-
-        Task { @MainActor [weak window] in
-            await Task.yield()
-            window?.title = "Recappi Mini Settings"
-        }
     }
 
     private func resize(_ window: NSWindow, contentSize: NSSize) {
