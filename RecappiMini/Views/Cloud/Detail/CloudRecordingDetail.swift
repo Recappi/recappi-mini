@@ -1220,23 +1220,60 @@ struct CloudRecordingDetail: View {
                 .foregroundStyle(Color.dtLabelTertiary)
                 .textCase(.uppercase)
                 .tracking(0.6)
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, quote in
-                    markdownText(quote)
-                        .font(.body)
-                        .italic()
-                        .foregroundStyle(Color.dtLabel)
-                        .lineSpacing(4)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 10)
-                        .overlay(alignment: .leading) {
-                            Rectangle()
-                                .fill(Palette.borderSubtle)
-                                .frame(width: 2)
+                    // Match the Next-steps language: speaker as an accent label,
+                    // body in normal weight (no synthetic italic — CJK has no true
+                    // italic). A light hanging quote glyph carries the "verbatim"
+                    // signal instead of a left bar.
+                    let parsed = parseQuoteSpeaker(quote)
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(verbatim: "\u{201C}")
+                            .font(.system(size: 22, weight: .bold, design: .serif))
+                            .foregroundStyle(DT.appAccent.opacity(0.45))
+                            .frame(width: 16, alignment: .leading)
+                            .offset(y: 2)
+                        VStack(alignment: .leading, spacing: 3) {
+                            if let speaker = parsed.speaker {
+                                Text(speaker)
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .tracking(0.4)
+                                    .textCase(.uppercase)
+                                    .foregroundStyle(DT.appAccent)
+                            }
+                            markdownText(parsed.text)
+                                .font(.body)
+                                .foregroundStyle(Color.dtLabel)
+                                .lineSpacing(4)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                    }
                 }
             }
         }
+    }
+
+    /// Splits a quote like "Speaker 1: “…”" into a speaker label + the quote
+    /// body, stripping any surrounding quotation marks so the hanging glyph
+    /// isn't doubled. Falls back to no speaker when there's no short, label-like
+    /// lead-in before the colon.
+    private func parseQuoteSpeaker(_ raw: String) -> (speaker: String?, text: String) {
+        var speaker: String?
+        var body = raw
+        for sep in [": ", "：", ":"] {
+            guard let r = raw.range(of: sep) else { continue }
+            let lead = raw[raw.startIndex..<r.lowerBound].trimmingCharacters(in: .whitespaces)
+            let rest = raw[r.upperBound...].trimmingCharacters(in: .whitespaces)
+            if !lead.isEmpty, !rest.isEmpty, lead.count <= 28,
+               lead.split(separator: " ").count <= 4 {
+                speaker = lead
+                body = rest
+                break
+            }
+        }
+        body = body.trimmingCharacters(in: CharacterSet(charactersIn: "\u{201C}\u{201D}\""))
+        return (speaker, body)
     }
 
     enum SummaryBullet { case nextStep }
