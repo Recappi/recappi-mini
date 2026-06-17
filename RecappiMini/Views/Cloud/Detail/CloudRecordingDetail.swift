@@ -38,6 +38,7 @@ struct CloudRecordingDetail: View {
     @State private var speakerNoteDraft = ""
     @State private var speakerEmojiDraft = ""
     @State private var summarySourcePopoverKey: String?
+    @State private var isShowingAskPopover = false
     @Namespace private var chapterRowHighlightNamespace
     @Namespace private var transcriptRowHighlightNamespace
 
@@ -81,6 +82,7 @@ struct CloudRecordingDetail: View {
     let onDelete: () -> Void
     let onAcknowledgeNewerVersion: () -> Void
     let onLoadTranscriptVersion: @MainActor (String) async throws -> TranscriptResponse
+    let askStore: CloudLibraryStore
 
     var body: some View {
         readerPane
@@ -2096,6 +2098,25 @@ struct CloudRecordingDetail: View {
 
     @ToolbarContentBuilder
     private var detailToolbarContent: some ToolbarContent {
+        ToolbarItem(id: "cloud-recording-ask", placement: .primaryAction) {
+            Button {
+                isShowingAskPopover.toggle()
+            } label: {
+                Label("Ask", systemImage: "sparkles")
+            }
+            .tint(DT.appAccent)
+            .disabled(!isAskAvailable)
+            .recappiTooltip(
+                isAskAvailable
+                    ? "Ask this recording"
+                    : "Ask becomes available once the transcript is ready"
+            )
+            .popover(isPresented: $isShowingAskPopover, arrowEdge: .top) {
+                askPopoverContent
+            }
+            .accessibilityIdentifier("cloud-recording-ask-button")
+        }
+
         ToolbarItem(id: "cloud-recording-info", placement: .primaryAction) {
             Button {
                 isShowingRecordingInfo.toggle()
@@ -2829,6 +2850,60 @@ struct CloudRecordingDetail: View {
             artwork: recording.nowPlayingArtwork
         )
         audioPlayer.seek(to: seconds)
+    }
+
+    // MARK: - Ask this recording
+
+    /// The Ask entry is available once the transcript is ready: there is an
+    /// active transcript, nothing is loading, the latest job is not still
+    /// running, and we are not viewing a historical version.
+    private var isAskAvailable: Bool {
+        guard !isViewingHistoricalVersion else { return false }
+        guard recording.activeTranscriptId != nil else { return false }
+        guard !isTranscriptLoading else { return false }
+        if latestJob?.status.isActive == true { return false }
+        return true
+    }
+
+    @ViewBuilder
+    private var askPopoverContent: some View {
+        CloudDetailAskPopoverContainer(
+            recordingId: recording.id,
+            store: askStore,
+            onCitationTap: { citation in
+                jumpToCitation(citation)
+            }
+        )
+    }
+
+    /// Resolve an Ask citation to a transcript display row and jump to it:
+    /// switch to the transcript section, prefer the `segmentId`, then fall back
+    /// to the nearest row by start/end time.
+    private func jumpToCitation(_ citation: AskCitation) {
+        activeDetailSection = .transcript
+        let rows = visibleTranscript?.displaySegmentRows ?? []
+        guard !rows.isEmpty else {
+            isShowingAskPopover = false
+            return
+        }
+
+        var match: CloudTranscriptSegmentDisplayRow?
+        if let segmentId = citation.segmentId, !segmentId.isEmpty {
+            match = rows.first { $0.id == segmentId }
+        }
+        if match == nil, let target = citation.startMs ?? citation.endMs {
+            match = rows.min { lhs, rhs in
+                let lhsMs = lhs.startMs ?? lhs.endMs ?? Int.max
+                let rhsMs = rhs.startMs ?? rhs.endMs ?? Int.max
+                return abs(lhsMs - target) < abs(rhsMs - target)
+            }
+        }
+
+        if let match {
+            pendingScrollTarget = .transcript
+            jumpToSegment(match)
+        }
+        isShowingAskPopover = false
     }
 
     private func jumpToSegment(_ row: CloudTranscriptSegmentDisplayRow) {

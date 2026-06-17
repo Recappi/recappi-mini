@@ -117,7 +117,8 @@ extension CloudCenterPanel {
                 onAcknowledgeNewerVersion: { Task { await store.acknowledgeNewerVersion() } },
                 onLoadTranscriptVersion: { jobID in
                     try await store.loadTranscriptVersion(recordingID: recording.id, jobID: jobID)
-                }
+                },
+                askStore: store
             )
             .task(id: recording.id) {
                 await store.loadLiveCaptionTranscriptForSelection()
