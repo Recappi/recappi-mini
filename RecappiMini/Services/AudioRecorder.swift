@@ -146,6 +146,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     private static let levelPublishInterval: CFTimeInterval = 1.0 / 20.0
     private static let historySampleInterval: CFTimeInterval = 0.18
     private static var audioAppBundleMetadataByID: [String: AudioAppBundleMetadata] = [:]
+    private nonisolated static let keepRawCaptureSourcesEnvKey = "RECAPPI_KEEP_RAW_CAPTURE_SOURCES"
+    private nonisolated static let keepRawCaptureSourcesDefaultKey = "recappi.debug.keepRawCaptureSources"
 
     override init() {
         super.init()
@@ -1087,8 +1089,15 @@ final class AudioRecorder: NSObject, ObservableObject {
             )
             // Only delete intermediates on success; on failure the caller
             // (stop/retry flow) can still inspect the two raw files.
-            for sourceURL in sourceURLs {
-                try? FileManager.default.removeItem(at: sourceURL)
+            if Self.shouldKeepRawCaptureSources() {
+                DiagnosticsLog.warning(
+                    "recording",
+                    "raw_sources.retained sources=\(sourceURLs.map(\.lastPathComponent).joined(separator: ","))"
+                )
+            } else {
+                for sourceURL in sourceURLs {
+                    try? FileManager.default.removeItem(at: sourceURL)
+                }
             }
         } catch {
             DiagnosticsLog.error(
@@ -1741,9 +1750,32 @@ final class AudioRecorder: NSObject, ObservableObject {
             } else {
                 parts.append("\(item.source)LastAgo=never")
             }
+            parts.append("\(item.source)MeterFrames=\(item.meterFrameCount)")
+            if let averagePeak = item.averagePeak {
+                parts.append("\(item.source)AvgPeak=\(String(format: "%.4f", averagePeak))")
+            } else {
+                parts.append("\(item.source)AvgPeak=never")
+            }
+            if let maxPeak = item.maxPeak {
+                parts.append("\(item.source)MaxPeak=\(String(format: "%.4f", maxPeak))")
+            }
             return parts.joined(separator: " ")
         }
         return "capture.health \(details.joined(separator: " "))"
+    }
+
+    nonisolated static func shouldKeepRawCaptureSources(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userDefaults: UserDefaults = .standard
+    ) -> Bool {
+        if let raw = environment[keepRawCaptureSourcesEnvKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !raw.isEmpty
+        {
+            return ["1", "true", "yes", "on"].contains(raw)
+        }
+        return userDefaults.bool(forKey: keepRawCaptureSourcesDefaultKey)
     }
 
     private func liveCaptionRecordingConfiguration() -> LiveCaptionRecordingConfiguration {

@@ -202,6 +202,31 @@ struct CaptureAudioHealth: Codable, Equatable {
     let firstBufferUptime: TimeInterval?
     let lastBufferUptime: TimeInterval?
     let secondsSinceLastBuffer: TimeInterval?
+    let meterFrameCount: Int
+    let averagePeak: Float?
+    let maxPeak: Float?
+}
+
+private struct CapturePeakStats {
+    var meterFrameCount = 0
+    var peakTotal: Float = 0
+    var maxPeak: Float = 0
+
+    mutating func record(_ frame: AudioMeterFrame) {
+        meterFrameCount += 1
+        peakTotal += frame.peak
+        maxPeak = Swift.max(maxPeak, frame.peak)
+    }
+
+    var averagePeak: Float? {
+        guard meterFrameCount > 0 else { return nil }
+        return peakTotal / Float(meterFrameCount)
+    }
+
+    var maxPeakValue: Float? {
+        guard meterFrameCount > 0 else { return nil }
+        return maxPeak
+    }
 }
 
 // MARK: - System audio receiver
@@ -223,6 +248,7 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
         var bufferCount = 0
         var firstBufferUptime: TimeInterval?
         var lastBufferUptime: TimeInterval?
+        var peakStats = CapturePeakStats()
     }
 
     private let writer: SegmentedAudioWriter
@@ -286,6 +312,7 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
             let frame = RecordingPerformanceProbe.shared.measureMeterExtraction(source: .system) {
                 AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount)
             }
+            state.withLock { $0.peakStats.record(frame) }
             onMeterFrame?(frame)
         } else {
             RecordingPerformanceProbe.shared.noteMeterSkipped(source: .system, at: now)
@@ -304,7 +331,10 @@ final class SystemAudioOutput: NSObject, SCStreamOutput, @unchecked Sendable {
                 includedBufferCount: nil,
                 firstBufferUptime: state.firstBufferUptime,
                 lastBufferUptime: state.lastBufferUptime,
-                secondsSinceLastBuffer: state.lastBufferUptime.map { max(now - $0, 0) }
+                secondsSinceLastBuffer: state.lastBufferUptime.map { max(now - $0, 0) },
+                meterFrameCount: state.peakStats.meterFrameCount,
+                averagePeak: state.peakStats.averagePeak,
+                maxPeak: state.peakStats.maxPeakValue
             )
         }
     }
@@ -329,6 +359,7 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
         var includedBufferCount = 0
         var firstBufferUptime: TimeInterval?
         var lastBufferUptime: TimeInterval?
+        var peakStats = CapturePeakStats()
     }
 
     private let writer: SegmentedAudioWriter
@@ -410,6 +441,7 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
             let frame = RecordingPerformanceProbe.shared.measureMeterExtraction(source: .mic) {
                 AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount)
             }
+            state.withLock { $0.peakStats.record(frame) }
             onMeterFrame?(frame)
         } else {
             RecordingPerformanceProbe.shared.noteMeterSkipped(source: .mic, at: now)
@@ -428,7 +460,10 @@ final class MicAudioOutput: NSObject, AVCaptureAudioDataOutputSampleBufferDelega
                 includedBufferCount: state.includedBufferCount,
                 firstBufferUptime: state.firstBufferUptime,
                 lastBufferUptime: state.lastBufferUptime,
-                secondsSinceLastBuffer: state.lastBufferUptime.map { max(now - $0, 0) }
+                secondsSinceLastBuffer: state.lastBufferUptime.map { max(now - $0, 0) },
+                meterFrameCount: state.peakStats.meterFrameCount,
+                averagePeak: state.peakStats.averagePeak,
+                maxPeak: state.peakStats.maxPeakValue
             )
         }
     }

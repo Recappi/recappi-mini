@@ -3106,7 +3106,10 @@ final class RecappiMiniCoreTests: XCTestCase {
                 includedBufferCount: nil,
                 firstBufferUptime: nil,
                 lastBufferUptime: nil,
-                secondsSinceLastBuffer: nil
+                secondsSinceLastBuffer: nil,
+                meterFrameCount: 0,
+                averagePeak: nil,
+                maxPeak: nil
             ),
             CaptureAudioHealth(
                 source: "mic",
@@ -3114,7 +3117,10 @@ final class RecappiMiniCoreTests: XCTestCase {
                 includedBufferCount: 12,
                 firstBufferUptime: 100,
                 lastBufferUptime: 104,
-                secondsSinceLastBuffer: 0.25
+                secondsSinceLastBuffer: 0.25,
+                meterFrameCount: 3,
+                averagePeak: 0.2,
+                maxPeak: 0.6
             ),
         ]
 
@@ -3133,6 +3139,34 @@ final class RecappiMiniCoreTests: XCTestCase {
 
         XCTAssertEqual(diagnostics.sources.first?.byteCount, 3)
         XCTAssertEqual(diagnostics.captureHealth, health)
+    }
+
+    func testAudioRecorderRawCaptureRetentionFlagHonorsEnvironmentAndDefaults() {
+        let suiteName = "RecappiMiniRawCaptureSources-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create test defaults suite.")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertTrue(
+            AudioRecorder.shouldKeepRawCaptureSources(
+                environment: ["RECAPPI_KEEP_RAW_CAPTURE_SOURCES": "true"],
+                userDefaults: defaults
+            )
+        )
+
+        defaults.set(true, forKey: "recappi.debug.keepRawCaptureSources")
+        XCTAssertFalse(
+            AudioRecorder.shouldKeepRawCaptureSources(
+                environment: ["RECAPPI_KEEP_RAW_CAPTURE_SOURCES": "0"],
+                userDefaults: defaults
+            )
+        )
+
+        XCTAssertTrue(AudioRecorder.shouldKeepRawCaptureSources(environment: [:], userDefaults: defaults))
+        defaults.set(false, forKey: "recappi.debug.keepRawCaptureSources")
+        XCTAssertFalse(AudioRecorder.shouldKeepRawCaptureSources(environment: [:], userDefaults: defaults))
     }
 
     func testAudioMixerAveragesHotMicAndSystemSources() async throws {
