@@ -3,15 +3,15 @@
     <channel>
         <title>Recappi Mini</title>
         <item>
-            <title>1.0.163</title>
-            <pubDate>Tue, 16 Jun 2026 15:47:04 +0000</pubDate>
-            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.163</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.163</sparkle:fullReleaseNotesLink>
-            <sparkle:version>176</sparkle:version>
-            <sparkle:shortVersionString>1.0.163</sparkle:shortVersionString>
+            <title>1.0.164</title>
+            <pubDate>Wed, 17 Jun 2026 07:26:54 +0000</pubDate>
+            <link>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.164</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/Recappi/recappi-mini/releases/tag/v1.0.164</sparkle:fullReleaseNotesLink>
+            <sparkle:version>177</sparkle:version>
+            <sparkle:shortVersionString>1.0.164</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<pre>Automated release for v1.0.163.</pre>]]></description>
-            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.163/RecappiMini-1.0.163.dmg" length="7135239" type="application/octet-stream" sparkle:edSignature="f7fJb+eMx8AyqbNXFIIEb3Fax6lM/Se8QrC3QlkO1jIqi9M3rWiSYNoUB/fOr2gEMXHkobu22h3+7io5rvgHDw=="/>
+            <description><![CDATA[<pre>Automated release for v1.0.164.</pre>]]></description>
+            <enclosure url="https://github.com/Recappi/recappi-mini/releases/download/v1.0.164/RecappiMini-1.0.164.dmg" length="7287896" type="application/octet-stream" sparkle:edSignature="wgHvU2cyrYO9tSypNfYgbGUjTz1li58S4Kg0ZBw0h6GM8LF/HnH+T/A7PBdwgBwX5gvqeLr2dKSs60YEHG6tBQ=="/>
         </item>
     </channel>
 </rss>
