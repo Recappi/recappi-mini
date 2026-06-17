@@ -1229,14 +1229,17 @@ struct CloudRecordingDetail: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, quote in
                     // Match the Next-steps language: speaker as an accent label,
                     // body in normal weight (no synthetic italic — CJK has no true
-                    // italic). A light hanging quote glyph carries the "verbatim"
-                    // signal instead of a left bar.
+                    // italic). The serif quote glyph lives in the shared 20pt
+                    // symbol column so it lines up with the ✓ of Next steps and
+                    // the (empty) gutter of the plain subsections, and every
+                    // subsection's text shares one left edge.
                     let parsed = parseQuoteSpeaker(quote)
                     HStack(alignment: .top, spacing: 8) {
                         Text(verbatim: "\u{201C}")
-                            .font(.system(size: 22, weight: .bold, design: .serif))
-                            .foregroundStyle(DT.appAccent.opacity(0.45))
-                            .frame(width: 16, alignment: .leading)
+                            .font(.system(size: 18, weight: .bold, design: .serif))
+                            .foregroundStyle(DT.appAccent.opacity(0.5))
+                            .fixedSize()
+                            .frame(width: 20, alignment: .leading)
                             .offset(y: 2)
                         VStack(alignment: .leading, spacing: 3) {
                             if let speaker = parsed.speaker {
@@ -1311,35 +1314,51 @@ struct CloudRecordingDetail: View {
 
             VStack(alignment: .leading, spacing: bullet == .nextStep ? 14 : 10) {
                 ForEach(Array(items.prefix(6).enumerated()), id: \.offset) { _, item in
-                    if bullet == .nextStep {
-                        // Action items carry an owner ("Speaker 1 — do X"): show
-                        // the owner as a small accent label above the action, no
-                        // decorative marker. Body text stays flush-left so every
-                        // subsection shares one left edge.
-                        let parsed = parseActionItemOwner(item)
-                        VStack(alignment: .leading, spacing: 3) {
-                            if let owner = parsed.owner {
-                                Text(owner)
-                                    .font(.system(size: 10.5, weight: .semibold))
-                                    .tracking(0.4)
-                                    .textCase(.uppercase)
-                                    .foregroundStyle(DT.appAccent)
+                    // Every item row shares the same leading gutter: a fixed 20pt
+                    // symbol column so symbols line up vertically and all content
+                    // text shares one left edge across subsections.
+                    HStack(alignment: .top, spacing: 8) {
+                        if bullet == .nextStep {
+                            // Next steps: a small emerald checkmark in the gutter.
+                            Text(verbatim: "\u{2713}")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(DT.appAccent.opacity(0.75))
+                                .frame(width: 20, alignment: .leading)
+                        } else {
+                            // Key insights / Decisions: empty gutter so their
+                            // text aligns with the symboled subsections.
+                            Color.clear.frame(width: 20, height: 1)
+                        }
+
+                        if bullet == .nextStep {
+                            // Action items carry an owner ("Speaker 1 — do X"):
+                            // show the owner as a small accent label above the
+                            // action.
+                            let parsed = parseActionItemOwner(item)
+                            VStack(alignment: .leading, spacing: 3) {
+                                if let owner = parsed.owner {
+                                    Text(owner)
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                        .tracking(0.4)
+                                        .textCase(.uppercase)
+                                        .foregroundStyle(DT.appAccent)
+                                }
+                                markdownText(parsed.text)
+                                    .font(.body)
+                                    .foregroundStyle(Color.dtLabel)
+                                    .lineSpacing(4)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            markdownText(parsed.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            markdownText(item)
                                 .font(.body)
                                 .foregroundStyle(Color.dtLabel)
                                 .lineSpacing(4)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        markdownText(item)
-                            .font(.body)
-                            .foregroundStyle(Color.dtLabel)
-                            .lineSpacing(4)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
