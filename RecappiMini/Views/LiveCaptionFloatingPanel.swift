@@ -7,9 +7,9 @@ enum LiveCaptionPanelMode: String {
     var toggleTitle: String {
         switch self {
         case .expanded:
-            return "Lyrics"
+            return "Switch to compact captions"
         case .compact:
-            return "Expand"
+            return "Expand captions"
         }
     }
 
@@ -531,7 +531,7 @@ struct LiveCaptionFloatingPanel: View {
         .background(
             glassShape(Capsule(style: .continuous))
         )
-        .recappiTooltip("Caption display is chosen before recording starts.")
+        .recappiTooltip(liveCaptionDisplayTooltip)
     }
 
     private var paneVisibilityControls: some View {
@@ -551,7 +551,7 @@ struct LiveCaptionFloatingPanel: View {
                 accessibilityIdentifier: AccessibilityIDs.Cloud.currentMeetingTranslationToggleButton
             )
         }
-        .recappiTooltip("Toggle each live caption stream. At least one stream stays visible.")
+        .recappiTooltip("Show or hide original and translated captions. At least one stays visible.")
     }
 
     private enum PaneStream {
@@ -852,12 +852,18 @@ struct LiveCaptionFloatingPanel: View {
             Capsule(style: .continuous)
                 .fill(Color.white.opacity(0.24))
         )
-        .recappiTooltip("Caption display is chosen before recording starts.")
+        .recappiTooltip(liveCaptionDisplayTooltip)
     }
 
     private var liveCaptionShowsTranslation: Bool {
         panelState.activeConfiguration?.showsTranslation
             ?? panelState.fallbackShowsTranslation
+    }
+
+    private var liveCaptionDisplayTooltip: String {
+        liveCaptionShowsTranslation
+            ? "This recording started with bilingual captions."
+            : "This recording started with original captions."
     }
 
     private var liveCaptionDisplayTitle: String {
