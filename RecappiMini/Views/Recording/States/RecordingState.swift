@@ -39,15 +39,21 @@ struct RecordingState: View {
                 Circle()
                     .fill(DT.recordingLiveBlue)
                     .frame(width: 6, height: 6)
-                    .shadow(color: DT.recordingLiveBlue.opacity(0.6), radius: 2)
-                    .modifier(PulsingModifier())
-                RecordingElapsedText(runtimeState: recorder.runtimeState)
+                    .shadow(color: DT.recordingLiveBlue.opacity(minimalRecordingUI ? 0 : 0.6), radius: minimalRecordingUI ? 0 : 2)
+                    .modifier(ConditionalPulsingModifier(isEnabled: !minimalRecordingUI))
+                if minimalRecordingUI {
+                    Text("Recording")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(DT.recordingGlassTextPrimary)
+                } else {
+                    RecordingElapsedText(runtimeState: recorder.runtimeState)
+                }
                 Text("·")
                     .font(.system(size: 11))
                     .foregroundStyle(DT.recordingGlassTextTertiary)
                 recordingSourceView
                 Spacer(minLength: 0)
-                if appDelegate.canShowLiveCaptionPanel {
+                if !minimalRecordingUI, appDelegate.canShowLiveCaptionPanel {
                     Button {
                         appDelegate.setLiveCaptionPanelPresented(!appDelegate.isLiveCaptionPanelPresented)
                     } label: {
@@ -88,15 +94,21 @@ struct RecordingState: View {
 
     private var recordingControlsRow: some View {
         HStack(spacing: 6) {
-            Button(action: handleWaveformTap) {
-                waveformView
+            if minimalRecordingUI {
+                minimalRecordingUIIndicator
                     .frame(maxWidth: .infinity, maxHeight: 28)
                     .padding(.leading, 4)
-                    .contentShape(Rectangle())
+            } else {
+                Button(action: handleWaveformTap) {
+                    waveformView
+                        .frame(maxWidth: .infinity, maxHeight: 28)
+                        .padding(.leading, 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .recappiTooltip(waveformHelpText)
+                .accessibilityIdentifier(AccessibilityIDs.Panel.waveformToggle)
             }
-            .buttonStyle(.plain)
-            .recappiTooltip(waveformHelpText)
-            .accessibilityIdentifier(AccessibilityIDs.Panel.waveformToggle)
 
             microphoneButton
 
@@ -208,7 +220,7 @@ struct RecordingState: View {
                     .frame(width: 28, height: 28)
                     .animation(DT.motionAware(DT.ease(0.16)), value: recorder.includesMicrophoneAudio)
 
-                if recorder.includesMicrophoneAudio {
+                if recorder.includesMicrophoneAudio, !minimalRecordingUI {
                     Circle()
                         .fill(DT.recordingLiveBlue)
                         .frame(width: 5.5, height: 5.5)
@@ -251,6 +263,24 @@ struct RecordingState: View {
 
     private var isDarkMode: Bool {
         colorScheme == .dark
+    }
+
+    private var minimalRecordingUI: Bool {
+        RecappiPerformanceDebugOptions.minimalRecordingUI()
+    }
+
+    private var minimalRecordingUIIndicator: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "gauge.with.dots.needle.0percent")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(DT.recordingGlassTextSecondary)
+            Text("Minimal UI")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(DT.recordingGlassTextSecondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .accessibilityLabel("Minimal recording UI debug mode")
     }
 
     @ViewBuilder
@@ -365,6 +395,19 @@ struct RecordingState: View {
             case .history:
                 DotMatrixWaveform(levels: runtimeState.audioLevelHistory)
             }
+        }
+    }
+}
+
+private struct ConditionalPulsingModifier: ViewModifier {
+    let isEnabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.modifier(PulsingModifier())
+        } else {
+            content
         }
     }
 }

@@ -1120,6 +1120,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func setLiveCaptionPanelPresented(_ presented: Bool) {
+        guard !suppressLiveCaptionPanelForPerformanceDebug else {
+            hideLiveCaptionWindow()
+            return
+        }
         guard AppConfig.shared.liveCaptionsDisplayEnabled else {
             hideLiveCaptionWindow()
             return
@@ -1140,7 +1144,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     var canShowLiveCaptionPanel: Bool {
-        AppConfig.shared.liveCaptionsDisplayEnabled && currentLiveCaptionSessionID != nil
+        !suppressLiveCaptionPanelForPerformanceDebug
+            && AppConfig.shared.liveCaptionsDisplayEnabled
+            && currentLiveCaptionSessionID != nil
     }
 
     func toggleLiveCaptionPanelMode() {
@@ -1179,12 +1185,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         return recorder.activeRecordingID?.uuidString ?? recorder.currentSessionDir?.path
     }
 
+    private var suppressLiveCaptionPanelForPerformanceDebug: Bool {
+        RecappiPerformanceDebugOptions.disableBackendLiveCaptions()
+            || RecappiPerformanceDebugOptions.minimalRecordingUI()
+    }
+
     private var dismissedLiveCaptionSessionID: String {
         get { UserDefaults.standard.string(forKey: dismissedLiveCaptionSessionDefaultsKey) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: dismissedLiveCaptionSessionDefaultsKey) }
     }
 
     private func reconcileLiveCaptionPanelPresentation() {
+        guard !suppressLiveCaptionPanelForPerformanceDebug else {
+            hideLiveCaptionWindow()
+            return
+        }
         guard AppConfig.shared.liveCaptionsDisplayEnabled else {
             hideLiveCaptionWindow()
             return
