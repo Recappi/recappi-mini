@@ -787,10 +787,12 @@ final class AudioRecorder: NSObject, ObservableObject {
         activeRecordingID = UUID()
         let metadata = recordingSessionMetadata()
         let autoStopContext = detectedMeetingContextForNextRecording()
-        activeLiveCaptionConfiguration = liveCaptionRecordingConfiguration()
+        let disablesBackendLiveCaptions = RecappiPerformanceDebugOptions.disableBackendLiveCaptions()
+        let usesMinimalRecordingUI = RecappiPerformanceDebugOptions.minimalRecordingUI()
+        activeLiveCaptionConfiguration = disablesBackendLiveCaptions ? nil : liveCaptionRecordingConfiguration()
         DiagnosticsLog.event(
             "recording",
-            "start.request selectedBundle=\(selectedApp?.id ?? "all-system-audio") includeMic=\(includesMicrophoneAudio) cloudCaptions=backend bilingual=\(activeLiveCaptionConfiguration?.showsTranslation ?? false) language=\(AppConfig.shared.normalizedCloudLanguage)"
+            "start.request selectedBundle=\(selectedApp?.id ?? "all-system-audio") includeMic=\(includesMicrophoneAudio) cloudCaptions=\(disablesBackendLiveCaptions ? "debug-disabled" : "backend") bilingual=\(activeLiveCaptionConfiguration?.showsTranslation ?? false) language=\(AppConfig.shared.normalizedCloudLanguage) perfMinimalUI=\(usesMinimalRecordingUI)"
         )
         pendingDetectedMeetingRecordingContext = nil
         recordingSuggestion = nil
@@ -847,7 +849,14 @@ final class AudioRecorder: NSObject, ObservableObject {
             sysOut.onMeterFrame = { [weak self] frame in
                 self?.ingestMeterFrame(frame)
             }
-            await startLiveCaptions(for: sysOut)
+            if disablesBackendLiveCaptions {
+                DiagnosticsLog.warning(
+                    "live-caption",
+                    "provider.disabled reason=performance_debug flag=\(RecappiPerformanceDebugOptions.disableBackendLiveCaptionsEnvKey)"
+                )
+            } else {
+                await startLiveCaptions(for: sysOut)
+            }
             self.systemOutput = sysOut
 
             switch systemAudioBackend {
@@ -1449,6 +1458,13 @@ final class AudioRecorder: NSObject, ObservableObject {
         localeIdentifier: String,
         message: String = "Switching live caption language…"
     ) {
+        guard !RecappiPerformanceDebugOptions.disableBackendLiveCaptions() else {
+            DiagnosticsLog.warning(
+                "live-caption",
+                "restart.ignored reason=performance_debug_disabled"
+            )
+            return
+        }
         guard #available(macOS 26.0, *) else { return }
         guard let systemOutput else { return }
 
@@ -1563,6 +1579,16 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func startLiveCaptions(for systemOutput: SystemAudioOutput) async {
+        guard !RecappiPerformanceDebugOptions.disableBackendLiveCaptions() else {
+            DiagnosticsLog.warning(
+                "live-caption",
+                "provider.disabled reason=performance_debug flag=\(RecappiPerformanceDebugOptions.disableBackendLiveCaptionsEnvKey)"
+            )
+            liveCaptionMessage = nil
+            liveCaptionStatusPhase = nil
+            liveCaptionIsFinal = false
+            return
+        }
         guard #available(macOS 26.0, *) else {
             DiagnosticsLog.warning("live-caption", "provider.unavailable reason=macos_version")
             liveCaptionMessage = "Live captions require macOS 26."
