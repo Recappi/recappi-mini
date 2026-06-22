@@ -547,7 +547,7 @@ struct LiveCaptionFloatingPanel: View {
                 stream: .translation,
                 systemImage: "translate",
                 selectedSystemImage: "translate",
-                title: "Translation only",
+                title: "Translated captions",
                 accessibilityIdentifier: AccessibilityIDs.Cloud.currentMeetingTranslationToggleButton
             )
         }
