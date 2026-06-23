@@ -8,9 +8,44 @@ struct RecappiCLI {
             let exitCode = try await run(arguments: Array(CommandLine.arguments.dropFirst()))
             Foundation.exit(exitCode)
         } catch {
-            FileHandle.standardError.write(Data("recappi: \(error.localizedDescription)\n".utf8))
-            Foundation.exit(1)
+            let (message, code) = describe(error)
+            printErr("recappi: \(message)")
+            Foundation.exit(code)
         }
+    }
+
+    /// Map an error to a human, actionable message + a stable exit code:
+    /// 1 general · 2 usage · 3 not-logged-in · 4 input/file · 5 server/conflict.
+    private static func describe(_ error: Error) -> (String, Int32) {
+        if let error = error as? RecappiCloudError {
+            switch error {
+            case .notSignedIn, .unauthorized:
+                return ("Not logged in. Open Recappi Mini and sign in, then run this again.", 3)
+            case .fileMissing, .unsupportedFileType, .durationUnavailable, .directoryHasNoSupportedFiles:
+                return (error.errorDescription ?? "Input error.", 4)
+            case .http(let statusCode, _):
+                switch statusCode {
+                case 401, 403:
+                    return ("Not logged in. Open Recappi Mini and sign in, then run this again.", 3)
+                case 409:
+                    return ("Another upload is already in progress for your account. Wait for it to finish, then retry.", 5)
+                default:
+                    return (error.errorDescription ?? "Recappi Cloud request failed.", 5)
+                }
+            case .recordingNotReady, .jobFailed, .jobTimedOut, .invalidResponse, .invalidURL:
+                return (error.errorDescription ?? "Something went wrong.", 1)
+            }
+        }
+        if let error = error as? CLIError {
+            return (error.errorDescription ?? "Usage error.", 2)
+        }
+        return (error.localizedDescription, 1)
+    }
+
+    /// Progress, status, and errors go to stderr so stdout stays a clean data
+    /// stream (pure JSON under `--json`, pipeable result lines otherwise).
+    private static func printErr(_ message: String) {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
     }
 
     static func run(arguments: [String]) async throws -> Int32 {
@@ -44,19 +79,32 @@ struct RecappiCLI {
         let origin = parser.popOption("--origin")
         try parser.rejectRemaining()
 
-        let context = try RecappiCloudAuth().context(explicitOrigin: origin)
-        let session = try await RecappiCloudAPIClient(context: context).getSession()
-        guard let session else {
-            throw RecappiCloudError.unauthorized
+        // Not logged in is a normal status answer, not a crash. `context()`
+        // throws `.notSignedIn` when no token is found, so catch that (and an
+        // expired session) here and report cleanly with exit code 3 — still
+        // emitting `{loggedIn:false}` under --json so scripts get stable output.
+        do {
+            let context = try RecappiCloudAuth().context(explicitOrigin: origin)
+            guard let session = try await RecappiCloudAPIClient(context: context).getSession() else {
+                throw RecappiCloudError.unauthorized
+            }
+            if json {
+                try printJSON(AuthStatusOutput(loggedIn: true, origin: context.origin, email: session.email, userId: session.userId))
+            } else {
+                print("✓ Signed in as \(session.email)")
+                printErr("  \(context.origin) · \(session.userId)")
+            }
+            return 0
+        } catch let error as RecappiCloudError where error == .notSignedIn || error == .unauthorized {
+            let resolvedOrigin = RecappiCloudOriginResolver().resolve(explicitOrigin: origin)
+            if json {
+                try printJSON(AuthStatusOutput(loggedIn: false, origin: resolvedOrigin, email: nil, userId: nil))
+            } else {
+                printErr("✗ Not logged in.")
+                printErr("Open Recappi Mini and sign in, then run this again.")
+            }
+            return 3
         }
-
-        if json {
-            try printJSON(AuthStatusOutput(origin: context.origin, email: session.email, userId: session.userId))
-        } else {
-            print("Signed in to \(context.origin)")
-            print("\(session.email) (\(session.userId))")
-        }
-        return 0
     }
 
     private static func runUpload(arguments: [String]) async throws -> Int32 {
@@ -88,22 +136,28 @@ struct RecappiCLI {
             prompt: prompt
         )
 
+        let dedup = LineDedup()
         let results = try await uploader.uploadPath(URL(fileURLWithPath: path), options: options) { event in
-            guard !json else { return }
-            printHumanEvent(event)
+            guard !json, let line = humanEventLine(event), dedup.shouldPrint(line) else { return }
+            printErr(line)
         }
 
         if json {
             try printJSON(results.map(UploadOutput.init))
         } else {
             for result in results {
-                print("Ready: recording \(result.recordingId)")
-                if let jobId = result.jobId {
-                    print("Job: \(jobId) (\(result.status))")
-                }
+                let name = URL(fileURLWithPath: result.filePath).lastPathComponent
+                printErr("✓ Uploaded \(name)")
+                print(result.recordingId)
                 if let transcriptId = result.transcriptId {
-                    print("Transcript: \(transcriptId)")
+                    printErr("✓ Transcription complete")
+                    printErr("  transcript \(transcriptId)")
+                } else if let jobId = result.jobId {
+                    printErr("  transcription \(result.status) · job \(jobId)")
                 }
+            }
+            if results.count > 1 {
+                printErr("✓ \(results.count) files uploaded")
             }
         }
         return 0
@@ -125,48 +179,61 @@ struct RecappiCLI {
         let context = try RecappiCloudAuth().context(explicitOrigin: origin)
         let client = RecappiCloudAPIClient(context: context)
         let poller = RecappiCloudJobPoller(client: client)
+        let dedup = LineDedup()
         let job = try await poller.waitForCompletion(jobId: jobId) { job in
             guard !json else { return }
-            printJobProgress(job)
+            let line = jobProgressLine(job)
+            guard dedup.shouldPrint(line) else { return }
+            printErr(line)
         }
 
         if json {
             try printJSON(JobOutput(job))
         } else {
-            print("Transcription complete")
+            printErr("✓ Transcription complete")
             if let transcriptId = job.transcriptId {
-                print("Transcript: \(transcriptId)")
+                print(transcriptId)
             }
         }
         return 0
     }
 
-    private static func printHumanEvent(_ event: RecappiCloudUploadEvent) {
+    /// One-line human description of an upload event, or nil for events with no
+    /// user-facing line. Progress never exposes internal chunk/part counts —
+    /// only an overall percentage, matching the app/web treatment.
+    private static func humanEventLine(_ event: RecappiCloudUploadEvent) -> String? {
         switch event {
         case .creatingRecording(let filePath):
-            print("Creating recording: \(URL(fileURLWithPath: filePath).lastPathComponent)")
+            return "Creating recording: \(URL(fileURLWithPath: filePath).lastPathComponent)"
         case .uploading(_, let progress):
-            print("Uploading \(percentText(progress * 100))")
+            return "Uploading… \(percentText(progress * 100))"
         case .completingUpload:
-            print("Completing upload")
+            return "Finishing upload…"
         case .startingTranscription:
-            print("Starting transcription")
+            return "Starting transcription…"
         case .transcriptionProgress(_, let status, let percent):
             if let percent {
-                print("Transcribing... \(percentText(percent))")
-            } else {
-                print("Transcribing... \(status.rawValue)")
+                return "Transcribing… \(percentText(percent))"
             }
+            return "Transcribing… \(friendlyStatus(status))"
         case .finished:
-            break
+            return nil
         }
     }
 
-    private static func printJobProgress(_ job: RecappiCloudJob) {
+    private static func jobProgressLine(_ job: RecappiCloudJob) -> String {
         if let percent = job.chunkProgress?.percent {
-            print("Transcribing... \(percentText(percent))")
-        } else {
-            print("Transcribing... \(job.status.rawValue)")
+            return "Transcribing… \(percentText(percent))"
+        }
+        return "Transcribing… \(friendlyStatus(job.status))"
+    }
+
+    private static func friendlyStatus(_ status: RecappiCloudJobStatus) -> String {
+        switch status {
+        case .queued: return "queued"
+        case .running: return "in progress"
+        case .succeeded: return "done"
+        case .failed: return "failed"
         }
     }
 
@@ -184,12 +251,27 @@ struct RecappiCLI {
 
     private static func printHelp() {
         print("""
-        recappi
+        recappi — upload local audio to Recappi Cloud and transcribe it.
 
         Commands:
           recappi auth status [--origin <url>] [--json]
-          recappi upload <file-or-dir> [--title <title>] [--transcribe] [--wait] [--language <lang>] [--provider <provider>] [--prompt <text>] [--origin <url>] [--json]
+              Show whether you're signed in (reuses the Recappi Mini login).
+
+          recappi upload <file-or-dir> [--transcribe] [--wait] [--title <t>]
+                         [--language <lang>] [--provider <p>] [--prompt <text>]
+                         [--origin <url>] [--json]
+              Upload an audio file (or every supported file in a directory) as a
+              new recording. --transcribe also starts transcription; --wait
+              blocks until it finishes.
+
           recappi jobs wait <jobId> [--origin <url>] [--json]
+              Wait for a transcription job to finish.
+
+        Output: results go to stdout (recording/transcript ids; pure JSON with
+        --json); progress and messages go to stderr. Exit codes: 0 ok · 2 usage
+        · 3 not logged in · 4 file/input · 5 Recappi Cloud error.
+
+        Sign in via the Recappi Mini app first; the CLI reuses that login.
         """)
     }
 }
@@ -255,9 +337,27 @@ private enum CLIError: LocalizedError {
 }
 
 private struct AuthStatusOutput: Encodable {
+    let loggedIn: Bool
     let origin: String
-    let email: String
-    let userId: String
+    let email: String?
+    let userId: String?
+}
+
+/// Suppresses consecutive duplicate progress lines (the job poller emits the
+/// same percentage across polls). `@unchecked Sendable` is safe here: a single
+/// CLI invocation drives one sequential progress stream, and the lock guards
+/// the only mutable field.
+private final class LineDedup: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = ""
+
+    func shouldPrint(_ line: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard line != last else { return false }
+        last = line
+        return true
+    }
 }
 
 private struct UploadOutput: Encodable {
