@@ -65,6 +65,8 @@ struct RecappiCLI {
         guard subcommand == "status" else {
             throw CLIError.unknownCommand("auth \(subcommand)")
         }
+        let fields = try parseFields(parser.popOption("--fields"), allowed: ["loggedIn", "origin", "email", "userId"])
+        let compact = parser.popFlag("--compact")
         parser.dropModeFlags()
         let origin = parser.popOption("--origin")
         try parser.rejectRemaining()
@@ -77,9 +79,9 @@ struct RecappiCLI {
             let data = AuthData(loggedIn: true, origin: context.origin, email: session.email, userId: session.userId)
             switch mode {
             case .json:
-                emitJSONEnvelope(command: "auth status", ok: true, data: data, error: nil)
+                emitJSONEnvelope(command: "auth status", ok: true, data: data, error: nil, fields: fields, compact: compact)
             case .jsonl:
-                emitJSONLTerminal(command: "auth status", data: data, error: nil)
+                emitJSONLTerminal(command: "auth status", data: data, error: nil, fields: fields, compact: compact)
             case .human:
                 printOut("✓ Signed in as \(session.email)")
                 printErr("  \(context.origin) · \(session.userId)")
@@ -92,9 +94,9 @@ struct RecappiCLI {
             case .json:
                 // Not-signed-in is a valid, scriptable status answer (ok:true,
                 // loggedIn:false) — not an error envelope — but still exit 3.
-                emitJSONEnvelope(command: "auth status", ok: true, data: data, error: nil)
+                emitJSONEnvelope(command: "auth status", ok: true, data: data, error: nil, fields: fields, compact: compact)
             case .jsonl:
-                emitJSONLTerminal(command: "auth status", data: data, error: nil)
+                emitJSONLTerminal(command: "auth status", data: data, error: nil, fields: fields, compact: compact)
             case .human:
                 printErr("✗ Not logged in.")
                 printErr("Open Recappi Mini and sign in, then run this again.")
@@ -107,6 +109,8 @@ struct RecappiCLI {
 
     private static func runUpload(arguments: [String], mode: OutputMode) async throws -> Int32 {
         var parser = ArgumentScanner(arguments)
+        let fields = try parseFields(parser.popOption("--fields"), allowed: ["filePath", "recordingId", "jobId", "transcriptId", "status"])
+        let compact = parser.popFlag("--compact")
         parser.dropModeFlags()
         let transcribe = parser.popFlag("--transcribe")
         let wait = parser.popFlag("--wait")
@@ -147,7 +151,7 @@ struct RecappiCLI {
                 if case .finished = event { return }
                 let opEvent = event.operationEvent(command: "upload")
                 guard dedup.shouldPrint(jsonlKey(opEvent)) else { return }
-                emitJSONLEvent(opEvent)
+                emitJSONLEvent(opEvent, compact: compact)
             case .json:
                 return
             }
@@ -158,11 +162,11 @@ struct RecappiCLI {
 
         switch mode {
         case .json:
-            emitJSONEnvelope(command: "upload", ok: partial == nil, data: data, error: partial)
+            emitJSONEnvelope(command: "upload", ok: partial == nil, data: data, error: partial, fields: fields, compact: compact)
         case .jsonl:
             // Terminal line: result on full success, error on any failure (with
             // data still attached so the agent sees successes + per-file errors).
-            emitJSONLTerminal(command: "upload", data: data, error: partial)
+            emitJSONLTerminal(command: "upload", data: data, error: partial, fields: fields, compact: compact)
         case .human:
             for result in batch.successes {
                 printErr("✓ Uploaded \(URL(fileURLWithPath: result.filePath).lastPathComponent)")
@@ -191,6 +195,8 @@ struct RecappiCLI {
         guard subcommand == "wait" else {
             throw CLIError.unknownCommand("jobs \(subcommand ?? "")")
         }
+        let fields = try parseFields(parser.popOption("--fields"), allowed: ["jobId", "status", "transcriptId", "percent"])
+        let compact = parser.popFlag("--compact")
         parser.dropModeFlags()
         let origin = parser.popOption("--origin")
         guard let jobId = parser.popValue() else {
@@ -217,7 +223,7 @@ struct RecappiCLI {
                     percent: job.chunkProgress?.percent
                 )
                 guard dedup.shouldPrint(jsonlKey(event)) else { return }
-                emitJSONLEvent(event)
+                emitJSONLEvent(event, compact: compact)
             case .json:
                 return
             }
@@ -226,9 +232,9 @@ struct RecappiCLI {
         let data = JobData(job)
         switch mode {
         case .json:
-            emitJSONEnvelope(command: "jobs wait", ok: true, data: data, error: nil)
+            emitJSONEnvelope(command: "jobs wait", ok: true, data: data, error: nil, fields: fields, compact: compact)
         case .jsonl:
-            emitJSONLTerminal(command: "jobs wait", data: data, error: nil)
+            emitJSONLTerminal(command: "jobs wait", data: data, error: nil, fields: fields, compact: compact)
         case .human:
             printErr("✓ Transcription complete")
             if let transcriptId = job.transcriptId {
@@ -254,14 +260,16 @@ struct RecappiCLI {
         command: String,
         ok: Bool,
         data: T?,
-        error: RecappiCloudErrorDescriptor?
+        error: RecappiCloudErrorDescriptor?,
+        fields: [String]? = nil,
+        compact: Bool = false
     ) {
         let envelope = Envelope(ok: ok, command: command, data: data, error: error, meta: Meta(schemaVersion: schemaVersion))
-        write(envelope, pretty: true)
+        write(envelope, pretty: true, fields: fields, compact: compact)
     }
 
-    private static func emitJSONLEvent(_ event: RecappiCloudOperationEvent) {
-        write(event, pretty: false)
+    private static func emitJSONLEvent(_ event: RecappiCloudOperationEvent, compact: Bool = false) {
+        write(event, pretty: false, fields: nil, compact: compact)
     }
 
     /// Terminal JSONL line: `result` on success, `error` on failure. Data is
@@ -269,7 +277,9 @@ struct RecappiCLI {
     private static func emitJSONLTerminal<T: Encodable>(
         command: String,
         data: T?,
-        error: RecappiCloudErrorDescriptor?
+        error: RecappiCloudErrorDescriptor?,
+        fields: [String]? = nil,
+        compact: Bool = false
     ) {
         let terminal = TerminalEvent(
             type: error == nil ? "result" : "error",
@@ -278,7 +288,7 @@ struct RecappiCLI {
             error: error,
             meta: Meta(schemaVersion: schemaVersion)
         )
-        write(terminal, pretty: false)
+        write(terminal, pretty: false, fields: fields, compact: compact)
     }
 
     private static func renderError(command: String, descriptor: RecappiCloudErrorDescriptor, mode: OutputMode) {
@@ -297,12 +307,93 @@ struct RecappiCLI {
         }
     }
 
-    private static func write<T: Encodable>(_ value: T, pretty: Bool) {
+    private static func write<T: Encodable>(_ value: T, pretty: Bool, fields: [String]?, compact: Bool) {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = pretty ? [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes] : [.sortedKeys, .withoutEscapingSlashes]
+        let prettyOut = pretty && !compact
+        encoder.outputFormatting = prettyOut
+            ? [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            : [.sortedKeys, .withoutEscapingSlashes]
         guard let data = try? encoder.encode(value) else { return }
+
+        // Fast path: no field filtering / compaction needed.
+        guard (fields != nil || compact),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            emitData(data)
+            return
+        }
+
+        // --fields only ever filters `data` (envelope ok/command/error/meta and
+        // any error descriptor stay complete).
+        if let fields, let dataValue = object["data"] {
+            object["data"] = filterData(dataValue, fields: Set(fields))
+        }
+        // --compact: drop empty arrays / empty strings (nil optionals are
+        // already omitted by encodeIfPresent). IDs are full-length values, so
+        // they are never truncated.
+        if compact, let pruned = dropEmpty(object) as? [String: Any] {
+            object = pruned
+        }
+
+        let options: JSONSerialization.WritingOptions = prettyOut
+            ? [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+            : [.sortedKeys, .withoutEscapingSlashes]
+        if let out = try? JSONSerialization.data(withJSONObject: object, options: options) {
+            emitData(out)
+        } else {
+            emitData(data)
+        }
+    }
+
+    private static func emitData(_ data: Data) {
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    /// Keep only the requested keys. For the upload batch shape, the bare field
+    /// names apply to each `successes[]` element; `failures[]` is always kept
+    /// complete (an agent needs filePath + error to retry), and the small
+    /// `totalCount` / `attemptedCount` summary fields are preserved.
+    private static func filterData(_ value: Any, fields: Set<String>) -> Any {
+        guard var dict = value as? [String: Any] else { return value }
+        if let successes = dict["successes"] as? [Any] {
+            dict["successes"] = successes.map { item -> Any in
+                guard let element = item as? [String: Any] else { return item }
+                return element.filter { fields.contains($0.key) }
+            }
+            return dict
+        }
+        return dict.filter { fields.contains($0.key) }
+    }
+
+    private static func dropEmpty(_ value: Any) -> Any {
+        if let dict = value as? [String: Any] {
+            var out: [String: Any] = [:]
+            for (key, raw) in dict {
+                let pruned = dropEmpty(raw)
+                if let array = pruned as? [Any], array.isEmpty { continue }
+                if let string = pruned as? String, string.isEmpty { continue }
+                out[key] = pruned
+            }
+            return out
+        }
+        if let array = value as? [Any] {
+            return array.map { dropEmpty($0) }
+        }
+        return value
+    }
+
+    /// Parse + validate `--fields a,b,c` against the command's allowed set.
+    private static func parseFields(_ raw: String?, allowed: Set<String>) throws -> [String]? {
+        guard let raw else { return nil }
+        let requested = raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let unknown = requested.filter { !allowed.contains($0) }
+        guard unknown.isEmpty else {
+            throw CLIError.unknownFields(unknown: unknown, allowed: allowed.sorted())
+        }
+        return requested
     }
 
     // MARK: - Human progress lines (stderr)
@@ -374,6 +465,11 @@ struct RecappiCLI {
         TTY. Failures still emit a stable {error:{code,retryable,hint}} you can
         branch on; exit codes: 0 ok · 2 usage · 3 not-logged-in · 4 input · 5
         Recappi Cloud.
+
+        Trim output to save context:
+          --fields <a,b,c>  Keep only these keys in `data` (for upload, applies
+                            to each successes[] item; failures stay complete).
+          --compact         Single-line JSON, drop empty fields (ids kept full).
 
         Sign in via the Recappi Mini app first; the CLI reuses that login (or set
         RECAPPI_AUTH_TOKEN).
@@ -515,6 +611,7 @@ private enum CLIError: LocalizedError {
     case missingPath
     case missingJobId
     case unexpectedArguments([String])
+    case unknownFields(unknown: [String], allowed: [String])
 
     var errorDescription: String? {
         switch self {
@@ -528,6 +625,8 @@ private enum CLIError: LocalizedError {
             return "Missing job id."
         case .unexpectedArguments(let arguments):
             return "Unexpected arguments: \(arguments.joined(separator: " "))"
+        case .unknownFields(let unknown, _):
+            return "Unknown --fields: \(unknown.joined(separator: ", "))"
         }
     }
 
@@ -535,6 +634,8 @@ private enum CLIError: LocalizedError {
         switch self {
         case .unknownCommand, .missingCommand:
             return "Run recappi --help for available commands."
+        case .unknownFields(_, let allowed):
+            return "Allowed fields: \(allowed.joined(separator: ", "))"
         case .missingPath, .missingJobId, .unexpectedArguments:
             return nil
         }
