@@ -19,7 +19,7 @@ struct RecappiCLI {
             // exit code / code / retryable / hint all come from one source.
             let descriptor: RecappiCloudErrorDescriptor
             if let cliError = error as? CLIError {
-                descriptor = .invalidArgument(cliError.errorDescription ?? "Usage error.")
+                descriptor = cliError.descriptor
             } else {
                 descriptor = .describe(error)
             }
@@ -29,10 +29,16 @@ struct RecappiCLI {
     }
 
     private static func run(arguments: [String], mode: OutputMode) async throws -> Int32 {
-        guard let command = arguments.first, !command.hasPrefix("-") else {
-            if arguments.first == "-h" || arguments.first == "--help" { printHelp(); return 0 }
+        // Help only on no-args or an explicit help request. A machine-mode
+        // invocation with no command (`recappi --json`) or an unknown top-level
+        // flag must hard-fail with a usage error, never print help + exit 0 —
+        // an agent would otherwise read success + non-JSON.
+        if arguments.isEmpty || arguments.first == "-h" || arguments.first == "--help" || arguments.first == "help" {
             printHelp()
-            return arguments.isEmpty ? 0 : 0
+            return 0
+        }
+        guard let command = arguments.first, !command.hasPrefix("-") else {
+            throw CLIError.missingCommand
         }
 
         switch command {
@@ -42,9 +48,6 @@ struct RecappiCLI {
             return try await runUpload(arguments: Array(arguments.dropFirst()), mode: mode)
         case "jobs":
             return try await runJobs(arguments: Array(arguments.dropFirst()), mode: mode)
-        case "-h", "--help", "help":
-            printHelp()
-            return 0
         default:
             throw CLIError.unknownCommand(command)
         }
@@ -73,8 +76,10 @@ struct RecappiCLI {
             }
             let data = AuthData(loggedIn: true, origin: context.origin, email: session.email, userId: session.userId)
             switch mode {
-            case .json, .jsonl:
+            case .json:
                 emitJSONEnvelope(command: "auth status", ok: true, data: data, error: nil)
+            case .jsonl:
+                emitJSONLTerminal(command: "auth status", data: data, error: nil)
             case .human:
                 printOut("✓ Signed in as \(session.email)")
                 printErr("  \(context.origin) · \(session.userId)")
@@ -84,10 +89,12 @@ struct RecappiCLI {
             let resolvedOrigin = try RecappiCloudOriginResolver().resolve(explicitOrigin: origin)
             let data = AuthData(loggedIn: false, origin: resolvedOrigin, email: nil, userId: nil)
             switch mode {
-            case .json, .jsonl:
+            case .json:
                 // Not-signed-in is a valid, scriptable status answer (ok:true,
                 // loggedIn:false) — not an error envelope — but still exit 3.
                 emitJSONEnvelope(command: "auth status", ok: true, data: data, error: nil)
+            case .jsonl:
+                emitJSONLTerminal(command: "auth status", data: data, error: nil)
             case .human:
                 printErr("✗ Not logged in.")
                 printErr("Open Recappi Mini and sign in, then run this again.")
@@ -261,7 +268,7 @@ struct RecappiCLI {
     /// embedded so the agent gets the final payload without a second call.
     private static func emitJSONLTerminal<T: Encodable>(
         command: String,
-        data: T,
+        data: T?,
         error: RecappiCloudErrorDescriptor?
     ) {
         let terminal = TerminalEvent(
@@ -279,8 +286,9 @@ struct RecappiCLI {
         case .json:
             emitJSONEnvelope(command: command, ok: false, data: Optional<NoData>.none, error: descriptor)
         case .jsonl:
-            let event = RecappiCloudOperationEvent(type: .error, command: command, message: descriptor.message, error: descriptor)
-            emitJSONLEvent(event)
+            // Terminal error event, same TerminalEvent shape (with meta) as a
+            // successful result so the JSONL contract is uniform.
+            emitJSONLTerminal(command: command, data: Optional<NoData>.none, error: descriptor)
         case .human:
             printErr("recappi: \(descriptor.message)")
             if let hint = descriptor.hint {
@@ -409,7 +417,7 @@ private struct Envelope<T: Encodable>: Encodable {
 private struct TerminalEvent<T: Encodable>: Encodable {
     let type: String
     let command: String
-    let data: T
+    let data: T?
     let error: RecappiCloudErrorDescriptor?
     let meta: Meta
 }
@@ -503,6 +511,7 @@ private struct ArgumentScanner {
 
 private enum CLIError: LocalizedError {
     case unknownCommand(String)
+    case missingCommand
     case missingPath
     case missingJobId
     case unexpectedArguments([String])
@@ -511,6 +520,8 @@ private enum CLIError: LocalizedError {
         switch self {
         case .unknownCommand(let command):
             return "Unknown command: \(command)"
+        case .missingCommand:
+            return "Missing command."
         case .missingPath:
             return "Missing file or directory path."
         case .missingJobId:
@@ -518,6 +529,26 @@ private enum CLIError: LocalizedError {
         case .unexpectedArguments(let arguments):
             return "Unexpected arguments: \(arguments.joined(separator: " "))"
         }
+    }
+
+    private var hint: String? {
+        switch self {
+        case .unknownCommand, .missingCommand:
+            return "Run recappi --help for available commands."
+        case .missingPath, .missingJobId, .unexpectedArguments:
+            return nil
+        }
+    }
+
+    /// All usage mistakes share the stable `usage.invalid_argument` code / exit 2.
+    var descriptor: RecappiCloudErrorDescriptor {
+        RecappiCloudErrorDescriptor(
+            code: .invalidArgument,
+            exitCode: 2,
+            retryable: false,
+            message: errorDescription ?? "Usage error.",
+            hint: hint
+        )
     }
 }
 
