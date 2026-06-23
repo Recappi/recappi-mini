@@ -148,6 +148,17 @@ struct RecappiAPIClient: Sendable {
         return try JSONDecoder().decode(RecordingJobsResponse.self, from: data)
     }
 
+    /// Retry the failed parts of a smart-chunk job. The server re-plans the
+    /// failed chunks and flips the job back to `queued`. Throws
+    /// `RecappiAPIError.http(statusCode: 409, …)` when a retry/run is already
+    /// in progress — callers should surface that as a soft "Already retrying…"
+    /// hint rather than an error.
+    func retryFailedChunks(jobId: String) async throws -> RetryFailedChunksResponse {
+        let request = try makeRequest(path: "/api/jobs/\(jobId)/retry-failed-chunks", method: "POST")
+        let (data, _) = try await performValidated(request)
+        return try JSONDecoder().decode(RetryFailedChunksResponse.self, from: data)
+    }
+
     func getTranscript(recordingId: String, jobId: String) async throws -> TranscriptResponse {
         return try await getRecordingTranscript(id: recordingId, jobId: jobId)
     }

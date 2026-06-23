@@ -561,6 +561,96 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(job.error, "ASR provider returned an empty transcript.")
     }
 
+    func testTranscriptionJobDecodesSmartChunkProgress() throws {
+        // Guards two things: (1) `chunkProgress` actually decodes — it must be a
+        // `var` with a default; a `let` with a default is silently skipped by
+        // synthesized Codable and would always be nil. (2) An unknown chunk
+        // status degrades to `.pending` instead of failing the whole decode.
+        let data = """
+        {
+          "items": [
+            {
+              "id": "job_chunked",
+              "provider": "gemini",
+              "model": "gemini-3-flash",
+              "language": "en",
+              "status": "running",
+              "error": null,
+              "prompt": null,
+              "attempts": 1,
+              "enqueuedAt": 1777460000000,
+              "startedAt": 1777460001000,
+              "finishedAt": null,
+              "transcriptId": null,
+              "chunkProgress": {
+                "total": 4,
+                "pending": 1,
+                "running": 1,
+                "completed": 1,
+                "failed": 1,
+                "currentIndex": 2,
+                "completedDurationMs": 600000,
+                "totalDurationMs": 2400000,
+                "percent": 25,
+                "chunks": [
+                  {"index": 0, "status": "completed", "startMs": 0, "endMs": 600000, "durationMs": 600000, "attempts": 1, "retryable": null},
+                  {"index": 1, "status": "failed", "startMs": 600000, "endMs": 1200000, "durationMs": 600000, "attempts": 2, "retryable": true, "message": "Model overloaded."},
+                  {"index": 2, "status": "running", "startMs": 1200000, "endMs": 1800000, "durationMs": 600000, "attempts": 1, "retryable": null},
+                  {"index": 3, "status": "brand_new_status", "startMs": 1800000, "endMs": 2400000, "durationMs": 600000, "attempts": 0, "retryable": null}
+                ],
+                "failedChunks": [
+                  {"index": 1, "startMs": 600000, "endMs": 1200000, "retryable": true, "message": "Model overloaded."}
+                ]
+              }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(RecordingJobsResponse.self, from: data)
+        let job = try XCTUnwrap(response.items.first)
+        let progress = try XCTUnwrap(job.chunkProgress)
+
+        XCTAssertEqual(progress.total, 4)
+        XCTAssertEqual(progress.completed, 1)
+        XCTAssertEqual(progress.failed, 1)
+        XCTAssertEqual(progress.percent, 25)
+        XCTAssertEqual(progress.chunks.count, 4)
+        XCTAssertEqual(progress.chunks[1].status, .failed)
+        XCTAssertEqual(progress.chunks[1].retryable, true)
+        // Unknown future status decodes as `.pending` rather than throwing.
+        XCTAssertEqual(progress.chunks[3].status, .pending)
+        XCTAssertEqual(progress.failedChunks.count, 1)
+        XCTAssertEqual(progress.failedChunks.first?.message, "Model overloaded.")
+        XCTAssertTrue(progress.hasRetryableFailures)
+    }
+
+    func testTranscriptionJobWithoutChunkProgressIsNil() throws {
+        let data = """
+        {
+          "items": [
+            {
+              "id": "job_wholefile",
+              "provider": "gemini",
+              "model": "gemini-3-flash",
+              "language": "en",
+              "status": "succeeded",
+              "error": null,
+              "prompt": null,
+              "attempts": 1,
+              "enqueuedAt": 1777460000000,
+              "startedAt": 1777460001000,
+              "finishedAt": 1777460009000,
+              "transcriptId": "tr_1"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(RecordingJobsResponse.self, from: data)
+        XCTAssertNil(response.items.first?.chunkProgress)
+    }
+
     func testFailedRecordingPlaceholderJobMakesRecordingFailureVisible() {
         let job = TranscriptionJob.failedRecordingPlaceholder(recordingID: "rec_123")
 

@@ -118,6 +118,9 @@ extension CloudCenterPanel {
                 onLoadTranscriptVersion: { jobID in
                     try await store.loadTranscriptVersion(recordingID: recording.id, jobID: jobID)
                 },
+                onRetryFailedChunks: { jobID in
+                    try await store.retryFailedChunks(recordingID: recording.id, jobID: jobID)
+                },
                 askStore: store
             )
             .task(id: recording.id) {
@@ -127,6 +130,13 @@ extension CloudCenterPanel {
             }
             .task(id: store.selectedActiveJobPollingKey) {
                 await store.pollSelectedActiveJobsUntilTerminal()
+            }
+            .task(id: recording.id) {
+                // Discover transcriptions started elsewhere (other device /
+                // backend) so the progress panel appears + advances without a
+                // manual refresh. Cancelled automatically when the selection
+                // changes.
+                await store.pollSelectedRecordingJobDiscovery()
             }
         } else {
             VStack(spacing: 10) {

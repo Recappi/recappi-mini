@@ -11,6 +11,11 @@ struct RecordingPanel: View {
     @State private var visibleProcessingSessionID: UUID?
     @State private var detachProcessingWhenReady = false
     @State private var latestDoneJobStatusByRecordingID: [String: RemoteJobStatus] = [:]
+    /// Side-channel chunk progress for the post-recording status pill, parallel
+    /// to `latestDoneJobStatusByRecordingID`. Kept off `DoneCloudStatus` so the
+    /// shared model stays coarse-state-only; `DoneState` reads it to render
+    /// "Transcribing 2/4".
+    @State private var latestDoneJobChunkProgressByRecordingID: [String: TranscriptionJobChunkProgress] = [:]
     @State private var pendingAutoStopRequest: AutoStopRecordingRequest?
 
     let onOpenFolder: (URL) -> Void
@@ -151,6 +156,7 @@ struct RecordingPanel: View {
                 result: r,
                 canTranscribe: canTranscribe(result: r),
                 cloudStatus: doneCloudStatus(result: r),
+                chunkProgress: doneChunkProgress(result: r),
                 onTranscribe: { transcribeAndShow(result: r) },
                 onShow: { showInCloud(result: r) },
                 onNew: { recorder.reset() }
@@ -337,8 +343,10 @@ struct RecordingPanel: View {
             return
         }
         latestDoneJobStatusByRecordingID[recordingID] = .queued
+        latestDoneJobChunkProgressByRecordingID[recordingID] = nil
         onTranscribeCloudRecording(recordingID) { job in
             latestDoneJobStatusByRecordingID[recordingID] = job.status
+            latestDoneJobChunkProgressByRecordingID[recordingID] = job.chunkProgress
         }
     }
 
@@ -384,6 +392,11 @@ struct RecordingPanel: View {
     private func rememberLatestJobStatus(recording: CloudRecording, job: TranscriptionJob?) {
         guard let job else { return }
         latestDoneJobStatusByRecordingID[recording.id] = job.status
+        latestDoneJobChunkProgressByRecordingID[recording.id] = job.chunkProgress
+    }
+
+    private func doneChunkProgress(result: RecordingResult) -> TranscriptionJobChunkProgress? {
+        cloudRecordingID(for: result).flatMap { latestDoneJobChunkProgressByRecordingID[$0] }
     }
 
     private nonisolated static func cleanID(_ value: String?) -> String? {

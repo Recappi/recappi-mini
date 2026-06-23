@@ -39,6 +39,9 @@ struct CloudRecordingDetail: View {
     @State private var speakerEmojiDraft = ""
     @State private var summarySourcePopoverKey: String?
     @State private var isShowingAskPopover = false
+    @State private var isRetryingFailedChunks = false
+    @State private var chunkRetryConflict = false
+    @State private var chunkRetryErrorMessage: String?
     @Namespace private var chapterRowHighlightNamespace
     @Namespace private var transcriptRowHighlightNamespace
 
@@ -82,6 +85,7 @@ struct CloudRecordingDetail: View {
     let onDelete: () -> Void
     let onAcknowledgeNewerVersion: () -> Void
     let onLoadTranscriptVersion: @MainActor (String) async throws -> TranscriptResponse
+    let onRetryFailedChunks: @MainActor (String) async throws -> Void
     let askStore: CloudLibraryStore
 
     var body: some View {
@@ -191,6 +195,13 @@ struct CloudRecordingDetail: View {
                     .transaction { transaction in
                         transaction.animation = nil
                     }
+            }
+
+            if let chunkProgress = latestJob?.chunkProgress, chunkProgress.total > 0,
+               let chunkJobStatus = latestJob?.status {
+                chunkProgressTopStrip(chunkProgress, jobStatus: chunkJobStatus)
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 10)
             }
 
             Divider().overlay(Palette.borderHairline)
@@ -2556,6 +2567,213 @@ struct CloudRecordingDetail: View {
         }
     }
 
+    // MARK: - Smart-chunk transcription progress
+
+    /// Format a chunk boundary (ms) as a friendly timecode for the failed-part
+    /// list, e.g. "9:55" or "1:09:55".
+    private static func chunkTimecode(_ ms: Int) -> String {
+        let totalSeconds = max(0, ms) / 1000
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    /// A simple duration-based progress bar (0–100). Smart chunking is an
+    /// implementation detail, so the UI never exposes the internal part
+    /// count or per-part dots — just overall progress.
+    private func chunkProgressBar(_ progress: TranscriptionJobChunkProgress, height: CGFloat) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.dtLabel.opacity(0.10))
+                Capsule()
+                    .fill(Palette.appAccent)
+                    .frame(width: geo.size.width * min(1, max(0, progress.percent / 100)))
+            }
+        }
+        .frame(height: height)
+    }
+
+    /// Top-of-detail chunk strip. Deliberately minimal here so a re-transcribe
+    /// doesn't shove the existing transcript down with a big panel:
+    /// - failed parts → the actionable incomplete + retry panel (always shown);
+    /// - re-transcribe in progress (content already on screen) → a slim inline
+    ///   label, not a full panel;
+    /// - a new transcription with nothing to show yet renders its progress
+    ///   centered in the empty state instead (`transcriptGenerationEmptyState`);
+    /// - a succeeded job shows nothing (the transcript/summary is already here).
+    @ViewBuilder
+    private func chunkProgressTopStrip(
+        _ progress: TranscriptionJobChunkProgress,
+        jobStatus: RemoteJobStatus
+    ) -> some View {
+        if jobStatus == .failed && !progress.failedChunks.isEmpty {
+            chunkIncompletePanel(progress)
+        } else if (jobStatus == .queued || jobStatus == .running) && hasActualDetailContent {
+            chunkProgressInlineLabel(progress)
+        }
+    }
+
+    /// Slim, single-line progress used while re-transcribing a recording that
+    /// already shows content — folds the progress into a label rather than a
+    /// full card.
+    private func chunkProgressInlineLabel(_ progress: TranscriptionJobChunkProgress) -> some View {
+        HStack(spacing: 7) {
+            ProgressView()
+                .controlSize(.small)
+                .scaleEffect(0.55)
+                .tint(Palette.appAccent)
+            Text("Transcribing…")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Palette.appAccent)
+            chunkProgressBar(progress, height: 3)
+                .frame(width: 120)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Palette.appAccent.opacity(0.05))
+        )
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.chunkProgressPanel)
+    }
+
+    private func chunkInProgressPanel(_ progress: TranscriptionJobChunkProgress) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.6)
+                    .tint(Palette.appAccent)
+                Text("Transcribing…")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Palette.appAccent)
+                Spacer(minLength: 0)
+            }
+            chunkProgressBar(progress, height: 6)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Palette.appAccent.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Palette.appAccent.opacity(0.20), lineWidth: 1)
+        )
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.chunkProgressPanel)
+    }
+
+    private func chunkIncompletePanel(_ progress: TranscriptionJobChunkProgress) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(DT.systemOrange)
+                Text("Transcription incomplete")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(DT.systemOrange)
+            }
+            Text("Some of the recording couldn't be transcribed.")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.dtLabelSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(progress.failedChunks) { chunk in
+                    // Time range is meaningful to a user ("which bit of the
+                    // audio"); the internal part index is not, so it's omitted.
+                    (Text("\(Self.chunkTimecode(chunk.startMs))–\(Self.chunkTimecode(chunk.endMs))")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color.dtLabel)
+                     + Text(" — \(chunk.message)")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color.dtLabelSecondary))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            if progress.hasRetryableFailures {
+                chunkRetryControls()
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(DT.systemOrange.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(DT.systemOrange.opacity(0.28), lineWidth: 1)
+        )
+        .accessibilityIdentifier(AccessibilityIDs.Cloud.chunkProgressPanel)
+    }
+
+    @ViewBuilder
+    private func chunkRetryControls() -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                retryFailedChunks()
+            } label: {
+                HStack(spacing: 5) {
+                    if isRetryingFailedChunks {
+                        ProgressView().controlSize(.small).scaleEffect(0.5)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    Text(isRetryingFailedChunks ? "Retrying…" : "Retry failed audio")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(Palette.appAccent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .overlay(Capsule().strokeBorder(Palette.appAccent.opacity(0.5), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .disabled(isRetryingFailedChunks)
+
+            if chunkRetryConflict {
+                Text("Already retrying… this can take a moment.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.dtLabelSecondary)
+            }
+            if let chunkRetryErrorMessage {
+                Text(chunkRetryErrorMessage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(DT.systemOrange)
+            }
+        }
+    }
+
+    private func retryFailedChunks() {
+        guard let jobID = latestJob?.id, !isRetryingFailedChunks else { return }
+        isRetryingFailedChunks = true
+        chunkRetryConflict = false
+        chunkRetryErrorMessage = nil
+        Task {
+            defer { isRetryingFailedChunks = false }
+            do {
+                try await onRetryFailedChunks(jobID)
+            } catch let error as RecappiAPIError {
+                if case .http(let statusCode, _) = error, statusCode == 409 {
+                    // A retry/run is already in flight — soft hint, not an error.
+                    chunkRetryConflict = true
+                } else {
+                    chunkRetryErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
+                }
+            } catch {
+                chunkRetryErrorMessage = NetworkErrorPresenter.userFacingMessage(for: error)
+            }
+        }
+    }
+
     @ViewBuilder
     private var terminalJobStrip: some View {
         if let latestJob {
@@ -3177,7 +3395,15 @@ struct CloudRecordingDetail: View {
                     .frame(maxWidth: 440)
             }
 
-            if shouldShowProcessingRail {
+            if let chunkProgress = latestJob?.chunkProgress, chunkProgress.total > 0,
+               latestJob?.status == .queued || latestJob?.status == .running {
+                // A new transcription with nothing else to show yet: surface the
+                // real per-part progress front-and-center instead of the generic
+                // indeterminate rail.
+                chunkInProgressPanel(chunkProgress)
+                    .frame(maxWidth: 440)
+                    .padding(.top, 4)
+            } else if shouldShowProcessingRail {
                 processingProgressRail
                     .padding(.top, 2)
             }

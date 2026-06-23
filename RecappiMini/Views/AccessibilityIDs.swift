@@ -153,6 +153,7 @@ enum AccessibilityIDs {
         static let jumpToTimelineButton = "recappi.cloud.jumpToTimelineButton"
         static let jumpToTranscriptButton = "recappi.cloud.jumpToTranscriptButton"
         static let latestJobStatus = "recappi.cloud.latestJobStatus"
+        static let chunkProgressPanel = "recappi.cloud.chunkProgressPanel"
         static let processingStatus = "recappi.cloud.processingStatus"
         static let newerVersionBanner = "recappi.cloud.newerVersionBanner"
         static let newerVersionRefreshButton = "recappi.cloud.newerVersionRefreshButton"

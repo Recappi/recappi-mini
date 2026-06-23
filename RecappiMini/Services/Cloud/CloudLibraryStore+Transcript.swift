@@ -39,6 +39,80 @@ extension CloudLibraryStore {
         setJobHistoryLoading(false, for: recording.id)
     }
 
+    /// Retry the failed parts of a smart-chunk job. On success, merges the
+    /// fresh status + progress into the job row — flipping it back to an active
+    /// status, which changes `selectedActiveJobPollingKey` and so restarts the
+    /// active-job polling automatically. Re-throws so the detail panel can show
+    /// a soft "already retrying" hint on a 409 or an error otherwise.
+    func retryFailedChunks(recordingID: String, jobID: String) async throws {
+        let result = try await runAuthorized { client in
+            try await client.retryFailedChunks(jobId: jobID)
+        }
+        var jobs = transcriptionJobsByRecordingID[recordingID] ?? []
+        guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
+        let job = jobs[index]
+        jobs[index] = TranscriptionJob(
+            id: job.id,
+            status: result.status,
+            transcriptId: job.transcriptId,
+            provider: job.provider,
+            model: job.model,
+            language: job.language,
+            prompt: job.prompt,
+            error: nil,
+            attempts: job.attempts,
+            enqueuedAt: job.enqueuedAt,
+            startedAt: job.startedAt,
+            finishedAt: job.finishedAt,
+            chunkProgress: result.chunkProgress
+        )
+        transcriptionJobsByRecordingID[recordingID] = jobs
+        await persistCacheSnapshot()
+    }
+
+    /// Lightweight job-list reload for the discovery poll: no loading spinner,
+    /// and only mutates `@Published` state when the job list actually changed,
+    /// so an idle poll never churns the UI. Uses the list endpoint (which
+    /// carries `chunkProgress`), so it can surface a transcription started
+    /// elsewhere (other device / backend) that the per-job poll can't see —
+    /// the per-job poll only refreshes jobs the app already knows about.
+    func refreshSelectedRecordingJobsQuietly() async {
+        guard let recording = selectedRecording, !recording.isLocalOnlyRecording else { return }
+        do {
+            let page = try await runAuthorized { client in
+                try await client.listRecordingJobs(recordingId: recording.id, limit: 50)
+            }
+            guard selectedRecordingID == recording.id else { return }
+            if transcriptionJobsByRecordingID[recording.id] != page.items {
+                transcriptionJobsByRecordingID[recording.id] = page.items
+                await persistCacheSnapshot()
+            }
+        } catch {
+            // Best-effort background discovery — never surface an error or
+            // flip the cache-warning banner for a silent poll.
+        }
+    }
+
+    /// Periodically reload the selected recording's job list so a transcription
+    /// started elsewhere is discovered and its progress panel appears without a
+    /// manual refresh. Once a discovered job is active, the polling key changes
+    /// and `pollSelectedActiveJobsUntilTerminal` takes over the 2s progress
+    /// updates; this loop just keeps watching for new jobs. Runs while the
+    /// recording stays selected (cancelled by the view's `.task(id:)`).
+    func pollSelectedRecordingJobDiscovery() async {
+        guard let recordingID = selectedRecordingID else { return }
+        while !Task.isCancelled {
+            await refreshSelectedRecordingJobsQuietly()
+            guard selectedRecordingID == recordingID else { return }
+            let hasActiveJob = (transcriptionJobsByRecordingID[recordingID] ?? [])
+                .contains { $0.status.isActive }
+            // Slow cadence while the per-job poll is already covering an active
+            // job; a touch quicker while idle so an externally-started job is
+            // picked up promptly. Single small request, scoped to one recording.
+            try? await Task.sleep(for: .seconds(hasActiveJob ? 10 : 5))
+        }
+    }
+
     func pollSelectedActiveJobsUntilTerminal() async {
         guard let recording = selectedRecording else { return }
         let activeJobs = (transcriptionJobsByRecordingID[recording.id] ?? [])

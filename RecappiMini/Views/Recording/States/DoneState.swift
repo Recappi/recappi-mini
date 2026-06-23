@@ -13,6 +13,10 @@ struct DoneState: View {
     /// (e.g. when the cloud / auto-transcribe feature flag is off). The
     /// resolver lives in RecordingPanel; this view never derives it.
     var cloudStatus: DoneCloudStatus? = nil
+    /// Side-channel smart-chunk progress. Only used to enrich the
+    /// `.transcribing` label into "Transcribing 2/4"; the coarse state truth
+    /// still comes from `cloudStatus`.
+    var chunkProgress: TranscriptionJobChunkProgress? = nil
     var onTranscribe: () -> Void = {}
     var onShow: () -> Void
     var onNew: () -> Void
@@ -41,6 +45,12 @@ struct DoneState: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .layoutPriority(1)
+
+                // While transcribing, show overall progress as a thin bar —
+                // never the internal part count, which is meaningless to users.
+                if status == .transcribing, let progress = chunkProgress, progress.total > 0 {
+                    transcribeProgressBar(percent: progress.percent)
+                }
 
                 separator
             } else {
@@ -72,6 +82,20 @@ struct DoneState: View {
         .frame(height: Metrics.actionHeight)
         .padding(.leading, 2)
         .animation(.smooth(duration: 0.28), value: cloudStatus)
+    }
+
+    /// Compact overall-progress bar for the transcribing state. Duration-based
+    /// percentage only — the pill never exposes the internal part count.
+    private func transcribeProgressBar(percent: Double) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.14))
+                Capsule()
+                    .fill(DT.statusReady)
+                    .frame(width: geo.size.width * min(1, max(0, percent / 100)))
+            }
+        }
+        .frame(width: 48, height: 3)
     }
 
     private func statusColor(_ status: DoneCloudStatus) -> Color {
