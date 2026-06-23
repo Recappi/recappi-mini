@@ -101,6 +101,73 @@ final class RecappiCloudCoreTests: XCTestCase {
         XCTAssertNil(RecappiCloudAudioInspector.cloudUploadContentType(for: URL(fileURLWithPath: "/tmp/a.txt")))
     }
 
+    func testErrorDescriptorsExposeAgentStableCodesAndRetryability() {
+        XCTAssertEqual(RecappiCloudError.invalidURL.descriptor.code, .invalidArgument)
+        XCTAssertEqual(RecappiCloudError.invalidURL.descriptor.exitCode, 2)
+        XCTAssertFalse(RecappiCloudError.invalidURL.descriptor.retryable)
+
+        let conflict = RecappiCloudError.http(statusCode: 409, message: "uploading")
+        XCTAssertEqual(conflict.descriptor.code, .uploadInProgress)
+        XCTAssertEqual(conflict.descriptor.exitCode, 5)
+        XCTAssertTrue(conflict.descriptor.retryable)
+
+        let rateLimit = RecappiCloudError.http(statusCode: 429, message: "rate limited")
+        XCTAssertEqual(rateLimit.descriptor.code, .httpError)
+        XCTAssertTrue(rateLimit.descriptor.retryable)
+
+        let missing = RecappiCloudError.fileMissing("/tmp/missing.wav")
+        XCTAssertEqual(missing.descriptor.code, .inputNotFound)
+        XCTAssertEqual(missing.descriptor.exitCode, 4)
+        XCTAssertFalse(missing.descriptor.retryable)
+    }
+
+    func testUploadBatchResultSummarizesPartialFailuresForAgents() {
+        let success = RecappiCloudUploadResult(
+            filePath: "/tmp/a.wav",
+            recordingId: "rec-a",
+            jobId: "job-a",
+            transcriptId: nil,
+            status: "queued"
+        )
+        let failure = RecappiCloudUploadFailure(
+            filePath: "/tmp/b.m4a",
+            error: RecappiCloudError.durationUnavailable("/tmp/b.m4a").descriptor
+        )
+
+        let batch = RecappiCloudUploadBatchResult(successes: [success], failures: [failure], totalCount: 2)
+
+        XCTAssertFalse(batch.isCompleteSuccess)
+        XCTAssertEqual(batch.attemptedCount, 2)
+        XCTAssertEqual(batch.exitCode, 4)
+        XCTAssertEqual(batch.partialFailureDescriptor?.code, .partialFailure)
+        XCTAssertEqual(batch.partialFailureDescriptor?.message, "1 of 2 files failed to upload.")
+    }
+
+    func testUploadEventsMapToStableOperationEvents() throws {
+        let uploading = RecappiCloudUploadEvent.uploading(filePath: "/tmp/a.wav", progress: 0.42)
+            .operationEvent()
+        XCTAssertEqual(uploading.type, .progress)
+        XCTAssertEqual(uploading.command, "upload")
+        XCTAssertEqual(uploading.status, "uploading")
+        XCTAssertEqual(uploading.percent, 42)
+
+        let result = RecappiCloudUploadResult(
+            filePath: "/tmp/a.wav",
+            recordingId: "rec-a",
+            jobId: nil,
+            transcriptId: nil,
+            status: "ready"
+        )
+        let finished = RecappiCloudUploadEvent.finished(result).operationEvent()
+        XCTAssertEqual(finished.type, .result)
+        XCTAssertEqual(finished.recordingId, "rec-a")
+        XCTAssertEqual(finished.percent, 100)
+
+        let data = try JSONEncoder().encode(finished)
+        let decoded = try JSONDecoder().decode(RecappiCloudOperationEvent.self, from: data)
+        XCTAssertEqual(decoded, finished)
+    }
+
     func testSessionLookupDecodesNullAsSignedOut() throws {
         let response = HTTPURLResponse(
             url: URL(string: "https://recordmeet.ing/api/auth/get-session")!,

@@ -170,6 +170,36 @@ public struct RecappiCloudUploader: Sendable {
         return results
     }
 
+    public func uploadPathBatch(
+        _ pathURL: URL,
+        options: RecappiCloudUploadOptions,
+        onEvent: @escaping @Sendable (RecappiCloudUploadEvent) async -> Void = { _ in }
+    ) async throws -> RecappiCloudUploadBatchResult {
+        let fileURLs = try inspector.audioFiles(in: pathURL)
+        var successes: [RecappiCloudUploadResult] = []
+        var failures: [RecappiCloudUploadFailure] = []
+
+        for fileURL in fileURLs {
+            do {
+                let result = try await uploadFile(fileURL, options: options, onEvent: onEvent)
+                successes.append(result)
+            } catch {
+                let descriptor = RecappiCloudErrorDescriptor.describe(error)
+                failures.append(RecappiCloudUploadFailure(filePath: fileURL.path, error: descriptor))
+
+                guard Self.shouldContinueAfterFailure(descriptor) else {
+                    break
+                }
+            }
+        }
+
+        return RecappiCloudUploadBatchResult(
+            successes: successes,
+            failures: failures,
+            totalCount: fileURLs.count
+        )
+    }
+
     public func uploadFile(
         _ fileURL: URL,
         options: RecappiCloudUploadOptions,
@@ -251,6 +281,15 @@ public struct RecappiCloudUploader: Sendable {
                 await client.abortRecordingIfNeeded(recordingId: created.id)
             }
             throw error
+        }
+    }
+
+    private static func shouldContinueAfterFailure(_ descriptor: RecappiCloudErrorDescriptor) -> Bool {
+        switch descriptor.code {
+        case .inputNotFound, .unsupportedType, .durationUnavailable:
+            return true
+        default:
+            return false
         }
     }
 }
