@@ -32,8 +32,11 @@ struct RecappiCLI {
                 default:
                     return (error.errorDescription ?? "Recappi Cloud request failed.", 5)
                 }
-            case .recordingNotReady, .jobFailed, .jobTimedOut, .invalidResponse, .invalidURL:
-                return (error.errorDescription ?? "Something went wrong.", 1)
+            case .invalidURL:
+                // Comes from a bad user-supplied --origin → config/usage.
+                return (error.errorDescription ?? "Invalid Recappi backend URL.", 2)
+            case .recordingNotReady, .jobFailed, .jobTimedOut, .invalidResponse:
+                return (error.errorDescription ?? "Recappi Cloud error.", 5)
             }
         }
         if let error = error as? CLIError {
@@ -204,7 +207,9 @@ struct RecappiCLI {
     private static func humanEventLine(_ event: RecappiCloudUploadEvent) -> String? {
         switch event {
         case .creatingRecording(let filePath):
-            return "Creating recording: \(URL(fileURLWithPath: filePath).lastPathComponent)"
+            // "Preparing" not "Creating": this fires before the server create
+            // request, so it must not imply the recording already exists.
+            return "Preparing recording: \(URL(fileURLWithPath: filePath).lastPathComponent)"
         case .uploading(_, let progress):
             return "Uploading… \(percentText(progress * 100))"
         case .completingUpload:
