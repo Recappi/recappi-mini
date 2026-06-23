@@ -6,11 +6,29 @@ let package = Package(
     platforms: [
         .macOS(.v26),
     ],
+    products: [
+        .executable(name: "RecappiMini", targets: ["RecappiMini"]),
+        .executable(name: "recappi", targets: ["RecappiCLI"]),
+        .library(name: "RecappiCloudCore", targets: ["RecappiCloudCore"]),
+    ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.8.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", exact: "9.13.0"),
     ],
     targets: [
+        .target(
+            name: "RecappiCloudCore",
+            dependencies: [],
+            path: "Sources/RecappiCloudCore",
+            linkerSettings: [
+                .linkedFramework("AVFoundation"),
+            ]
+        ),
+        .executableTarget(
+            name: "RecappiCLI",
+            dependencies: ["RecappiCloudCore"],
+            path: "Sources/RecappiCLI"
+        ),
         .executableTarget(
             name: "RecappiMini",
             dependencies: [
@@ -31,7 +49,7 @@ let package = Package(
         ),
         .testTarget(
             name: "RecappiMiniCoreTests",
-            dependencies: ["RecappiMini"],
+            dependencies: ["RecappiMini", "RecappiCloudCore"],
             path: "Tests/RecappiMiniCoreTests"
         ),
     ]
