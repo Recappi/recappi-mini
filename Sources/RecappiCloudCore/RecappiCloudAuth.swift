@@ -14,20 +14,20 @@ public struct RecappiCloudOriginResolver: Sendable {
         self.appPreferenceReader = appPreferenceReader
     }
 
-    public func resolve(explicitOrigin: String? = nil) -> String {
+    public func resolve(explicitOrigin: String? = nil) throws -> String {
         if let explicitOrigin, let normalized = Self.nonEmptyOrigin(explicitOrigin) {
-            return normalized
+            return try Self.validatedOrigin(normalized)
         }
 
         for key in ["RECAPPI_BACKEND_URL", "RECAPPI_API_ORIGIN"] {
             if let normalized = Self.nonEmptyOrigin(environment[key]) {
-                return normalized
+                return try Self.validatedOrigin(normalized)
             }
         }
 
         for key in ["recappi.backendOrigin", "backendBaseURL"] {
             if let normalized = Self.nonEmptyOrigin(appPreferenceReader(key)) {
-                return normalized
+                return try Self.validatedOrigin(normalized)
             }
         }
 
@@ -36,6 +36,24 @@ public struct RecappiCloudOriginResolver: Sendable {
 
     public static func normalizeOrigin(_ raw: String) -> String {
         raw.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+    }
+
+    public static func validatedOrigin(_ raw: String) throws -> String {
+        let normalized = normalizeOrigin(raw)
+        guard !normalized.isEmpty,
+              let components = URLComponents(string: normalized),
+              let scheme = components.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              components.host?.isEmpty == false,
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil,
+              components.path.isEmpty
+        else {
+            throw RecappiCloudError.invalidURL
+        }
+        return normalized
     }
 
     private static func nonEmptyOrigin(_ raw: String?) -> String? {
@@ -133,11 +151,12 @@ public struct RecappiCloudAuth: Sendable {
     }
 
     public func context(explicitOrigin: String? = nil) throws -> RecappiCloudAuthContext {
+        let origin = try originResolver.resolve(explicitOrigin: explicitOrigin)
         guard let bearerToken = credentialStore.readBearerToken() else {
             throw RecappiCloudError.notSignedIn
         }
         return RecappiCloudAuthContext(
-            origin: originResolver.resolve(explicitOrigin: explicitOrigin),
+            origin: origin,
             bearerToken: bearerToken
         )
     }

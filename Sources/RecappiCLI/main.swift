@@ -99,7 +99,7 @@ struct RecappiCLI {
             }
             return 0
         } catch let error as RecappiCloudError where error == .notSignedIn || error == .unauthorized {
-            let resolvedOrigin = RecappiCloudOriginResolver().resolve(explicitOrigin: origin)
+            let resolvedOrigin = try RecappiCloudOriginResolver().resolve(explicitOrigin: origin)
             if json {
                 try printJSON(AuthStatusOutput(loggedIn: false, origin: resolvedOrigin, email: nil, userId: nil))
             } else {

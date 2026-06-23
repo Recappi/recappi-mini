@@ -2,7 +2,7 @@ import XCTest
 @testable import RecappiCloudCore
 
 final class RecappiCloudCoreTests: XCTestCase {
-    func testOriginResolverPrefersExplicitThenEnvironmentThenAppPreferencesThenDefault() {
+    func testOriginResolverPrefersExplicitThenEnvironmentThenAppPreferencesThenDefault() throws {
         let preferenceValues = [
             "recappi.backendOrigin": "https://app.example.com/",
             "backendBaseURL": "https://settings.example.com/",
@@ -12,14 +12,42 @@ final class RecappiCloudCoreTests: XCTestCase {
             appPreferenceReader: { preferenceValues[$0] }
         )
 
-        XCTAssertEqual(resolver.resolve(explicitOrigin: "https://explicit.example.com/"), "https://explicit.example.com")
-        XCTAssertEqual(resolver.resolve(), "https://env.example.com")
+        XCTAssertEqual(try resolver.resolve(explicitOrigin: "https://explicit.example.com/"), "https://explicit.example.com")
+        XCTAssertEqual(try resolver.resolve(), "https://env.example.com")
 
         let appResolver = RecappiCloudOriginResolver(environment: [:]) { preferenceValues[$0] }
-        XCTAssertEqual(appResolver.resolve(), "https://app.example.com")
+        XCTAssertEqual(try appResolver.resolve(), "https://app.example.com")
 
         let defaultResolver = RecappiCloudOriginResolver(environment: [:]) { _ in nil }
-        XCTAssertEqual(defaultResolver.resolve(), "https://recordmeet.ing")
+        XCTAssertEqual(try defaultResolver.resolve(), "https://recordmeet.ing")
+    }
+
+    func testOriginResolverRejectsMalformedOrigins() {
+        let resolver = RecappiCloudOriginResolver(environment: [:]) { _ in nil }
+
+        XCTAssertThrowsError(try resolver.resolve(explicitOrigin: "not a url")) { error in
+            XCTAssertEqual(error as? RecappiCloudError, .invalidURL)
+        }
+        XCTAssertThrowsError(try resolver.resolve(explicitOrigin: "ftp://recordmeet.ing")) { error in
+            XCTAssertEqual(error as? RecappiCloudError, .invalidURL)
+        }
+        XCTAssertThrowsError(try resolver.resolve(explicitOrigin: "https://recordmeet.ing/api")) { error in
+            XCTAssertEqual(error as? RecappiCloudError, .invalidURL)
+        }
+    }
+
+    func testAuthContextValidatesOriginBeforeReadingToken() {
+        let auth = RecappiCloudAuth(
+            credentialStore: RecappiCloudCredentialStore(
+                environment: [:],
+                keychainReader: { XCTFail("Invalid origin should fail before credential lookup"); return "token" },
+                developmentReader: { nil }
+            )
+        )
+
+        XCTAssertThrowsError(try auth.context(explicitOrigin: "not a url")) { error in
+            XCTAssertEqual(error as? RecappiCloudError, .invalidURL)
+        }
     }
 
     func testBearerTokenNormalizationAcceptsBearerAndSetAuthTokenPrefixes() {
