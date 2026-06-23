@@ -65,7 +65,7 @@ struct RecappiCLI {
         guard subcommand == "status" else {
             throw CLIError.unknownCommand("auth \(subcommand)")
         }
-        let fields = try parseFields(parser.popOption("--fields"), allowed: ["loggedIn", "origin", "email", "userId"])
+        let fields = try parseFields(parser.popOptionStrict("--fields"), allowed: ["loggedIn", "origin", "email", "userId"])
         let compact = parser.popFlag("--compact")
         parser.dropModeFlags()
         let origin = parser.popOption("--origin")
@@ -109,7 +109,7 @@ struct RecappiCLI {
 
     private static func runUpload(arguments: [String], mode: OutputMode) async throws -> Int32 {
         var parser = ArgumentScanner(arguments)
-        let fields = try parseFields(parser.popOption("--fields"), allowed: ["filePath", "recordingId", "jobId", "transcriptId", "status"])
+        let fields = try parseFields(parser.popOptionStrict("--fields"), allowed: ["filePath", "recordingId", "jobId", "transcriptId", "status"])
         let compact = parser.popFlag("--compact")
         parser.dropModeFlags()
         let transcribe = parser.popFlag("--transcribe")
@@ -195,7 +195,7 @@ struct RecappiCLI {
         guard subcommand == "wait" else {
             throw CLIError.unknownCommand("jobs \(subcommand ?? "")")
         }
-        let fields = try parseFields(parser.popOption("--fields"), allowed: ["jobId", "status", "transcriptId", "percent"])
+        let fields = try parseFields(parser.popOptionStrict("--fields"), allowed: ["jobId", "status", "transcriptId", "percent"])
         let compact = parser.popFlag("--compact")
         parser.dropModeFlags()
         let origin = parser.popOption("--origin")
@@ -389,6 +389,11 @@ struct RecappiCLI {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+        // `--fields ""` / `--fields ,,` parse to nothing — treat as missing
+        // value, not "filter to no keys".
+        guard !requested.isEmpty else {
+            throw CLIError.missingOptionValue("--fields")
+        }
         let unknown = requested.filter { !allowed.contains($0) }
         guard unknown.isEmpty else {
             throw CLIError.unknownFields(unknown: unknown, allowed: allowed.sorted())
@@ -590,6 +595,20 @@ private struct ArgumentScanner {
         return arguments.remove(at: index)
     }
 
+    /// Like `popOption`, but a present flag with no following value (end of
+    /// args, or next token is another flag) is a usage error rather than a
+    /// silent no-op — an agent must not mistake "missing value" for "no filter".
+    mutating func popOptionStrict(_ name: String) throws -> String? {
+        guard let index = arguments.firstIndex(of: name) else {
+            return nil
+        }
+        arguments.remove(at: index)
+        guard index < arguments.count, !arguments[index].hasPrefix("--") else {
+            throw CLIError.missingOptionValue(name)
+        }
+        return arguments.remove(at: index)
+    }
+
     /// Output-mode flags are consumed up front by `OutputMode.resolve`; drop
     /// them here so `rejectRemaining()` doesn't treat them as unexpected.
     mutating func dropModeFlags() {
@@ -612,6 +631,7 @@ private enum CLIError: LocalizedError {
     case missingJobId
     case unexpectedArguments([String])
     case unknownFields(unknown: [String], allowed: [String])
+    case missingOptionValue(String)
 
     var errorDescription: String? {
         switch self {
@@ -627,6 +647,8 @@ private enum CLIError: LocalizedError {
             return "Unexpected arguments: \(arguments.joined(separator: " "))"
         case .unknownFields(let unknown, _):
             return "Unknown --fields: \(unknown.joined(separator: ", "))"
+        case .missingOptionValue(let name):
+            return "Missing value for \(name)."
         }
     }
 
@@ -636,6 +658,10 @@ private enum CLIError: LocalizedError {
             return "Run recappi --help for available commands."
         case .unknownFields(_, let allowed):
             return "Allowed fields: \(allowed.joined(separator: ", "))"
+        case .missingOptionValue(let name):
+            return name == "--fields"
+                ? "Pass comma-separated fields, for example --fields userId,email."
+                : nil
         case .missingPath, .missingJobId, .unexpectedArguments:
             return nil
         }
