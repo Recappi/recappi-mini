@@ -161,6 +161,23 @@ final class SessionProcessor {
         )
     }
 
+    nonisolated static func localRecordingResult(
+        sessionDir: URL,
+        duration: Int
+    ) throws -> RecordingResult {
+        let manifest = RecordingStore.loadRemoteManifest(in: sessionDir)
+        guard let audioURL = primaryAudioFileURL(in: sessionDir, manifest: manifest) else {
+            throw SessionProcessorError.recordingAudioMissing
+        }
+
+        try validatePrimaryRecordingForUpload(audioURL)
+        return RecordingResult(
+            folderURL: sessionDir,
+            transcript: RecordingStore.loadTranscript(in: sessionDir),
+            duration: duration
+        )
+    }
+
     nonisolated static func localFailedRecordingPlaceholder(
         sessionDir: URL,
         duration: Int,

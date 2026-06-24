@@ -255,6 +255,35 @@ struct RecordingPanel: View {
             recorder.reset()
         }
 
+        guard config.cloudEnabled else {
+            do {
+                let result = try SessionProcessor.localRecordingResult(
+                    sessionDir: sessionDir,
+                    duration: duration
+                )
+                if let placeholder = SessionProcessor.localRecordingPlaceholder(
+                    sessionDir: sessionDir,
+                    duration: duration,
+                    status: .ready
+                ) {
+                    onCloudRecordingUpdated(placeholder, nil)
+                }
+                DiagnosticsLog.event(
+                    "recording-panel",
+                    "process_session.saved_locally dir=\(sessionDir.lastPathComponent) cloudEnabled=false"
+                )
+                finishProcessing(result, sessionID: sessionID)
+            } catch {
+                handleProcessingFailure(
+                    error,
+                    sessionDir: sessionDir,
+                    duration: duration,
+                    sessionID: sessionID
+                )
+            }
+            return
+        }
+
         if let placeholder = SessionProcessor.localRecordingPlaceholder(
             sessionDir: sessionDir,
             duration: duration,
@@ -278,42 +307,60 @@ struct RecordingPanel: View {
                 },
                 onCloudRecordingDeleted: onCloudRecordingDeleted
             )
-            if visibleProcessingSessionID == sessionID {
-                recorder.state = .done(result: result)
-                visibleProcessingSessionID = nil
-                if config.recordingAutoTranscribeAfterUpload {
-                    transcribeAndShow(result: result)
-                }
-            } else {
-                postBackgroundProcessingNotification(for: result)
-            }
+            finishProcessing(result, sessionID: sessionID)
         } catch {
-            DiagnosticsLog.error(
-                "recording-panel",
-                "process_session.failed visible=\(visibleProcessingSessionID == sessionID) \(DiagnosticsLog.errorSummary(error))"
-            )
-            if let placeholder = SessionProcessor.localFailedRecordingPlaceholder(
+            handleProcessingFailure(
+                error,
                 sessionDir: sessionDir,
                 duration: duration,
-                error: error
-            ) {
-                let message = NetworkErrorPresenter.userFacingMessage(for: error)
-                let job = TranscriptionJob.failedRecordingPlaceholder(
-                    recordingID: placeholder.id,
-                    error: message
-                )
-                rememberLatestJobStatus(recording: placeholder, job: job)
-                onCloudRecordingUpdated(
-                    placeholder,
-                    job
-                )
+                sessionID: sessionID
+            )
+        }
+    }
+
+    private func finishProcessing(_ result: RecordingResult, sessionID: UUID) {
+        if visibleProcessingSessionID == sessionID {
+            recorder.state = .done(result: result)
+            visibleProcessingSessionID = nil
+            if config.cloudEnabled && config.recordingAutoTranscribeAfterUpload {
+                transcribeAndShow(result: result)
             }
-            if visibleProcessingSessionID == sessionID {
-                recorder.state = .error(message: NetworkErrorPresenter.userFacingMessage(for: error))
-                visibleProcessingSessionID = nil
-            } else {
-                postBackgroundProcessingFailureNotification(message: NetworkErrorPresenter.userFacingMessage(for: error))
-            }
+        } else {
+            postBackgroundProcessingNotification(for: result)
+        }
+    }
+
+    private func handleProcessingFailure(
+        _ error: Error,
+        sessionDir: URL,
+        duration: Int,
+        sessionID: UUID
+    ) {
+        DiagnosticsLog.error(
+            "recording-panel",
+            "process_session.failed visible=\(visibleProcessingSessionID == sessionID) \(DiagnosticsLog.errorSummary(error))"
+        )
+        if let placeholder = SessionProcessor.localFailedRecordingPlaceholder(
+            sessionDir: sessionDir,
+            duration: duration,
+            error: error
+        ) {
+            let message = NetworkErrorPresenter.userFacingMessage(for: error)
+            let job = TranscriptionJob.failedRecordingPlaceholder(
+                recordingID: placeholder.id,
+                error: message
+            )
+            rememberLatestJobStatus(recording: placeholder, job: job)
+            onCloudRecordingUpdated(
+                placeholder,
+                job
+            )
+        }
+        if visibleProcessingSessionID == sessionID {
+            recorder.state = .error(message: NetworkErrorPresenter.userFacingMessage(for: error))
+            visibleProcessingSessionID = nil
+        } else {
+            postBackgroundProcessingFailureNotification(message: NetworkErrorPresenter.userFacingMessage(for: error))
         }
     }
 

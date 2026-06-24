@@ -2431,6 +2431,24 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(recording.sizeBytes, 256)
     }
 
+    func testLocalRecordingResultKeepsCloudDisabledSessionsDone() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let session = temp.appendingPathComponent("2026-06-24_092215", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        try Data(repeating: 4, count: 512).write(to: RecordingStore.audioFileURL(in: session))
+
+        let result = try SessionProcessor.localRecordingResult(
+            sessionDir: session,
+            duration: 2_020
+        )
+
+        XCTAssertEqual(result.folderURL.standardizedFileURL, session.standardizedFileURL)
+        XCTAssertNil(result.transcript)
+        XCTAssertEqual(result.duration, 2_020)
+    }
+
     func testLocalRecordingPlaceholderUsesSessionTimestampWhenMetadataIsMissing() throws {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let session = temp.appendingPathComponent("2026-04-16_113023", isDirectory: true)
