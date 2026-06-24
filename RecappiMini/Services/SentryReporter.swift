@@ -502,6 +502,9 @@ private struct DiagnosticTelemetry {
         if isExpectedCloudSignInRequired {
             return false
         }
+        if isExpectedCloudDisabled {
+            return false
+        }
         if isExpectedRealtimeClaimRateLimit {
             return false
         }
@@ -568,6 +571,22 @@ private struct DiagnosticTelemetry {
     private var isExpectedCloudSignInRequired: Bool {
         guard fields["domain"] == "RecappiMini.RecappiSessionError",
               fields["code"] == "3" else {
+            return false
+        }
+
+        switch (category, operation) {
+        case ("processing", "process.failed"),
+             ("recording-panel", "process_session.failed"):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var isExpectedCloudDisabled: Bool {
+        guard fields["domain"] == "RecappiMini.SessionProcessorError",
+              fields["code"] == "2",
+              safeMessage.localizedCaseInsensitiveContains("Cloud is disabled in Settings") else {
             return false
         }
 
