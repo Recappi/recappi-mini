@@ -23,6 +23,7 @@ import { RecordingDetailView, type AudioAction, type DetailTranscript } from "./
 import { TranscriptView } from "./TranscriptView";
 import { LiveCaptionsScreen, type LiveCaptionEventSource } from "./LiveCaptionsScreen";
 import { PermissionPreflightView, type PermissionItem } from "./PermissionPreflightView";
+import { RecordingScreen } from "./RecordingScreen";
 import { resolveJobLinks, resolveRecordingLinks, listWindow, groupedListWindow, dateBucket } from "./format";
 import { useTerminalSize } from "./terminal";
 
@@ -53,6 +54,7 @@ export interface AppShellProps {
 }
 
 export interface DashboardLiveRecordSession {
+  mode?: "local" | "live_captions";
   source: LiveCaptionEventSource;
   stop: () => Promise<void>;
 }
@@ -567,14 +569,16 @@ export function AppShell({
     );
   }
   if (screen.kind === "record") {
-    if (liveRecord?.kind === "live") {
+    if (liveRecord?.kind === "live" && liveRecord.session.mode === "live_captions") {
       return <LiveCaptionsScreen source={liveRecord.session.source} now={now} />;
     }
     return (
       <Box flexDirection="column" height={size.rows} paddingX={1}>
         <Header active="record" />
         <Box flexGrow={1} flexDirection="column" paddingX={1} paddingTop={1}>
-          {liveRecord?.kind === "error" ? (
+          {liveRecord?.kind === "live" ? (
+            <RecordingScreen source={liveRecord.session.source} now={now} />
+          ) : liveRecord?.kind === "error" ? (
             (() => {
               if (liveRecord.code === "record.permission_required") {
                 return <PermissionPreflightView items={permissionItemsFromRecordError(liveRecord.data)} />;

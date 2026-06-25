@@ -62,6 +62,7 @@ export interface RecordLiveRenderer {
 }
 
 export interface LiveRecordSession {
+  mode?: "local" | "live_captions";
   source: LiveCaptionEventSource;
   stop: () => Promise<void>;
 }
@@ -113,6 +114,7 @@ export async function startLiveRecordSession(
 ): Promise<LiveRecordSession> {
   const session = await startRecordSession({ ...opts, live: false });
   return {
+    mode: "local",
     source: session.source,
     stop: async () => {
       await session.stop();

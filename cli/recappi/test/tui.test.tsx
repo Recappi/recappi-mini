@@ -19,6 +19,7 @@ import { TranscriptView } from "../src/tui/TranscriptView";
 import { LiveCaptionsView } from "../src/tui/LiveCaptionsView";
 import { PermissionPreflightView } from "../src/tui/PermissionPreflightView";
 import { LiveCaptionsScreen } from "../src/tui/LiveCaptionsScreen";
+import { RecordingScreen } from "../src/tui/RecordingScreen";
 import {
   liveCaptionReducer,
   initialLiveCaptionsState,
@@ -480,6 +481,27 @@ describe("views render", () => {
     expect(frame).toContain("LIVE");
     expect(frame).toContain("live words here");
   });
+  it("RecordingScreen shows local recording status, not captions waiting copy", async () => {
+    let emit: (e: unknown) => void = () => {};
+    const source = {
+      onEvent(listener: (e: unknown) => void) {
+        emit = listener;
+        return () => {};
+      },
+    };
+    const { lastFrame } = render(<RecordingScreen source={source as never} now={() => 0} />);
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Starting recording");
+    emit({ type: "recording.state", sessionId: "s", state: "recording" });
+    await flush();
+    const frame = noAnsi(lastFrame());
+    expect(frame).toContain("Recording");
+    expect(frame).toContain("q to stop");
+    expect(frame).not.toContain("Waiting for captions");
+    emit({ type: "recording.state", sessionId: "s", state: "completed" });
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("saved");
+  });
   it("LiveCaptionsView shows a waiting state before any captions", () => {
     const { lastFrame } = render(<LiveCaptionsView state={initialLiveCaptionsState()} nowMs={0} />);
     expect(noAnsi(lastFrame())).toContain("Waiting for captions…");
@@ -729,7 +751,7 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
-  it("starts and stops a live record session from key 4", async () => {
+  it("starts and stops a local record session from key 4", async () => {
     const stop = vi.fn().mockResolvedValue(undefined);
     const startLiveRecord = vi.fn().mockResolvedValue({
       source: { onEvent: () => () => {} },
@@ -741,7 +763,9 @@ describe("AppShell (interactive)", () => {
     await flush();
     await waitFor(() => {
       expect(startLiveRecord).toHaveBeenCalledTimes(1);
-      expect(noAnsi(lastFrame())).toContain("Waiting for captions");
+      const frame = noAnsi(lastFrame());
+      expect(frame).toContain("Starting recording");
+      expect(frame).not.toContain("Waiting for captions");
     });
     stdin.write("q");
     await flush();

@@ -36,6 +36,7 @@ export interface RunDashboardDeps {
 }
 
 export interface DashboardLiveRecordSession {
+  mode?: "local" | "live_captions";
   source: LiveCaptionEventSource;
   stop: () => Promise<void>;
 }
