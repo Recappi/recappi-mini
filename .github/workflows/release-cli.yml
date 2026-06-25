@@ -119,22 +119,27 @@ jobs:
       - name: Refresh publish lockfile metadata
         run: pnpm install --lockfile-only --no-frozen-lockfile --ignore-scripts
 
-      - run: pnpm --filter recappi build:helper
+      - run: pnpm run build:helper
+        working-directory: cli/recappi
         env:
           CODESIGN_IDENTITY: ${{ env.DEVELOPER_ID_IDENTITY }}
           RELEASE: "1"
 
-      - run: pnpm --filter recappi-helper-darwin-arm64 pack:check
+      - run: pnpm run pack:check
+        working-directory: cli/helpers/darwin-arm64
 
-      - run: pnpm --filter recappi pack:check
+      - run: pnpm run pack:check
+        working-directory: cli/recappi
 
       - name: Publish Darwin arm64 helper
-        run: pnpm --filter recappi-helper-darwin-arm64 publish --access public --no-git-checks --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
+        run: pnpm publish --access public --no-git-checks --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
+        working-directory: cli/helpers/darwin-arm64
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish recappi
-        run: pnpm --filter recappi publish --access public --no-git-checks --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
+        run: pnpm publish --access public --no-git-checks --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
+        working-directory: cli/recappi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
