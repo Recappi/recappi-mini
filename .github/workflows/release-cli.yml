@@ -38,6 +38,58 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
 
+      - name: Prepare helper signing keychain
+        shell: bash
+        env:
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          CERTIFICATE_P12="${RUNNER_TEMP}/macos_signing_certificate.p12"
+          KEYCHAIN_PATH="${RUNNER_TEMP}/recappi-cli-release.keychain-db"
+          export CERTIFICATE_P12 KEYCHAIN_PATH
+          {
+            echo "CERTIFICATE_P12=$CERTIFICATE_P12"
+            echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
+          } >> "$GITHUB_ENV"
+
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          Path(os.environ["CERTIFICATE_P12"]).write_bytes(
+              base64.b64decode(os.environ["MACOS_CERTIFICATE_P12_BASE64"])
+          )
+          PY
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_P12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -f pkcs12 \
+            -t cert
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          DEVELOPER_ID_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
+          if [[ -z "$DEVELOPER_ID_IDENTITY" ]]; then
+            echo "Failed to locate a Developer ID Application identity in the temporary keychain." >&2
+            exit 1
+          fi
+
+          echo "DEVELOPER_ID_IDENTITY=$DEVELOPER_ID_IDENTITY" >> "$GITHUB_ENV"
+
       - uses: pnpm/action-setup@v5
 
       - uses: actions/setup-node@v6
@@ -59,6 +111,9 @@ jobs:
       - run: pnpm --filter recappi check
 
       - run: pnpm --filter recappi build:helper
+        env:
+          CODESIGN_IDENTITY: ${{ env.DEVELOPER_ID_IDENTITY }}
+          RELEASE: "1"
 
       - run: pnpm --filter recappi pack:check
 
@@ -66,3 +121,12 @@ jobs:
         run: pnpm --filter recappi publish --access public --no-git-checks --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Clean up signing keychain
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${KEYCHAIN_PATH:-}" && -f "$KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
