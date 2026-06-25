@@ -291,6 +291,10 @@ extension CloudLibraryStore {
 
         var manifest = RemoteSessionManifest.stage("imported")
         manifest.uploadFilename = destination.lastPathComponent
+        if let account = cacheContext() {
+            manifest.accountUserId = account.userId
+            manifest.accountBackendOrigin = account.backendOrigin
+        }
         RecordingStore.saveRemoteManifest(manifest, in: sessionURL)
 
         return (sessionURL, try await importedAudioDurationSeconds(for: destination))

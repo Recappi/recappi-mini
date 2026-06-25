@@ -832,6 +832,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
             let sessionDir = try RecordingStore.createSessionDirectory()
             RecordingStore.saveSessionMetadata(metadata, in: sessionDir)
+            RecordingStore.stampAccount(AuthSessionStore.currentLocalSessionAccount(), in: sessionDir)
             self.sessionDir = sessionDir
             hasIncludedMicrophoneAudioInCurrentRecording = includesMicrophoneAudio
             DiagnosticsLog.event("recording", "session.created dir=\(sessionDir.lastPathComponent)")
@@ -2070,6 +2071,7 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         let sessionDir = try RecordingStore.createSessionDirectory()
         RecordingStore.saveSessionMetadata(metadata, in: sessionDir)
+        RecordingStore.stampAccount(AuthSessionStore.currentLocalSessionAccount(), in: sessionDir)
         self.sessionDir = sessionDir
         self.lastSessionDir = nil
         self.audioLevel = 0

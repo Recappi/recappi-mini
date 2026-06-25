@@ -18,6 +18,8 @@ struct CloudCenterPanel: View {
     @EnvironmentObject var appDelegate: AppDelegate
     @EnvironmentObject var config: AppConfig
     @State var showingDeleteConfirmation = false
+    @State var isClaimingLocalSessions = false
+    @State var claimLocalSessionsError: String?
     @State var pendingListScrollTargetID: String?
     @State var pendingProcessingAction: CloudRecordingProcessingAction?
     @State var pendingProcessingHasExistingTranscript = false

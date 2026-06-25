@@ -11,6 +11,8 @@ extension CloudCenterPanel {
                 .padding(.top, 8)
                 .padding(.bottom, 6)
 
+            claimLocalSessionsBanner
+
             ScrollViewReader { proxy in
                 List(selection: selectionBinding) {
                     ForEach(recordingDateSections) { section in
@@ -60,6 +62,73 @@ extension CloudCenterPanel {
         // sidebar from collapsing in Canvas.
         .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 400)
         .frame(minWidth: 230)
+    }
+
+    // Slim banner offering to claim local-only recordings that have no account
+    // stamp (legacy or recorded signed-out) to the current account (#249). Only
+    // shown when signed in and such sessions exist; claiming never reassigns
+    // sessions already owned by another account.
+    @ViewBuilder
+    var claimLocalSessionsBanner: some View {
+        if sessionStore.currentSession != nil, store.unattributedLocalSessionCount > 0 {
+            let count = store.unattributedLocalSessionCount
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                    .fill(DT.systemBlue.opacity(0.92))
+                    .frame(width: 2, height: 30)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Found \(count) unlinked local recording\(count == 1 ? "" : "s") on this Mac.")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.dtLabel)
+                        .lineLimit(2)
+                    if let claimLocalSessionsError {
+                        Text(claimLocalSessionsError)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(DT.systemRed)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    claimLocalSessions()
+                } label: {
+                    if isClaimingLocalSessions {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Claim to this account")
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(DT.systemBlue)
+                .disabled(isClaimingLocalSessions)
+                .accessibilityIdentifier(AccessibilityIDs.Cloud.claimLocalSessionsButton)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassEffect(in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .padding(.horizontal, 10)
+            .padding(.bottom, 6)
+            .accessibilityIdentifier(AccessibilityIDs.Cloud.claimLocalSessionsBanner)
+        }
+    }
+
+    func claimLocalSessions() {
+        guard !isClaimingLocalSessions else { return }
+        isClaimingLocalSessions = true
+        claimLocalSessionsError = nil
+        Task {
+            let claimed = await store.claimAllUnattributedLocalSessions()
+            isClaimingLocalSessions = false
+            if claimed == 0 && store.unattributedLocalSessionCount > 0 {
+                claimLocalSessionsError = "Couldn't claim recordings. Please try again."
+            }
+        }
     }
 
     @ViewBuilder

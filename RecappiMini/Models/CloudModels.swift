@@ -184,6 +184,13 @@ struct RemoteSessionManifest: Codable, Equatable {
     var provider: String?
     var model: String?
     var updatedAt: String
+    // Account boundary for local recording sessions. Optional so legacy manifests
+    // (written before account-scoping) decode as nil = "unattributed". The origin
+    // matches CloudLibraryStore.cacheContext() (normalized effective backend URL),
+    // NOT UserSession.backendOrigin, so local sessions partition identically to the
+    // cloud cache.
+    var accountUserId: String? = nil
+    var accountBackendOrigin: String? = nil
 
     static func stage(_ stage: String) -> RemoteSessionManifest {
         RemoteSessionManifest(
@@ -204,6 +211,39 @@ struct RemoteSessionManifest: Codable, Equatable {
             return false
         }
         return !transcriptId.isEmpty
+    }
+
+    /// The account partition this session is stamped with, or nil when it is
+    /// unattributed. Both fields must be present and non-empty together; a partial
+    /// stamp is treated as unattributed (and the scanner logs a diagnostic), per
+    /// the storage contract guardrail.
+    var attributedAccount: (userId: String, backendOrigin: String)? {
+        guard let userId = accountUserId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let origin = accountBackendOrigin?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !userId.isEmpty, !origin.isEmpty else {
+            return nil
+        }
+        return (userId, origin)
+    }
+
+    /// True when this session carries no usable account stamp (legacy, signed-out,
+    /// or partial). Hidden from every account's view until explicitly claimed.
+    var isAccountUnattributed: Bool { attributedAccount == nil }
+
+    /// True only when exactly one of the account fields is set — an inconsistent
+    /// stamp that we surface as a diagnostic rather than trusting.
+    var hasPartialAccountStamp: Bool {
+        let hasUser = !(accountUserId?.isEmpty ?? true)
+        let hasOrigin = !(accountBackendOrigin?.isEmpty ?? true)
+        return hasUser != hasOrigin
+    }
+
+    /// Whether this session belongs to the given account partition. Unattributed
+    /// or partially-stamped sessions never match, so they cannot leak across
+    /// accounts.
+    func belongsToAccount(userId: String, backendOrigin: String) -> Bool {
+        guard let account = attributedAccount else { return false }
+        return account.userId == userId && account.backendOrigin == backendOrigin
     }
 }
 

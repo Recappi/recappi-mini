@@ -2348,7 +2348,9 @@ final class RecappiMiniCoreTests: XCTestCase {
         newerManifest.recordingId = "rec_123"
         _ = RecordingStore.saveRemoteManifest(newerManifest, in: newer)
 
-        let links = CloudLibraryStore.localSessionLinks(in: temp)
+        // Remote-id sessions are inherently account-scoped (a cloud id only
+        // resolves within its owner's list), so links stay account-independent.
+        let links = CloudLibraryStore.localSessionLinks(in: temp, currentAccount: nil)
 
         XCTAssertEqual(
             links["rec_123"]?.standardizedFileURL,
@@ -2362,7 +2364,11 @@ final class RecappiMiniCoreTests: XCTestCase {
         try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temp) }
 
-        let links = CloudLibraryStore.localSessionLinks(in: temp)
+        // Local-only sessions are now account-scoped: stamp + query the same account.
+        let account = (userId: "u1", backendOrigin: "https://api.example.com")
+        RecordingStore.stampAccount(account, in: session)
+
+        let links = CloudLibraryStore.localSessionLinks(in: temp, currentAccount: account)
 
         XCTAssertEqual(
             links["local-2026-05-25_111500"]?.standardizedFileURL,
@@ -2455,15 +2461,120 @@ final class RecappiMiniCoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: temp) }
 
         try Data(repeating: 3, count: 64).write(to: RecordingStore.audioFileURL(in: session))
+        let account = (userId: "u1", backendOrigin: "https://api.example.com")
         var manifest = RemoteSessionManifest.stage("uploadFailed")
         manifest.errorMessage = "Subscription is renewing"
+        manifest.accountUserId = account.userId
+        manifest.accountBackendOrigin = account.backendOrigin
         RecordingStore.saveRemoteManifest(manifest, in: session)
 
-        let recordings = CloudLibraryStore.localOnlyRecordings(in: temp)
+        let recordings = CloudLibraryStore.localOnlyRecordings(in: temp, currentAccount: account)
 
         XCTAssertEqual(recordings.map(\.id), ["local-2026-05-25_112500"])
         XCTAssertEqual(recordings.first?.status, .failed)
         XCTAssertEqual(recordings.first?.sizeBytes, 64)
+    }
+
+    // MARK: - #249 local session account boundary
+
+    private func makeLocalSession(
+        in temp: URL,
+        name: String,
+        account: (userId: String, backendOrigin: String)?
+    ) throws -> URL {
+        let session = temp.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        try Data(repeating: 9, count: 64).write(to: RecordingStore.audioFileURL(in: session))
+        if let account {
+            RecordingStore.stampAccount(account, in: session)
+        }
+        return session
+    }
+
+    func testLocalOnlyRecordingsDoNotLeakAcrossAccounts() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let accountA = (userId: "userA", backendOrigin: "https://api.example.com")
+        let accountB = (userId: "userB", backendOrigin: "https://api.example.com")
+        _ = try makeLocalSession(in: temp, name: "2026-06-01_100000", account: accountA)
+        _ = try makeLocalSession(in: temp, name: "2026-06-01_110000", account: accountB)
+
+        let aIDs = CloudLibraryStore.localOnlyRecordings(in: temp, currentAccount: accountA).map(\.id)
+        let bIDs = CloudLibraryStore.localOnlyRecordings(in: temp, currentAccount: accountB).map(\.id)
+
+        XCTAssertEqual(aIDs, ["local-2026-06-01_100000"])
+        XCTAssertEqual(bIDs, ["local-2026-06-01_110000"])
+    }
+
+    func testUnattributedLocalOnlyRecordingsAreHiddenUntilClaimed() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let account = (userId: "userA", backendOrigin: "https://api.example.com")
+        let session = try makeLocalSession(in: temp, name: "2026-06-02_100000", account: nil)
+
+        // Hidden from the account while unattributed, and enumerable for claiming.
+        XCTAssertTrue(CloudLibraryStore.localOnlyRecordings(in: temp, currentAccount: account).isEmpty)
+        XCTAssertEqual(
+            CloudLibraryStore.unattributedLocalOnlySessions(in: temp).map(\.lastPathComponent),
+            ["2026-06-02_100000"]
+        )
+
+        // Claim = stamp the current account; now it surfaces and is no longer unattributed.
+        RecordingStore.stampAccount(account, in: session)
+        XCTAssertEqual(
+            CloudLibraryStore.localOnlyRecordings(in: temp, currentAccount: account).map(\.id),
+            ["local-2026-06-02_100000"]
+        )
+        XCTAssertTrue(CloudLibraryStore.unattributedLocalOnlySessions(in: temp).isEmpty)
+    }
+
+    func testSignedOutHidesLocalOnlyRecordings() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        _ = try makeLocalSession(
+            in: temp,
+            name: "2026-06-03_100000",
+            account: (userId: "userA", backendOrigin: "https://api.example.com")
+        )
+
+        XCTAssertTrue(CloudLibraryStore.localOnlyRecordings(in: temp, currentAccount: nil).isEmpty)
+    }
+
+    func testSaveRemoteManifestPreservesAccountStampAcrossStageRewrites() throws {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let session = temp.appendingPathComponent("2026-06-04_100000", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        RecordingStore.stampAccount(
+            (userId: "userA", backendOrigin: "https://api.example.com"),
+            in: session
+        )
+        // A later rewrite with a fresh .stage() manifest (no account fields) must
+        // not wipe the stamp.
+        RecordingStore.saveRemoteManifest(.stage("uploading"), in: session)
+
+        let reloaded = try XCTUnwrap(RecordingStore.loadRemoteManifest(in: session))
+        XCTAssertEqual(reloaded.accountUserId, "userA")
+        XCTAssertEqual(reloaded.accountBackendOrigin, "https://api.example.com")
+        XCTAssertEqual(reloaded.stage, "uploading")
+    }
+
+    func testPartialAccountStampIsTreatedAsUnattributed() throws {
+        var manifest = RemoteSessionManifest.stage("uploading")
+        manifest.accountUserId = "userA" // origin missing -> partial
+        XCTAssertTrue(manifest.hasPartialAccountStamp)
+        XCTAssertTrue(manifest.isAccountUnattributed)
+        XCTAssertNil(manifest.attributedAccount)
+        XCTAssertFalse(
+            manifest.belongsToAccount(userId: "userA", backendOrigin: "https://api.example.com")
+        )
     }
 
     func testSessionProcessorPrimaryAudioFileUsesManifestUploadFilename() throws {
@@ -2513,11 +2624,14 @@ final class RecappiMiniCoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: temp) }
 
         try Data(repeating: 4, count: 64).write(to: RecordingStore.audioFileURL(in: session))
+        let account = (userId: "u1", backendOrigin: "https://api.example.com")
         var manifest = RemoteSessionManifest.stage("creatingRecording")
         manifest.recordingId = "rec_remote"
         RecordingStore.saveRemoteManifest(manifest, in: session)
 
-        XCTAssertTrue(CloudLibraryStore.localOnlyRecordings(in: temp).isEmpty)
+        // Even with a matching account, a session that already has a remote id is
+        // not a local-only recording.
+        XCTAssertTrue(CloudLibraryStore.localOnlyRecordings(in: temp, currentAccount: account).isEmpty)
     }
 
     @MainActor

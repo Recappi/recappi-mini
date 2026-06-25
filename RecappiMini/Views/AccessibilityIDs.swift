@@ -163,6 +163,8 @@ enum AccessibilityIDs {
         static let transcriptVersionRowPrefix = "recappi.cloud.transcriptVersionRow."
         static let historicalVersionBanner = "recappi.cloud.historicalVersionBanner"
         static let backToCurrentVersionButton = "recappi.cloud.backToCurrentVersionButton"
+        static let claimLocalSessionsBanner = "recappi.cloud.claimLocalSessionsBanner"
+        static let claimLocalSessionsButton = "recappi.cloud.claimLocalSessionsButton"
         static let recordingInfoButton = "recappi.cloud.recordingInfoButton"
         static let headerPlayButton = "recappi.cloud.headerPlayButton"
         static let moreActionsButton = "recappi.cloud.moreActionsButton"
