@@ -100,10 +100,15 @@ const rec = (over: Partial<RecordingData> = {}): RecordingData => ({
 describe("record error copy", () => {
   it("maps helper error codes to friendly, jargon-free copy", () => {
     const unavailable = recordErrorCopy("record.helper_unavailable", "x");
-    expect(unavailable.title).toContain("isn't available");
+    expect(unavailable.title).toContain("missing its local recorder");
+    expect(unavailable.detail).toContain("npm install -g recappi@latest");
+    expect(unavailable.detail).toContain("npx -y recappi@latest");
     expect(unavailable.tone).toBe("yellow");
     expect(recordErrorCopy("record.unsupported_platform", "x").title).toContain("supported");
-    expect(recordErrorCopy("record.capture_unavailable", "x").title).toContain("ready");
+    expect(recordErrorCopy("record.unsupported_platform", "x").detail).toContain("Recappi Mini");
+    const captureUnavailable = recordErrorCopy("record.capture_unavailable", "x");
+    expect(captureUnavailable.title).toContain("ready");
+    expect(captureUnavailable.detail).toContain("Use the Recappi Mini app");
     // unknown/undefined code falls back to the raw message + red tone
     const fallback = recordErrorCopy(undefined, "boom");
     expect(fallback.title).toContain("Couldn't start");
@@ -113,6 +118,7 @@ describe("record error copy", () => {
     for (const code of ["record.helper_unavailable", "record.unsupported_platform", "record.capture_unavailable"]) {
       const c = recordErrorCopy(code, "x");
       const text = `${c.title} ${c.detail ?? ""}`.toLowerCase();
+      expect(text).not.toContain("helper");
       expect(text).not.toContain("sidecar");
       expect(text).not.toContain("env");
       expect(text).not.toContain("path");

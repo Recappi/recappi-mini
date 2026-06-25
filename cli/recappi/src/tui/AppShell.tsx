@@ -79,19 +79,20 @@ export function recordErrorCopy(
   switch (code) {
     case "record.helper_unavailable":
       return {
-        title: "Live recording isn't available on this machine yet.",
-        detail: "The recorder helper isn't installed for your platform.",
+        title: "This CLI install is missing its local recorder.",
+        detail: "Run npm install -g recappi@latest, or use npx -y recappi@latest.",
         tone: "yellow",
       };
     case "record.unsupported_platform":
       return {
-        title: "Live recording isn't supported on this platform yet.",
+        title: "CLI recording isn't supported on this platform yet.",
+        detail: "Use Recappi Mini on macOS to record for now.",
         tone: "yellow",
       };
     case "record.capture_unavailable":
       return {
-        title: "Live recording isn't ready yet.",
-        detail: "The on-device recorder is still being finished — coming soon.",
+        title: "CLI recording isn't ready yet.",
+        detail: "Use the Recappi Mini app to record for now; CLI recording is coming soon.",
         tone: "yellow",
       };
     default:
