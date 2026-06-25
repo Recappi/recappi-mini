@@ -68,6 +68,10 @@ importers:
       vitest:
         specifier: npm:@voidzero-dev/vite-plus-test@^0.1.24
         version: '@voidzero-dev/vite-plus-test@0.1.24(@arethetypeswrong/core@0.18.4)(@types/node@24.13.2)(@voidzero-dev/vite-plus-core@0.1.24(@arethetypeswrong/core@0.18.4)(@types/node@24.13.2)(esbuild@0.27.7)(publint@0.3.21)(typescript@5.9.3))(esbuild@0.27.7)(publint@0.3.21)(typescript@5.9.3)'
+    optionalDependencies:
+      recappi-helper-darwin-arm64:
+        specifier: 0.1.0
+        version: link:../helpers/darwin-arm64
 
 packages:
 
