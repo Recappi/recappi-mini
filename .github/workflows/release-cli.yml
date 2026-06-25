@@ -119,26 +119,31 @@ jobs:
       - name: Refresh publish lockfile metadata
         run: pnpm install --lockfile-only --no-frozen-lockfile --ignore-scripts
 
-      - run: pnpm run build:helper
+      - run: ../../scripts/build-cli-helper.sh
         working-directory: cli/recappi
         env:
           CODESIGN_IDENTITY: ${{ env.DEVELOPER_ID_IDENTITY }}
           RELEASE: "1"
 
-      - run: pnpm run pack:check
+      - run: node ../check-helper-pack.mjs RecappiMiniSidecar
         working-directory: cli/helpers/darwin-arm64
 
-      - run: pnpm run pack:check
+      - name: Check recappi package
         working-directory: cli/recappi
+        run: |
+          ./node_modules/.bin/tsup
+          node scripts/check-pack.mjs
+          ./node_modules/.bin/publint run --strict
+          ./node_modules/.bin/attw --pack . --no-emoji
 
       - name: Publish Darwin arm64 helper
-        run: pnpm publish --access public --no-git-checks --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
+        run: npm publish --access public --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
         working-directory: cli/helpers/darwin-arm64
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish recappi
-        run: pnpm publish --access public --no-git-checks --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
+        run: npm publish --access public --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
         working-directory: cli/recappi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
