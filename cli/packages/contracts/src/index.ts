@@ -61,6 +61,8 @@ export const cliErrorCodeSchema = z.enum([
   "record.helper_unavailable",
   "record.unsupported_platform",
   "record.capture_unavailable",
+  "record.permission_required",
+  "record.capture_failed",
   "cloud.conflict.upload_in_progress",
   "cloud.recording_not_ready",
   "cloud.job_failed",
@@ -192,6 +194,29 @@ export const sidecarRecordingOptionsSchema = z.object({
 });
 export type SidecarRecordingOptions = z.infer<typeof sidecarRecordingOptionsSchema>;
 
+export const sidecarPermissionNameSchema = z.enum(["screen_recording", "microphone"]);
+export type SidecarPermissionName = z.infer<typeof sidecarPermissionNameSchema>;
+
+export const sidecarPermissionStatusSchema = z.enum(["granted", "denied", "unknown"]);
+export type SidecarPermissionStatus = z.infer<typeof sidecarPermissionStatusSchema>;
+
+export const sidecarPermissionItemSchema = z.object({
+  name: sidecarPermissionNameSchema,
+  status: sidecarPermissionStatusSchema,
+  hint: z.string().optional(),
+});
+export type SidecarPermissionItem = z.infer<typeof sidecarPermissionItemSchema>;
+
+export const sidecarPermissionStatusParamsSchema = z.object({
+  options: sidecarRecordingOptionsSchema,
+});
+export type SidecarPermissionStatusParams = z.infer<typeof sidecarPermissionStatusParamsSchema>;
+
+export const sidecarPermissionStatusResultSchema = z.object({
+  permissions: z.array(sidecarPermissionItemSchema),
+});
+export type SidecarPermissionStatusResult = z.infer<typeof sidecarPermissionStatusResultSchema>;
+
 export const sidecarRecordingStateSchema = z.enum([
   "idle",
   "starting",
@@ -282,6 +307,12 @@ export const sidecarRequestSchema = z.discriminatedUnion("method", [
     id: sidecarJsonRpcIdSchema,
     method: z.literal("recappi.recording.start"),
     params: sidecarRecordingStartParamsSchema,
+  }),
+  z.object({
+    jsonrpc: z.literal("2.0"),
+    id: sidecarJsonRpcIdSchema,
+    method: z.literal("recappi.permissions.status"),
+    params: sidecarPermissionStatusParamsSchema,
   }),
   z.object({
     jsonrpc: z.literal("2.0"),

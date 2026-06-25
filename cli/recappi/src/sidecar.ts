@@ -3,11 +3,14 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import {
   SIDECAR_PROTOCOL_VERSION,
+  cliErrorCodeSchema,
   sidecarEventSchema,
   sidecarHandshakeParamsSchema,
   sidecarHandshakeResultSchema,
   sidecarJsonRpcIdSchema,
   sidecarNotificationSchema,
+  sidecarPermissionStatusParamsSchema,
+  sidecarPermissionStatusResultSchema,
   sidecarRecordingStartParamsSchema,
   sidecarRecordingStartResultSchema,
   sidecarRecordingStatusResultSchema,
@@ -16,8 +19,11 @@ import {
   sidecarSessionParamsSchema,
   type ContractSchema,
   type SidecarEvent,
+  type SidecarError,
   type SidecarHandshakeParams,
   type SidecarHandshakeResult,
+  type SidecarPermissionStatusParams,
+  type SidecarPermissionStatusResult,
   type SidecarRecordingStartParams,
   type SidecarRecordingStartResult,
   type SidecarRecordingStatusResult,
@@ -89,6 +95,16 @@ export class MiniSidecarClient {
       "recappi.recording.start",
       sidecarRecordingStartParamsSchema.parse(params),
       sidecarRecordingStartResultSchema,
+    );
+  }
+
+  getPermissionStatus(
+    params: SidecarPermissionStatusParams,
+  ): Promise<SidecarPermissionStatusResult> {
+    return this.request(
+      "recappi.permissions.status",
+      sidecarPermissionStatusParamsSchema.parse(params),
+      sidecarPermissionStatusResultSchema,
     );
   }
 
@@ -206,12 +222,7 @@ export class MiniSidecarClient {
     this.pending.delete(id);
     clearTimeout(pending.timer);
     if ("error" in response.data) {
-      pending.reject(
-        cliError("internal.unexpected", response.data.error.message, {
-          data: response.data.error,
-          retryable: response.data.error.code >= -32099 && response.data.error.code <= -32000,
-        }),
-      );
+      pending.reject(sidecarErrorToCliError(response.data.error));
       return;
     }
     pending.resolve(response.data.result);
@@ -224,6 +235,33 @@ export class MiniSidecarClient {
       pending.reject(cliError("internal.unexpected", message));
     }
   }
+}
+
+function sidecarErrorToCliError(error: SidecarError): RecappiCliError {
+  const data = isRecord(error.data) ? error.data : undefined;
+  const maybeCode =
+    typeof data?.cliCode === "string" ? cliErrorCodeSchema.safeParse(data.cliCode) : undefined;
+  const hint = typeof data?.recovery === "string" ? data.recovery : undefined;
+  const retryable =
+    typeof data?.retryable === "boolean"
+      ? data.retryable
+      : error.code >= -32099 && error.code <= -32000;
+  if (maybeCode?.success) {
+    return cliError(maybeCode.data, error.message, {
+      data: error,
+      hint,
+      retryable,
+    });
+  }
+  return cliError("internal.unexpected", error.message, {
+    data: error,
+    hint,
+    retryable,
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function spawnMiniSidecar(opts: SpawnMiniSidecarOptions): SpawnedMiniSidecar {

@@ -22,6 +22,7 @@ import { JobDetailView } from "./JobDetailView";
 import { RecordingDetailView, type AudioAction, type DetailTranscript } from "./RecordingDetailView";
 import { TranscriptView } from "./TranscriptView";
 import { LiveCaptionsScreen, type LiveCaptionEventSource } from "./LiveCaptionsScreen";
+import { PermissionPreflightView, type PermissionItem } from "./PermissionPreflightView";
 import { resolveJobLinks, resolveRecordingLinks, listWindow, groupedListWindow, dateBucket } from "./format";
 import { useTerminalSize } from "./terminal";
 
@@ -68,7 +69,7 @@ type Screen =
 type LiveRecordState =
   | { kind: "starting" }
   | { kind: "live"; session: DashboardLiveRecordSession }
-  | { kind: "error"; message: string; code?: string };
+  | { kind: "error"; message: string; code?: string; data?: unknown };
 
 // Map the record helper's stable error codes to friendly, platform-agnostic copy
 // for the Record tab — never expose internal terms (sidecar / env var / paths).
@@ -95,9 +96,67 @@ export function recordErrorCopy(
         detail: "Use the Recappi Mini app to record for now; CLI recording is coming soon.",
         tone: "yellow",
       };
+    case "record.permission_required":
+      return {
+        title: "Recording needs macOS permission first.",
+        detail: "Open System Settings > Privacy & Security, allow recording access, then retry.",
+        tone: "yellow",
+      };
+    case "record.capture_failed":
+      return {
+        title: "Recording couldn't capture audio.",
+        detail: "Check permissions, make sure audio is playing, then try again.",
+        tone: "red",
+      };
     default:
       return { title: "Couldn't start recording.", detail: message, tone: "red" };
   }
+}
+
+export function recordErrorState(error: unknown): Extract<LiveRecordState, { kind: "error" }> {
+  if (error instanceof Error) {
+    const descriptor = isRecord(error) && isRecord(error.descriptor) ? error.descriptor : undefined;
+    return {
+      kind: "error",
+      message: error.message,
+      code:
+        typeof descriptor?.code === "string"
+          ? descriptor.code
+          : "code" in error && typeof error.code === "string"
+            ? error.code
+            : undefined,
+      data: isRecord(error) ? error.data : undefined,
+    };
+  }
+  return { kind: "error", message: String(error) };
+}
+
+export function permissionItemsFromRecordError(data: unknown): PermissionItem[] {
+  const sidecarError = isRecord(data) ? data : undefined;
+  const sidecarData = isRecord(sidecarError?.data) ? sidecarError.data : undefined;
+  const permission = typeof sidecarData?.permission === "string" ? sidecarData.permission : "";
+  const hint = typeof sidecarData?.recovery === "string" ? sidecarData.recovery : undefined;
+  const item =
+    permission === "microphone"
+      ? "Microphone"
+      : permission === "screen_recording"
+        ? "Screen Recording"
+        : "Recording";
+  return [{ name: item, status: "denied", ...(hint ? { hint } : {}) }];
+}
+
+function settingsUrlFromRecordError(data: unknown): string {
+  const sidecarError = isRecord(data) ? data : undefined;
+  const sidecarData = isRecord(sidecarError?.data) ? sidecarError.data : undefined;
+  const permission = typeof sidecarData?.permission === "string" ? sidecarData.permission : "";
+  if (permission === "microphone") {
+    return "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
+  }
+  return "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function AppShell({
@@ -138,6 +197,7 @@ export function AppShell({
   const [audioCache, setAudioCache] = useState<Map<string, AudioAction>>(() => new Map());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(() => new Set());
   const [liveRecord, setLiveRecord] = useState<LiveRecordState | undefined>(undefined);
+  const [recordRetryNonce, setRecordRetryNonce] = useState(0);
 
   // Which recordings have a local download in the account-scoped store (#253),
   // so rows can show an offline-available marker. Refreshed on load + after a
@@ -192,21 +252,13 @@ export function AppShell({
       })
       .catch((error) => {
         if (!cancelled) {
-          const code =
-            error && typeof error === "object" && "code" in error
-              ? String((error as { code?: unknown }).code)
-              : undefined;
-          setLiveRecord({
-            kind: "error",
-            code,
-            message: error instanceof Error ? error.message : String(error),
-          });
+          setLiveRecord(recordErrorState(error));
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [screen.kind, startLiveRecord]);
+  }, [screen.kind, startLiveRecord, recordRetryNonce]);
 
   // Lazily fetch the selected recording's transcript summary for the peek panel,
   // debounced + cached by transcriptId so scrolling doesn't hammer the API.
@@ -420,6 +472,14 @@ export function AppShell({
   useInput((input, key) => {
     setNotice(undefined);
     if (screen.kind === "record") {
+      if (liveRecord?.kind === "error" && input === "r") {
+        setRecordRetryNonce((value) => value + 1);
+        return;
+      }
+      if (liveRecord?.kind === "error" && input === "o") {
+        openUrl?.(settingsUrlFromRecordError(liveRecord.data));
+        return;
+      }
       if (input === "q" || key.escape || key.leftArrow) void stopLiveRecord();
       return;
     }
@@ -516,6 +576,9 @@ export function AppShell({
         <Box flexGrow={1} flexDirection="column" paddingX={1} paddingTop={1}>
           {liveRecord?.kind === "error" ? (
             (() => {
+              if (liveRecord.code === "record.permission_required") {
+                return <PermissionPreflightView items={permissionItemsFromRecordError(liveRecord.data)} />;
+              }
               const copy = recordErrorCopy(liveRecord.code, liveRecord.message);
               return (
                 <>

@@ -116,6 +116,46 @@ describe("Mini sidecar JSON-RPC client", () => {
     }
   });
 
+  it("checks permissions before recording", async () => {
+    const fake = createFakeSidecar(async (request, write) => {
+      expect(request).toMatchObject({
+        method: "recappi.permissions.status",
+        params: {
+          options: {
+            includeSystemAudio: true,
+            includeMicrophone: true,
+            liveCaptions: false,
+          },
+        },
+      });
+      write({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          permissions: [
+            { name: "screen_recording", status: "unknown", hint: "Open System Settings." },
+            { name: "microphone", status: "granted" },
+          ],
+        },
+      });
+    });
+
+    try {
+      await expect(
+        fake.client.getPermissionStatus({
+          options: { includeSystemAudio: true, includeMicrophone: true, liveCaptions: false },
+        }),
+      ).resolves.toMatchObject({
+        permissions: [
+          { name: "screen_recording", status: "unknown", hint: "Open System Settings." },
+          { name: "microphone", status: "granted" },
+        ],
+      });
+    } finally {
+      fake.close();
+    }
+  });
+
   it("parses live caption and local artifact notifications", async () => {
     const fake = createFakeSidecar(async () => {});
     const events: string[] = [];
@@ -198,6 +238,41 @@ describe("Mini sidecar JSON-RPC client", () => {
       await expect(
         fake.client.getRecordingStatus({ sessionId: "sidecar_session_1" }),
       ).resolves.toMatchObject({ sessionId: "sidecar_session_1", state: "idle" });
+    } finally {
+      fake.close();
+    }
+  });
+
+  it("maps sidecar CLI error metadata onto stable CLI error codes", async () => {
+    const fake = createFakeSidecar(async (request, write) => {
+      write({
+        jsonrpc: "2.0",
+        id: request.id,
+        error: {
+          code: -32020,
+          message: "Microphone access is required before the CLI can record microphone audio.",
+          data: {
+            cliCode: "record.permission_required",
+            permission: "microphone",
+            recovery: "Open System Settings > Privacy & Security > Microphone, then retry.",
+          },
+        },
+      });
+    });
+
+    try {
+      await expect(
+        fake.client.startRecording({
+          account: { backendOrigin: "https://recordmeet.ing", userId: "user_123" },
+          options: { includeSystemAudio: false, includeMicrophone: true, liveCaptions: false },
+        }),
+      ).rejects.toMatchObject({
+        descriptor: {
+          code: "record.permission_required",
+          hint: "Open System Settings > Privacy & Security > Microphone, then retry.",
+          exitCode: 2,
+        },
+      });
     } finally {
       fake.close();
     }

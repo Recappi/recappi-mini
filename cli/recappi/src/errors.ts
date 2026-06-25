@@ -17,6 +17,8 @@ const DEFAULT_EXIT_CODES: Record<CliErrorCode, number> = {
   "record.helper_unavailable": 2,
   "record.unsupported_platform": 2,
   "record.capture_unavailable": 2,
+  "record.permission_required": 2,
+  "record.capture_failed": 1,
   "cloud.conflict.upload_in_progress": 5,
   "cloud.recording_not_ready": 5,
   "cloud.job_failed": 5,

@@ -31,7 +31,16 @@ let package = Package(
         ),
         .executableTarget(
             name: "RecappiMiniSidecar",
-            path: "RecappiMiniSidecar"
+            path: "RecappiMiniSidecar",
+            exclude: ["Info.plist"],
+            linkerSettings: [
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("AudioToolbox"),
+                .linkedFramework("CoreAudio"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("CoreMedia"),
+                .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", "RecappiMiniSidecar/Info.plist"]),
+            ]
         ),
         .testTarget(
             name: "RecappiMiniCoreTests",

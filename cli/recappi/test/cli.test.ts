@@ -8,6 +8,7 @@ import type {
   SidecarRecordingStartParams,
 } from "../../packages/contracts/src/index";
 import { runCli, type CliDeps } from "../src/cli";
+import { cliError } from "../src/errors";
 import { bundledSidecarCommand, type RecordRuntimeDeps } from "../src/record";
 import { openCliStore, requireAccountPartition } from "../src/store";
 import { CLI_VERSION } from "../src/version";
@@ -130,6 +131,7 @@ describe("recappi CLI contract", () => {
       expect(fake.calls.map((call) => call.method)).toEqual([
         "spawn",
         "handshake",
+        "permissions",
         "start",
         "stop",
         "kill",
@@ -442,6 +444,7 @@ describe("recappi CLI contract", () => {
       expect(fake.calls.map((call) => call.method)).toEqual([
         "spawn",
         "handshake",
+        "permissions",
         "start",
         "waitForStop",
         "stop",
@@ -516,6 +519,7 @@ describe("recappi CLI contract", () => {
     expect(fake.calls.map((call) => call.method)).toEqual([
       "spawn",
       "handshake",
+      "permissions",
       "start",
       "createLiveRenderer",
       "liveWait",
@@ -528,10 +532,17 @@ describe("recappi CLI contract", () => {
     );
   });
 
-  it("reports a platform-neutral helper error when no sidecar override exists", async () => {
-    const result = await run(["record", "--json"], {
+  it("reports a platform-neutral helper error when the helper cannot be started", async () => {
+    const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
       fetchImpl: sessionFetch(),
       env: { RECAPPI_AUTH_TOKEN: "token", RECAPPI_DISABLE_KEYCHAIN_AUTH: "1" },
+      recordRuntime: {
+        spawnSidecar: () => {
+          throw cliError("record.helper_unavailable", "Recappi recording helper is not available.", {
+            hint: "Run npm install -g recappi@latest, or use npx -y recappi@latest.",
+          });
+        },
+      },
     });
 
     expect(result.exitCode).toBe(2);
@@ -543,9 +554,9 @@ describe("recappi CLI contract", () => {
       meta: { schemaVersion: "2026-06-25" },
     });
     expect(parsed.error.message).toMatch(
-      /recording (helper is not available|is not supported|helper cannot capture yet)/,
+      /recording helper is not available/,
     );
-    expect(parsed.error.hint).toContain("RECAPPI_MINI_SIDECAR");
+    expect(parsed.error.hint).toContain("npm install -g recappi@latest");
   });
 
   it("rejects helpers that do not advertise recording capture", async () => {
@@ -1014,6 +1025,8 @@ describe("recappi CLI contract", () => {
         "record.helper_unavailable",
         "record.unsupported_platform",
         "record.capture_unavailable",
+        "record.permission_required",
+        "record.capture_failed",
       ]),
     );
     // Envelope/event are real JSON Schemas (zod v4 native export).
@@ -1126,6 +1139,15 @@ function fakeRecordRuntime(opts: { capabilities?: string[] } = {}): {
         sessionId: "sidecar_session_1",
         state: "recording",
         localSessionRef: "2026-06-25_153000",
+      };
+    },
+    async getPermissionStatus(params: unknown) {
+      calls.push({ method: "permissions", params });
+      return {
+        permissions: [
+          { name: "screen_recording", status: "granted" },
+          { name: "microphone", status: "granted" },
+        ],
       };
     },
     async stopRecording(params: { sessionId: string }) {

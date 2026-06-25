@@ -11,6 +11,7 @@ import {
   type SidecarAccount,
   type SidecarHandshakeResult,
   type SidecarLocalArtifact,
+  type SidecarPermissionItem,
   type SidecarRecordingState,
 } from "../../packages/contracts/src/index";
 import { cliError } from "./errors";
@@ -110,7 +111,7 @@ export async function recordViaSidecar(opts: RecordCommandOptions): Promise<Reco
 export async function startLiveRecordSession(
   opts: Omit<RecordCommandOptions, "live" | "renderLive">,
 ): Promise<LiveRecordSession> {
-  const session = await startRecordSession({ ...opts, live: true });
+  const session = await startRecordSession({ ...opts, live: false });
   return {
     source: session.source,
     stop: async () => {
@@ -180,18 +181,20 @@ async function startRecordSession(opts: RecordCommandOptions): Promise<ActiveRec
     );
     assertSidecarCapabilities(handshake, opts);
 
+    const recordingOptions = {
+      includeSystemAudio: opts.includeSystemAudio ?? true,
+      includeMicrophone: opts.includeMicrophone ?? true,
+      liveCaptions: opts.live === true,
+      ...(opts.translationLanguage ? { translationLanguage: opts.translationLanguage } : {}),
+      ...(opts.transcriptionLanguage ? { transcriptionLanguage: opts.transcriptionLanguage } : {}),
+      ...(opts.title ? { title: opts.title } : {}),
+    };
+    const preflight = await sidecar.client.getPermissionStatus({ options: recordingOptions });
+    assertRecordingPermissions(preflight.permissions);
+
     const started = await sidecar.client.startRecording({
       account,
-      options: {
-        includeSystemAudio: opts.includeSystemAudio ?? true,
-        includeMicrophone: opts.includeMicrophone ?? true,
-        liveCaptions: opts.live === true,
-        ...(opts.translationLanguage ? { translationLanguage: opts.translationLanguage } : {}),
-        ...(opts.transcriptionLanguage
-          ? { transcriptionLanguage: opts.transcriptionLanguage }
-          : {}),
-        ...(opts.title ? { title: opts.title } : {}),
-      },
+      options: recordingOptions,
     });
     sessionId = started.sessionId;
     latestState = started.state;
@@ -234,6 +237,30 @@ async function startRecordSession(opts: RecordCommandOptions): Promise<ActiveRec
     await cancel();
     throw error;
   }
+}
+
+function assertRecordingPermissions(permissions: SidecarPermissionItem[]): void {
+  const blocked = permissions.find((permission) => permission.status !== "granted");
+  if (!blocked) return;
+  const label =
+    blocked.name === "microphone"
+      ? "Microphone"
+      : blocked.name === "screen_recording"
+        ? "Screen Recording"
+        : "Recording";
+  throw cliError("record.permission_required", `${label} permission is required before recording.`, {
+    hint: blocked.hint,
+    data: {
+      code: -32020,
+      message: `${label} permission is required before recording.`,
+      data: {
+        cliCode: "record.permission_required",
+        permission: blocked.name,
+        ...(blocked.hint ? { recovery: blocked.hint } : {}),
+        permissions,
+      },
+    },
+  });
 }
 
 function assertSidecarCapabilities(

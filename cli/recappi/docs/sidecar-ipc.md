@@ -35,10 +35,29 @@ The sidecar replies with its protocol version, app/sidecar version, and supporte
 ## Requests
 
 - `recappi.handshake`
+- `recappi.permissions.status`
 - `recappi.recording.start`
 - `recappi.recording.stop`
 - `recappi.recording.cancel`
 - `recappi.recording.status`
+
+Permission status and recording start both use recording options. Permission
+status is a no-prompt preflight so the CLI/TUI can show a setup screen before a
+recording attempt hits macOS TCC:
+
+```json
+{
+  "options": {
+    "includeSystemAudio": true,
+    "includeMicrophone": true,
+    "liveCaptions": false
+  }
+}
+```
+
+The sidecar replies with a `permissions` array. Permission names are
+`screen_recording` and `microphone`; status is `granted`, `denied`, or
+`unknown`.
 
 Recording start params include the account partition and recording options:
 
@@ -83,3 +102,9 @@ Supported v1 artifact kinds:
 ## Errors
 
 JSON-RPC errors reject the pending CLI request. Sidecar-originated async failures use the `error` event and include a string `code`, human-readable `message`, optional `sessionId`, and optional `retryable`.
+
+Sidecar JSON-RPC errors can include `data.cliCode` to map into stable CLI error
+codes. Known recording codes:
+
+- `record.permission_required`
+- `record.capture_failed`

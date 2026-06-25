@@ -17,6 +17,7 @@ import {
 } from "../src/tui/format";
 import { TranscriptView } from "../src/tui/TranscriptView";
 import { LiveCaptionsView } from "../src/tui/LiveCaptionsView";
+import { PermissionPreflightView } from "../src/tui/PermissionPreflightView";
 import { LiveCaptionsScreen } from "../src/tui/LiveCaptionsScreen";
 import {
   liveCaptionReducer,
@@ -29,7 +30,13 @@ import { OverviewView } from "../src/tui/OverviewView";
 import { JobDetailView } from "../src/tui/JobDetailView";
 import { RecordingsView } from "../src/tui/RecordingsView";
 import { RecordingDetailView } from "../src/tui/RecordingDetailView";
-import { AppShell, recordErrorCopy, type AppShellProps } from "../src/tui/AppShell";
+import {
+  AppShell,
+  permissionItemsFromRecordError,
+  recordErrorCopy,
+  recordErrorState,
+  type AppShellProps,
+} from "../src/tui/AppShell";
 import { DASHBOARD_RENDER_OPTIONS, runDashboard, type RunDashboardDeps } from "../src/tui";
 import type {
   AccountStatusData,
@@ -109,13 +116,25 @@ describe("record error copy", () => {
     const captureUnavailable = recordErrorCopy("record.capture_unavailable", "x");
     expect(captureUnavailable.title).toContain("ready");
     expect(captureUnavailable.detail).toContain("Use the Recappi Mini app");
+    const permissionRequired = recordErrorCopy("record.permission_required", "x");
+    expect(permissionRequired.title).toContain("permission");
+    expect(permissionRequired.detail).toContain("System Settings");
+    const captureFailed = recordErrorCopy("record.capture_failed", "x");
+    expect(captureFailed.title).toContain("capture audio");
+    expect(captureFailed.tone).toBe("red");
     // unknown/undefined code falls back to the raw message + red tone
     const fallback = recordErrorCopy(undefined, "boom");
     expect(fallback.title).toContain("Couldn't start");
     expect(fallback.detail).toBe("boom");
     expect(fallback.tone).toBe("red");
     // never leak internal jargon
-    for (const code of ["record.helper_unavailable", "record.unsupported_platform", "record.capture_unavailable"]) {
+    for (const code of [
+      "record.helper_unavailable",
+      "record.unsupported_platform",
+      "record.capture_unavailable",
+      "record.permission_required",
+      "record.capture_failed",
+    ]) {
       const c = recordErrorCopy(code, "x");
       const text = `${c.title} ${c.detail ?? ""}`.toLowerCase();
       expect(text).not.toContain("helper");
@@ -123,6 +142,30 @@ describe("record error copy", () => {
       expect(text).not.toContain("env");
       expect(text).not.toContain("path");
     }
+  });
+
+  it("extracts descriptor codes and permission items from CLI errors", () => {
+    const error = Object.assign(new Error("Microphone access is required."), {
+      descriptor: { code: "record.permission_required" },
+      data: {
+        code: -32020,
+        message: "Microphone access is required.",
+        data: {
+          cliCode: "record.permission_required",
+          permission: "microphone",
+          recovery: "Open System Settings > Privacy & Security > Microphone, then retry.",
+        },
+      },
+    });
+    const state = recordErrorState(error);
+    expect(state.code).toBe("record.permission_required");
+    expect(permissionItemsFromRecordError(state.data)).toEqual([
+      {
+        name: "Microphone",
+        status: "denied",
+        hint: "Open System Settings > Privacy & Security > Microphone, then retry.",
+      },
+    ]);
   });
 });
 
@@ -282,6 +325,32 @@ describe("views render", () => {
       <RecordingsView items={[]} selectedIndex={0} nowMs={1} columns={80} />,
     );
     expect(noAnsi(lastFrame())).toContain("No recordings yet");
+  });
+  it("PermissionPreflightView shows status and guidance", () => {
+    const denied = render(
+      <PermissionPreflightView
+        items={[
+          { name: "Screen Recording", status: "denied" },
+          { name: "Microphone", status: "granted" },
+        ]}
+      />,
+    );
+    const deniedFrame = noAnsi(denied.lastFrame());
+    expect(deniedFrame).toContain("Screen Recording");
+    expect(deniedFrame).toContain("not allowed");
+    expect(deniedFrame).toContain("System Settings");
+    expect(deniedFrame).toContain("press r to recheck");
+    expect(deniedFrame).not.toContain("All set");
+
+    const granted = render(
+      <PermissionPreflightView
+        items={[
+          { name: "Screen Recording", status: "granted" },
+          { name: "Microphone", status: "granted" },
+        ]}
+      />,
+    );
+    expect(noAnsi(granted.lastFrame())).toContain("All set");
   });
   it("RecordingDetailView shows title, status, audio + transcript actions", () => {
     const { lastFrame } = render(<RecordingDetailView item={rec()} nowMs={10_000_000} />);
