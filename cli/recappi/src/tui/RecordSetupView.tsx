@@ -95,7 +95,9 @@ export function RecordSetupView({
         <Box flexGrow={1} flexDirection="column">
           {sourceList}
         </Box>
-        {wide ? <Box marginLeft={4}>{capturePlan}</Box> : null}
+        <Box marginLeft={wide ? 4 : 0} marginTop={wide ? 0 : 1}>
+          {capturePlan}
+        </Box>
       </Box>
 
       <Box marginTop={1} flexDirection="column">
