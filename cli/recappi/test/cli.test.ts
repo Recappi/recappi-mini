@@ -519,7 +519,7 @@ describe("recappi CLI contract", () => {
   it("reports a platform-neutral helper error when no sidecar override exists", async () => {
     const result = await run(["record", "--json"], {
       fetchImpl: sessionFetch(),
-      env: { RECAPPI_DISABLE_KEYCHAIN_AUTH: "1" },
+      env: { RECAPPI_AUTH_TOKEN: "token", RECAPPI_DISABLE_KEYCHAIN_AUTH: "1" },
     });
 
     expect(result.exitCode).toBe(2);
