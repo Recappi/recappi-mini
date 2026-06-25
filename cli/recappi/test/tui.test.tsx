@@ -21,6 +21,7 @@ import { PermissionPreflightView } from "../src/tui/PermissionPreflightView";
 import { LiveCaptionsScreen } from "../src/tui/LiveCaptionsScreen";
 import { RecordingScreen } from "../src/tui/RecordingScreen";
 import { RecordSetupView } from "../src/tui/RecordSetupView";
+import { RecordingHeroScreen } from "../src/tui/RecordingHeroScreen";
 import {
   liveCaptionReducer,
   initialLiveCaptionsState,
@@ -517,6 +518,44 @@ describe("views render", () => {
     expect(onStart).toHaveBeenCalledWith(
       expect.objectContaining({ sourceId: "sys", sceneId: "default" }),
     );
+  });
+  it("RecordingHeroScreen renders the recording hero and the saved state", () => {
+    const recording = render(
+      <RecordingHeroScreen
+        telemetry={{
+          status: "recording",
+          startedAtMs: 0,
+          sourceLabel: "System audio · Google Meet (Arc)",
+          micEnabled: true,
+          level: { system: 0.6, mic: 0.3 },
+        }}
+        now={() => 42_000}
+      />,
+    );
+    const rf = noAnsi(recording.lastFrame());
+    expect(rf).toContain("recappi");
+    expect(rf).toContain("REC");
+    expect(rf).toContain("00:42");
+    expect(rf).toContain("Google Meet");
+    expect(rf).toContain("Microphone");
+    expect(rf).not.toContain("Waiting for captions");
+
+    const stopped = render(
+      <RecordingHeroScreen
+        telemetry={{
+          status: "stopped",
+          sourceLabel: "System audio",
+          micEnabled: false,
+          durationMs: 42_000,
+          sizeBytes: 1_200_000,
+          savedPath: "/Users/x/rec.m4a",
+        }}
+        now={() => 0}
+      />,
+    );
+    const sf = noAnsi(stopped.lastFrame());
+    expect(sf).toContain("Saved to your Mac");
+    expect(sf).toContain("Transcribe now");
   });
   it("RecordingScreen shows local recording status, not captions waiting copy", async () => {
     let emit: (e: unknown) => void = () => {};
