@@ -585,6 +585,30 @@ describe("views render", () => {
       />,
     );
     expect(noAnsi(stopped.lastFrame())).toContain("Transcribe now? ⏎ yes");
+    // Failed handoff: the retry prompt and the error reason must be on separate
+    // lines (the column box), not concatenated onto one line.
+    stopped.rerender(
+      <RecordingHeroScreen
+        telemetry={{
+          status: "stopped",
+          sourceLabel: "System audio",
+          micEnabled: false,
+          savedPath: "/Users/x/rec.m4a",
+        }}
+        artifact={{
+          sessionId: "s",
+          audioPath: "/Users/x/rec.m4a",
+          uploadStatus: "failed",
+          error: "Network unreachable",
+        }}
+        canTranscribe
+        now={() => 0}
+      />,
+    );
+    const failedFrame = noAnsi(stopped.lastFrame());
+    expect(failedFrame).toContain("Transcription failed · ⏎ retry");
+    expect(failedFrame).toContain("Network unreachable");
+    expect(failedFrame).not.toContain("not nowNetwork");
   });
   it("RecordingScreen shows local recording status, not captions waiting copy", async () => {
     let emit: (e: unknown) => void = () => {};

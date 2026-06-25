@@ -75,7 +75,7 @@ export function RecordingHeroScreen({
           {meta ? <Text dimColor>{meta}</Text> : null}
           {telemetry.savedPath ? <Text dimColor wrap="truncate-middle">{telemetry.savedPath}</Text> : null}
         </Box>
-        <Box marginTop={1}>
+        <Box marginTop={1} flexDirection="column">
           <Text color={handoff.tone === "red" ? "red" : handoff.tone === "green" ? "green" : undefined} dimColor={handoff.tone === "dim"}>
             {handoff.text}
           </Text>
