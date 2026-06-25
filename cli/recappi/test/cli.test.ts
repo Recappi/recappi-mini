@@ -120,7 +120,11 @@ describe("recappi CLI contract", () => {
         recordRuntime: fake.runtime,
         runDashboard: async (deps) => {
           dashboardCalls += 1;
-          const session = await deps.startLiveRecord?.();
+          const session = await deps.startLiveRecord?.({
+            sourceId: "system",
+            includeMicrophone: true,
+            sceneId: "default",
+          });
           expect(session?.source).toBe(fake.client);
           await session?.stop();
         },

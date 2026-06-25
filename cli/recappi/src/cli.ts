@@ -113,24 +113,27 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         recordingAudio,
         listDownloadedRecordingIds: () => recordingAudio.listDownloadedRecordingIds(),
         listDownloads: () => recordingAudio.listDownloads(),
-        startLiveRecord: async () => {
+        startLiveRecord: async (selection) => {
           const liveStatus = await client.authStatus();
           if (!liveStatus.loggedIn || !liveStatus.userId) {
             throw cliError("auth.not_logged_in", "Sign in before starting a sidecar recording.", {
               hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
             });
           }
-          return startLiveRecordSession({
-            account: {
-              backendOrigin: auth.origin,
-              userId: liveStatus.userId,
-              ...(liveStatus.email ? { email: liveStatus.email } : {}),
+          return startLiveRecordSession(
+            {
+              account: {
+                backendOrigin: auth.origin,
+                userId: liveStatus.userId,
+                ...(liveStatus.email ? { email: liveStatus.email } : {}),
+              },
+              cliVersion: CLI_VERSION,
+              env: deps.env,
+              homeDir: deps.homeDir,
+              runtime: deps.recordRuntime,
             },
-            cliVersion: CLI_VERSION,
-            env: deps.env,
-            homeDir: deps.homeDir,
-            runtime: deps.recordRuntime,
-          });
+            selection,
+          );
         },
         initialView: parsed.initialView,
       });

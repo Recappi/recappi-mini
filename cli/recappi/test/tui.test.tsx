@@ -20,6 +20,8 @@ import { LiveCaptionsView } from "../src/tui/LiveCaptionsView";
 import { PermissionPreflightView } from "../src/tui/PermissionPreflightView";
 import { LiveCaptionsScreen } from "../src/tui/LiveCaptionsScreen";
 import { RecordingScreen } from "../src/tui/RecordingScreen";
+import { RecordSetupView } from "../src/tui/RecordSetupView";
+import { RecordingHeroScreen } from "../src/tui/RecordingHeroScreen";
 import {
   liveCaptionReducer,
   initialLiveCaptionsState,
@@ -481,6 +483,80 @@ describe("views render", () => {
     expect(frame).toContain("LIVE");
     expect(frame).toContain("live words here");
   });
+  it("RecordSetupView lists sources, toggles mic, and starts with the selection", async () => {
+    const onStart = vi.fn();
+    const onCancel = vi.fn();
+    const model = {
+      sources: [
+        { id: "sys", kind: "system" as const, label: "System audio" },
+        { id: "app1", kind: "app" as const, label: "Google Meet — Arc", appName: "Arc" },
+        { id: "mic", kind: "microphone" as const, label: "Microphone only" },
+      ],
+      scenes: [{ id: "default", label: "Default" }],
+      previewLevel: 0.5,
+    };
+    const { lastFrame, stdin } = render(
+      <RecordSetupView model={model} onStart={onStart} onCancel={onCancel} />,
+    );
+    await flush();
+    const frame = noAnsi(lastFrame());
+    expect(frame).toContain("New recording");
+    expect(frame).toContain("System audio");
+    expect(frame).toContain("Google Meet — Arc");
+    expect(frame).toContain("include mic"); // system source → mic toggle shown
+    // move to mic-only source → mic toggle becomes "Microphone is the source"
+    stdin.write("[B"); // down → app
+    stdin.write("[B"); // down → microphone only
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Microphone is the source");
+    // back up to system + start
+    stdin.write("[A");
+    stdin.write("[A");
+    await flush();
+    stdin.write("\r"); // start
+    await flush();
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceId: "sys", sceneId: "default" }),
+    );
+  });
+  it("RecordingHeroScreen renders the recording hero and the saved state", () => {
+    const recording = render(
+      <RecordingHeroScreen
+        telemetry={{
+          status: "recording",
+          startedAtMs: 0,
+          sourceLabel: "System audio · Google Meet (Arc)",
+          micEnabled: true,
+          level: { system: 0.6, mic: 0.3 },
+        }}
+        now={() => 42_000}
+      />,
+    );
+    const rf = noAnsi(recording.lastFrame());
+    expect(rf).toContain("recappi");
+    expect(rf).toContain("REC");
+    expect(rf).toContain("00:42");
+    expect(rf).toContain("Google Meet");
+    expect(rf).toContain("Microphone");
+    expect(rf).not.toContain("Waiting for captions");
+
+    const stopped = render(
+      <RecordingHeroScreen
+        telemetry={{
+          status: "stopped",
+          sourceLabel: "System audio",
+          micEnabled: false,
+          durationMs: 42_000,
+          sizeBytes: 1_200_000,
+          savedPath: "/Users/x/rec.m4a",
+        }}
+        now={() => 0}
+      />,
+    );
+    const sf = noAnsi(stopped.lastFrame());
+    expect(sf).toContain("Saved to your Mac");
+    expect(sf).toContain("Transcribe now");
+  });
   it("RecordingScreen shows local recording status, not captions waiting copy", async () => {
     let emit: (e: unknown) => void = () => {};
     const source = {
@@ -733,6 +809,8 @@ describe("AppShell (interactive)", () => {
     expect(frame).toContain("Recappi");
     expect(frame).toContain("Recordings"); // stats bar
     expect(frame).toContain("Design review"); // recordings list on the Overview
+    expect(frame).toContain("n record");
+    expect(frame).not.toContain("4 Record");
     unmount();
   });
 
@@ -751,27 +829,50 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
-  it("starts and stops a local record session from key 4", async () => {
-    const stop = vi.fn().mockResolvedValue(undefined);
+  it("starts and stops a local record session from the new-record setup flow", async () => {
+    const stop = vi.fn().mockResolvedValue({
+      origin: "https://api.recappi.com",
+      userId: "u_1",
+      live: false,
+      sessionId: "session_1",
+      state: "completed",
+      artifacts: [
+        {
+          kind: "recording_session",
+          localPath: "/tmp/recappi/session",
+          metadata: { audioPath: "/tmp/recappi/session/recording.m4a" },
+        },
+      ],
+    });
     const startLiveRecord = vi.fn().mockResolvedValue({
       source: { onEvent: () => () => {} },
       stop,
     });
     const { lastFrame, stdin, unmount } = setup({ startLiveRecord });
     await flush();
-    stdin.write("4");
+    stdin.write("n");
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("New recording");
+    stdin.write("\r");
     await flush();
     await waitFor(() => {
       expect(startLiveRecord).toHaveBeenCalledTimes(1);
+      expect(startLiveRecord).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceId: "system",
+          includeMicrophone: true,
+          sceneId: "default",
+        }),
+      );
       const frame = noAnsi(lastFrame());
-      expect(frame).toContain("Starting recording");
+      expect(frame).toContain("REC");
       expect(frame).not.toContain("Waiting for captions");
     });
     stdin.write("q");
     await flush();
     await waitFor(() => {
       expect(stop).toHaveBeenCalledTimes(1);
-      expect(noAnsi(lastFrame())).toContain("Recappi");
+      expect(noAnsi(lastFrame())).toContain("Saved to your Mac");
     });
     unmount();
   });

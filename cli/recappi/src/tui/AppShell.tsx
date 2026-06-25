@@ -6,8 +6,10 @@ import type {
   DashboardStatsData,
   JobListData,
   JobListItem,
+  RecordCommandData,
   RecordingData,
   RecordingListData,
+  SidecarEvent,
   TranscriptData,
   TranscriptSummary,
 } from "../../../packages/contracts/src/index";
@@ -23,8 +25,27 @@ import { RecordingDetailView, type AudioAction, type DetailTranscript } from "./
 import { TranscriptView } from "./TranscriptView";
 import { LiveCaptionsScreen, type LiveCaptionEventSource } from "./LiveCaptionsScreen";
 import { PermissionPreflightView, type PermissionItem } from "./PermissionPreflightView";
-import { RecordingScreen } from "./RecordingScreen";
-import { resolveJobLinks, resolveRecordingLinks, listWindow, groupedListWindow, dateBucket } from "./format";
+import { RecordSetupView, type RecordSetupModel } from "./RecordSetupView";
+import { RecordingHeroScreen } from "./RecordingHeroScreen";
+import {
+  DEFAULT_RECORDING_SCENES,
+  DEFAULT_RECORDING_SELECTION,
+  DEFAULT_RECORDING_SOURCES,
+  applyRecordingEventToTelemetry,
+  artifactTelemetryPatch,
+  recordingArtifactFromRecordData,
+  recordingCaptureMappingFromSelection,
+  type RecordingArtifact,
+  type RecordingInputSelection,
+  type RecordingTelemetry,
+} from "../recordingCore";
+import {
+  resolveJobLinks,
+  resolveRecordingLinks,
+  listWindow,
+  groupedListWindow,
+  dateBucket,
+} from "./format";
 import { useTerminalSize } from "./terminal";
 
 const RECORDINGS_PAGE_SIZE = 50;
@@ -43,7 +64,7 @@ export interface AppShellProps {
   fetchAccountStatus?: () => Promise<AccountStatusData>;
   recordingAudio?: RecordingAudioRuntime;
   listDownloadedRecordingIds?: () => Promise<Set<string>>;
-  startLiveRecord?: () => Promise<DashboardLiveRecordSession>;
+  startLiveRecord?: (selection: RecordingInputSelection) => Promise<DashboardLiveRecordSession>;
   initialView?: TabKey;
   // Side effects, injected so tests stay pure and the component has no Node deps.
   openUrl?: (url: string) => void;
@@ -56,22 +77,46 @@ export interface AppShellProps {
 export interface DashboardLiveRecordSession {
   mode?: "local" | "live_captions";
   source: LiveCaptionEventSource;
-  stop: () => Promise<void>;
+  stop: () => Promise<RecordCommandData>;
 }
 
 type Screen =
   | { kind: "overview" }
   | { kind: "jobs" }
   | { kind: "account" }
+  | { kind: "recordSetup" }
   | { kind: "record" }
   | { kind: "jobDetail"; jobId: string }
   | { kind: "recordingDetail"; recordingId: string }
   | { kind: "transcript"; loading: boolean; data?: TranscriptData; error?: string };
 
 type LiveRecordState =
-  | { kind: "starting" }
-  | { kind: "live"; session: DashboardLiveRecordSession }
-  | { kind: "error"; message: string; code?: string; data?: unknown };
+  | { kind: "starting"; selection: RecordingInputSelection; telemetry: RecordingTelemetry }
+  | {
+      kind: "live";
+      session: DashboardLiveRecordSession;
+      telemetry: RecordingTelemetry;
+      selection: RecordingInputSelection;
+    }
+  | {
+      kind: "stopping";
+      session: DashboardLiveRecordSession;
+      telemetry: RecordingTelemetry;
+      selection: RecordingInputSelection;
+    }
+  | {
+      kind: "stopped";
+      telemetry: RecordingTelemetry;
+      artifact?: RecordingArtifact;
+      selection: RecordingInputSelection;
+    }
+  | {
+      kind: "error";
+      message: string;
+      code?: string;
+      data?: unknown;
+      selection?: RecordingInputSelection;
+    };
 
 // Map the record helper's stable error codes to friendly, platform-agnostic copy
 // for the Record tab — never expose internal terms (sidecar / env var / paths).
@@ -115,7 +160,10 @@ export function recordErrorCopy(
   }
 }
 
-export function recordErrorState(error: unknown): Extract<LiveRecordState, { kind: "error" }> {
+export function recordErrorState(
+  error: unknown,
+  selection?: RecordingInputSelection,
+): Extract<LiveRecordState, { kind: "error" }> {
   if (error instanceof Error) {
     const descriptor = isRecord(error) && isRecord(error.descriptor) ? error.descriptor : undefined;
     return {
@@ -128,9 +176,10 @@ export function recordErrorState(error: unknown): Extract<LiveRecordState, { kin
             ? error.code
             : undefined,
       data: isRecord(error) ? error.data : undefined,
+      ...(selection ? { selection } : {}),
     };
   }
-  return { kind: "error", message: String(error) };
+  return { kind: "error", message: String(error), ...(selection ? { selection } : {}) };
 }
 
 export function permissionItemsFromRecordError(data: unknown): PermissionItem[] {
@@ -199,7 +248,10 @@ export function AppShell({
   const [audioCache, setAudioCache] = useState<Map<string, AudioAction>>(() => new Map());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(() => new Set());
   const [liveRecord, setLiveRecord] = useState<LiveRecordState | undefined>(undefined);
-  const [recordRetryNonce, setRecordRetryNonce] = useState(0);
+  const recordSetupModel: RecordSetupModel = {
+    sources: DEFAULT_RECORDING_SOURCES,
+    scenes: DEFAULT_RECORDING_SCENES,
+  };
 
   // Which recordings have a local download in the account-scoped store (#253),
   // so rows can show an offline-available marker. Refreshed on load + after a
@@ -218,49 +270,109 @@ export function AppShell({
 
   const screen = stack[stack.length - 1]!;
 
+  const beginLiveRecord = useCallback(
+    (selection: RecordingInputSelection = DEFAULT_RECORDING_SELECTION) => {
+      const capture = recordingCaptureMappingFromSelection(selection, DEFAULT_RECORDING_SOURCES);
+      const telemetry: RecordingTelemetry = {
+        status: "starting",
+        startedAtMs: now(),
+        sourceLabel: capture.sourceLabel,
+        micEnabled: capture.micEnabled,
+      };
+      setStack((current) => {
+        const withoutSetup =
+          current[current.length - 1]?.kind === "recordSetup" ? current.slice(0, -1) : current;
+        return [...withoutSetup, { kind: "record" }];
+      });
+
+      if (!startLiveRecord) {
+        setLiveRecord({
+          kind: "error",
+          code: "record.helper_unavailable",
+          message: "Live recording is not available",
+          selection,
+        });
+        return;
+      }
+
+      setLiveRecord({ kind: "starting", selection, telemetry });
+      startLiveRecord(selection)
+        .then((session) => {
+          setLiveRecord((current) => {
+            if (current?.kind !== "starting") return current;
+            return {
+              kind: "live",
+              session,
+              selection,
+              telemetry: { ...current.telemetry, status: "recording" },
+            };
+          });
+        })
+        .catch((error) => {
+          setLiveRecord(recordErrorState(error, selection));
+        });
+    },
+    [now, startLiveRecord],
+  );
+
   const stopLiveRecord = useCallback(async () => {
     const current = liveRecord;
     if (current?.kind === "live") {
-      setLiveRecord({ kind: "starting" });
-      try {
-        await current.session.stop();
-      } catch (error) {
-        setNotice(error instanceof Error ? error.message : String(error));
-      }
-    }
-    setLiveRecord(undefined);
-    setStack([{ kind: "overview" }]);
-  }, [liveRecord]);
-
-  useEffect(() => {
-    if (screen.kind !== "record") return;
-    if (!startLiveRecord) {
+      const stoppingTelemetry: RecordingTelemetry = { ...current.telemetry, status: "stopping" };
       setLiveRecord({
-        kind: "error",
-        code: "record.helper_unavailable",
-        message: "Live recording is not available",
+        kind: "stopping",
+        session: current.session,
+        selection: current.selection,
+        telemetry: stoppingTelemetry,
       });
+      try {
+        const data = await current.session.stop();
+        const artifact = recordingArtifactFromRecordData(data);
+        const fallbackDuration =
+          current.telemetry.startedAtMs != null
+            ? Math.max(0, now() - current.telemetry.startedAtMs)
+            : undefined;
+        setLiveRecord({
+          kind: "stopped",
+          selection: current.selection,
+          artifact,
+          telemetry: {
+            ...stoppingTelemetry,
+            ...artifactTelemetryPatch(artifact),
+            ...(artifact.durationMs == null && fallbackDuration != null
+              ? { durationMs: fallbackDuration }
+              : {}),
+            status: "stopped",
+          },
+        });
+        void refreshDownloadedIds();
+      } catch (error) {
+        setLiveRecord({
+          kind: "error",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
       return;
     }
-    let cancelled = false;
-    setLiveRecord({ kind: "starting" });
-    startLiveRecord()
-      .then((session) => {
-        if (cancelled) {
-          void session.stop();
-          return;
-        }
-        setLiveRecord({ kind: "live", session });
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setLiveRecord(recordErrorState(error));
-        }
+    if (current?.kind === "stopped" || current?.kind === "error") setLiveRecord(undefined);
+    setStack([{ kind: "overview" }]);
+  }, [liveRecord, now, refreshDownloadedIds]);
+
+  const liveSession = liveRecord?.kind === "live" ? liveRecord.session : undefined;
+  useEffect(() => {
+    if (!liveSession) return;
+    const session = liveSession;
+    const unsubscribe = session.source.onEvent((event: SidecarEvent) => {
+      setLiveRecord((current) => {
+        if (current?.kind !== "live" || current.session !== session) return current;
+        return {
+          ...current,
+          telemetry: applyRecordingEventToTelemetry(current.telemetry, event),
+        };
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [screen.kind, startLiveRecord, recordRetryNonce]);
+    });
+    return unsubscribe;
+  }, [liveSession]);
 
   // Lazily fetch the selected recording's transcript summary for the peek panel,
   // debounced + cached by transcriptId so scrolling doesn't hammer the API.
@@ -473,16 +585,24 @@ export function AppShell({
 
   useInput((input, key) => {
     setNotice(undefined);
+    if (screen.kind === "recordSetup") {
+      if (input === "q" || key.leftArrow) back();
+      return;
+    }
     if (screen.kind === "record") {
       if (liveRecord?.kind === "error" && input === "r") {
-        setRecordRetryNonce((value) => value + 1);
+        beginLiveRecord(liveRecord.selection ?? DEFAULT_RECORDING_SELECTION);
         return;
       }
       if (liveRecord?.kind === "error" && input === "o") {
         openUrl?.(settingsUrlFromRecordError(liveRecord.data));
         return;
       }
-      if (input === "q" || key.escape || key.leftArrow) void stopLiveRecord();
+      if (liveRecord?.kind === "stopped" && key.return) {
+        setNotice("Transcribe handoff is coming next.");
+        return;
+      }
+      if (input === "q" || key.escape || key.leftArrow || input === "n") void stopLiveRecord();
       return;
     }
     if (input === "q") return exit();
@@ -490,7 +610,10 @@ export function AppShell({
     if (input === "1") return goTab("overview");
     if (input === "2") return goTab("jobs");
     if (input === "3") return goTab("account");
-    if (input === "4") return goTab("record");
+    if (input === "n") {
+      setStack((st) => [...st, { kind: "recordSetup" }]);
+      return;
+    }
     if (input === "r") return void refresh({ resetRecordings: true });
 
     if (screen.kind === "overview") {
@@ -568,20 +691,44 @@ export function AppShell({
       </Detail>
     );
   }
+  if (screen.kind === "recordSetup") {
+    return (
+      <Box flexDirection="column" height={size.rows} paddingX={1}>
+        <RecordSetupView
+          model={recordSetupModel}
+          onStart={beginLiveRecord}
+          onCancel={() =>
+            setStack((st) => (st.length > 1 ? st.slice(0, -1) : [{ kind: "overview" }]))
+          }
+        />
+      </Box>
+    );
+  }
   if (screen.kind === "record") {
     if (liveRecord?.kind === "live" && liveRecord.session.mode === "live_captions") {
       return <LiveCaptionsScreen source={liveRecord.session.source} now={now} />;
     }
+    if (
+      liveRecord?.kind === "live" ||
+      liveRecord?.kind === "starting" ||
+      liveRecord?.kind === "stopping" ||
+      liveRecord?.kind === "stopped"
+    ) {
+      return (
+        <Detail notice={notice}>
+          <RecordingHeroScreen telemetry={liveRecord.telemetry} now={now} />
+        </Detail>
+      );
+    }
     return (
       <Box flexDirection="column" height={size.rows} paddingX={1}>
-        <Header active="record" />
         <Box flexGrow={1} flexDirection="column" paddingX={1} paddingTop={1}>
-          {liveRecord?.kind === "live" ? (
-            <RecordingScreen source={liveRecord.session.source} now={now} />
-          ) : liveRecord?.kind === "error" ? (
+          {liveRecord?.kind === "error" ? (
             (() => {
               if (liveRecord.code === "record.permission_required") {
-                return <PermissionPreflightView items={permissionItemsFromRecordError(liveRecord.data)} />;
+                return (
+                  <PermissionPreflightView items={permissionItemsFromRecordError(liveRecord.data)} />
+                );
               }
               const copy = recordErrorCopy(liveRecord.code, liveRecord.message);
               return (
@@ -592,10 +739,10 @@ export function AppShell({
               );
             })()
           ) : (
-            <Text dimColor>Starting live recording…</Text>
+            <Text dimColor>Starting recording…</Text>
           )}
         </Box>
-        <Footer keys="q / esc / ← back" />
+        <Footer keys="r retry · o settings · q / esc / ← back" />
       </Box>
     );
   }
@@ -660,10 +807,10 @@ export function AppShell({
 
   const footerKeys =
     screen.kind === "jobs"
-      ? `${position}  ·  ↑↓ select · ⏎ job · t transcript · 1 overview · 3 account · 4 record · r refresh · q quit`
+      ? `${position}  ·  ↑↓ select · ⏎ job · t transcript · n record · 1 overview · 3 account · r refresh · q quit`
       : screen.kind === "account"
-        ? "3 account  ·  1 overview · 2 jobs · 4 record · r refresh · q quit"
-      : `${position}  ·  ↑↓ scroll · ⏎ open · t transcript · 2 jobs · 3 account · 4 record · r refresh · q quit`;
+        ? "3 account  ·  n record · 1 overview · 2 jobs · r refresh · q quit"
+      : `${position}  ·  ↑↓ scroll · ⏎ open · t transcript · n record · 2 jobs · 3 account · r refresh · q quit`;
 
   return (
     <Box flexDirection="column" height={size.rows} paddingX={1}>

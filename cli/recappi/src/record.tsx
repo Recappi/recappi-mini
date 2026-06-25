@@ -16,6 +16,12 @@ import {
 } from "../../packages/contracts/src/index";
 import { cliError } from "./errors";
 import {
+  DEFAULT_RECORDING_SOURCES,
+  recordingCaptureMappingFromSelection,
+  type RecordingInputSelection,
+  type RecordingSource,
+} from "./recordingCore";
+import {
   defaultSidecarHandshakeParams,
   spawnMiniSidecar,
   type SpawnedMiniSidecar,
@@ -64,7 +70,7 @@ export interface RecordLiveRenderer {
 export interface LiveRecordSession {
   mode?: "local" | "live_captions";
   source: LiveCaptionEventSource;
-  stop: () => Promise<void>;
+  stop: () => Promise<RecordCommandData>;
 }
 
 type LiveRendererRenderApp = (
@@ -111,14 +117,23 @@ export async function recordViaSidecar(opts: RecordCommandOptions): Promise<Reco
 
 export async function startLiveRecordSession(
   opts: Omit<RecordCommandOptions, "live" | "renderLive">,
+  selection: RecordingInputSelection = {
+    sourceId: DEFAULT_RECORDING_SOURCES[0]!.id,
+    includeMicrophone: true,
+  },
+  sources: RecordingSource[] = DEFAULT_RECORDING_SOURCES,
 ): Promise<LiveRecordSession> {
-  const session = await startRecordSession({ ...opts, live: false });
+  const capture = recordingCaptureMappingFromSelection(selection, sources);
+  const session = await startRecordSession({
+    ...opts,
+    includeSystemAudio: capture.includeSystemAudio,
+    includeMicrophone: capture.includeMicrophone,
+    live: false,
+  });
   return {
     mode: "local",
     source: session.source,
-    stop: async () => {
-      await session.stop();
-    },
+    stop: session.stop,
   };
 }
 

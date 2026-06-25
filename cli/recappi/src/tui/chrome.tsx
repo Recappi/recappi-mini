@@ -4,7 +4,7 @@ import { Box, Text } from "ink";
 export type TabKey = "overview" | "jobs" | "account" | "record";
 
 // Top bar: brand + numbered tabs. Overview is the recordings workbench; Jobs is
-// the transcription queue. The active tab is highlighted.
+// the transcription queue. Record is an action (`n`), not a tab.
 export function Header({ active }: { active: TabKey }): React.ReactElement {
   return (
     <Box>
@@ -14,7 +14,6 @@ export function Header({ active }: { active: TabKey }): React.ReactElement {
       <Tab num="1" label="Overview" active={active === "overview"} />
       <Tab num="2" label="Jobs" active={active === "jobs"} />
       <Tab num="3" label="Account" active={active === "account"} />
-      <Tab num="4" label="Record" active={active === "record"} />
     </Box>
   );
 }

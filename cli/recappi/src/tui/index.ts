@@ -7,11 +7,13 @@ import type {
   AccountStatusData,
   DashboardStatsData,
   JobListData,
+  RecordCommandData,
   RecordingListData,
   TranscriptData,
 } from "../../../packages/contracts/src/index";
 import { AppShell, type DashboardRecordingsPageOptions } from "./AppShell";
 import type { LiveCaptionEventSource } from "./LiveCaptionsScreen";
+import type { RecordingInputSelection } from "../recordingCore";
 import type { TabKey } from "./chrome";
 
 export { AppShell } from "./AppShell";
@@ -30,7 +32,7 @@ export interface RunDashboardDeps {
   recordingAudio?: RecordingAudioRuntime;
   listDownloadedRecordingIds?: () => Promise<Set<string>>;
   listDownloads?: () => Promise<LocalArtifact[]>;
-  startLiveRecord?: () => Promise<DashboardLiveRecordSession>;
+  startLiveRecord?: (selection: RecordingInputSelection) => Promise<DashboardLiveRecordSession>;
   initialView?: TabKey;
   renderApp?: DashboardRenderer;
 }
@@ -38,7 +40,7 @@ export interface RunDashboardDeps {
 export interface DashboardLiveRecordSession {
   mode?: "local" | "live_captions";
   source: LiveCaptionEventSource;
-  stop: () => Promise<void>;
+  stop: () => Promise<RecordCommandData>;
 }
 
 type DashboardRenderer = (
