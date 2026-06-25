@@ -68,7 +68,10 @@ export function RecordingHeroScreen({
           {telemetry.savedPath ? <Text dimColor wrap="truncate-middle">{telemetry.savedPath}</Text> : null}
         </Box>
         <Box marginTop={1}>
-          <Text dimColor>Transcribe now?  ⏎ yes · n not now · esc back</Text>
+          {/* Transcribe handoff (local artifact → upload/transcribe) isn't wired yet,
+              so don't dangle a "⏎ yes" that no-ops. Honest copy until it lands;
+              restore "Transcribe now? ⏎ yes" once the handoff works. */}
+          <Text dimColor>Transcription handoff coming soon · esc back</Text>
         </Box>
       </Box>
     );

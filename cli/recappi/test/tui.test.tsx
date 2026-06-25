@@ -555,7 +555,10 @@ describe("views render", () => {
     );
     const sf = noAnsi(stopped.lastFrame());
     expect(sf).toContain("Saved to your Mac");
-    expect(sf).toContain("Transcribe now");
+    // Transcribe handoff isn't wired yet, so the stopped screen must not dangle a
+    // "Transcribe now? ⏎ yes" that no-ops — honest "coming soon" copy instead.
+    expect(sf).toContain("Transcription handoff coming soon");
+    expect(sf).not.toContain("Transcribe now");
   });
   it("RecordingScreen shows local recording status, not captions waiting copy", async () => {
     let emit: (e: unknown) => void = () => {};
