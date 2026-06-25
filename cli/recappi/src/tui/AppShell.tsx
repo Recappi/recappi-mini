@@ -195,6 +195,46 @@ export function recordErrorState(
   return { kind: "error", message: String(error), ...(selection ? { selection } : {}) };
 }
 
+export function transcribeHandoffErrorCopy(error: unknown): string {
+  const descriptor = error instanceof Error && isRecord(error) && isRecord(error.descriptor)
+    ? error.descriptor
+    : undefined;
+  const code =
+    typeof descriptor?.code === "string"
+      ? descriptor.code
+      : isRecord(error) && typeof error.code === "string"
+        ? error.code
+        : undefined;
+
+  switch (code) {
+    case "auth.not_logged_in":
+      return "Sign in to Recappi before transcribing this recording.";
+    case "auth.unauthorized":
+      return "Your Recappi session needs attention. Sign in and retry.";
+    case "input.not_found":
+      return "The local recording file is no longer available.";
+    case "input.not_file":
+      return "The saved recording is not a readable audio file.";
+    case "input.unsupported_audio":
+      return "This recording format is not supported yet.";
+    case "input.duration_unavailable":
+      return "This recording could not be checked yet.";
+    case "cloud.conflict.upload_in_progress":
+      return "This recording is already being uploaded.";
+    case "cloud.recording_not_ready":
+      return "The recording is still being prepared. Try again shortly.";
+    case "cloud.job_failed":
+      return "Transcription failed on Recappi Cloud. Please try again.";
+    case "cloud.job_timed_out":
+      return "Transcription took too long. Please try again.";
+    case "cloud.http_error":
+    case "cloud.invalid_response":
+      return "Recappi Cloud could not start transcription. Please try again.";
+    default:
+      return "Could not start transcription. Please try again.";
+  }
+}
+
 export function permissionItemsFromRecordError(data: unknown): PermissionItem[] {
   const sidecarError = isRecord(data) ? data : undefined;
   const sidecarData = isRecord(sidecarError?.data) ? sidecarError.data : undefined;
@@ -511,7 +551,7 @@ export function AppShell({
           ...artifact,
           uploadStatus: "failed",
           transcriptionStatus: "failed",
-          error: error instanceof Error ? error.message : String(error),
+          error: transcribeHandoffErrorCopy(error),
         },
       });
       setNotice("Transcription failed. Press enter to retry.");

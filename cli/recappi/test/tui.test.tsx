@@ -38,6 +38,7 @@ import {
   permissionItemsFromRecordError,
   recordErrorCopy,
   recordErrorState,
+  transcribeHandoffErrorCopy,
   type AppShellProps,
 } from "../src/tui/AppShell";
 import { DASHBOARD_RENDER_OPTIONS, runDashboard, type RunDashboardDeps } from "../src/tui";
@@ -170,6 +171,22 @@ describe("record error copy", () => {
         hint: "Open System Settings > Privacy & Security > Microphone, then retry.",
       },
     ]);
+  });
+
+  it("maps transcribe handoff failures without leaking internal details", () => {
+    const notFound = Object.assign(new Error("ENOENT: /Users/private/rec.m4a"), {
+      descriptor: { code: "input.not_found" },
+    });
+    expect(transcribeHandoffErrorCopy(notFound)).toBe(
+      "The local recording file is no longer available.",
+    );
+
+    const raw = new Error("uploadPathBatch failed at /Users/private/rec.m4a\nstack: internal");
+    const copy = transcribeHandoffErrorCopy(raw);
+    expect(copy).toBe("Could not start transcription. Please try again.");
+    expect(copy).not.toContain("/Users/private");
+    expect(copy).not.toContain("uploadPathBatch");
+    expect(copy).not.toContain("stack");
   });
 });
 
@@ -945,6 +962,57 @@ describe("AppShell (interactive)", () => {
         expect.objectContaining({ audioPath: "/tmp/recappi/session/recording.m4a" }),
       );
       expect(noAnsi(lastFrame())).toContain("Transcription queued");
+    });
+    unmount();
+  });
+
+  it("sanitizes stopped-record transcribe failures before rendering them", async () => {
+    const stop = vi.fn().mockResolvedValue({
+      origin: "https://api.recappi.com",
+      userId: "u_1",
+      live: false,
+      sessionId: "session_1",
+      state: "completed",
+      artifacts: [
+        {
+          kind: "recording_session",
+          localPath: "/tmp/recappi/session",
+          metadata: { audioPath: "/tmp/recappi/session/recording.m4a" },
+        },
+      ],
+    });
+    const startLiveRecord = vi.fn().mockResolvedValue({
+      source: { onEvent: () => () => {} },
+      stop,
+    });
+    const transcribeRecordingArtifact = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("uploadPathBatch failed at /Users/private/recording.m4a\nstack: internal"),
+      );
+    const { lastFrame, stdin, unmount } = setup({
+      startLiveRecord,
+      transcribeRecordingArtifact,
+    });
+    await flush();
+    stdin.write("n");
+    await flush();
+    stdin.write("\r");
+    await flush();
+    stdin.write("q");
+    await flush();
+    await waitFor(() => {
+      expect(noAnsi(lastFrame())).toContain("Saved to your Mac");
+    });
+    stdin.write("\r");
+    await flush();
+    await waitFor(() => {
+      const frame = noAnsi(lastFrame());
+      expect(frame).toContain("Transcription failed · ⏎ retry");
+      expect(frame).toContain("Could not start transcription. Please try again.");
+      expect(frame).not.toContain("/Users/private");
+      expect(frame).not.toContain("uploadPathBatch");
+      expect(frame).not.toContain("stack");
     });
     unmount();
   });
