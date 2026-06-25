@@ -4,7 +4,7 @@ import type {
   SidecarRecordingState,
 } from "../../packages/contracts/src/index";
 
-export type RecordingSourceKind = "system" | "app" | "microphone";
+export type RecordingSourceKind = "system" | "app";
 export type RecordingSessionStatus =
   | "starting"
   | "recording"
@@ -113,17 +113,6 @@ export function recordingCaptureMappingFromSelection(
   const source = sources.find((candidate) => candidate.id === selection.sourceId) ?? sources[0];
   if (!source) {
     throw new Error("No recording sources are available.");
-  }
-
-  if (source.kind === "microphone") {
-    return {
-      source,
-      includeSystemAudio: false,
-      includeMicrophone: true,
-      ...(selection.microphoneDeviceId ? { microphoneDeviceId: selection.microphoneDeviceId } : {}),
-      sourceLabel: source.label,
-      micEnabled: true,
-    };
   }
 
   const microphoneDeviceId =

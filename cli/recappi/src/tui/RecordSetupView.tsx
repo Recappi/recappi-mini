@@ -8,15 +8,10 @@ import type {
 } from "../recordingCore";
 import { useTerminalSize } from "./terminal";
 
-export type RecordSource = RecordingSource;
-export type RecordScene = RecordingScene;
-export type RecordInputSelection = CoreRecordingInputSelection;
-export type RecordMicrophoneDevice = RecordingMicrophoneDevice;
-
 export interface RecordSetupModel {
-  sources: RecordSource[];
-  microphones?: RecordMicrophoneDevice[];
-  scenes: RecordScene[];
+  sources: RecordingSource[];
+  microphones?: RecordingMicrophoneDevice[];
+  scenes: RecordingScene[];
 }
 
 // Record setup mirrors the macOS app: source selects the system/app audio target,
@@ -27,7 +22,7 @@ export function RecordSetupView({
   onCancel,
 }: {
   model: RecordSetupModel;
-  onStart: (selection: RecordInputSelection) => void;
+  onStart: (selection: CoreRecordingInputSelection) => void;
   onCancel: () => void;
 }): React.ReactElement {
   const size = useTerminalSize();
@@ -76,7 +71,7 @@ export function RecordSetupView({
           </Text>
         );
       })}
-      {!hasAppSource ? <Text dimColor>App-specific capture coming soon</Text> : null}
+      {!hasAppSource ? <Text dimColor>No app-specific sources available right now</Text> : null}
     </Box>
   );
 

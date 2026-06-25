@@ -373,10 +373,10 @@ function assertSidecarCapabilities(
   }
   if (missing.length === 0) return;
 
-  throw cliError("record.capture_unavailable", "Recappi recording helper cannot capture yet.", {
+  throw cliError("record.capture_unavailable", "Recappi recording helper does not support capture.", {
     hint: `Found ${handshake.sidecar.name} ${handshake.sidecar.version}, but it did not advertise ${missing.join(
       ", ",
-    )}. Upgrade recappi when a helper build with native recording support ships, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
+    )}. Upgrade recappi, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
   });
 }
 

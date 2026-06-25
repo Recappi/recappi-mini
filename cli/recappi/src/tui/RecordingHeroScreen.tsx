@@ -2,12 +2,10 @@ import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import type {
   RecordingArtifact,
-  RecordingTelemetry as CoreRecordingTelemetry,
+  RecordingTelemetry,
 } from "../recordingCore";
 import { formatBytes, formatClockMs } from "./format";
 import { useTerminalSize } from "./terminal";
-
-export type RecordingTelemetry = CoreRecordingTelemetry;
 
 const BLOCKS = " ▁▂▃▄▅▆▇█";
 

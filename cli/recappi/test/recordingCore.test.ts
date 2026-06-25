@@ -29,7 +29,7 @@ describe("recording core", () => {
         label: "System audio · all apps",
       }),
     ]);
-    expect(DEFAULT_RECORDING_SOURCES.some((source) => source.kind === "microphone")).toBe(false);
+    expect(DEFAULT_RECORDING_SOURCES.map((source) => source.kind)).toEqual(["system"]);
   });
 
   it("maps setup selection to helper capture options", () => {

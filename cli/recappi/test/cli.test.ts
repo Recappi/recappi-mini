@@ -590,7 +590,7 @@ describe("recappi CLI contract", () => {
       command: "record",
       error: {
         code: "record.capture_unavailable",
-        message: "Recappi recording helper cannot capture yet.",
+        message: "Recappi recording helper does not support capture.",
       },
     });
   });

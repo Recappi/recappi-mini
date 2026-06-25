@@ -118,8 +118,8 @@ describe("record error copy", () => {
     expect(recordErrorCopy("record.unsupported_platform", "x").title).toContain("supported");
     expect(recordErrorCopy("record.unsupported_platform", "x").detail).toContain("Recappi Mini");
     const captureUnavailable = recordErrorCopy("record.capture_unavailable", "x");
-    expect(captureUnavailable.title).toContain("ready");
-    expect(captureUnavailable.detail).toContain("Use the Recappi Mini app");
+    expect(captureUnavailable.title).toContain("local recorder");
+    expect(captureUnavailable.detail).toContain("Update recappi");
     const permissionRequired = recordErrorCopy("record.permission_required", "x");
     expect(permissionRequired.title).toContain("permission");
     expect(permissionRequired.detail).toContain("System Settings");
@@ -528,7 +528,7 @@ describe("views render", () => {
     expect(frame).toContain("New recording");
     expect(frame).toContain("System audio · all apps");
     expect(frame).toContain("Safari");
-    expect(frame).not.toContain("App-specific capture coming soon");
+    expect(frame).not.toContain("No app-specific sources available right now");
     expect(frame).toContain("[x] include mic");
     expect(frame).toContain("MacBook Pro Microphone");
     expect(frame).toContain("CAPTURE PLAN");
@@ -546,6 +546,25 @@ describe("views render", () => {
       expect.objectContaining({ sourceId: "sys", includeMicrophone: false, sceneId: "default" }),
     );
   });
+
+  it("RecordSetupView treats missing app sources as current state, not future work", async () => {
+    const { lastFrame } = render(
+      <RecordSetupView
+        model={{
+          sources: [{ id: "sys", kind: "system" as const, label: "System audio · all apps" }],
+          microphones: [],
+          scenes: [{ id: "default", label: "Default" }],
+        }}
+        onStart={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    await flush();
+    const frame = noAnsi(lastFrame());
+    expect(frame).toContain("No app-specific sources available right now");
+    expect(frame).not.toContain("coming soon");
+  });
+
   it("RecordingHeroScreen renders the recording hero and the saved state", () => {
     const recording = render(
       <RecordingHeroScreen

@@ -152,8 +152,8 @@ export function recordErrorCopy(
       };
     case "record.capture_unavailable":
       return {
-        title: "CLI recording isn't ready yet.",
-        detail: "Use the Recappi Mini app to record for now; CLI recording is coming soon.",
+        title: "This local recorder can't capture audio.",
+        detail: "Update recappi so the local recorder matches this CLI.",
         tone: "yellow",
       };
     case "record.permission_required":
