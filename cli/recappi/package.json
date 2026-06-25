@@ -6,8 +6,7 @@
     "recappi": "./dist/index.js"
   },
   "files": [
-    "dist",
-    "helpers"
+    "dist"
   ],
   "type": "module",
   "publishConfig": {
@@ -29,6 +28,9 @@
     "ink": "^7.1.0",
     "music-metadata": "^11.10.3",
     "react": "^19.2.7"
+  },
+  "optionalDependencies": {
+    "recappi-helper-darwin-arm64": "0.1.0"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.4",

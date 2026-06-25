@@ -1,5 +1,6 @@
 packages:
   - cli/recappi
+  - cli/helpers/*
   - cli/packages/*
 
 catalog:

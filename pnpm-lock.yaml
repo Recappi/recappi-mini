@@ -12,6 +12,8 @@ importers:
 
   .: {}
 
+  cli/helpers/darwin-arm64: {}
+
   cli/packages/contracts:
     dependencies:
       zod:

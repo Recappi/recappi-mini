@@ -22,8 +22,14 @@ on:
       - main
     paths:
       - ".github/workflows/release-cli.yml"
+      - "Package.swift"
+      - "RecappiMiniSidecar/**"
+      - "scripts/build-cli-helper.sh"
       - "cli/recappi/**"
+      - "cli/helpers/**"
       - "cli/packages/contracts/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
     tags:
       - "recappi-v*"
 
@@ -115,7 +121,14 @@ jobs:
           CODESIGN_IDENTITY: ${{ env.DEVELOPER_ID_IDENTITY }}
           RELEASE: "1"
 
+      - run: pnpm --filter recappi-helper-darwin-arm64 pack:check
+
       - run: pnpm --filter recappi pack:check
+
+      - name: Publish Darwin arm64 helper
+        run: pnpm --filter recappi-helper-darwin-arm64 publish --access public --no-git-checks --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish recappi
         run: pnpm --filter recappi publish --access public --no-git-checks --tag "${{ github.event.inputs.npm_tag || 'latest' }}"

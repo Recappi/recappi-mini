@@ -1,5 +1,7 @@
 import React from "react";
 import { chmodSync, existsSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { render, useInput, type Instance, type RenderOptions as InkRenderOptions } from "ink";
 import {
@@ -22,6 +24,7 @@ import { LiveCaptionsScreen, type LiveCaptionEventSource } from "./tui/LiveCapti
 
 const SIDECAR_COMMAND_ENV = "RECAPPI_MINI_SIDECAR";
 const SIDECAR_HELPER_NAME = "RecappiMiniSidecar";
+const requireFromCli = createRequire(import.meta.url);
 
 export interface RecordCommandOptions {
   account: SidecarAccount;
@@ -291,6 +294,11 @@ export function bundledSidecarCommand(
 ): string | null {
   const executable = helperExecutableName(platform);
   if (!executable) return null;
+  const helperPackage = helperPackageName(platform, arch);
+  if (helperPackage) {
+    const packageJson = resolveOptionalHelperPackage(helperPackage);
+    if (packageJson) return join(dirname(packageJson), executable);
+  }
   const packageRoot = new URL("..", import.meta.url);
   return fileURLToPath(new URL(`helpers/${platform}-${arch}/${executable}`, packageRoot));
 }
@@ -299,6 +307,19 @@ function helperExecutableName(platform: NodeJS.Platform): string | null {
   if (platform === "darwin") return SIDECAR_HELPER_NAME;
   if (platform === "win32") return `${SIDECAR_HELPER_NAME}.exe`;
   return null;
+}
+
+function helperPackageName(platform: NodeJS.Platform, arch: string): string | null {
+  if (platform === "darwin" && arch === "arm64") return "recappi-helper-darwin-arm64";
+  return null;
+}
+
+function resolveOptionalHelperPackage(packageName: string): string | null {
+  try {
+    return requireFromCli.resolve(`${packageName}/package.json`);
+  } catch {
+    return null;
+  }
 }
 
 function persistArtifacts(

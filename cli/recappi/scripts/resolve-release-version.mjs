@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 
 const packageUrl = new URL("../package.json", import.meta.url);
 const pkg = JSON.parse(await readFile(packageUrl, "utf8"));
+const helperPackageUrls = [new URL("../../helpers/darwin-arm64/package.json", import.meta.url)];
 
 const requestedVersion = process.env.RECAPPI_CLI_VERSION?.trim();
 const tagVersion = process.env.GITHUB_REF_NAME?.startsWith("recappi-v")
@@ -13,7 +14,17 @@ const resolvedVersion =
   requestedVersion || tagVersion || resolveNextStableVersion(pkg.name, pkg.version);
 
 pkg.version = resolvedVersion;
+pkg.optionalDependencies = {
+  ...pkg.optionalDependencies,
+  "recappi-helper-darwin-arm64": resolvedVersion,
+};
 await writeFile(packageUrl, `${JSON.stringify(pkg, null, 2)}\n`);
+
+for (const helperPackageUrl of helperPackageUrls) {
+  const helperPkg = JSON.parse(await readFile(helperPackageUrl, "utf8"));
+  helperPkg.version = resolvedVersion;
+  await writeFile(helperPackageUrl, `${JSON.stringify(helperPkg, null, 2)}\n`);
+}
 
 console.log(`Publishing ${pkg.name}@${resolvedVersion}`);
 if (process.env.GITHUB_OUTPUT) {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile, access, mkdir, stat } from "node:fs/promises";
+import { mkdtemp, rm, readFile, access, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -38,35 +38,35 @@ try {
   if (typeof bin !== "string") throw new Error("package.json missing bin.recappi");
   const binPath = join(outDir, "package", bin);
   await access(binPath);
-  const darwinHelpers = ["darwin-arm64", "darwin-x64"];
-  const packagedDarwinHelpers = [];
-  for (const platform of darwinHelpers) {
-    const helperPath = join(outDir, "package", "helpers", platform, "RecappiMiniSidecar");
-    try {
-      const helperStat = await stat(helperPath);
-      if (!helperStat.isFile()) continue;
-      packagedDarwinHelpers.push(platform);
-    } catch (error) {
-      if (
-        !error ||
-        typeof error !== "object" ||
-        !("code" in error) ||
-        error.code !== "ENOENT"
-      ) {
-        throw error;
-      }
-    }
+  if (pkg.optionalDependencies?.["recappi-helper-darwin-arm64"] !== pkg.version) {
+    throw new Error("recappi optional helper dependency must match package version");
   }
-  if (packagedDarwinHelpers.length === 0) {
-    throw new Error(
-      "Packed package is missing a darwin RecappiMiniSidecar helper. Run scripts/build-cli-helper.sh before pack/publish.",
-    );
+  try {
+    await access(join(outDir, "package", "helpers", "darwin-arm64", "RecappiMiniSidecar"));
+    throw new Error("recappi package must not bundle darwin helper binaries directly");
+  } catch (error) {
+    if (
+      !error ||
+      typeof error !== "object" ||
+      !("code" in error) ||
+      error.code !== "ENOENT"
+    ) {
+      throw error;
+    }
   }
   const consumerDir = join(outDir, "consumer");
   await mkdir(consumerDir);
   const install = spawnSync(
     "npm",
-    ["install", tarPath, "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
+    [
+      "install",
+      tarPath,
+      "--omit=dev",
+      "--omit=optional",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+    ],
     {
       cwd: consumerDir,
       encoding: "utf8",

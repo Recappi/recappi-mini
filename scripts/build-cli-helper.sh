@@ -28,7 +28,7 @@ cd "$PROJECT_DIR"
 swift build "${BUILD_ARGS[@]}"
 BUILD_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 
-DEST_DIR="$PROJECT_DIR/cli/recappi/helpers/darwin-$NPM_ARCH"
+DEST_DIR="$PROJECT_DIR/cli/helpers/darwin-$NPM_ARCH"
 DEST="$DEST_DIR/$PRODUCT_NAME"
 mkdir -p "$DEST_DIR"
 cp "$BUILD_DIR/$PRODUCT_NAME" "$DEST"
