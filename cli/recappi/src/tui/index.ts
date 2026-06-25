@@ -10,10 +10,16 @@ import type {
   RecordCommandData,
   RecordingListData,
   TranscriptData,
+  UploadSuccess,
 } from "../../../packages/contracts/src/index";
 import { AppShell, type DashboardRecordingsPageOptions } from "./AppShell";
 import type { LiveCaptionEventSource } from "./LiveCaptionsScreen";
-import type { RecordingInputSelection } from "../recordingCore";
+import type {
+  RecordingArtifact,
+  RecordingInputSelection,
+  RecordingMicrophoneDevice,
+  RecordingSource,
+} from "../recordingCore";
 import type { TabKey } from "./chrome";
 
 export { AppShell } from "./AppShell";
@@ -32,7 +38,12 @@ export interface RunDashboardDeps {
   recordingAudio?: RecordingAudioRuntime;
   listDownloadedRecordingIds?: () => Promise<Set<string>>;
   listDownloads?: () => Promise<LocalArtifact[]>;
-  startLiveRecord?: (selection: RecordingInputSelection) => Promise<DashboardLiveRecordSession>;
+  fetchRecordSetup?: () => Promise<DashboardRecordSetupModel>;
+  startLiveRecord?: (
+    selection: RecordingInputSelection,
+    sources: RecordingSource[],
+  ) => Promise<DashboardLiveRecordSession>;
+  transcribeRecordingArtifact?: (artifact: RecordingArtifact) => Promise<UploadSuccess>;
   initialView?: TabKey;
   renderApp?: DashboardRenderer;
 }
@@ -41,6 +52,11 @@ export interface DashboardLiveRecordSession {
   mode?: "local" | "live_captions";
   source: LiveCaptionEventSource;
   stop: () => Promise<RecordCommandData>;
+}
+
+export interface DashboardRecordSetupModel {
+  sources: RecordingSource[];
+  microphones?: RecordingMicrophoneDevice[];
 }
 
 type DashboardRenderer = (
@@ -89,7 +105,9 @@ export async function runDashboard(deps: RunDashboardDeps): Promise<void> {
       fetchAccountStatus: deps.fetchAccountStatus,
       recordingAudio: deps.recordingAudio,
       listDownloadedRecordingIds: deps.listDownloadedRecordingIds,
+      fetchRecordSetup: deps.fetchRecordSetup,
       startLiveRecord: deps.startLiveRecord,
+      transcribeRecordingArtifact: deps.transcribeRecordingArtifact,
       initialView: deps.initialView ?? "overview",
       openUrl,
       copyText,

@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
-import type { RecordingTelemetry as CoreRecordingTelemetry } from "../recordingCore";
+import type {
+  RecordingArtifact,
+  RecordingTelemetry as CoreRecordingTelemetry,
+} from "../recordingCore";
 import { formatBytes, formatClockMs } from "./format";
 import { useTerminalSize } from "./terminal";
 
@@ -26,10 +29,14 @@ function waveform(samples: number[], width: number): string {
 // terminals truncate gracefully. Used while mode=local recording.
 export function RecordingHeroScreen({
   telemetry,
+  artifact,
+  canTranscribe = false,
   canPause = false,
   now = () => Date.now(),
 }: {
   telemetry: RecordingTelemetry;
+  artifact?: RecordingArtifact;
+  canTranscribe?: boolean;
   canPause?: boolean;
   now?: () => number;
 }): React.ReactElement {
@@ -53,6 +60,7 @@ export function RecordingHeroScreen({
   const innerWidth = Math.max(10, size.columns - 4);
 
   if (telemetry.status === "stopped") {
+    const handoff = stoppedHandoffCopy(artifact, canTranscribe);
     const meta = [
       telemetry.durationMs != null ? formatClockMs(telemetry.durationMs) : null,
       formatBytes(telemetry.sizeBytes) || null,
@@ -68,10 +76,10 @@ export function RecordingHeroScreen({
           {telemetry.savedPath ? <Text dimColor wrap="truncate-middle">{telemetry.savedPath}</Text> : null}
         </Box>
         <Box marginTop={1}>
-          {/* Transcribe handoff (local artifact → upload/transcribe) isn't wired yet,
-              so don't dangle a "⏎ yes" that no-ops. Honest copy until it lands;
-              restore "Transcribe now? ⏎ yes" once the handoff works. */}
-          <Text dimColor>Transcription handoff coming soon · esc back</Text>
+          <Text color={handoff.tone === "red" ? "red" : handoff.tone === "green" ? "green" : undefined} dimColor={handoff.tone === "dim"}>
+            {handoff.text}
+          </Text>
+          {artifact?.error ? <Text color="red" wrap="truncate-end">{artifact.error}</Text> : null}
         </Box>
       </Box>
     );
@@ -123,4 +131,29 @@ export function RecordingHeroScreen({
       </Box>
     </Box>
   );
+}
+
+function stoppedHandoffCopy(
+  artifact: RecordingArtifact | undefined,
+  canTranscribe: boolean,
+): { text: string; tone: "dim" | "green" | "red" | "normal" } {
+  if (artifact?.uploadStatus === "uploading") {
+    return { text: "Uploading…", tone: "normal" };
+  }
+  if (artifact?.transcriptionStatus === "processing") {
+    return { text: "Transcribing…", tone: "normal" };
+  }
+  if (artifact?.transcriptionStatus === "queued") {
+    return { text: "Transcription queued · ⏎ open recording · n not now", tone: "green" };
+  }
+  if (artifact?.transcriptionStatus === "ready") {
+    return { text: "Transcription ready · ⏎ open recording · n not now", tone: "green" };
+  }
+  if (artifact?.uploadStatus === "failed" || artifact?.transcriptionStatus === "failed") {
+    return { text: "Transcription failed · ⏎ retry · n not now", tone: "red" };
+  }
+  if (!canTranscribe || !artifact?.audioPath) {
+    return { text: "Saved locally · n back", tone: "dim" };
+  }
+  return { text: "Transcribe now? ⏎ yes · n not now", tone: "normal" };
 }

@@ -8,9 +8,11 @@ import {
   sidecarHandshakeParamsSchema,
   sidecarHandshakeResultSchema,
   sidecarJsonRpcIdSchema,
+  sidecarMicrophonesListResultSchema,
   sidecarNotificationSchema,
   sidecarPermissionStatusParamsSchema,
   sidecarPermissionStatusResultSchema,
+  sidecarRecordingSourcesListResultSchema,
   sidecarRecordingStartParamsSchema,
   sidecarRecordingStartResultSchema,
   sidecarRecordingStatusResultSchema,
@@ -22,8 +24,10 @@ import {
   type SidecarError,
   type SidecarHandshakeParams,
   type SidecarHandshakeResult,
+  type SidecarMicrophonesListResult,
   type SidecarPermissionStatusParams,
   type SidecarPermissionStatusResult,
+  type SidecarRecordingSourcesListResult,
   type SidecarRecordingStartParams,
   type SidecarRecordingStartResult,
   type SidecarRecordingStatusResult,
@@ -87,6 +91,22 @@ export class MiniSidecarClient {
       "recappi.handshake",
       sidecarHandshakeParamsSchema.parse(params),
       sidecarHandshakeResultSchema,
+    );
+  }
+
+  listRecordingSources(): Promise<SidecarRecordingSourcesListResult> {
+    return this.request(
+      "recappi.recording.sources.list",
+      {},
+      sidecarRecordingSourcesListResultSchema,
+    );
+  }
+
+  listMicrophones(): Promise<SidecarMicrophonesListResult> {
+    return this.request(
+      "recappi.recording.microphones.list",
+      {},
+      sidecarMicrophonesListResultSchema,
     );
   }
 

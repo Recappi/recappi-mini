@@ -35,11 +35,44 @@ The sidecar replies with its protocol version, app/sidecar version, and supporte
 ## Requests
 
 - `recappi.handshake`
+- `recappi.recording.sources.list`
+- `recappi.recording.microphones.list`
 - `recappi.permissions.status`
 - `recappi.recording.start`
 - `recappi.recording.stop`
 - `recappi.recording.cancel`
 - `recappi.recording.status`
+
+`recappi.recording.sources.list` returns helper-backed capture targets. The
+system source is always present; app sources are shown only when the helper can
+send `targetBundleId` back to native capture instead of falling back to system
+audio.
+
+```json
+{
+  "sources": [
+    { "id": "system", "kind": "system", "label": "System audio · all apps" },
+    {
+      "id": "app:com.apple.Safari",
+      "kind": "app",
+      "label": "Safari",
+      "appName": "Safari",
+      "bundleId": "com.apple.Safari"
+    }
+  ]
+}
+```
+
+`recappi.recording.microphones.list` returns selectable microphone devices for
+the additive microphone input:
+
+```json
+{
+  "microphones": [
+    { "id": "BuiltInMicrophoneDevice", "label": "MacBook Pro Microphone", "isDefault": true }
+  ]
+}
+```
 
 Permission status and recording start both use recording options. Permission
 status is a no-prompt preflight so the CLI/TUI can show a setup screen before a
@@ -50,6 +83,8 @@ recording attempt hits macOS TCC:
   "options": {
     "includeSystemAudio": true,
     "includeMicrophone": true,
+    "targetBundleId": "com.apple.Safari",
+    "microphoneDeviceId": "BuiltInMicrophoneDevice",
     "liveCaptions": false
   }
 }
@@ -67,6 +102,8 @@ Recording start params include the account partition and recording options:
   "options": {
     "includeSystemAudio": true,
     "includeMicrophone": true,
+    "targetBundleId": "com.apple.Safari",
+    "microphoneDeviceId": "BuiltInMicrophoneDevice",
     "liveCaptions": true,
     "translationLanguage": "zh",
     "title": "CLI recording"

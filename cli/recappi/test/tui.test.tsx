@@ -487,7 +487,20 @@ describe("views render", () => {
     const onStart = vi.fn();
     const onCancel = vi.fn();
     const model = {
-      sources: [{ id: "sys", kind: "system" as const, label: "System audio · all apps" }],
+      sources: [
+        { id: "sys", kind: "system" as const, label: "System audio · all apps" },
+        {
+          id: "app:com.apple.Safari",
+          kind: "app" as const,
+          label: "Safari",
+          appName: "Safari",
+          bundleId: "com.apple.Safari",
+        },
+      ],
+      microphones: [
+        { id: "mic_default", label: "MacBook Pro Microphone", isDefault: true },
+        { id: "mic_usb", label: "USB Mic" },
+      ],
       scenes: [{ id: "default", label: "Default" }],
     };
     const { lastFrame, stdin } = render(
@@ -497,11 +510,16 @@ describe("views render", () => {
     const frame = noAnsi(lastFrame());
     expect(frame).toContain("New recording");
     expect(frame).toContain("System audio · all apps");
-    expect(frame).toContain("App-specific capture coming soon");
+    expect(frame).toContain("Safari");
+    expect(frame).not.toContain("App-specific capture coming soon");
     expect(frame).toContain("[x] include mic");
+    expect(frame).toContain("MacBook Pro Microphone");
     expect(frame).toContain("CAPTURE PLAN");
     expect(frame).not.toContain("Microphone only");
     expect(frame).not.toContain("INPUT PREVIEW");
+    stdin.write("m");
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("USB Mic");
     stdin.write(" ");
     await flush();
     expect(noAnsi(lastFrame())).toContain("[ ] include mic");
@@ -547,10 +565,26 @@ describe("views render", () => {
     );
     const sf = noAnsi(stopped.lastFrame());
     expect(sf).toContain("Saved to your Mac");
-    // Transcribe handoff isn't wired yet, so the stopped screen must not dangle a
-    // "Transcribe now? ⏎ yes" that no-ops — honest "coming soon" copy instead.
-    expect(sf).toContain("Transcription handoff coming soon");
-    expect(sf).not.toContain("Transcribe now");
+    expect(sf).toContain("Saved locally");
+    stopped.rerender(
+      <RecordingHeroScreen
+        telemetry={{
+          status: "stopped",
+          sourceLabel: "System audio",
+          micEnabled: false,
+          savedPath: "/Users/x/rec.m4a",
+        }}
+        artifact={{
+          sessionId: "s",
+          audioPath: "/Users/x/rec.m4a",
+          uploadStatus: "local_only",
+          transcriptionStatus: "not_started",
+        }}
+        canTranscribe
+        now={() => 0}
+      />,
+    );
+    expect(noAnsi(stopped.lastFrame())).toContain("Transcribe now? ⏎ yes");
   });
   it("RecordingScreen shows local recording status, not captions waiting copy", async () => {
     let emit: (e: unknown) => void = () => {};
@@ -843,7 +877,17 @@ describe("AppShell (interactive)", () => {
       source: { onEvent: () => () => {} },
       stop,
     });
-    const { lastFrame, stdin, unmount } = setup({ startLiveRecord });
+    const transcribeRecordingArtifact = vi.fn().mockResolvedValue({
+      filePath: "/tmp/recappi/session/recording.m4a",
+      recordingId: "rec_new",
+      jobId: "job_new",
+      status: "queued",
+      origin: "https://recordmeet.ing",
+    });
+    const { lastFrame, stdin, unmount } = setup({
+      startLiveRecord,
+      transcribeRecordingArtifact,
+    });
     await flush();
     stdin.write("n");
     await flush();
@@ -858,6 +902,7 @@ describe("AppShell (interactive)", () => {
           includeMicrophone: true,
           sceneId: "default",
         }),
+        expect.arrayContaining([expect.objectContaining({ id: "system" })]),
       );
       const frame = noAnsi(lastFrame());
       expect(frame).toContain("REC");
@@ -868,6 +913,73 @@ describe("AppShell (interactive)", () => {
     await waitFor(() => {
       expect(stop).toHaveBeenCalledTimes(1);
       expect(noAnsi(lastFrame())).toContain("Saved to your Mac");
+    });
+    stdin.write("\r");
+    await flush();
+    await waitFor(() => {
+      expect(transcribeRecordingArtifact).toHaveBeenCalledWith(
+        expect.objectContaining({ audioPath: "/tmp/recappi/session/recording.m4a" }),
+      );
+      expect(noAnsi(lastFrame())).toContain("Transcription queued");
+    });
+    unmount();
+  });
+
+  it("uses helper-listed app sources and microphone devices in record setup", async () => {
+    const stop = vi.fn().mockResolvedValue({
+      origin: "https://api.recappi.com",
+      userId: "u_1",
+      live: false,
+      sessionId: "session_1",
+      state: "completed",
+      artifacts: [],
+    });
+    const startLiveRecord = vi.fn().mockResolvedValue({
+      source: { onEvent: () => () => {} },
+      stop,
+    });
+    const fetchRecordSetup = vi.fn().mockResolvedValue({
+      sources: [
+        { id: "system", kind: "system", label: "System audio · all apps" },
+        {
+          id: "app:com.apple.Safari",
+          kind: "app",
+          label: "Safari",
+          appName: "Safari",
+          bundleId: "com.apple.Safari",
+        },
+      ],
+      microphones: [
+        { id: "mic_default", label: "MacBook Pro Microphone", isDefault: true },
+        { id: "mic_usb", label: "USB Mic" },
+      ],
+    });
+
+    const { lastFrame, stdin, unmount } = setup({ fetchRecordSetup, startLiveRecord });
+    await flush();
+    stdin.write("n");
+    await waitFor(() => {
+      expect(fetchRecordSetup).toHaveBeenCalled();
+      expect(noAnsi(lastFrame())).toContain("Safari");
+    });
+    stdin.write(DOWN); // down: Safari
+    await flush();
+    stdin.write("m"); // USB Mic
+    await flush();
+    stdin.write("\r");
+    await flush();
+
+    await waitFor(() => {
+      expect(startLiveRecord).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceId: "app:com.apple.Safari",
+          includeMicrophone: true,
+          microphoneDeviceId: "mic_usb",
+        }),
+        expect.arrayContaining([
+          expect.objectContaining({ bundleId: "com.apple.Safari", label: "Safari" }),
+        ]),
+      );
     });
     unmount();
   });

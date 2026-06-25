@@ -46,10 +46,19 @@ describe("recording core", () => {
     });
 
     expect(
-      recordingCaptureMappingFromSelection({ sourceId: "meet", includeMicrophone: true }, sources),
+      recordingCaptureMappingFromSelection(
+        {
+          sourceId: "meet",
+          includeMicrophone: true,
+          microphoneDeviceId: "mic_default",
+        },
+        sources,
+      ),
     ).toMatchObject({
       includeSystemAudio: true,
       includeMicrophone: true,
+      targetBundleId: "company.thebrowser.Browser",
+      microphoneDeviceId: "mic_default",
       sourceLabel: "Google Meet - Arc",
       micEnabled: true,
     });

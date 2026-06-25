@@ -1,4 +1,5 @@
 import Accelerate
+import AppKit
 import AudioToolbox
 import AVFoundation
 import CoreAudio
@@ -41,6 +42,14 @@ private final class RecappiMiniSidecar {
                     "protocolVersion": protocolVersion,
                     "sidecar": sidecarInfo(),
                     "capabilities": ["recording.capture"],
+                ])
+            case "recappi.recording.sources.list":
+                result(id: id, [
+                    "sources": RecordingInputCatalog.sources(),
+                ])
+            case "recappi.recording.microphones.list":
+                result(id: id, [
+                    "microphones": RecordingInputCatalog.microphones(),
                 ])
             case "recappi.permissions.status":
                 let params = object["params"] as? [String: Any] ?? [:]
@@ -223,14 +232,80 @@ private final class RecappiMiniSidecar {
 private struct RecordingOptions {
     let includeSystemAudio: Bool
     let includeMicrophone: Bool
+    let targetBundleId: String?
+    let microphoneDeviceId: String?
     let liveCaptions: Bool
     let title: String?
 
     init(_ raw: [String: Any]) {
         includeSystemAudio = raw["includeSystemAudio"] as? Bool ?? true
         includeMicrophone = raw["includeMicrophone"] as? Bool ?? true
+        targetBundleId = raw["targetBundleId"] as? String
+        microphoneDeviceId = raw["microphoneDeviceId"] as? String
         liveCaptions = raw["liveCaptions"] as? Bool ?? false
         title = raw["title"] as? String
+    }
+}
+
+private enum RecordingInputCatalog {
+    static func sources() -> [[String: Any]] {
+        var output: [[String: Any]] = [
+            [
+                "id": "system",
+                "kind": "system",
+                "label": "System audio · all apps",
+            ],
+        ]
+        var seen = Set<String>()
+        let apps = NSWorkspace.shared.runningApplications
+            .filter { app in
+                app.activationPolicy == .regular && app.isTerminated == false && app.bundleIdentifier != nil
+            }
+            .sorted { lhs, rhs in
+                (lhs.localizedName ?? lhs.bundleIdentifier ?? "") < (rhs.localizedName ?? rhs.bundleIdentifier ?? "")
+            }
+
+        for app in apps {
+            guard let bundleId = app.bundleIdentifier,
+                  seen.insert(bundleId).inserted,
+                  CoreAudioProcessResolver.processObjectID(pid: app.processIdentifier) != nil
+            else { continue }
+            let appName = app.localizedName ?? bundleId
+            output.append([
+                "id": "app:\(bundleId)",
+                "kind": "app",
+                "label": appName,
+                "appName": appName,
+                "bundleId": bundleId,
+            ])
+        }
+        return output
+    }
+
+    static func microphones() -> [[String: Any]] {
+        let defaultId = AVCaptureDevice.default(for: .audio)?.uniqueID
+        let devices = microphoneDevices()
+        return devices
+            .sorted { lhs, rhs in
+                if lhs.uniqueID == defaultId { return true }
+                if rhs.uniqueID == defaultId { return false }
+                return lhs.localizedName < rhs.localizedName
+            }
+            .map { device in
+                [
+                    "id": device.uniqueID,
+                    "label": device.localizedName,
+                    "isDefault": device.uniqueID == defaultId,
+                ]
+            }
+    }
+
+    static func microphoneDevices() -> [AVCaptureDevice] {
+        AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.microphone],
+            mediaType: .audio,
+            position: .unspecified
+        ).devices
     }
 }
 
@@ -251,15 +326,22 @@ private struct LocalArtifact {
     let options: RecordingOptions
 
     var json: [String: Any] {
-        [
+        var metadata: [String: Any] = [
+            "audioPath": audioURL.path,
+            "includeSystemAudio": options.includeSystemAudio,
+            "includeMicrophone": options.includeMicrophone,
+            "source": "recappi-cli-sidecar",
+        ]
+        if let targetBundleId = options.targetBundleId {
+            metadata["targetBundleId"] = targetBundleId
+        }
+        if let microphoneDeviceId = options.microphoneDeviceId {
+            metadata["microphoneDeviceId"] = microphoneDeviceId
+        }
+        return [
             "kind": "recording_session",
             "localPath": sessionDir.path,
-            "metadata": [
-                "audioPath": audioURL.path,
-                "includeSystemAudio": options.includeSystemAudio,
-                "includeMicrophone": options.includeMicrophone,
-                "source": "recappi-cli-sidecar",
-            ],
+            "metadata": metadata,
         ]
     }
 }
@@ -308,7 +390,11 @@ private final class SidecarRecordingSession {
                 processingQueue: systemQueue
             )
             let output = SampleBufferAudioOutput(writer: writer)
-            let capture = SystemAudioCapture(output: output, captureQueue: systemQueue)
+            let capture = SystemAudioCapture(
+                output: output,
+                captureQueue: systemQueue,
+                targetBundleId: options.targetBundleId
+            )
             try await Task.detached(priority: .userInitiated) {
                 try capture.start()
             }.value
@@ -320,7 +406,11 @@ private final class SidecarRecordingSession {
                 finalURL: dir.appendingPathComponent("mic.caf"),
                 processingQueue: microphoneQueue
             )
-            let capture = MicrophoneCapture(writer: writer, queue: microphoneQueue)
+            let capture = MicrophoneCapture(
+                writer: writer,
+                queue: microphoneQueue,
+                deviceId: options.microphoneDeviceId
+            )
             try await capture.start()
             microphoneCapture = capture
         }
@@ -389,6 +479,12 @@ private final class SidecarRecordingSession {
             "includeMicrophone": options.includeMicrophone,
             "liveCaptions": options.liveCaptions,
         ]
+        if let targetBundleId = options.targetBundleId {
+            metadata["targetBundleId"] = targetBundleId
+        }
+        if let microphoneDeviceId = options.microphoneDeviceId {
+            metadata["microphoneDeviceId"] = microphoneDeviceId
+        }
         if let title = options.title {
             metadata["title"] = title
         }
@@ -566,19 +662,27 @@ private final class SampleBufferAudioOutput: @unchecked Sendable {
 private final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
     private let writer: SegmentedAudioWriter
     private let queue: DispatchQueue
+    private let deviceId: String?
     private var session: AVCaptureSession?
 
-    init(writer: SegmentedAudioWriter, queue: DispatchQueue) {
+    init(writer: SegmentedAudioWriter, queue: DispatchQueue, deviceId: String?) {
         self.writer = writer
         self.queue = queue
+        self.deviceId = deviceId
     }
 
     func start() async throws {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 do {
-                    guard let device = AVCaptureDevice.default(for: .audio) else {
-                        throw SidecarFailure(code: -32040, message: "No microphone is available.")
+                    guard let device = Self.resolveDevice(id: self.deviceId) else {
+                        throw SidecarFailure(
+                            code: -32040,
+                            message: self.deviceId == nil
+                                ? "No microphone is available."
+                                : "The selected microphone is no longer available.",
+                            data: ["cliCode": "record.capture_failed"]
+                        )
                     }
                     let captureSession = AVCaptureSession()
                     let input = try AVCaptureDeviceInput(device: device)
@@ -620,6 +724,17 @@ private final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleB
         try await writer.finishWriting()
     }
 
+    private static func resolveDevice(id: String?) -> AVCaptureDevice? {
+        if let id,
+           let device = RecordingInputCatalog.microphoneDevices().first(where: { $0.uniqueID == id }) {
+            return device
+        }
+        if id != nil {
+            return nil
+        }
+        return AVCaptureDevice.default(for: .audio)
+    }
+
     func captureOutput(
         _ output: AVCaptureOutput,
         didOutput sampleBuffer: CMSampleBuffer,
@@ -632,6 +747,7 @@ private final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleB
 private final class SystemAudioCapture: @unchecked Sendable {
     private let output: SampleBufferAudioOutput
     private let captureQueue: DispatchQueue
+    private let targetBundleId: String?
     private let stateQueue = DispatchQueue(label: "RecappiMiniSidecar.SystemAudio.state")
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
@@ -639,9 +755,10 @@ private final class SystemAudioCapture: @unchecked Sendable {
     private var sampleFactory: CoreAudioTapSampleBufferFactory?
     private var isStarted = false
 
-    init(output: SampleBufferAudioOutput, captureQueue: DispatchQueue) {
+    init(output: SampleBufferAudioOutput, captureQueue: DispatchQueue, targetBundleId: String?) {
         self.output = output
         self.captureQueue = captureQueue
+        self.targetBundleId = targetBundleId
     }
 
     deinit {
@@ -650,7 +767,7 @@ private final class SystemAudioCapture: @unchecked Sendable {
 
     func start() throws {
         guard !isStarted else { return }
-        let tapDescription = makeTapDescription()
+        let tapDescription = try makeTapDescription()
         var newTapID = AudioObjectID(kAudioObjectUnknown)
         try check(AudioHardwareCreateProcessTap(tapDescription, &newTapID), operation: "AudioHardwareCreateProcessTap")
         tapID = newTapID
@@ -719,13 +836,27 @@ private final class SystemAudioCapture: @unchecked Sendable {
         try await output.finishWriting()
     }
 
-    private func makeTapDescription() -> CATapDescription {
+    private func makeTapDescription() throws -> CATapDescription {
         let description = CATapDescription()
         description.name = "Recappi CLI System Audio Tap"
         description.isPrivate = true
         description.muteBehavior = .unmuted
         description.isMixdown = true
         description.isMono = false
+
+        if let targetBundleId {
+            let targets = CoreAudioProcessResolver.processObjectIDs(bundleId: targetBundleId)
+            guard !targets.isEmpty else {
+                throw SidecarFailure(
+                    code: -32043,
+                    message: "The selected app is no longer available for recording.",
+                    data: ["cliCode": "record.capture_failed"]
+                )
+            }
+            description.processes = targets
+            description.isExclusive = false
+            return description
+        }
 
         var excluded: [AudioObjectID] = []
         if let selfProcessID = CoreAudioProcessResolver.processObjectID(pid: getpid()) {
@@ -796,6 +927,12 @@ private final class SystemAudioCapture: @unchecked Sendable {
 }
 
 private enum CoreAudioProcessResolver {
+    static func processObjectIDs(bundleId: String) -> [AudioObjectID] {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.bundleIdentifier == bundleId && !$0.isTerminated }
+            .compactMap { processObjectID(pid: $0.processIdentifier) }
+    }
+
     static func processObjectID(pid: pid_t) -> AudioObjectID? {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,

@@ -12,6 +12,7 @@ import type {
   SidecarEvent,
   TranscriptData,
   TranscriptSummary,
+  UploadSuccess,
 } from "../../../packages/contracts/src/index";
 
 // Lazily-loaded summary state for the peek panel.
@@ -31,12 +32,14 @@ import {
   DEFAULT_RECORDING_SCENES,
   DEFAULT_RECORDING_SELECTION,
   DEFAULT_RECORDING_SOURCES,
+  type RecordingMicrophoneDevice,
   applyRecordingEventToTelemetry,
   artifactTelemetryPatch,
   recordingArtifactFromRecordData,
   recordingCaptureMappingFromSelection,
   type RecordingArtifact,
   type RecordingInputSelection,
+  type RecordingSource,
   type RecordingTelemetry,
 } from "../recordingCore";
 import {
@@ -64,7 +67,12 @@ export interface AppShellProps {
   fetchAccountStatus?: () => Promise<AccountStatusData>;
   recordingAudio?: RecordingAudioRuntime;
   listDownloadedRecordingIds?: () => Promise<Set<string>>;
-  startLiveRecord?: (selection: RecordingInputSelection) => Promise<DashboardLiveRecordSession>;
+  fetchRecordSetup?: () => Promise<DashboardRecordSetupModel>;
+  startLiveRecord?: (
+    selection: RecordingInputSelection,
+    sources: RecordingSource[],
+  ) => Promise<DashboardLiveRecordSession>;
+  transcribeRecordingArtifact?: (artifact: RecordingArtifact) => Promise<UploadSuccess>;
   initialView?: TabKey;
   // Side effects, injected so tests stay pure and the component has no Node deps.
   openUrl?: (url: string) => void;
@@ -78,6 +86,11 @@ export interface DashboardLiveRecordSession {
   mode?: "local" | "live_captions";
   source: LiveCaptionEventSource;
   stop: () => Promise<RecordCommandData>;
+}
+
+export interface DashboardRecordSetupModel {
+  sources: RecordingSource[];
+  microphones?: RecordingMicrophoneDevice[];
 }
 
 type Screen =
@@ -218,7 +231,9 @@ export function AppShell({
   fetchAccountStatus,
   recordingAudio,
   listDownloadedRecordingIds,
+  fetchRecordSetup,
   startLiveRecord,
+  transcribeRecordingArtifact,
   initialView = "overview",
   openUrl,
   copyText,
@@ -248,8 +263,13 @@ export function AppShell({
   const [audioCache, setAudioCache] = useState<Map<string, AudioAction>>(() => new Map());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(() => new Set());
   const [liveRecord, setLiveRecord] = useState<LiveRecordState | undefined>(undefined);
-  const recordSetupModel: RecordSetupModel = {
+  const [recordSetupInputs, setRecordSetupInputs] = useState<DashboardRecordSetupModel>({
     sources: DEFAULT_RECORDING_SOURCES,
+    microphones: [],
+  });
+  const recordSetupModel: RecordSetupModel = {
+    sources: recordSetupInputs.sources.length > 0 ? recordSetupInputs.sources : DEFAULT_RECORDING_SOURCES,
+    microphones: recordSetupInputs.microphones ?? [],
     scenes: DEFAULT_RECORDING_SCENES,
   };
 
@@ -272,7 +292,7 @@ export function AppShell({
 
   const beginLiveRecord = useCallback(
     (selection: RecordingInputSelection = DEFAULT_RECORDING_SELECTION) => {
-      const capture = recordingCaptureMappingFromSelection(selection, DEFAULT_RECORDING_SOURCES);
+      const capture = recordingCaptureMappingFromSelection(selection, recordSetupModel.sources);
       const telemetry: RecordingTelemetry = {
         status: "starting",
         startedAtMs: now(),
@@ -296,7 +316,7 @@ export function AppShell({
       }
 
       setLiveRecord({ kind: "starting", selection, telemetry });
-      startLiveRecord(selection)
+      startLiveRecord(selection, recordSetupModel.sources)
         .then((session) => {
           setLiveRecord((current) => {
             if (current?.kind !== "starting") return current;
@@ -312,7 +332,7 @@ export function AppShell({
           setLiveRecord(recordErrorState(error, selection));
         });
     },
-    [now, startLiveRecord],
+    [now, recordSetupModel.sources, startLiveRecord],
   );
 
   const stopLiveRecord = useCallback(async () => {
@@ -427,6 +447,76 @@ export function AppShell({
       setAccountStatus("error");
     }
   }, [fetchJobs, fetchRecordings, fetchDashboardStats, fetchAccountStatus]);
+
+  const transcribeStoppedRecording = useCallback(async () => {
+    const current = liveRecord;
+    if (current?.kind !== "stopped") return;
+    const artifact = current.artifact;
+    if (artifact?.recordingId && artifact.uploadStatus === "uploaded") {
+      await refresh({ resetRecordings: true });
+      setStack([{ kind: "overview" }, { kind: "recordingDetail", recordingId: artifact.recordingId }]);
+      return;
+    }
+    if (!artifact?.audioPath) {
+      setNotice("No local audio file is available to transcribe.");
+      return;
+    }
+    if (!transcribeRecordingArtifact) {
+      setNotice("Transcription is not available in this CLI session.");
+      return;
+    }
+
+    setLiveRecord({
+      ...current,
+      artifact: {
+        ...artifact,
+        uploadStatus: "uploading",
+        transcriptionStatus: "not_started",
+        error: undefined,
+      },
+    });
+    try {
+      const uploaded = await transcribeRecordingArtifact(artifact);
+      const transcriptionStatus =
+        uploaded.transcriptId != null || uploaded.status === "succeeded" || uploaded.status === "ready"
+          ? "ready"
+          : uploaded.status === "running"
+            ? "processing"
+            : uploaded.jobId
+              ? "queued"
+              : "not_started";
+      setLiveRecord({
+        ...current,
+        artifact: {
+          ...artifact,
+          recordingId: uploaded.recordingId,
+          ...(uploaded.jobId ? { jobId: uploaded.jobId } : {}),
+          ...(uploaded.transcriptId ? { transcriptId: uploaded.transcriptId } : {}),
+          uploadStatus: "uploaded",
+          transcriptionStatus,
+        },
+      });
+      setNotice(
+        transcriptionStatus === "ready"
+          ? "Transcription ready."
+          : uploaded.jobId
+            ? "Transcription queued."
+            : "Uploaded to Recappi Cloud.",
+      );
+      await refresh({ resetRecordings: true });
+    } catch (error) {
+      setLiveRecord({
+        ...current,
+        artifact: {
+          ...artifact,
+          uploadStatus: "failed",
+          transcriptionStatus: "failed",
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      setNotice("Transcription failed. Press enter to retry.");
+    }
+  }, [liveRecord, refresh, transcribeRecordingArtifact]);
 
   const loadMoreRecordings = useCallback(async () => {
     if (!fetchRecordings || !recordingsNextCursor || loadingMoreRecordings) return;
@@ -599,7 +689,7 @@ export function AppShell({
         return;
       }
       if (liveRecord?.kind === "stopped" && key.return) {
-        setNotice("Transcribe handoff is coming next.");
+        void transcribeStoppedRecording();
         return;
       }
       if (input === "q" || key.escape || key.leftArrow || input === "n") void stopLiveRecord();
@@ -612,6 +702,18 @@ export function AppShell({
     if (input === "3") return goTab("account");
     if (input === "n") {
       setStack((st) => [...st, { kind: "recordSetup" }]);
+      if (fetchRecordSetup) {
+        fetchRecordSetup()
+          .then((model) => {
+            setRecordSetupInputs({
+              sources: model.sources.length > 0 ? model.sources : DEFAULT_RECORDING_SOURCES,
+              microphones: model.microphones ?? [],
+            });
+          })
+          .catch(() => {
+            setRecordSetupInputs({ sources: DEFAULT_RECORDING_SOURCES, microphones: [] });
+          });
+      }
       return;
     }
     if (input === "r") return void refresh({ resetRecordings: true });
@@ -716,7 +818,12 @@ export function AppShell({
     ) {
       return (
         <Detail notice={notice}>
-          <RecordingHeroScreen telemetry={liveRecord.telemetry} now={now} />
+          <RecordingHeroScreen
+            telemetry={liveRecord.telemetry}
+            artifact={liveRecord.kind === "stopped" ? liveRecord.artifact : undefined}
+            canTranscribe={Boolean(transcribeRecordingArtifact)}
+            now={now}
+          />
         </Detail>
       );
     }

@@ -11,6 +11,8 @@ import {
   type SidecarAccount,
   type SidecarHandshakeResult,
   type SidecarLocalArtifact,
+  type SidecarMicrophoneDevice,
+  type SidecarRecordingSource,
   type SidecarPermissionItem,
   type SidecarRecordingState,
 } from "../../packages/contracts/src/index";
@@ -18,6 +20,7 @@ import { cliError } from "./errors";
 import {
   DEFAULT_RECORDING_SOURCES,
   recordingCaptureMappingFromSelection,
+  type RecordingMicrophoneDevice,
   type RecordingInputSelection,
   type RecordingSource,
 } from "./recordingCore";
@@ -42,6 +45,8 @@ export interface RecordCommandOptions {
   live?: boolean;
   includeSystemAudio?: boolean;
   includeMicrophone?: boolean;
+  targetBundleId?: string;
+  microphoneDeviceId?: string;
   translationLanguage?: string;
   transcriptionLanguage?: string;
   sidecarCommand?: string;
@@ -71,6 +76,19 @@ export interface LiveRecordSession {
   mode?: "local" | "live_captions";
   source: LiveCaptionEventSource;
   stop: () => Promise<RecordCommandData>;
+}
+
+export interface RecordInputOptions {
+  cliVersion: string;
+  env?: NodeJS.ProcessEnv;
+  sidecarCommand?: string;
+  sidecarArgs?: string[];
+  runtime?: Pick<RecordRuntimeDeps, "spawnSidecar">;
+}
+
+export interface RecordInputModel {
+  sources: RecordingSource[];
+  microphones: RecordingMicrophoneDevice[];
 }
 
 type LiveRendererRenderApp = (
@@ -128,6 +146,8 @@ export async function startLiveRecordSession(
     ...opts,
     includeSystemAudio: capture.includeSystemAudio,
     includeMicrophone: capture.includeMicrophone,
+    targetBundleId: capture.targetBundleId,
+    microphoneDeviceId: capture.microphoneDeviceId,
     live: false,
   });
   return {
@@ -135,6 +155,33 @@ export async function startLiveRecordSession(
     source: session.source,
     stop: session.stop,
   };
+}
+
+export async function listRecordInputs(opts: RecordInputOptions): Promise<RecordInputModel> {
+  const command = resolveSidecarCommand(opts);
+  const sidecarArgs = opts.sidecarArgs ?? [];
+  const spawnSidecar = opts.runtime?.spawnSidecar ?? spawnMiniSidecar;
+  const sidecar = spawnSidecar({ command, args: sidecarArgs, env: opts.env });
+  try {
+    await sidecar.client.handshake(
+      defaultSidecarHandshakeParams({
+        client: { name: "recappi-cli", version: opts.cliVersion },
+        capabilities: ["recording.capture"],
+      }),
+    );
+    const [sourceResult, microphoneResult] = await Promise.all([
+      sidecar.client.listRecordingSources(),
+      sidecar.client.listMicrophones(),
+    ]);
+    const sources = normalizeSidecarSources(sourceResult.sources);
+    const microphones = normalizeSidecarMicrophones(microphoneResult.microphones);
+    return {
+      sources: sources.length > 0 ? sources : DEFAULT_RECORDING_SOURCES,
+      microphones,
+    };
+  } finally {
+    sidecar.kill();
+  }
 }
 
 interface ActiveRecordSession {
@@ -201,6 +248,8 @@ async function startRecordSession(opts: RecordCommandOptions): Promise<ActiveRec
     const recordingOptions = {
       includeSystemAudio: opts.includeSystemAudio ?? true,
       includeMicrophone: opts.includeMicrophone ?? true,
+      ...(opts.targetBundleId ? { targetBundleId: opts.targetBundleId } : {}),
+      ...(opts.microphoneDeviceId ? { microphoneDeviceId: opts.microphoneDeviceId } : {}),
       liveCaptions: opts.live === true,
       ...(opts.translationLanguage ? { translationLanguage: opts.translationLanguage } : {}),
       ...(opts.transcriptionLanguage ? { transcriptionLanguage: opts.transcriptionLanguage } : {}),
@@ -256,6 +305,38 @@ async function startRecordSession(opts: RecordCommandOptions): Promise<ActiveRec
   }
 }
 
+function normalizeSidecarSources(sources: SidecarRecordingSource[]): RecordingSource[] {
+  const seen = new Set<string>();
+  const out: RecordingSource[] = [];
+  for (const source of sources) {
+    const id =
+      source.kind === "app" && source.bundleId ? `app:${source.bundleId}` : source.id || source.kind;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      kind: source.kind,
+      label: source.label,
+      ...(source.appName ? { appName: source.appName } : {}),
+      ...(source.bundleId ? { bundleId: source.bundleId } : {}),
+      canIncludeMicrophone: true,
+    });
+  }
+  return out;
+}
+
+function normalizeSidecarMicrophones(
+  microphones: SidecarMicrophoneDevice[],
+): RecordingMicrophoneDevice[] {
+  return microphones
+    .filter((device) => device.id && device.label)
+    .map((device) => ({
+      id: device.id,
+      label: device.label,
+      ...(device.isDefault === true ? { isDefault: true } : {}),
+    }));
+}
+
 function assertRecordingPermissions(permissions: SidecarPermissionItem[]): void {
   const blocked = permissions.find((permission) => permission.status !== "granted");
   if (!blocked) return;
@@ -299,7 +380,7 @@ function assertSidecarCapabilities(
   });
 }
 
-function resolveSidecarCommand(opts: RecordCommandOptions): string {
+function resolveSidecarCommand(opts: Pick<RecordCommandOptions, "sidecarCommand" | "env">): string {
   const command = opts.sidecarCommand?.trim() || opts.env?.[SIDECAR_COMMAND_ENV]?.trim();
   if (command) return command;
 

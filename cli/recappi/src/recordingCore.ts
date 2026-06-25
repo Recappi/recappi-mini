@@ -27,9 +27,16 @@ export interface RecordingScene {
   label: string;
 }
 
+export interface RecordingMicrophoneDevice {
+  id: string;
+  label: string;
+  isDefault?: boolean;
+}
+
 export interface RecordingInputSelection {
   sourceId: string;
   includeMicrophone: boolean;
+  microphoneDeviceId?: string;
   sceneId?: string;
   prompt?: string;
 }
@@ -64,6 +71,10 @@ export interface RecordingArtifact {
   audioPath?: string;
   durationMs?: number;
   sizeBytes?: number;
+  recordingId?: string;
+  jobId?: string;
+  transcriptId?: string;
+  error?: string;
   uploadStatus?: "local_only" | "queued" | "uploading" | "uploaded" | "failed";
   transcriptionStatus?: "not_started" | "queued" | "processing" | "ready" | "failed";
 }
@@ -72,6 +83,8 @@ export interface RecordingCaptureMapping {
   source: RecordingSource;
   includeSystemAudio: boolean;
   includeMicrophone: boolean;
+  targetBundleId?: string;
+  microphoneDeviceId?: string;
   sourceLabel: string;
   micEnabled: boolean;
 }
@@ -107,18 +120,22 @@ export function recordingCaptureMappingFromSelection(
       source,
       includeSystemAudio: false,
       includeMicrophone: true,
+      ...(selection.microphoneDeviceId ? { microphoneDeviceId: selection.microphoneDeviceId } : {}),
       sourceLabel: source.label,
       micEnabled: true,
     };
   }
 
+  const microphoneDeviceId =
+    selection.includeMicrophone && selection.microphoneDeviceId
+      ? selection.microphoneDeviceId
+      : undefined;
   return {
     source,
-    // Current helper support is system-wide capture. App-specific targeting is
-    // represented in the core model, then falls back to system capture until the
-    // Darwin adapter exposes a target app option.
     includeSystemAudio: true,
     includeMicrophone: selection.includeMicrophone,
+    ...(source.kind === "app" && source.bundleId ? { targetBundleId: source.bundleId } : {}),
+    ...(microphoneDeviceId ? { microphoneDeviceId } : {}),
     sourceLabel: source.label,
     micEnabled: selection.includeMicrophone,
   };

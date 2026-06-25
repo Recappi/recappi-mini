@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type {
   RecordingInputSelection as CoreRecordingInputSelection,
+  RecordingMicrophoneDevice,
   RecordingScene,
   RecordingSource,
 } from "../recordingCore";
@@ -10,9 +11,11 @@ import { useTerminalSize } from "./terminal";
 export type RecordSource = RecordingSource;
 export type RecordScene = RecordingScene;
 export type RecordInputSelection = CoreRecordingInputSelection;
+export type RecordMicrophoneDevice = RecordingMicrophoneDevice;
 
 export interface RecordSetupModel {
   sources: RecordSource[];
+  microphones?: RecordMicrophoneDevice[];
   scenes: RecordScene[];
 }
 
@@ -30,23 +33,32 @@ export function RecordSetupView({
   const size = useTerminalSize();
   const [srcIdx, setSrcIdx] = useState(0);
   const [includeMic, setIncludeMic] = useState(true);
+  const [micIdx, setMicIdx] = useState(() =>
+    Math.max(0, model.microphones?.findIndex((device) => device.isDefault) ?? 0),
+  );
   const [sceneIdx, setSceneIdx] = useState(0);
 
   const sources = model.sources;
+  const microphones = model.microphones ?? [];
   const selected = sources[Math.min(srcIdx, Math.max(0, sources.length - 1))];
+  const selectedMic = microphones[Math.min(micIdx, Math.max(0, microphones.length - 1))];
   const wide = size.columns >= 100;
   const hasAppSource = sources.some((source) => source.kind === "app");
   const hasMultipleSources = sources.length > 1;
+  const hasMultipleMicrophones = microphones.length > 1;
 
   useInput((input, key) => {
     if (key.upArrow || input === "k") setSrcIdx((i) => Math.max(0, i - 1));
     else if (key.downArrow || input === "j") setSrcIdx((i) => Math.min(sources.length - 1, i + 1));
     else if (input === " ") setIncludeMic((m) => !m);
+    else if (input === "m" && includeMic && hasMultipleMicrophones)
+      setMicIdx((i) => (i + 1) % microphones.length);
     else if (input === "s" && model.scenes.length > 1) setSceneIdx((i) => (i + 1) % model.scenes.length);
     else if (key.return && selected) {
       onStart({
         sourceId: selected.id,
         includeMicrophone: includeMic,
+        ...(includeMic && selectedMic ? { microphoneDeviceId: selectedMic.id } : {}),
         sceneId: model.scenes[sceneIdx]?.id,
       });
     } else if (key.escape) onCancel();
@@ -78,6 +90,7 @@ export function RecordSetupView({
   const shortcuts = [
     hasMultipleSources ? "↑↓ source" : undefined,
     "space mic",
+    includeMic && hasMultipleMicrophones ? "m mic device" : undefined,
     model.scenes.length > 1 ? "s scene" : undefined,
     "⏎ start recording",
     "esc cancel",
@@ -106,6 +119,14 @@ export function RecordSetupView({
           <Text color={includeMic ? "green" : "gray"}>{includeMic ? "[x] include mic" : "[ ] include mic"}</Text>
           <Text dimColor>  (space)</Text>
         </Text>
+        {selectedMic ? (
+          <Text dimColor={!includeMic}>
+            <Text dimColor>Mic device  </Text>
+            <Text>{selectedMic.label}</Text>
+            {selectedMic.isDefault ? <Text dimColor> · default</Text> : null}
+            {includeMic && hasMultipleMicrophones ? <Text dimColor>  (m to change)</Text> : null}
+          </Text>
+        ) : null}
         {model.scenes.length > 0 ? (
           <Text>
             <Text dimColor>Scene       </Text>

@@ -22,7 +22,12 @@ import { buildSchemaDocument, type SchemaDocument } from "./schema";
 import { CLI_VERSION } from "./version";
 import type { RunDashboardDeps } from "./tui";
 import type { TabKey } from "./tui/chrome";
-import { recordViaSidecar, startLiveRecordSession, type RecordRuntimeDeps } from "./record";
+import {
+  listRecordInputs,
+  recordViaSidecar,
+  startLiveRecordSession,
+  type RecordRuntimeDeps,
+} from "./record";
 
 const DASHBOARD_RECORDINGS_PAGE_SIZE = 50;
 
@@ -113,7 +118,13 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         recordingAudio,
         listDownloadedRecordingIds: () => recordingAudio.listDownloadedRecordingIds(),
         listDownloads: () => recordingAudio.listDownloads(),
-        startLiveRecord: async (selection) => {
+        fetchRecordSetup: async () =>
+          listRecordInputs({
+            cliVersion: CLI_VERSION,
+            env: deps.env,
+            runtime: deps.recordRuntime,
+          }),
+        startLiveRecord: async (selection, sources) => {
           const liveStatus = await client.authStatus();
           if (!liveStatus.loggedIn || !liveStatus.userId) {
             throw cliError("auth.not_logged_in", "Sign in before starting a sidecar recording.", {
@@ -133,7 +144,30 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
               runtime: deps.recordRuntime,
             },
             selection,
+            sources,
           );
+        },
+        transcribeRecordingArtifact: async (artifact) => {
+          if (!artifact.audioPath) {
+            throw cliError("input.not_found", "No local audio file is available to transcribe.");
+          }
+          const data = await client.uploadPathBatch({
+            inputPath: artifact.audioPath,
+            transcribe: true,
+            wait: false,
+          });
+          if (data.failures.length > 0) {
+            const failure = data.failures[0]!;
+            throw cliError(failure.error.code, failure.error.message, {
+              hint: failure.error.hint,
+              retryable: failure.error.retryable,
+            });
+          }
+          const success = data.successes[0];
+          if (!success) {
+            throw cliError("input.unsupported_audio", "No supported local audio file was uploaded.");
+          }
+          return success;
         },
         initialView: parsed.initialView,
       });

@@ -187,12 +187,42 @@ export type SidecarInfo = z.infer<typeof sidecarInfoSchema>;
 export const sidecarRecordingOptionsSchema = z.object({
   includeSystemAudio: z.boolean().default(true),
   includeMicrophone: z.boolean().default(true),
+  targetBundleId: z.string().optional(),
+  microphoneDeviceId: z.string().optional(),
   liveCaptions: z.boolean().default(false),
   translationLanguage: z.string().optional(),
   transcriptionLanguage: z.string().optional(),
   title: z.string().optional(),
 });
 export type SidecarRecordingOptions = z.infer<typeof sidecarRecordingOptionsSchema>;
+
+export const sidecarRecordingSourceSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["system", "app"]),
+  label: z.string(),
+  appName: z.string().optional(),
+  bundleId: z.string().optional(),
+});
+export type SidecarRecordingSource = z.infer<typeof sidecarRecordingSourceSchema>;
+
+export const sidecarRecordingSourcesListResultSchema = z.object({
+  sources: z.array(sidecarRecordingSourceSchema),
+});
+export type SidecarRecordingSourcesListResult = z.infer<
+  typeof sidecarRecordingSourcesListResultSchema
+>;
+
+export const sidecarMicrophoneDeviceSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  isDefault: z.boolean().optional(),
+});
+export type SidecarMicrophoneDevice = z.infer<typeof sidecarMicrophoneDeviceSchema>;
+
+export const sidecarMicrophonesListResultSchema = z.object({
+  microphones: z.array(sidecarMicrophoneDeviceSchema),
+});
+export type SidecarMicrophonesListResult = z.infer<typeof sidecarMicrophonesListResultSchema>;
 
 export const sidecarPermissionNameSchema = z.enum(["screen_recording", "microphone"]);
 export type SidecarPermissionName = z.infer<typeof sidecarPermissionNameSchema>;
@@ -301,6 +331,18 @@ export const sidecarRequestSchema = z.discriminatedUnion("method", [
     id: sidecarJsonRpcIdSchema,
     method: z.literal("recappi.handshake"),
     params: sidecarHandshakeParamsSchema,
+  }),
+  z.object({
+    jsonrpc: z.literal("2.0"),
+    id: sidecarJsonRpcIdSchema,
+    method: z.literal("recappi.recording.sources.list"),
+    params: z.object({}).optional(),
+  }),
+  z.object({
+    jsonrpc: z.literal("2.0"),
+    id: sidecarJsonRpcIdSchema,
+    method: z.literal("recappi.recording.microphones.list"),
+    params: z.object({}).optional(),
   }),
   z.object({
     jsonrpc: z.literal("2.0"),

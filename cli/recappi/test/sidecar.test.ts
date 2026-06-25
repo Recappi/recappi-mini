@@ -96,6 +96,8 @@ describe("Mini sidecar JSON-RPC client", () => {
         options: {
           includeSystemAudio: true,
           includeMicrophone: true,
+          targetBundleId: "com.apple.Safari",
+          microphoneDeviceId: "mic_default",
           liveCaptions: true,
           translationLanguage: "zh",
           title: "CLI smoke",
@@ -111,6 +113,58 @@ describe("Mini sidecar JSON-RPC client", () => {
         recordingId: "rec_123",
       });
       expect(stopped.artifacts?.[0]?.kind).toBe("recording_session");
+    } finally {
+      fake.close();
+    }
+  });
+
+  it("lists helper-backed recording sources and microphone devices", async () => {
+    const methods: string[] = [];
+    const fake = createFakeSidecar(async (request, write) => {
+      methods.push(request.method);
+      if (request.method === "recappi.recording.sources.list") {
+        write({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            sources: [
+              { id: "system", kind: "system", label: "System audio · all apps" },
+              {
+                id: "app:com.apple.Safari",
+                kind: "app",
+                label: "Safari",
+                appName: "Safari",
+                bundleId: "com.apple.Safari",
+              },
+            ],
+          },
+        });
+      }
+      if (request.method === "recappi.recording.microphones.list") {
+        write({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            microphones: [{ id: "mic_default", label: "MacBook Pro Microphone", isDefault: true }],
+          },
+        });
+      }
+    });
+
+    try {
+      await expect(fake.client.listRecordingSources()).resolves.toMatchObject({
+        sources: [
+          { id: "system", kind: "system" },
+          { kind: "app", label: "Safari", bundleId: "com.apple.Safari" },
+        ],
+      });
+      await expect(fake.client.listMicrophones()).resolves.toMatchObject({
+        microphones: [{ id: "mic_default", isDefault: true }],
+      });
+      expect(methods).toEqual([
+        "recappi.recording.sources.list",
+        "recappi.recording.microphones.list",
+      ]);
     } finally {
       fake.close();
     }

@@ -120,11 +120,19 @@ describe("recappi CLI contract", () => {
         recordRuntime: fake.runtime,
         runDashboard: async (deps) => {
           dashboardCalls += 1;
+          const inputs = await deps.fetchRecordSetup?.();
+          expect(inputs).toMatchObject({
+            sources: [
+              { id: "system", kind: "system" },
+              { id: "app:com.apple.Safari", bundleId: "com.apple.Safari" },
+            ],
+            microphones: [{ id: "mic_default", isDefault: true }],
+          });
           const session = await deps.startLiveRecord?.({
             sourceId: "system",
             includeMicrophone: true,
             sceneId: "default",
-          });
+          }, [{ id: "system", kind: "system", label: "System audio · all apps" }]);
           expect(session?.source).toBe(fake.client);
           await session?.stop();
         },
@@ -133,6 +141,11 @@ describe("recappi CLI contract", () => {
       expect(result.exitCode).toBe(0);
       expect(dashboardCalls).toBe(1);
       expect(fake.calls.map((call) => call.method)).toEqual([
+        "spawn",
+        "handshake",
+        "sources",
+        "microphones",
+        "kill",
         "spawn",
         "handshake",
         "permissions",
@@ -1152,6 +1165,27 @@ function fakeRecordRuntime(opts: { capabilities?: string[] } = {}): {
           { name: "screen_recording", status: "granted" },
           { name: "microphone", status: "granted" },
         ],
+      };
+    },
+    async listRecordingSources() {
+      calls.push({ method: "sources" });
+      return {
+        sources: [
+          { id: "system", kind: "system", label: "System audio · all apps" },
+          {
+            id: "app:com.apple.Safari",
+            kind: "app",
+            label: "Safari",
+            appName: "Safari",
+            bundleId: "com.apple.Safari",
+          },
+        ],
+      };
+    },
+    async listMicrophones() {
+      calls.push({ method: "microphones" });
+      return {
+        microphones: [{ id: "mic_default", label: "MacBook Pro Microphone", isDefault: true }],
       };
     },
     async stopRecording(params: { sessionId: string }) {
