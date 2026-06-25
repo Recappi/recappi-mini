@@ -1,6 +1,6 @@
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
-import { render } from "ink-testing-library";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render } from "ink-testing-library";
 import {
   countJobs,
   formatAge,
@@ -60,6 +60,10 @@ async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> 
 const noAnsi = (s: string | undefined) => (s ?? "").replace(/\[[0-9;]*m/g, "");
 const DOWN = "[B";
 const ENTER = "\r";
+
+afterEach(() => {
+  cleanup();
+});
 
 const running = (over: Partial<JobListItem> = {}): JobListItem => ({
   jobId: "job_1",
