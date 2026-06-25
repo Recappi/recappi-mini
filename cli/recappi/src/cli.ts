@@ -560,6 +560,7 @@ interface CommanderCommonOptions {
   jsonl?: boolean;
   human?: boolean;
   compact?: boolean;
+  verbose?: boolean;
   fields?: string[];
   origin?: string;
 }
@@ -932,6 +933,7 @@ function addCommonOptions(command: Command): void {
     .option("--human", "write human-readable output")
     .option("--fields <list>", "comma-separated data fields to keep", parseFieldsOption)
     .option("--compact", "omit empty optional data and print compact JSON")
+    .option("--verbose", "accept verbose wrappers without changing output")
     .option("--origin <url>", "Recappi Cloud origin", parseStringOption("--origin"));
 }
 

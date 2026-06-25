@@ -41,6 +41,18 @@ describe("recappi CLI contract", () => {
     });
   });
 
+  it("accepts wrapper-provided verbose flag without changing JSON output", async () => {
+    const result = await run(["--verbose", "--version", "--json"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: "version",
+      data: { version: CLI_VERSION },
+      meta: { schemaVersion: "2026-06-25" },
+    });
+  });
+
   it("shows commander subcommand help without running the command", async () => {
     const result = await run(["auth", "status", "--help"]);
     expect(result.exitCode).toBe(0);
