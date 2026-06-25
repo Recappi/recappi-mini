@@ -539,7 +539,7 @@ describe("recappi CLI contract", () => {
     expect(parsed).toMatchObject({
       ok: false,
       command: "record",
-      error: { code: "usage.invalid_argument", exitCode: 2 },
+      error: { code: "record.helper_unavailable", exitCode: 2 },
       meta: { schemaVersion: "2026-06-25" },
     });
     expect(parsed.error.message).toMatch(
@@ -561,7 +561,7 @@ describe("recappi CLI contract", () => {
       ok: false,
       command: "record",
       error: {
-        code: "usage.invalid_argument",
+        code: "record.capture_unavailable",
         message: "Recappi recording helper cannot capture yet.",
       },
     });
@@ -1008,6 +1008,14 @@ describe("recappi CLI contract", () => {
       (c: { code: string }) => c.code === "input.partial_failure",
     );
     expect(partial).toMatchObject({ exitCode: null, retryable: false });
+    const errorCodes = env.data.errorCodes.map((c: { code: string }) => c.code);
+    expect(errorCodes).toEqual(
+      expect.arrayContaining([
+        "record.helper_unavailable",
+        "record.unsupported_platform",
+        "record.capture_unavailable",
+      ]),
+    );
     // Envelope/event are real JSON Schemas (zod v4 native export).
     expect(env.data.envelope.$schema).toContain("json-schema.org");
     expect(env.data.event.properties.type.enum).toContain("result");

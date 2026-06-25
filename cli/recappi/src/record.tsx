@@ -248,7 +248,7 @@ function assertSidecarCapabilities(
   }
   if (missing.length === 0) return;
 
-  throw cliError("usage.invalid_argument", "Recappi recording helper cannot capture yet.", {
+  throw cliError("record.capture_unavailable", "Recappi recording helper cannot capture yet.", {
     hint: `Found ${handshake.sidecar.name} ${handshake.sidecar.version}, but it did not advertise ${missing.join(
       ", ",
     )}. Upgrade recappi when a helper build with native recording support ships, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
@@ -264,11 +264,11 @@ function resolveSidecarCommand(opts: RecordCommandOptions): string {
 
   const platform = `${process.platform}-${process.arch}`;
   if (bundled) {
-    throw cliError("usage.invalid_argument", "Recappi recording helper is not available.", {
+    throw cliError("record.helper_unavailable", "Recappi recording helper is not available.", {
       hint: `Expected bundled helper for ${platform} at ${bundled}. Reinstall recappi, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
     });
   }
-  throw cliError("usage.invalid_argument", "Recappi recording is not supported on this platform yet.", {
+  throw cliError("record.unsupported_platform", "Recappi recording is not supported on this platform yet.", {
     hint: `No bundled helper is registered for ${platform}. Set ${SIDECAR_COMMAND_ENV} to a compatible helper when one is available.`,
   });
 }
@@ -281,7 +281,7 @@ function ensureBundledHelperExecutable(path: string): string {
     chmodSync(path, mode | 0o755);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw cliError("usage.invalid_argument", "Recappi recording helper is not executable.", {
+    throw cliError("record.helper_unavailable", "Recappi recording helper is not executable.", {
       hint: `Could not make bundled helper executable at ${path}: ${message}. Reinstall recappi, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
     });
   }
