@@ -1,0 +1,64 @@
+name: Release CLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional recappi version to publish, e.g. 0.1.1 or 0.1.1-canary.0"
+        required: false
+        type: string
+      npm_tag:
+        description: "npm dist-tag"
+        required: true
+        default: latest
+        type: string
+      ref:
+        description: "Git ref to publish from"
+        required: false
+        default: main
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release-cli.yml"
+      - "cli/recappi/**"
+      - "cli/packages/contracts/**"
+    tags:
+      - "recappi-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Resolve publish version
+        id: release_version
+        run: node cli/recappi/scripts/resolve-release-version.mjs
+        env:
+          RECAPPI_CLI_VERSION: ${{ github.event.inputs.version }}
+
+      - run: pnpm --filter recappi check
+
+      - run: pnpm --filter recappi pack:check
+
+      - name: Publish recappi
+        run: pnpm --filter recappi publish --access public --no-git-checks --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

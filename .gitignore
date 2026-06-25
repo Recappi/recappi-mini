@@ -10,6 +10,13 @@ xcuserdata/
 .build/
 .swiftpm/
 
+# Node / CLI
+node_modules/
+cli/recappi/dist/
+cli/recappi/node_modules/
+cli/packages/*/node_modules/
+*.tgz
+
 # macOS
 .DS_Store
 *.dSYM

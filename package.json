@@ -1,0 +1,16 @@
+{
+  "name": "recappi-mini",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "cli:build": "pnpm --filter recappi build",
+    "cli:test": "pnpm --filter recappi test",
+    "cli:typecheck": "pnpm --filter recappi typecheck",
+    "cli:check": "pnpm --filter recappi check",
+    "cli:pack:check": "pnpm --filter recappi pack:check"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.0.9"
+}

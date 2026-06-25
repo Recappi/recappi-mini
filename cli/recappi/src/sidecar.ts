@@ -1,0 +1,256 @@
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import type { Readable, Writable } from "node:stream";
+import {
+  SIDECAR_PROTOCOL_VERSION,
+  sidecarEventSchema,
+  sidecarHandshakeParamsSchema,
+  sidecarHandshakeResultSchema,
+  sidecarJsonRpcIdSchema,
+  sidecarNotificationSchema,
+  sidecarRecordingStartParamsSchema,
+  sidecarRecordingStartResultSchema,
+  sidecarRecordingStatusResultSchema,
+  sidecarRecordingStopResultSchema,
+  sidecarResponseSchema,
+  sidecarSessionParamsSchema,
+  type ContractSchema,
+  type SidecarEvent,
+  type SidecarHandshakeParams,
+  type SidecarHandshakeResult,
+  type SidecarRecordingStartParams,
+  type SidecarRecordingStartResult,
+  type SidecarRecordingStatusResult,
+  type SidecarRecordingStopResult,
+  type SidecarRequestMethod,
+  type SidecarSessionParams,
+} from "../../packages/contracts/src/index";
+import { cliError, toCliError, type RecappiCliError } from "./errors";
+
+interface PendingRequest {
+  resolve: (value: unknown) => void;
+  reject: (error: RecappiCliError) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+export interface MiniSidecarClientOptions {
+  input: Writable;
+  output: Readable;
+  requestTimeoutMs?: number;
+}
+
+export interface SpawnMiniSidecarOptions {
+  command: string;
+  args?: string[];
+  env?: NodeJS.ProcessEnv;
+  requestTimeoutMs?: number;
+  spawnProcess?: typeof spawn;
+}
+
+export interface SpawnedMiniSidecar {
+  client: MiniSidecarClient;
+  kill: () => void;
+}
+
+export class MiniSidecarClient {
+  private readonly input: Writable;
+  private readonly requestTimeoutMs: number;
+  private readonly pending = new Map<string | number, PendingRequest>();
+  private readonly eventListeners = new Set<(event: SidecarEvent) => void>();
+  private readonly lineReader: ReturnType<typeof createInterface>;
+  private nextId = 1;
+  private closed = false;
+
+  constructor(opts: MiniSidecarClientOptions) {
+    this.input = opts.input;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 10_000;
+    this.lineReader = createInterface({ input: opts.output });
+    this.lineReader.on("line", (line) => this.handleLine(line));
+    this.lineReader.on("close", () => this.rejectAll("Sidecar output closed."));
+  }
+
+  onEvent(listener: (event: SidecarEvent) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
+  }
+
+  handshake(params: SidecarHandshakeParams): Promise<SidecarHandshakeResult> {
+    return this.request(
+      "recappi.handshake",
+      sidecarHandshakeParamsSchema.parse(params),
+      sidecarHandshakeResultSchema,
+    );
+  }
+
+  startRecording(params: SidecarRecordingStartParams): Promise<SidecarRecordingStartResult> {
+    return this.request(
+      "recappi.recording.start",
+      sidecarRecordingStartParamsSchema.parse(params),
+      sidecarRecordingStartResultSchema,
+    );
+  }
+
+  stopRecording(params: SidecarSessionParams): Promise<SidecarRecordingStopResult> {
+    return this.request(
+      "recappi.recording.stop",
+      sidecarSessionParamsSchema.parse(params),
+      sidecarRecordingStopResultSchema,
+    );
+  }
+
+  cancelRecording(params: SidecarSessionParams): Promise<SidecarRecordingStopResult> {
+    return this.request(
+      "recappi.recording.cancel",
+      sidecarSessionParamsSchema.parse(params),
+      sidecarRecordingStopResultSchema,
+    );
+  }
+
+  getRecordingStatus(params: SidecarSessionParams): Promise<SidecarRecordingStatusResult> {
+    return this.request(
+      "recappi.recording.status",
+      sidecarSessionParamsSchema.parse(params),
+      sidecarRecordingStatusResultSchema,
+    );
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.lineReader.close();
+    this.rejectAll("Sidecar client closed.");
+  }
+
+  private request<T>(
+    method: SidecarRequestMethod,
+    params: unknown,
+    resultSchema: ContractSchema,
+  ): Promise<T> {
+    if (this.closed) {
+      return Promise.reject(
+        cliError("internal.unexpected", "Sidecar client is already closed.", {
+          hint: "Start a new sidecar session and retry.",
+        }),
+      );
+    }
+
+    const id = this.nextId;
+    this.nextId += 1;
+    const payload = {
+      jsonrpc: "2.0" as const,
+      id,
+      method,
+      params,
+    };
+
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(
+          cliError("internal.unexpected", `Sidecar request timed out: ${method}.`, {
+            retryable: true,
+          }),
+        );
+      }, this.requestTimeoutMs);
+      this.pending.set(id, {
+        resolve: (value) => {
+          try {
+            const parsed = resultSchema.parse(value) as T;
+            resolve(parsed);
+          } catch (error) {
+            reject(toCliError(error));
+          }
+        },
+        reject,
+        timer,
+      });
+      this.input.write(`${JSON.stringify(payload)}\n`, (error) => {
+        if (!error) return;
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(cliError("internal.unexpected", `Could not write to sidecar: ${error.message}`));
+      });
+    });
+  }
+
+  private handleLine(line: string): void {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    let raw: unknown;
+    try {
+      raw = JSON.parse(trimmed);
+    } catch {
+      this.rejectAll("Sidecar wrote invalid JSON.");
+      return;
+    }
+
+    const maybeNotification = sidecarNotificationSchema.safeParse(raw);
+    if (maybeNotification.success) {
+      const event = sidecarEventSchema.parse(maybeNotification.data.params);
+      for (const listener of this.eventListeners) listener(event);
+      return;
+    }
+
+    const response = sidecarResponseSchema.safeParse(raw);
+    if (!response.success) {
+      this.rejectAll("Sidecar wrote an invalid JSON-RPC message.");
+      return;
+    }
+
+    const id = sidecarJsonRpcIdSchema.parse(response.data.id);
+    const pending = this.pending.get(id);
+    if (!pending) return;
+    this.pending.delete(id);
+    clearTimeout(pending.timer);
+    if ("error" in response.data) {
+      pending.reject(
+        cliError("internal.unexpected", response.data.error.message, {
+          data: response.data.error,
+          retryable: response.data.error.code >= -32099 && response.data.error.code <= -32000,
+        }),
+      );
+      return;
+    }
+    pending.resolve(response.data.result);
+  }
+
+  private rejectAll(message: string): void {
+    for (const [id, pending] of this.pending) {
+      this.pending.delete(id);
+      clearTimeout(pending.timer);
+      pending.reject(cliError("internal.unexpected", message));
+    }
+  }
+}
+
+export function spawnMiniSidecar(opts: SpawnMiniSidecarOptions): SpawnedMiniSidecar {
+  const spawnProcess = opts.spawnProcess ?? spawn;
+  const child = spawnProcess(opts.command, opts.args ?? [], {
+    env: opts.env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const client = new MiniSidecarClient({
+    input: child.stdin,
+    output: child.stdout,
+    requestTimeoutMs: opts.requestTimeoutMs,
+  });
+  return {
+    client,
+    kill: () => {
+      client.close();
+      child.kill();
+    },
+  };
+}
+
+export function defaultSidecarHandshakeParams(
+  params: Omit<SidecarHandshakeParams, "protocolVersion">,
+): SidecarHandshakeParams {
+  return {
+    protocolVersion: SIDECAR_PROTOCOL_VERSION,
+    ...params,
+  };
+}
