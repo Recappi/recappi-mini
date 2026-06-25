@@ -20,6 +20,7 @@ import { LiveCaptionsView } from "../src/tui/LiveCaptionsView";
 import { PermissionPreflightView } from "../src/tui/PermissionPreflightView";
 import { LiveCaptionsScreen } from "../src/tui/LiveCaptionsScreen";
 import { RecordingScreen } from "../src/tui/RecordingScreen";
+import { RecordSetupView } from "../src/tui/RecordSetupView";
 import {
   liveCaptionReducer,
   initialLiveCaptionsState,
@@ -480,6 +481,42 @@ describe("views render", () => {
     const frame = noAnsi(lastFrame());
     expect(frame).toContain("LIVE");
     expect(frame).toContain("live words here");
+  });
+  it("RecordSetupView lists sources, toggles mic, and starts with the selection", async () => {
+    const onStart = vi.fn();
+    const onCancel = vi.fn();
+    const model = {
+      sources: [
+        { id: "sys", kind: "system" as const, label: "System audio" },
+        { id: "app1", kind: "app" as const, label: "Google Meet — Arc", appName: "Arc" },
+        { id: "mic", kind: "microphone" as const, label: "Microphone only" },
+      ],
+      scenes: [{ id: "default", label: "Default" }],
+      previewLevel: 0.5,
+    };
+    const { lastFrame, stdin } = render(
+      <RecordSetupView model={model} onStart={onStart} onCancel={onCancel} />,
+    );
+    await flush();
+    const frame = noAnsi(lastFrame());
+    expect(frame).toContain("New recording");
+    expect(frame).toContain("System audio");
+    expect(frame).toContain("Google Meet — Arc");
+    expect(frame).toContain("include mic"); // system source → mic toggle shown
+    // move to mic-only source → mic toggle becomes "Microphone is the source"
+    stdin.write("[B"); // down → app
+    stdin.write("[B"); // down → microphone only
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Microphone is the source");
+    // back up to system + start
+    stdin.write("[A");
+    stdin.write("[A");
+    await flush();
+    stdin.write("\r"); // start
+    await flush();
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceId: "sys", sceneId: "default" }),
+    );
   });
   it("RecordingScreen shows local recording status, not captions waiting copy", async () => {
     let emit: (e: unknown) => void = () => {};
