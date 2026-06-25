@@ -483,17 +483,12 @@ describe("views render", () => {
     expect(frame).toContain("LIVE");
     expect(frame).toContain("live words here");
   });
-  it("RecordSetupView lists sources, toggles mic, and starts with the selection", async () => {
+  it("RecordSetupView keeps microphone additive instead of listing it as a source", async () => {
     const onStart = vi.fn();
     const onCancel = vi.fn();
     const model = {
-      sources: [
-        { id: "sys", kind: "system" as const, label: "System audio" },
-        { id: "app1", kind: "app" as const, label: "Google Meet — Arc", appName: "Arc" },
-        { id: "mic", kind: "microphone" as const, label: "Microphone only" },
-      ],
+      sources: [{ id: "sys", kind: "system" as const, label: "System audio · all apps" }],
       scenes: [{ id: "default", label: "Default" }],
-      previewLevel: 0.5,
     };
     const { lastFrame, stdin } = render(
       <RecordSetupView model={model} onStart={onStart} onCancel={onCancel} />,
@@ -501,22 +496,19 @@ describe("views render", () => {
     await flush();
     const frame = noAnsi(lastFrame());
     expect(frame).toContain("New recording");
-    expect(frame).toContain("System audio");
-    expect(frame).toContain("Google Meet — Arc");
-    expect(frame).toContain("include mic"); // system source → mic toggle shown
-    // move to mic-only source → mic toggle becomes "Microphone is the source"
-    stdin.write("[B"); // down → app
-    stdin.write("[B"); // down → microphone only
+    expect(frame).toContain("System audio · all apps");
+    expect(frame).toContain("App-specific capture coming soon");
+    expect(frame).toContain("[x] include mic");
+    expect(frame).toContain("CAPTURE PLAN");
+    expect(frame).not.toContain("Microphone only");
+    expect(frame).not.toContain("INPUT PREVIEW");
+    stdin.write(" ");
     await flush();
-    expect(noAnsi(lastFrame())).toContain("Microphone is the source");
-    // back up to system + start
-    stdin.write("[A");
-    stdin.write("[A");
-    await flush();
-    stdin.write("\r"); // start
+    expect(noAnsi(lastFrame())).toContain("[ ] include mic");
+    stdin.write("\r");
     await flush();
     expect(onStart).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceId: "sys", sceneId: "default" }),
+      expect.objectContaining({ sourceId: "sys", includeMicrophone: false, sceneId: "default" }),
     );
   });
   it("RecordingHeroScreen renders the recording hero and the saved state", () => {

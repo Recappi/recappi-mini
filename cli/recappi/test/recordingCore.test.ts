@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_RECORDING_SOURCES,
   levelFromRmsDb,
   recordingArtifactFromRecordData,
   recordingCaptureMappingFromSelection,
@@ -8,7 +9,7 @@ import {
 } from "../src/recordingCore";
 
 const sources: RecordingSource[] = [
-  { id: "system", kind: "system", label: "System audio", canIncludeMicrophone: true },
+  { id: "system", kind: "system", label: "System audio · all apps", canIncludeMicrophone: true },
   {
     id: "meet",
     kind: "app",
@@ -17,10 +18,20 @@ const sources: RecordingSource[] = [
     bundleId: "company.thebrowser.Browser",
     canIncludeMicrophone: true,
   },
-  { id: "mic", kind: "microphone", label: "Microphone only", canIncludeMicrophone: false },
 ];
 
 describe("recording core", () => {
+  it("exposes macOS-style default sources without a microphone-only source", () => {
+    expect(DEFAULT_RECORDING_SOURCES).toEqual([
+      expect.objectContaining({
+        id: "system",
+        kind: "system",
+        label: "System audio · all apps",
+      }),
+    ]);
+    expect(DEFAULT_RECORDING_SOURCES.some((source) => source.kind === "microphone")).toBe(false);
+  });
+
   it("maps setup selection to helper capture options", () => {
     expect(
       recordingCaptureMappingFromSelection(
@@ -30,7 +41,7 @@ describe("recording core", () => {
     ).toMatchObject({
       includeSystemAudio: true,
       includeMicrophone: false,
-      sourceLabel: "System audio",
+      sourceLabel: "System audio · all apps",
       micEnabled: false,
     });
 
@@ -40,15 +51,6 @@ describe("recording core", () => {
       includeSystemAudio: true,
       includeMicrophone: true,
       sourceLabel: "Google Meet - Arc",
-      micEnabled: true,
-    });
-
-    expect(
-      recordingCaptureMappingFromSelection({ sourceId: "mic", includeMicrophone: false }, sources),
-    ).toMatchObject({
-      includeSystemAudio: false,
-      includeMicrophone: true,
-      sourceLabel: "Microphone only",
       micEnabled: true,
     });
   });

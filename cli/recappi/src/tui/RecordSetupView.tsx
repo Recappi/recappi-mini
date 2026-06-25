@@ -14,18 +14,10 @@ export type RecordInputSelection = CoreRecordingInputSelection;
 export interface RecordSetupModel {
   sources: RecordSource[];
   scenes: RecordScene[];
-  previewLevel?: number; // 0..1 live input level of the focused source
 }
 
-function levelBar(level: number | undefined, width = 8): string {
-  const v = Math.max(0, Math.min(1, level ?? 0));
-  const n = Math.round(v * width);
-  return "▇".repeat(n) + "▁".repeat(width - n);
-}
-
-// Record setup: choose what to capture (system audio / a running app / mic-only),
-// whether to also include the mic, and a scene — mirrors the macOS app. Responsive:
-// wide shows a live input-level preview beside the source list. ⏎ starts, esc cancels.
+// Record setup mirrors the macOS app: source selects the system/app audio target,
+// while microphone capture is an additive option rather than a source.
 export function RecordSetupView({
   model,
   onStart,
@@ -42,19 +34,19 @@ export function RecordSetupView({
 
   const sources = model.sources;
   const selected = sources[Math.min(srcIdx, Math.max(0, sources.length - 1))];
-  // The mic toggle only applies to system/app sources; a mic-only source IS the mic.
-  const micApplicable = selected?.canIncludeMicrophone ?? selected?.kind !== "microphone";
   const wide = size.columns >= 100;
+  const hasAppSource = sources.some((source) => source.kind === "app");
+  const hasMultipleSources = sources.length > 1;
 
   useInput((input, key) => {
     if (key.upArrow || input === "k") setSrcIdx((i) => Math.max(0, i - 1));
     else if (key.downArrow || input === "j") setSrcIdx((i) => Math.min(sources.length - 1, i + 1));
-    else if (input === " " && micApplicable) setIncludeMic((m) => !m);
+    else if (input === " ") setIncludeMic((m) => !m);
     else if (input === "s" && model.scenes.length > 1) setSceneIdx((i) => (i + 1) % model.scenes.length);
     else if (key.return && selected) {
       onStart({
         sourceId: selected.id,
-        includeMicrophone: micApplicable ? includeMic : false,
+        includeMicrophone: includeMic,
         sceneId: model.scenes[sceneIdx]?.id,
       });
     } else if (key.escape) onCancel();
@@ -72,16 +64,26 @@ export function RecordSetupView({
           </Text>
         );
       })}
+      {!hasAppSource ? <Text dimColor>App-specific capture coming soon</Text> : null}
     </Box>
   );
 
-  const preview = (
+  const capturePlan = (
     <Box flexDirection="column">
-      <Text dimColor>INPUT PREVIEW</Text>
-      <Text color="green">{levelBar(model.previewLevel, 10)}</Text>
-      <Text dimColor>live level of selection</Text>
+      <Text dimColor>CAPTURE PLAN</Text>
+      <Text>{includeMic ? `${selected?.label ?? "System audio"} + microphone` : `${selected?.label ?? "System audio"} only`}</Text>
+      <Text dimColor>{includeMic ? "Mic is mixed into the recording" : "Mic stays muted"}</Text>
     </Box>
   );
+  const shortcuts = [
+    hasMultipleSources ? "↑↓ source" : undefined,
+    "space mic",
+    model.scenes.length > 1 ? "s scene" : undefined,
+    "⏎ start recording",
+    "esc cancel",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -93,19 +95,15 @@ export function RecordSetupView({
         <Box flexGrow={1} flexDirection="column">
           {sourceList}
         </Box>
-        {wide ? <Box marginLeft={4}>{preview}</Box> : null}
+        {wide ? <Box marginLeft={4}>{capturePlan}</Box> : null}
       </Box>
 
       <Box marginTop={1} flexDirection="column">
-        {micApplicable ? (
-          <Text>
-            <Text dimColor>Microphone  </Text>
-            <Text color={includeMic ? "green" : "gray"}>{includeMic ? "[x] include mic" : "[ ] include mic"}</Text>
-            <Text dimColor>  (space)</Text>
-          </Text>
-        ) : (
-          <Text dimColor>Microphone is the source</Text>
-        )}
+        <Text>
+          <Text dimColor>Microphone  </Text>
+          <Text color={includeMic ? "green" : "gray"}>{includeMic ? "[x] include mic" : "[ ] include mic"}</Text>
+          <Text dimColor>  (space)</Text>
+        </Text>
         {model.scenes.length > 0 ? (
           <Text>
             <Text dimColor>Scene       </Text>
@@ -116,7 +114,7 @@ export function RecordSetupView({
       </Box>
 
       <Box marginTop={1}>
-        <Text dimColor>↑↓ source · space mic · ⏎ start recording · esc cancel</Text>
+        <Text dimColor>{shortcuts}</Text>
       </Box>
     </Box>
   );

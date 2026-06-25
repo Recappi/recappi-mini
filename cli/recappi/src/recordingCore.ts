@@ -80,14 +80,8 @@ export const DEFAULT_RECORDING_SOURCES: RecordingSource[] = [
   {
     id: "system",
     kind: "system",
-    label: "System audio",
+    label: "System audio · all apps",
     canIncludeMicrophone: true,
-  },
-  {
-    id: "microphone",
-    kind: "microphone",
-    label: "Microphone only",
-    canIncludeMicrophone: false,
   },
 ];
 
