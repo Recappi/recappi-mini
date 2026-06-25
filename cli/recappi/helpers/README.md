@@ -1,5 +1,4 @@
-This directory is reserved for native recording helpers bundled in the npm
-package.
+This directory contains native recording helpers bundled in the npm package.
 
 The CLI selects helpers by `process.platform` and `process.arch`:
 
@@ -10,3 +9,7 @@ The CLI selects helpers by `process.platform` and `process.arch`:
 
 Development builds can override helper resolution with `--sidecar-command` or
 `RECAPPI_MINI_SIDECAR`.
+
+Run `scripts/build-cli-helper.sh` from the repository root before `pnpm pack` or
+`pnpm publish`; `pack:check` fails if the package does not include at least one
+Darwin helper executable.

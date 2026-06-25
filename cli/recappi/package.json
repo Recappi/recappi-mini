@@ -15,6 +15,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "build:helper": "../../scripts/build-cli-helper.sh",
     "test": "vp test",
     "typecheck": "tsc --noEmit",
     "check": "pnpm run typecheck && pnpm run test && pnpm run build",

@@ -29,6 +29,10 @@ let package = Package(
                 .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", "RecappiMini/Info.plist"]),
             ]
         ),
+        .executableTarget(
+            name: "RecappiMiniSidecar",
+            path: "RecappiMiniSidecar"
+        ),
         .testTarget(
             name: "RecappiMiniCoreTests",
             dependencies: ["RecappiMini"],

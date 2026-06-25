@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
         with:
@@ -57,6 +57,8 @@ jobs:
           RECAPPI_CLI_VERSION: ${{ github.event.inputs.version }}
 
       - run: pnpm --filter recappi check
+
+      - run: pnpm --filter recappi build:helper
 
       - run: pnpm --filter recappi pack:check
 

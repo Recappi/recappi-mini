@@ -530,8 +530,29 @@ describe("recappi CLI contract", () => {
       error: { code: "usage.invalid_argument", exitCode: 2 },
       meta: { schemaVersion: "2026-06-25" },
     });
-    expect(parsed.error.message).toMatch(/recording (helper is not available|is not supported)/);
+    expect(parsed.error.message).toMatch(
+      /recording (helper is not available|is not supported|helper cannot capture yet)/,
+    );
     expect(parsed.error.hint).toContain("RECAPPI_MINI_SIDECAR");
+  });
+
+  it("rejects helpers that do not advertise recording capture", async () => {
+    const fake = fakeRecordRuntime({ capabilities: [] });
+    const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
+      fetchImpl: sessionFetch(),
+      recordRuntime: fake.runtime,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(fake.calls.map((call) => call.method)).toEqual(["spawn", "handshake", "kill"]);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      command: "record",
+      error: {
+        code: "usage.invalid_argument",
+        message: "Recappi recording helper cannot capture yet.",
+      },
+    });
   });
 
   it("resolves bundled helper locations per platform and architecture", () => {
@@ -578,24 +599,28 @@ describe("recappi CLI contract", () => {
     });
   });
 
-  it("runs doctor checks without changing the machine envelope", async () => {
-    const result = await run(["doctor", "--json"], { fetchImpl: sessionFetch() });
-    expect(result.exitCode).toBe(0);
-    const env = JSON.parse(result.stdout);
-    expect(env).toMatchObject({
-      ok: true,
-      command: "doctor",
-      data: {
-        status: "ok",
-        origin: "https://recordmeet.ing",
-        authSource: "env",
-      },
-      meta: { schemaVersion: "2026-06-25" },
-    });
-    expect(env.data.checks.map((check: { name: string }) => check.name)).toEqual(
-      expect.arrayContaining(["runtime.node", "auth.token", "auth.session", "audio.metadata"]),
-    );
-  });
+  it(
+    "runs doctor checks without changing the machine envelope",
+    async () => {
+      const result = await run(["doctor", "--json"], { fetchImpl: sessionFetch() });
+      expect(result.exitCode).toBe(0);
+      const env = JSON.parse(result.stdout);
+      expect(env).toMatchObject({
+        ok: true,
+        command: "doctor",
+        data: {
+          status: "ok",
+          origin: "https://recordmeet.ing",
+          authSource: "env",
+        },
+        meta: { schemaVersion: "2026-06-25" },
+      });
+      expect(env.data.checks.map((check: { name: string }) => check.name)).toEqual(
+        expect.arrayContaining(["runtime.node", "auth.token", "auth.session", "audio.metadata"]),
+      );
+    },
+    15_000,
+  );
 
   it("fetches a transcript by transcript id", async () => {
     const result = await run(["transcript", "get", "tr_123", "--json"], {
@@ -1047,7 +1072,7 @@ async function run(
   return { exitCode, stdout, stderr };
 }
 
-function fakeRecordRuntime(): {
+function fakeRecordRuntime(opts: { capabilities?: string[] } = {}): {
   runtime: RecordRuntimeDeps;
   client: unknown;
   calls: Array<{ method: string; params?: unknown; source?: unknown }>;
@@ -1067,7 +1092,7 @@ function fakeRecordRuntime(): {
       return {
         protocolVersion: 1,
         sidecar: { name: "fake-sidecar", version: "1.0.0" },
-        capabilities: params.capabilities,
+        capabilities: opts.capabilities ?? params.capabilities,
       };
     },
     async startRecording(params: SidecarRecordingStartParams) {

@@ -1,10 +1,11 @@
 import React from "react";
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { render, useInput, type Instance, type RenderOptions as InkRenderOptions } from "ink";
 import {
   recordCommandDataSchema,
   type RecordCommandData,
+  type SidecarCapability,
   type SidecarAccount,
   type SidecarHandshakeResult,
   type SidecarLocalArtifact,
@@ -174,6 +175,7 @@ async function startRecordSession(opts: RecordCommandOptions): Promise<ActiveRec
           : ["recording.capture", "recording.upload"],
       }),
     );
+    assertSidecarCapabilities(handshake, opts);
 
     const started = await sidecar.client.startRecording({
       account,
@@ -231,12 +233,31 @@ async function startRecordSession(opts: RecordCommandOptions): Promise<ActiveRec
   }
 }
 
+function assertSidecarCapabilities(
+  handshake: SidecarHandshakeResult,
+  opts: Pick<RecordCommandOptions, "live">,
+): void {
+  const capabilities = new Set<SidecarCapability>(handshake.capabilities);
+  const missing: SidecarCapability[] = [];
+  if (!capabilities.has("recording.capture")) missing.push("recording.capture");
+  if (opts.live && !capabilities.has("live_captions.stream")) {
+    missing.push("live_captions.stream");
+  }
+  if (missing.length === 0) return;
+
+  throw cliError("usage.invalid_argument", "Recappi recording helper cannot capture yet.", {
+    hint: `Found ${handshake.sidecar.name} ${handshake.sidecar.version}, but it did not advertise ${missing.join(
+      ", ",
+    )}. Upgrade recappi when a helper build with native recording support ships, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
+  });
+}
+
 function resolveSidecarCommand(opts: RecordCommandOptions): string {
   const command = opts.sidecarCommand?.trim() || opts.env?.[SIDECAR_COMMAND_ENV]?.trim();
   if (command) return command;
 
   const bundled = bundledSidecarCommand(process.platform, process.arch);
-  if (bundled && existsSync(bundled)) return bundled;
+  if (bundled && existsSync(bundled)) return ensureBundledHelperExecutable(bundled);
 
   const platform = `${process.platform}-${process.arch}`;
   if (bundled) {
@@ -247,6 +268,21 @@ function resolveSidecarCommand(opts: RecordCommandOptions): string {
   throw cliError("usage.invalid_argument", "Recappi recording is not supported on this platform yet.", {
     hint: `No bundled helper is registered for ${platform}. Set ${SIDECAR_COMMAND_ENV} to a compatible helper when one is available.`,
   });
+}
+
+function ensureBundledHelperExecutable(path: string): string {
+  if (process.platform === "win32") return path;
+  const mode = statSync(path).mode;
+  if ((mode & 0o111) !== 0) return path;
+  try {
+    chmodSync(path, mode | 0o755);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw cliError("usage.invalid_argument", "Recappi recording helper is not executable.", {
+      hint: `Could not make bundled helper executable at ${path}: ${message}. Reinstall recappi, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
+    });
+  }
+  return path;
 }
 
 export function bundledSidecarCommand(

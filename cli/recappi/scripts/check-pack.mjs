@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile, access, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, readFile, access, mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -38,6 +38,30 @@ try {
   if (typeof bin !== "string") throw new Error("package.json missing bin.recappi");
   const binPath = join(outDir, "package", bin);
   await access(binPath);
+  const darwinHelpers = ["darwin-arm64", "darwin-x64"];
+  const packagedDarwinHelpers = [];
+  for (const platform of darwinHelpers) {
+    const helperPath = join(outDir, "package", "helpers", platform, "RecappiMiniSidecar");
+    try {
+      const helperStat = await stat(helperPath);
+      if (!helperStat.isFile()) continue;
+      packagedDarwinHelpers.push(platform);
+    } catch (error) {
+      if (
+        !error ||
+        typeof error !== "object" ||
+        !("code" in error) ||
+        error.code !== "ENOENT"
+      ) {
+        throw error;
+      }
+    }
+  }
+  if (packagedDarwinHelpers.length === 0) {
+    throw new Error(
+      "Packed package is missing a darwin RecappiMiniSidecar helper. Run scripts/build-cli-helper.sh before pack/publish.",
+    );
+  }
   const consumerDir = join(outDir, "consumer");
   await mkdir(consumerDir);
   const install = spawnSync(
