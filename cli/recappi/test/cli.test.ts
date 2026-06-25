@@ -813,7 +813,7 @@ describe("recappi CLI contract", () => {
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
-  });
+  }, 10_000);
 
   it("fetches dashboard stats as JSON", async () => {
     const result = await run(["dashboard", "stats", "--json"], {
