@@ -108,13 +108,16 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - run: pnpm --filter recappi check
+
       - name: Resolve publish version
         id: release_version
         run: node cli/recappi/scripts/resolve-release-version.mjs
         env:
           RECAPPI_CLI_VERSION: ${{ github.event.inputs.version }}
 
-      - run: pnpm --filter recappi check
+      - name: Refresh publish lockfile metadata
+        run: pnpm install --lockfile-only --no-frozen-lockfile --ignore-scripts
 
       - run: pnpm --filter recappi build:helper
         env:
