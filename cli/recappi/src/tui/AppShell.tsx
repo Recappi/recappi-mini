@@ -68,7 +68,36 @@ type Screen =
 type LiveRecordState =
   | { kind: "starting" }
   | { kind: "live"; session: DashboardLiveRecordSession }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; code?: string };
+
+// Map the record helper's stable error codes to friendly, platform-agnostic copy
+// for the Record tab — never expose internal terms (sidecar / env var / paths).
+export function recordErrorCopy(
+  code: string | undefined,
+  message: string,
+): { title: string; detail?: string; tone: string } {
+  switch (code) {
+    case "record.helper_unavailable":
+      return {
+        title: "Live recording isn't available on this machine yet.",
+        detail: "The recorder helper isn't installed for your platform.",
+        tone: "yellow",
+      };
+    case "record.unsupported_platform":
+      return {
+        title: "Live recording isn't supported on this platform yet.",
+        tone: "yellow",
+      };
+    case "record.capture_unavailable":
+      return {
+        title: "Live recording isn't ready yet.",
+        detail: "The on-device recorder is still being finished — coming soon.",
+        tone: "yellow",
+      };
+    default:
+      return { title: "Couldn't start recording.", detail: message, tone: "red" };
+  }
+}
 
 export function AppShell({
   fetchJobs,
@@ -143,7 +172,11 @@ export function AppShell({
   useEffect(() => {
     if (screen.kind !== "record") return;
     if (!startLiveRecord) {
-      setLiveRecord({ kind: "error", message: "Live recording is not available" });
+      setLiveRecord({
+        kind: "error",
+        code: "record.helper_unavailable",
+        message: "Live recording is not available",
+      });
       return;
     }
     let cancelled = false;
@@ -158,7 +191,15 @@ export function AppShell({
       })
       .catch((error) => {
         if (!cancelled) {
-          setLiveRecord({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+          const code =
+            error && typeof error === "object" && "code" in error
+              ? String((error as { code?: unknown }).code)
+              : undefined;
+          setLiveRecord({
+            kind: "error",
+            code,
+            message: error instanceof Error ? error.message : String(error),
+          });
         }
       });
     return () => {
@@ -473,10 +514,15 @@ export function AppShell({
         <Header active="record" />
         <Box flexGrow={1} flexDirection="column" paddingX={1} paddingTop={1}>
           {liveRecord?.kind === "error" ? (
-            <>
-              <Text color="red">Couldn&apos;t start live recording</Text>
-              <Text dimColor>{liveRecord.message}</Text>
-            </>
+            (() => {
+              const copy = recordErrorCopy(liveRecord.code, liveRecord.message);
+              return (
+                <>
+                  <Text color={copy.tone}>{copy.title}</Text>
+                  {copy.detail ? <Text dimColor>{copy.detail}</Text> : null}
+                </>
+              );
+            })()
           ) : (
             <Text dimColor>Starting live recording…</Text>
           )}

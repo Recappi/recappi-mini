@@ -29,7 +29,7 @@ import { OverviewView } from "../src/tui/OverviewView";
 import { JobDetailView } from "../src/tui/JobDetailView";
 import { RecordingsView } from "../src/tui/RecordingsView";
 import { RecordingDetailView } from "../src/tui/RecordingDetailView";
-import { AppShell, type AppShellProps } from "../src/tui/AppShell";
+import { AppShell, recordErrorCopy, type AppShellProps } from "../src/tui/AppShell";
 import { DASHBOARD_RENDER_OPTIONS, runDashboard, type RunDashboardDeps } from "../src/tui";
 import type {
   AccountStatusData,
@@ -95,6 +95,29 @@ const rec = (over: Partial<RecordingData> = {}): RecordingData => ({
   updatedAt: 1,
   origin: "https://recordmeet.ing",
   ...over,
+});
+
+describe("record error copy", () => {
+  it("maps helper error codes to friendly, jargon-free copy", () => {
+    const unavailable = recordErrorCopy("record.helper_unavailable", "x");
+    expect(unavailable.title).toContain("isn't available");
+    expect(unavailable.tone).toBe("yellow");
+    expect(recordErrorCopy("record.unsupported_platform", "x").title).toContain("supported");
+    expect(recordErrorCopy("record.capture_unavailable", "x").title).toContain("ready");
+    // unknown/undefined code falls back to the raw message + red tone
+    const fallback = recordErrorCopy(undefined, "boom");
+    expect(fallback.title).toContain("Couldn't start");
+    expect(fallback.detail).toBe("boom");
+    expect(fallback.tone).toBe("red");
+    // never leak internal jargon
+    for (const code of ["record.helper_unavailable", "record.unsupported_platform", "record.capture_unavailable"]) {
+      const c = recordErrorCopy(code, "x");
+      const text = `${c.title} ${c.detail ?? ""}`.toLowerCase();
+      expect(text).not.toContain("sidecar");
+      expect(text).not.toContain("env");
+      expect(text).not.toContain("path");
+    }
+  });
 });
 
 describe("tui format helpers", () => {
