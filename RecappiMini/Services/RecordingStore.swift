@@ -91,11 +91,31 @@ struct RecordingStore {
     static func saveRemoteManifest(_ manifest: RemoteSessionManifest, in sessionDir: URL) -> RemoteSessionManifest {
         var next = manifest
         next.updatedAt = manifestTimestampFormatter.string(from: Date())
+        // Preserve the account stamp across rewrites: callers building a fresh
+        // `.stage()` manifest leave the account fields nil, which would otherwise
+        // wipe an existing attribution and re-expose the session as unattributed.
+        if next.accountUserId == nil || next.accountBackendOrigin == nil,
+           let existing = loadRemoteManifest(in: sessionDir) {
+            if next.accountUserId == nil { next.accountUserId = existing.accountUserId }
+            if next.accountBackendOrigin == nil { next.accountBackendOrigin = existing.accountBackendOrigin }
+        }
         let url = remoteManifestURL(in: sessionDir)
         if let data = try? JSONEncoder().encode(next) {
             try? data.write(to: url)
         }
         return next
+    }
+
+    /// Stamp a local session with the owning account so it cannot leak across
+    /// account switches. No-op when signed out (`account` nil) — the session stays
+    /// unattributed until explicitly claimed. The origin must already be normalized
+    /// (see AuthSessionStore.currentLocalSessionAccount()).
+    static func stampAccount(_ account: (userId: String, backendOrigin: String)?, in sessionDir: URL) {
+        guard let account else { return }
+        var manifest = loadRemoteManifest(in: sessionDir) ?? .stage("recording")
+        manifest.accountUserId = account.userId
+        manifest.accountBackendOrigin = account.backendOrigin
+        saveRemoteManifest(manifest, in: sessionDir)
     }
 
     static func loadRemoteManifest(in sessionDir: URL) -> RemoteSessionManifest? {

@@ -424,6 +424,14 @@ final class AuthSessionStore: ObservableObject {
         raw.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
     }
 
+    /// The current account partition (userId + normalized backend origin) used to
+    /// scope local recording sessions. nil when signed out. Matches
+    /// CloudLibraryStore.cacheContext() so app + CLI partition identically.
+    static func currentLocalSessionAccount() -> (userId: String, backendOrigin: String)? {
+        guard let userId = shared.currentSession?.userId, !userId.isEmpty else { return nil }
+        return (userId, normalizeOrigin(AppConfig.shared.effectiveBackendBaseURL))
+    }
+
     nonisolated static func normalizeBearerToken(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

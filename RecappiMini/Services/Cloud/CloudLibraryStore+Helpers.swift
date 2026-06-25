@@ -67,8 +67,9 @@ extension CloudLibraryStore {
     }
 
     func loadLocalOnlyRecordings() async -> [CloudRecording] {
-        await Task.detached(priority: .utility) {
-            Self.localOnlyRecordings(in: RecordingStore.baseDirectory)
+        let account = cacheContext()
+        return await Task.detached(priority: .utility) {
+            Self.localOnlyRecordings(in: RecordingStore.baseDirectory, currentAccount: account)
         }.value
     }
 
@@ -110,8 +111,9 @@ extension CloudLibraryStore {
 
 
     func refreshLocalSessionLinks() async {
+        let account = cacheContext()
         let links = await Task.detached(priority: .utility) {
-            Self.localSessionLinks(in: RecordingStore.baseDirectory)
+            Self.localSessionLinks(in: RecordingStore.baseDirectory, currentAccount: account)
         }.value
         localSessionURLsByRecordingID = links
     }
@@ -136,8 +138,13 @@ extension CloudLibraryStore {
         liveCaptionTranscriptStatesByRecordingID[recordingID] = state
     }
 
+    // Account-scoping note: sessions that already have a cloud `recordingId` are
+    // inherently account-scoped (a cloud id only resolves within its owner's cloud
+    // list), so their links stay unfiltered. Local-only sessions (no cloud id) are
+    // the cross-account leak risk, so they are gated by the current account stamp.
     nonisolated static func localSessionLinks(
         in baseDirectory: URL,
+        currentAccount: (userId: String, backendOrigin: String)?,
         fileManager: FileManager = .default
     ) -> [String: URL] {
         guard let sessionDirs = try? fileManager.contentsOfDirectory(
@@ -155,9 +162,15 @@ extension CloudLibraryStore {
                 continue
             }
 
-            let remoteID = RecordingStore.loadRemoteManifest(in: sessionDir)?.recordingId?
+            let manifest = RecordingStore.loadRemoteManifest(in: sessionDir)
+            logPartialAccountStampIfNeeded(manifest, sessionDir: sessionDir)
+            let remoteID = manifest?.recordingId?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let recordingId = remoteID?.isEmpty == false
+            let hasRemoteID = remoteID?.isEmpty == false
+            if !hasRemoteID && !sessionMatchesAccount(manifest, currentAccount: currentAccount) {
+                continue // local-only draft from another / no account — don't link
+            }
+            let recordingId = hasRemoteID
                 ? remoteID!
                 : "local-\(sessionDir.lastPathComponent)"
             guard links[recordingId] == nil else { continue }
@@ -168,8 +181,11 @@ extension CloudLibraryStore {
 
     nonisolated static func localOnlyRecordings(
         in baseDirectory: URL,
+        currentAccount: (userId: String, backendOrigin: String)?,
         fileManager: FileManager = .default
     ) -> [CloudRecording] {
+        // Signed out → never surface any account's local-only drafts.
+        guard currentAccount != nil else { return [] }
         guard let sessionDirs = try? fileManager.contentsOfDirectory(
             at: baseDirectory,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -189,12 +205,86 @@ extension CloudLibraryStore {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard remoteID?.isEmpty != false else { return nil }
 
+                logPartialAccountStampIfNeeded(manifest, sessionDir: sessionDir)
+                guard sessionMatchesAccount(manifest, currentAccount: currentAccount) else {
+                    return nil // unattributed / other account → hidden until claimed
+                }
+
                 return SessionProcessor.localRecordingPlaceholder(
                     sessionDir: sessionDir,
                     duration: 0,
                     status: localOnlyRecordingStatus(from: manifest)
                 )
             }
+    }
+
+    private nonisolated static func sessionMatchesAccount(
+        _ manifest: RemoteSessionManifest?,
+        currentAccount: (userId: String, backendOrigin: String)?
+    ) -> Bool {
+        guard let manifest, let account = currentAccount else { return false }
+        return manifest.belongsToAccount(userId: account.userId, backendOrigin: account.backendOrigin)
+    }
+
+    private nonisolated static func logPartialAccountStampIfNeeded(
+        _ manifest: RemoteSessionManifest?,
+        sessionDir: URL
+    ) {
+        guard manifest?.hasPartialAccountStamp == true else { return }
+        DiagnosticsLog.warning(
+            "local-session",
+            "partial account stamp, treating as unattributed: \(sessionDir.lastPathComponent)"
+        )
+    }
+
+    // Local-only sessions with no usable account stamp (legacy or recorded while
+    // signed out). These are hidden from every account until explicitly claimed.
+    nonisolated static func unattributedLocalOnlySessions(
+        in baseDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> [URL] {
+        guard let sessionDirs = try? fileManager.contentsOfDirectory(
+            at: baseDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return sessionDirs
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true }
+            .filter { sessionDir in
+                let manifest = RecordingStore.loadRemoteManifest(in: sessionDir)
+                let remoteID = manifest?.recordingId?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let isLocalOnly = remoteID?.isEmpty != false
+                return isLocalOnly && (manifest?.isAccountUnattributed ?? true)
+            }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+    }
+
+    /// Attribute a single unattributed local session to the current account.
+    /// Returns false when signed out or when the session is already stamped to an
+    /// account — claim never reassigns across accounts (anti-theft guardrail).
+    @discardableResult
+    func claimUnattributedLocalSession(at sessionDir: URL) -> Bool {
+        guard let account = cacheContext() else { return false }
+        let manifest = RecordingStore.loadRemoteManifest(in: sessionDir)
+        guard manifest?.isAccountUnattributed ?? true else { return false }
+        RecordingStore.stampAccount(account, in: sessionDir)
+        return true
+    }
+
+    /// Claim every unattributed local session for the current account, returning
+    /// how many were claimed. Refreshes the recordings list when any were claimed.
+    @discardableResult
+    func claimAllUnattributedLocalSessions() async -> Int {
+        guard cacheContext() != nil else { return 0 }
+        let dirs = await Task.detached(priority: .utility) {
+            Self.unattributedLocalOnlySessions(in: RecordingStore.baseDirectory)
+        }.value
+        var claimed = 0
+        for dir in dirs where claimUnattributedLocalSession(at: dir) { claimed += 1 }
+        if claimed > 0 { await mergeLocalOnlyRecordingsFromDisk() }
+        return claimed
     }
 
     private nonisolated static func localOnlyRecordingStatus(
