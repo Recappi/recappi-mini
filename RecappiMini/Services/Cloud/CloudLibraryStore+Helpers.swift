@@ -75,6 +75,7 @@ extension CloudLibraryStore {
 
     @discardableResult
     func mergeLocalOnlyRecordingsFromDisk() async -> Bool {
+        await refreshUnattributedLocalSessionCount()
         let localOnlyRecordings = await loadLocalOnlyRecordings()
         guard !localOnlyRecordings.isEmpty else { return false }
 
@@ -116,6 +117,19 @@ extension CloudLibraryStore {
             Self.localSessionLinks(in: RecordingStore.baseDirectory, currentAccount: account)
         }.value
         localSessionURLsByRecordingID = links
+    }
+
+    // Refresh the count of unattributed local sessions so the UI can offer the
+    // "claim to current account" action. Zero when signed out.
+    func refreshUnattributedLocalSessionCount() async {
+        guard cacheContext() != nil else {
+            if unattributedLocalSessionCount != 0 { unattributedLocalSessionCount = 0 }
+            return
+        }
+        let count = await Task.detached(priority: .utility) {
+            Self.unattributedLocalOnlySessions(in: RecordingStore.baseDirectory).count
+        }.value
+        if unattributedLocalSessionCount != count { unattributedLocalSessionCount = count }
     }
 
     func loadLiveCaptionTranscriptForSelection() async {

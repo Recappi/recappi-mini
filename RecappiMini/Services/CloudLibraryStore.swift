@@ -44,6 +44,10 @@ final class CloudLibraryStore: ObservableObject {
     @Published var isLoadingBilling = false
     @Published var isOpeningBilling = false
     @Published var localSessionURLsByRecordingID: [String: URL] = [:]
+    // Count of local-only sessions on this machine that carry no account stamp
+    // (legacy or recorded signed-out). Surfaced so the UI can offer an explicit
+    // "claim these to the current account" action (#249).
+    @Published var unattributedLocalSessionCount = 0
     @Published var liveCaptionTranscriptStatesByRecordingID: [String: LiveCaptionTranscriptLoadState] = [:]
     @Published var playbackAudioURLsByRecordingID: [String: URL] = [:]
     @Published var isPreparingPlaybackAudio = false
