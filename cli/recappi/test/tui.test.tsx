@@ -120,7 +120,8 @@ describe("record error copy", () => {
     expect(permissionRequired.title).toContain("permission");
     expect(permissionRequired.detail).toContain("System Settings");
     const captureFailed = recordErrorCopy("record.capture_failed", "x");
-    expect(captureFailed.title).toContain("capture audio");
+    expect(captureFailed.title).toContain("Couldn't start");
+    expect(captureFailed.detail).toContain("please try again");
     expect(captureFailed.tone).toBe("red");
     // unknown/undefined code falls back to the raw message + red tone
     const fallback = recordErrorCopy(undefined, "boom");

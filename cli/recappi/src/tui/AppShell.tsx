@@ -104,8 +104,8 @@ export function recordErrorCopy(
       };
     case "record.capture_failed":
       return {
-        title: "Recording couldn't capture audio.",
-        detail: "Check permissions, make sure audio is playing, then try again.",
+        title: "Couldn't start recording.",
+        detail: "Recording failed to start — please try again.",
         tone: "red",
       };
     default:
