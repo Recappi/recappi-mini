@@ -42,9 +42,11 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
+
+      - run: npm install -g vite-plus@0.2.1
 
       - run: pnpm install --frozen-lockfile
 
