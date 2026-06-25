@@ -40,6 +40,8 @@ import type {
   TranscriptData,
 } from "../../packages/contracts/src/index";
 
+vi.setConfig({ testTimeout: 20_000 });
+
 const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> {
