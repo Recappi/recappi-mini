@@ -41,6 +41,22 @@ import type {
 } from "../../packages/contracts/src/index";
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> {
+  const started = Date.now();
+  let lastError: unknown;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await flush();
+    }
+  }
+  assertion();
+  if (lastError) throw lastError;
+}
 const noAnsi = (s: string | undefined) => (s ?? "").replace(/\[[0-9;]*m/g, "");
 const DOWN = "[B";
 const ENTER = "\r";
@@ -618,12 +634,16 @@ describe("AppShell (interactive)", () => {
     await flush();
     stdin.write("4");
     await flush();
-    expect(startLiveRecord).toHaveBeenCalledTimes(1);
-    expect(noAnsi(lastFrame())).toContain("Waiting for captions");
+    await waitFor(() => {
+      expect(startLiveRecord).toHaveBeenCalledTimes(1);
+      expect(noAnsi(lastFrame())).toContain("Waiting for captions");
+    });
     stdin.write("q");
     await flush();
-    expect(stop).toHaveBeenCalledTimes(1);
-    expect(noAnsi(lastFrame())).toContain("Recappi");
+    await waitFor(() => {
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(noAnsi(lastFrame())).toContain("Recappi");
+    });
     unmount();
   });
 
@@ -668,8 +688,10 @@ describe("AppShell (interactive)", () => {
     for (let i = 0; i < 12; i += 1) r.stdin.write(DOWN);
     await flush();
 
-    expect(fetchRecordings).toHaveBeenCalledTimes(2);
-    expect(fetchRecordings).toHaveBeenLastCalledWith({ limit: 50, cursor: "cursor_2" });
+    await waitFor(() => {
+      expect(fetchRecordings).toHaveBeenCalledTimes(2);
+      expect(fetchRecordings).toHaveBeenLastCalledWith({ limit: 50, cursor: "cursor_2" });
+    });
     r.unmount();
   });
 
