@@ -5,6 +5,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_CONFIG="${BUILD_CONFIG:-release}"
 PRODUCT_NAME="RecappiMiniSidecar"
 APP_BUNDLE_NAME="Recappi Recorder.app"
+ENTITLEMENTS_PATH="$PROJECT_DIR/RecappiMiniSidecar/RecappiMiniSidecar.entitlements"
 HOST_ARCH="$(uname -m)"
 case "$HOST_ARCH" in
     arm64) NPM_ARCH="arm64" ;;
@@ -42,7 +43,7 @@ cp "$PROJECT_DIR/RecappiMiniSidecar/Info.plist" "$CONTENTS_DIR/Info.plist"
 chmod 755 "$DEST"
 
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
-    SIGN_ARGS=(--force --sign "$CODESIGN_IDENTITY")
+    SIGN_ARGS=(--force --sign "$CODESIGN_IDENTITY" --entitlements "$ENTITLEMENTS_PATH")
     if [ "${CODESIGN_IDENTITY:-}" != "-" ]; then
         SIGN_ARGS+=(--options runtime)
         if [ "${RELEASE:-0}" = "1" ]; then

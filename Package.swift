@@ -45,7 +45,7 @@ let package = Package(
                 "RecappiCaptureCore",
             ],
             path: "RecappiMiniSidecar",
-            exclude: ["Info.plist"],
+            exclude: ["Info.plist", "RecappiMiniSidecar.entitlements"],
             linkerSettings: [
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("AppKit"),

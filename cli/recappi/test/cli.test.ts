@@ -780,6 +780,58 @@ describe("recappi CLI contract", () => {
     },
   );
 
+  it.runIf(process.platform === "darwin")(
+    "refreshes the stable helper when the bundled code signature changes",
+    async () => {
+      const homeDir = await mkdtemp(path.join(tmpdir(), "recappi-cli-home-"));
+      try {
+        const sourceApp = path.join(homeDir, "source", "Recappi Recorder.app");
+        const sourceExecutable = path.join(
+          sourceApp,
+          "Contents",
+          "MacOS",
+          "RecappiMiniSidecar",
+        );
+        const sourceSignature = path.join(
+          sourceApp,
+          "Contents",
+          "_CodeSignature",
+          "CodeResources",
+        );
+        await mkdir(path.dirname(sourceExecutable), { recursive: true });
+        await mkdir(path.dirname(sourceSignature), { recursive: true });
+        await writeFile(sourceExecutable, "fake helper");
+        await chmod(sourceExecutable, 0o755);
+        await writeFile(
+          path.join(sourceApp, "Contents", "Info.plist"),
+          "<plist><dict><key>CFBundleName</key><string>Recappi Recorder</string></dict></plist>",
+        );
+        await writeFile(sourceSignature, "signature-v1");
+
+        const expected = path.join(
+          homeDir,
+          "Library",
+          "Application Support",
+          "Recappi",
+          "Recappi Recorder.app",
+        );
+        expect(ensureBundledHelperExecutable(sourceApp, { homeDir })).toBe(expected);
+        await expect(
+          readFile(path.join(expected, "Contents", "_CodeSignature", "CodeResources"), "utf8"),
+        ).resolves.toBe("signature-v1");
+
+        await writeFile(sourceSignature, "signature-v2");
+
+        expect(ensureBundledHelperExecutable(sourceApp, { homeDir })).toBe(expected);
+        await expect(
+          readFile(path.join(expected, "Contents", "_CodeSignature", "CodeResources"), "utf8"),
+        ).resolves.toBe("signature-v2");
+      } finally {
+        await rm(homeDir, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("rejects record when all audio inputs are disabled", async () => {
     const result = await run([
       "record",

@@ -65,6 +65,16 @@ try {
         throw new Error(`Packed helper Info.plist is missing ${expected}`);
       }
     }
+    if (process.platform === "darwin") {
+      const entitlements = spawnSync("codesign", ["-d", "--entitlements", ":-", helperPath], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      const entitlementText = `${entitlements.stdout}\n${entitlements.stderr}`;
+      if (entitlements.status !== 0 || !entitlementText.includes("com.apple.security.device.audio-input")) {
+        throw new Error("Packed helper app is missing the microphone audio-input entitlement");
+      }
+    }
   } else {
     if (!helperStat.isFile()) {
       throw new Error(`Packed helper is not a file: ${helperPath}`);

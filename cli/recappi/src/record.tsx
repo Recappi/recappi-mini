@@ -10,6 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -537,15 +538,21 @@ function stableDarwinHelperAppPath(opts: Pick<RecordCommandOptions, "env" | "hom
 }
 
 function helperSourceSignature(sourceApp: string): string {
-  const executable = statSync(darwinAppExecutablePath(sourceApp));
-  const info = statSync(join(sourceApp, "Contents", "Info.plist"));
+  const executablePath = darwinAppExecutablePath(sourceApp);
+  const infoPath = join(sourceApp, "Contents", "Info.plist");
+  const signaturePath = join(sourceApp, "Contents", "_CodeSignature", "CodeResources");
   return JSON.stringify({
     app: SIDECAR_APP_BUNDLE_NAME,
-    executableSize: executable.size,
-    executableMtimeMs: executable.mtimeMs,
-    infoSize: info.size,
-    infoMtimeMs: info.mtimeMs,
+    executable: fileDigest(executablePath),
+    info: fileDigest(infoPath),
+    codeSignature: existsSync(signaturePath) ? fileDigest(signaturePath) : null,
   });
+}
+
+function fileDigest(path: string): string {
+  const hash = createHash("sha256");
+  hash.update(readFileSync(path));
+  return hash.digest("hex");
 }
 
 function readTextIfExists(path: string): string | null {
