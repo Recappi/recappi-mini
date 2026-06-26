@@ -41,7 +41,10 @@ export function PermissionPreflightView({
   const hasRestartRequired = items.some((item) => item.requiresProcessRestart);
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text dimColor>‹ Recording permissions</Text>
+      <Text>
+        <Text dimColor>‹ </Text>
+        <Text bold color="cyan">Recording permissions</Text>
+      </Text>
 
       <Box marginTop={1} flexDirection="column">
         {items.length === 0 ? (
@@ -49,7 +52,11 @@ export function PermissionPreflightView({
         ) : (
           items.map((item) => {
             const status = statusGlyph(item.status);
-            const hint = item.requiresProcessRestart
+            // A granted permission that still needs a process restart isn't ready
+            // yet → color it "attention" (yellow), not "done" (green).
+            const restart = item.requiresProcessRestart === true;
+            const color = restart ? "yellow" : status.color;
+            const hint = restart
               ? item.hint ?? `${item.name} enabled. Run recappi record again to start.`
               : item.status === "granted"
                 ? undefined
@@ -57,9 +64,9 @@ export function PermissionPreflightView({
             return (
               <Box key={item.name} flexDirection="column">
                 <Text>
-                  <Text color={status.color}>{status.glyph}</Text>
+                  <Text bold color={color}>{status.glyph}</Text>
                   <Text bold>{` ${item.name}`}</Text>
-                  <Text dimColor>{`  ${status.label}`}</Text>
+                  <Text color={color}>{`  ${status.label}`}</Text>
                 </Text>
                 {hint ? <Text dimColor>{`   ${hint}`}</Text> : null}
               </Box>
@@ -70,16 +77,31 @@ export function PermissionPreflightView({
 
       <Box marginTop={1}>
         {allGranted ? (
-          <Text color="green">All set — ready to record.</Text>
+          <Text bold color="green">✓ All set — ready to record.</Text>
         ) : hasRestartRequired ? (
-          <Text dimColor>Run recappi record again to start, or press r to retry.</Text>
+          <Text>
+            <Text dimColor>Run recappi record again to start, or press </Text>
+            <Text bold color="cyan">r</Text>
+            <Text dimColor> to retry.</Text>
+          </Text>
         ) : (
-          <Text dimColor>Grant the permissions above, then press r to recheck.</Text>
+          <Text>
+            <Text dimColor>Grant the permissions above, then press </Text>
+            <Text bold color="cyan">r</Text>
+            <Text dimColor> to recheck.</Text>
+          </Text>
         )}
       </Box>
 
       <Box marginTop={1}>
-        <Text dimColor>r recheck · o open System Settings · esc back</Text>
+        <Text>
+          <Text color="cyan">r</Text>
+          <Text dimColor> recheck · </Text>
+          <Text color="cyan">o</Text>
+          <Text dimColor> open System Settings · </Text>
+          <Text color="cyan">esc</Text>
+          <Text dimColor> back</Text>
+        </Text>
       </Box>
     </Box>
   );

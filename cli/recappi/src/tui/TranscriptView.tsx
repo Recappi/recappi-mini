@@ -72,7 +72,7 @@ export function TranscriptView({ loading, data, error }: TranscriptViewProps): R
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text bold color="magenta">
+      <Text bold color="green">
         {title}
         {more ? <Text dimColor>{`   ${position}`}</Text> : null}
       </Text>

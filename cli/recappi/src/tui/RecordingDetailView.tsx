@@ -130,7 +130,7 @@ export function RecordingDetailView({
 
       {/* Title header */}
       <Box marginTop={1}>
-        <Text bold color="magenta">
+        <Text bold color="green">
           {title}
         </Text>
       </Box>

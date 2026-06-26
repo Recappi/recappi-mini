@@ -42,7 +42,7 @@ function AccountBody({ status }: { status: AccountStatusData }): React.ReactElem
   return (
     <>
       <Box marginTop={1} flexDirection="column">
-        <Text bold color="magenta">
+        <Text bold color="green">
           {status.email ?? status.userId ?? "Signed in"}
         </Text>
         {status.email && status.userId ? <Text dimColor>{status.userId}</Text> : null}

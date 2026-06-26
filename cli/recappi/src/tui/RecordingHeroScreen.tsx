@@ -107,7 +107,7 @@ export function RecordingHeroScreen({
   return (
     <Box flexDirection="column" paddingX={1} height={size.rows}>
       <Text>
-        <Text bold color="magenta">recappi</Text>
+        <Text bold color="green">recappi</Text>
         <Text dimColor> · Recording</Text>
       </Text>
 

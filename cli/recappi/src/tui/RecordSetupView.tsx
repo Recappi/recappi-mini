@@ -95,7 +95,7 @@ export function RecordSetupView({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text bold color="magenta">
+      <Text bold color="green">
         New recording
       </Text>
 

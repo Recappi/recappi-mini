@@ -49,7 +49,7 @@ function PeekBody({
     .join("  ·  ");
   return (
     <>
-      <Text bold color="magenta" wrap="truncate-end">
+      <Text bold color="green" wrap="truncate-end">
         {recordingTitle(item)}
       </Text>
       <Text color={style.color}>{`${style.glyph} ${style.label}`}</Text>
