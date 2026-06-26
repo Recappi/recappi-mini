@@ -376,13 +376,21 @@ describe("recappi CLI contract", () => {
   it("signs in with device code and stores the CLI token in config", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "recappi-cli-home-"));
     try {
+      // Inject a no-op opener so the test can never launch a real browser, and
+      // assert --no-open honors it (regression guard: the flag was wired to the
+      // wrong commander key, so the browser opened on every run).
+      const openedUrls: string[] = [];
       const result = await run(["auth", "login", "--json", "--no-open"], {
         homeDir,
         env: { RECAPPI_DISABLE_KEYCHAIN_AUTH: "1" },
         fetchImpl: deviceAuthFetch(),
         sleep: async () => {},
+        openUrl: async (url) => {
+          openedUrls.push(url);
+        },
       });
       expect(result.exitCode).toBe(0);
+      expect(openedUrls).toEqual([]);
       expect(result.stderr).toContain("Open https://recordmeet.ing/device");
       expect(result.stderr).toContain("Enter code: WDJB-MJHT");
       expect(JSON.parse(result.stdout)).toMatchObject({

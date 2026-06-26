@@ -607,7 +607,8 @@ interface RootCommanderOptions extends CommanderCommonOptions {
 }
 
 interface AuthLoginCommanderOptions extends CommanderCommonOptions {
-  noOpen?: boolean;
+  // Commander maps `--no-open` to `open: false` (defaults to true), not `noOpen`.
+  open?: boolean;
 }
 
 interface UploadCommanderOptions extends CommanderCommonOptions {
@@ -685,7 +686,7 @@ Agent mode:
       kind: "auth-login",
       options: collectGlobalOptions(command),
       commandName: "auth login",
-      ...(opts.noOpen === true ? { noOpen: true } : {}),
+      ...(opts.open === false ? { noOpen: true } : {}),
     });
   });
 
