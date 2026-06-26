@@ -46,6 +46,11 @@ import {
 import { openCliStore, requireAccountPartition } from "./store";
 import { LiveCaptionsScreen, type LiveCaptionEventSource } from "./tui/LiveCaptionsScreen";
 import { RecordingHeroScreen } from "./tui/RecordingHeroScreen";
+import {
+  initialLiveCaptionsState,
+  liveCaptionReducer,
+  sidecarToLiveCaptionEvent,
+} from "./tui/liveCaptions";
 
 const SIDECAR_COMMAND_ENV = "RECAPPI_MINI_SIDECAR";
 const SIDECAR_HELPER_NAME = "RecappiMiniSidecar";
@@ -92,6 +97,7 @@ export interface RecordLiveRenderer {
 
 export interface LiveRecordSession {
   mode?: "local" | "live_captions";
+  captionStreamEnabled?: boolean;
   source: LiveCaptionEventSource;
   stop: () => Promise<RecordCommandData>;
 }
@@ -135,6 +141,7 @@ export async function recordViaSidecar(opts: RecordCommandOptions): Promise<Reco
         sourceLabel:
           opts.includeSystemAudio === false ? "Microphone" : "System audio · all apps",
         micEnabled: opts.includeMicrophone !== false,
+        captionStreamEnabled: opts.live === true,
         renderApp: opts.runtime?.renderApp,
         now: opts.runtime?.now,
       });
@@ -181,6 +188,7 @@ export async function startLiveRecordSession(
   });
   return {
     mode: "local",
+    captionStreamEnabled: true,
     source: session.source,
     stop: session.stop,
   };
@@ -711,6 +719,7 @@ function createInkRecordingHeroRenderer(opts: {
   source: LiveCaptionEventSource;
   sourceLabel: string;
   micEnabled: boolean;
+  captionStreamEnabled: boolean;
   renderApp?: LiveRendererRenderApp;
   now?: () => number;
 }): RecordLiveRenderer {
@@ -727,6 +736,7 @@ function createInkRecordingHeroRenderer(opts: {
       source={opts.source}
       sourceLabel={opts.sourceLabel}
       micEnabled={opts.micEnabled}
+      captionStreamEnabled={opts.captionStreamEnabled}
       onStop={onStop}
       now={opts.now ?? Date.now}
     />,
@@ -745,12 +755,14 @@ function RecordingHeroLive({
   source,
   sourceLabel,
   micEnabled,
+  captionStreamEnabled,
   onStop,
   now,
 }: {
   source: LiveCaptionEventSource;
   sourceLabel: string;
   micEnabled: boolean;
+  captionStreamEnabled: boolean;
   onStop: () => void;
   now: () => number;
 }): React.ReactElement {
@@ -760,13 +772,23 @@ function RecordingHeroLive({
     sourceLabel,
     micEnabled,
   }));
+  const [captions, setCaptions] = React.useState(initialLiveCaptionsState);
   React.useEffect(() => {
     return source.onEvent((event) => {
       setTelemetry((prev) => applyRecordingEventToTelemetry(prev, event));
+      if (!captionStreamEnabled) return;
+      const mapped = sidecarToLiveCaptionEvent(event);
+      if (mapped) setCaptions((prev) => liveCaptionReducer(prev, mapped));
     });
-  }, [source]);
+  }, [captionStreamEnabled, source]);
   useInput((input, key) => {
     if (input === "q" || key.escape) onStop();
   });
-  return <RecordingHeroScreen telemetry={telemetry} now={now} />;
+  return (
+    <RecordingHeroScreen
+      telemetry={telemetry}
+      captions={captionStreamEnabled ? captions : undefined}
+      now={now}
+    />
+  );
 }

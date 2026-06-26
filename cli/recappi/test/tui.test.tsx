@@ -1120,6 +1120,79 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
+  it("renders live caption tail in the recording hero when the session streams captions", async () => {
+    let emit: ((event: unknown) => void) | undefined;
+    const stop = vi.fn().mockResolvedValue({
+      origin: "https://api.recappi.com",
+      userId: "u_1",
+      live: true,
+      sessionId: "session_1",
+      state: "completed",
+      artifacts: [],
+    });
+    const startLiveRecord = vi.fn().mockResolvedValue({
+      captionStreamEnabled: true,
+      source: {
+        onEvent: (listener: (event: never) => void) => {
+          emit = (event: unknown) => listener(event as never);
+          return () => {
+            emit = undefined;
+          };
+        },
+      },
+      stop,
+    });
+    const { lastFrame, stdin, unmount } = setup({ startLiveRecord });
+    await flush();
+    stdin.write("n");
+    await flush();
+    stdin.write("\r");
+    await flush();
+    await waitFor(() => {
+      expect(noAnsi(lastFrame())).toContain("REC");
+      expect(emit).toBeDefined();
+    });
+
+    emit?.({
+      type: "recording.state",
+      sessionId: "session_1",
+      state: "recording",
+    });
+    emit?.({
+      type: "live_caption.delta",
+      sessionId: "session_1",
+      stream: "source",
+      text: "hello wor",
+    });
+    await waitFor(() => {
+      expect(noAnsi(lastFrame())).toContain("hello wor");
+    });
+
+    emit?.({
+      type: "live_caption.delta",
+      sessionId: "session_1",
+      stream: "source",
+      text: "hello world",
+      isFinal: true,
+      segmentId: "seg1",
+      speaker: "A",
+    });
+    emit?.({
+      type: "live_caption.delta",
+      sessionId: "session_1",
+      stream: "translation",
+      text: "你好世界",
+      isFinal: true,
+      segmentId: "seg1",
+    });
+    await waitFor(() => {
+      const frame = noAnsi(lastFrame());
+      expect(frame).toContain("A: hello world");
+      expect(frame).toContain("↳ 你好世界");
+    });
+    unmount();
+  });
+
   it("sanitizes stopped-record transcribe failures before rendering them", async () => {
     const stop = vi.fn().mockResolvedValue({
       origin: "https://api.recappi.com",

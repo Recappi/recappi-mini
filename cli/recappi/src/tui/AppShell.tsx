@@ -29,6 +29,12 @@ import { PermissionPreflightView, type PermissionItem } from "./PermissionPrefli
 import { RecordSetupView, type RecordSetupModel } from "./RecordSetupView";
 import { RecordingHeroScreen } from "./RecordingHeroScreen";
 import {
+  initialLiveCaptionsState,
+  liveCaptionReducer,
+  sidecarToLiveCaptionEvent,
+  type LiveCaptionsState,
+} from "./liveCaptions";
+import {
   DEFAULT_RECORDING_SCENES,
   DEFAULT_RECORDING_SELECTION,
   DEFAULT_RECORDING_SOURCES,
@@ -84,6 +90,7 @@ export interface AppShellProps {
 
 export interface DashboardLiveRecordSession {
   mode?: "local" | "live_captions";
+  captionStreamEnabled?: boolean;
   source: LiveCaptionEventSource;
   stop: () => Promise<RecordCommandData>;
 }
@@ -109,12 +116,14 @@ type LiveRecordState =
       kind: "live";
       session: DashboardLiveRecordSession;
       telemetry: RecordingTelemetry;
+      captions?: LiveCaptionsState;
       selection: RecordingInputSelection;
     }
   | {
       kind: "stopping";
       session: DashboardLiveRecordSession;
       telemetry: RecordingTelemetry;
+      captions?: LiveCaptionsState;
       selection: RecordingInputSelection;
     }
   | {
@@ -374,6 +383,7 @@ export function AppShell({
               session,
               selection,
               telemetry: { ...current.telemetry, status: "recording" },
+              captions: session.captionStreamEnabled ? initialLiveCaptionsState() : undefined,
             };
           });
         })
@@ -393,6 +403,7 @@ export function AppShell({
         session: current.session,
         selection: current.selection,
         telemetry: stoppingTelemetry,
+        captions: current.captions,
       });
       try {
         const data = await current.session.stop();
@@ -432,11 +443,22 @@ export function AppShell({
     if (!liveSession) return;
     const session = liveSession;
     const unsubscribe = session.source.onEvent((event: SidecarEvent) => {
+      const captionEvent = session.captionStreamEnabled
+        ? sidecarToLiveCaptionEvent(event)
+        : null;
       setLiveRecord((current) => {
         if (current?.kind !== "live" || current.session !== session) return current;
         return {
           ...current,
           telemetry: applyRecordingEventToTelemetry(current.telemetry, event),
+          ...(captionEvent
+            ? {
+                captions: liveCaptionReducer(
+                  current.captions ?? initialLiveCaptionsState(),
+                  captionEvent,
+                ),
+              }
+            : {}),
         };
       });
     });
@@ -869,6 +891,11 @@ export function AppShell({
         <Detail notice={notice}>
           <RecordingHeroScreen
             telemetry={liveRecord.telemetry}
+            captions={
+              liveRecord.kind === "live" || liveRecord.kind === "stopping"
+                ? liveRecord.captions
+                : undefined
+            }
             artifact={liveRecord.kind === "stopped" ? liveRecord.artifact : undefined}
             canTranscribe={Boolean(transcribeRecordingArtifact)}
             now={now}
