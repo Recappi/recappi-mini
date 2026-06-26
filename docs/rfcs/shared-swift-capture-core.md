@@ -226,7 +226,8 @@ CLI/TUI TypeScript:
 - [x] 抽 bundle/app source collapsing 逻辑，确保 Arc/Chromium helper 语义有测试覆盖。
 - [x] 抽 `AudioLevelExtractor`，保留 app wrapper 并迁移 vDSP/并发测试到 core target。
 - [x] 抽 `SegmentedAudioWriter`，保留 app wrapper 并迁移 segment 写入测试到 core target。
-- [ ] 抽 `AudioMixer`、diagnostics 生成。
+- [x] 抽 `AudioMixer`，app wrapper 保留旧 `RecorderError` / `DiagnosticsLog` 语义。
+- [ ] 抽 diagnostics 生成。
 - [ ] app 和 sidecar 先编译通过，但 host 行为不切换。
 
 ### Phase 2: App Uses Core First

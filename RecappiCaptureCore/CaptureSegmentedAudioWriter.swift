@@ -10,6 +10,8 @@ public enum CaptureAudioError: LocalizedError {
     case failedToFinalizeSegment
     case finishAlreadyRequested
     case exportFailed
+    case sourceUnreadable(fileName: String, reason: String)
+    case noCapturedAudio
 
     public var errorDescription: String? {
         switch self {
@@ -20,6 +22,10 @@ public enum CaptureAudioError: LocalizedError {
         case .failedToFinalizeSegment: return "Couldn't finalize the recorded audio segment"
         case .finishAlreadyRequested: return "Audio finishing is already in progress"
         case .exportFailed: return "Failed to merge audio sources"
+        case .sourceUnreadable(let fileName, let reason):
+            return "Couldn't read audio source \(fileName): \(reason)"
+        case .noCapturedAudio:
+            return "No audio was captured"
         }
     }
 }
