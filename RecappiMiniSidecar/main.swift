@@ -804,7 +804,10 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         self.options = options
         let targetLanguage = options.translationLanguage?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let targetLanguage, !targetLanguage.isEmpty {
-            mode = .translation(targetLanguage: targetLanguage)
+            mode = .translation(targetLanguage: Self.normalizedRealtimeLanguage(
+                targetLanguage,
+                defaultLanguage: "zh"
+            ))
         } else {
             mode = .transcription
         }
@@ -911,12 +914,15 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
     }
 
     private func claimRequestBody() -> [String: Any] {
-        let language = options.transcriptionLanguage?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let language = Self.normalizedRealtimeLanguage(
+            options.transcriptionLanguage,
+            defaultLanguage: "en"
+        )
         switch mode {
         case .transcription:
             return [
                 "mode": "transcription",
-                "language": language?.isEmpty == false ? language! : "en-US",
+                "language": language,
                 "delay": "low",
                 "expiresAfterSeconds": 60,
                 "turnDetection": ["type": "none"],
@@ -924,13 +930,29 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         case .translation(let targetLanguage):
             return [
                 "mode": "translation",
-                "language": language?.isEmpty == false ? language! : "en",
+                "language": language,
                 "targetLanguage": targetLanguage,
                 "delay": "low",
                 "expiresAfterSeconds": 60,
                 "includeSourceTranscript": true,
             ]
         }
+    }
+
+    private static func normalizedRealtimeLanguage(
+        _ value: String?,
+        defaultLanguage: String
+    ) -> String {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = trimmed?.isEmpty == false ? trimmed! : defaultLanguage
+        let lowercased = candidate
+            .replacingOccurrences(of: "_", with: "-")
+            .lowercased()
+        guard let separator = lowercased.firstIndex(of: "-") else {
+            return lowercased
+        }
+        let primary = lowercased[..<separator]
+        return primary.isEmpty ? defaultLanguage : String(primary)
     }
 
     private func shouldCaption(input: CaptureLevel.Input) -> Bool {
@@ -1146,7 +1168,11 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
             value = options.translationLanguage
         }
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
+        guard trimmed?.isEmpty == false else { return nil }
+        return Self.normalizedRealtimeLanguage(
+            trimmed,
+            defaultLanguage: stream == .translation ? "zh" : "en"
+        )
     }
 
     private func emitError(code: String, message: String, retryable: Bool) {
