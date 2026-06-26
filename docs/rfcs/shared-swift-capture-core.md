@@ -134,11 +134,11 @@ sequenceDiagram
 - [x] `availableSources()` 用 `SCShareableContent.current.applications` 构建 app source，并沿用 app 侧的 bundle collapsing 语义。
 - [x] app source capture 用 `SCContentFilter(display:including:exceptingWindows:)`，让 ScreenCaptureKit 聚合目标 app 及其 helper/audio-service 进程。
 - [x] system source capture 用 all-app system audio 过滤器。
-- [ ] 麦克风继续用 `AVCaptureSession` / `AVCaptureAudioDataOutput`，但移动到 core。
-- [ ] system/mic sample buffer 同时写入 `SegmentedAudioWriter` 和 level extractor，`levels` 以 10-20Hz 输出。
-- [x] 中间态：sidecar 当前 system/mic capture paths 已用 shared `CaptureAudioLevelExtractor` 从 sample buffer 产出 `audio.level`，约 12Hz 转发给 CLI/TUI；full core `levels` stream 仍等待 session 迁移。
-- [x] 新增 `CaptureAudioRecordingSession` foundation：core 内部已有 SCK system audio、AVCapture mic、writer/mixer/diagnostics、`states` / `levels` streams 的 native session object；host adapter 切换仍 pending。
-- [ ] stop 时由 core 返回 `CaptureArtifact`，包含 system/mic/mixed URL、duration、diagnostics、effective selection。
+- [x] 麦克风继续用 `AVCaptureSession` / `AVCaptureAudioDataOutput`，但移动到 core。
+- [x] system/mic sample buffer 同时写入 `SegmentedAudioWriter` 和 level extractor，`levels` 以 10-20Hz 输出。
+- [x] sidecar JSON-RPC start/stop 已切到 core `CaptureAudioRecordingSession`；`audio.level` 从 full core `levels` stream 转发到 CLI/TUI。
+- [x] 新增 `CaptureAudioRecordingSession` foundation：core 内部已有 SCK system audio、AVCapture mic、writer/mixer/diagnostics、`states` / `levels` streams 的 native session object；sidecar adapter 已接入，app adapter 切换仍 pending。
+- [ ] stop 时由 core 返回 `CaptureArtifact`，包含 system/mic/mixed URL、duration、diagnostics、effective selection。（当前 sidecar 已消费 core mixed/system/mic URL 与 effective selection；duration/diagnostics fields 还未填实。）
 - [ ] capture session 预留实时 sample tap 扩展点；本轮可以不暴露正式 public API，但设计不能只能在 stop 后拿 artifact，否则后续 host 接 Live Caption 会被堵死。
 
 可行性关键点：SCK 能否在 npm 分发的 signed headless helper 内稳定运行，且 TCC 归因正确。
@@ -192,10 +192,10 @@ CLI sidecar:
 
 - [ ] 只保留 JSON-RPC adapter、account partition、本地 artifact event 映射、进程生命周期。
 - [ ] `sources.list` / `microphones.list` / `permissions.status` 直接调用 core。
-- [ ] `recording.start` 调 core，转发 `recording.state`、`audio.level`、`local_artifact.upserted`。
+- [x] `recording.start` 调 core，转发 `recording.state`、`audio.level`、`local_artifact.upserted`。
 - [ ] 权限错误复用 CLI `recordErrorCopy` 体系：给 System Settings 路径、不给内部路径/stack/upload 细节，并覆盖 `requiresProcessRestart` 的重新运行提示。
 - [ ] Screen Recording 未授权或刚授权时，用户文案统一走 "enable Recappi helper app, then run `recappi record` again"；不要暗示当前 helper 进程能在授权后继续录，也不要暴露 helper/sidecar/TCC/SCK 等内部词。
-- [ ] 删除 sidecar 内重复 CoreAudio tap、AVCapture mic、writer、mixer 实现。
+- [x] 删除 sidecar 内重复 CoreAudio tap、AVCapture mic、writer、mixer 实现。
 
 Permission copy shape:
 
@@ -249,11 +249,11 @@ CLI/TUI TypeScript:
 - [x] CLI helper launcher/resolver 支持 LaunchServices-based helper `.app` execution；stdio JSON-RPC 通过 LaunchServices `--stdin` / `--stdout` FIFO pipes 保持可交互。
 - [x] sidecar stop path 使用 shared `CaptureSegmentedAudioWriter` / `CaptureAudioMixer` / `CaptureAudioDiagnostics`，删除 sidecar 内重复 writer/mixer/diagnostics 实现。
 - [x] sidecar system/mic capture paths 使用 shared `CaptureAudioSampleBufferOutput` 写入 CAF 并发 `audio.level`。
-- [x] 新增 core native `CaptureAudioRecordingSession` foundation，但 sidecar JSON-RPC 尚未接入。
-- [ ] JSON-RPC methods 调 core；删除 sidecar duplicate capture code。
+- [x] 新增 core native `CaptureAudioRecordingSession` foundation。
+- [x] JSON-RPC methods 调 core；删除 sidecar duplicate capture code。
 - [x] sidecar 当前 capture paths 从 shared `CaptureAudioLevelExtractor.captureLevel` 转发 `audio.level { input, rmsDb, atMs }` 到 IPC。
-- [ ] `audio.level` 从 full core `levels` stream 转发到 IPC（等待 JSON-RPC start/stop 全切 core session）。
-- [ ] 更新 `cli/recappi/docs/sidecar-ipc.md`，声明 native capture owned by shared core。
+- [x] `audio.level` 从 full core `levels` stream 转发到 IPC。
+- [x] 更新 `cli/recappi/docs/sidecar-ipc.md`，声明 native capture owned by shared core。
 - [x] 跑 CLI sidecar contract tests 和 TUI waveform tests。
 
 ### Phase 4: Release Validation
@@ -267,7 +267,7 @@ CLI/TUI TypeScript:
 
 ### Phase 5: Cleanup Guardrails
 
-- [ ] 删除 sidecar 老 CoreAudio include-mode app tap 分支，除非 fallback 被明确批准。
+- [x] 删除 sidecar 老 CoreAudio include-mode app tap 分支，除非 fallback 被明确批准。
 - [x] 删除 sidecar 重复 writer/mixer/diagnostics 代码。
 - [x] sidecar 当前 capture paths 已用 shared level extractor 发 `audio.level`，不再需要 TS/TUI fallback 才能显示 waveform。
 - [ ] 删除 app/sidecar 重复 capture/mic/listing adapter 代码。

@@ -4,7 +4,8 @@ Status: task #252 contract for CLI reuse, updated by task #261 for packaged macO
 
 ## Ownership
 
-- Recappi Mini sidecar owns macOS-native recording, permissions, local session writes, live-caption buffering, and upload/finalization hooks.
+- `RecappiCaptureCore` owns macOS-native capture through `CaptureAudioRecordingSession`: ScreenCaptureKit system/app audio, microphone sample buffers, writer/mixer/diagnostics, and `states` / `levels` streams.
+- Recappi Mini sidecar owns the JSON-RPC adapter, permissions preflight, local session metadata/artifact mapping, live-caption buffering, and upload/finalization hooks.
 - Recappi CLI owns command parsing, machine-safe output, TUI rendering, CLI SQLite indexing, and account-scoped references to sidecar artifacts.
 - Both sides use `(backendOrigin, userId)` as the account partition key. Unattributed local sessions remain explicit and are never silently reassigned.
 
@@ -131,6 +132,12 @@ Recording start params include the account partition and recording options:
 }
 ```
 
+On macOS, `recappi.recording.start` creates a shared-core
+`CaptureAudioRecordingSession`. The sidecar forwards the core session's
+`states` stream as `recording.state` events and its `levels` stream as
+`audio.level` events, then maps the returned `CaptureArtifact` to a
+`recording_session` local artifact on stop.
+
 Stop/cancel/status use `{ "sessionId": "..." }`.
 
 ## Events
@@ -147,8 +154,8 @@ Events are JSON-RPC notifications with `method: "recappi.event"`:
 `audio.level` carries one physical input lane only: `input` is `system` or
 `microphone`. The sidecar must not emit `mixed` in IPC; the CLI/TUI combines
 system and microphone levels itself when it needs a single meter. Native macOS
-helpers emit levels from captured sample buffers at a throttled UI cadence,
-using `rmsDb` plus `atMs`.
+helpers emit levels from the shared core session's captured sample buffers at a
+throttled UI cadence, using `rmsDb` plus `atMs`.
 
 `live_caption.delta` is provisional stream data. It carries `stream`, `text`, optional `isFinal`, optional `segmentId`/`speaker`, and optional timing fields (`atMs`, `startMs`, `endMs`) so the CLI can map it to connecting/live/error status, partial caption rows, and finalized caption lines. If persisted, the artifact kind is `live_caption_draft`; it must not be treated as the official transcript.
 

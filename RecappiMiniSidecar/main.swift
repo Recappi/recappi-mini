@@ -1,10 +1,7 @@
-import Accelerate
 import AppKit
-import AudioToolbox
 import AVFoundation
 import CoreAudio
 import CoreGraphics
-import CoreMedia
 import Foundation
 import RecappiCaptureCore
 
@@ -75,12 +72,18 @@ private final class RecappiMiniSidecar {
                 let params = object["params"] as? [String: Any] ?? [:]
                 let options = RecordingOptions(params["options"] as? [String: Any] ?? [:])
                 let account = params["account"] as? [String: Any] ?? [:]
-                let session = try await SidecarRecordingSession(options: options, account: account) { [weak self] sessionID, level in
-                    self?.emitAudioLevel(sessionID: sessionID, level: level)
-                }
+                let session = try await SidecarRecordingSession(
+                    options: options,
+                    account: account,
+                    onState: { [weak self] session, state, message in
+                        self?.emitRecordingState(session, override: state, message: message)
+                    },
+                    onLevel: { [weak self] sessionID, level in
+                        self?.emitAudioLevel(sessionID: sessionID, level: level)
+                    }
+                )
                 try await session.start()
                 activeSession = session
-                emitRecordingState(session)
                 var startResult: [String: Any] = [
                     "sessionId": session.id,
                     "state": session.state.rawValue,
@@ -95,7 +98,6 @@ private final class RecappiMiniSidecar {
                 guard let session = activeSession, session.id == sessionId else {
                     throw SidecarFailure(code: -32031, message: "No active Recappi CLI recording matches this session.")
                 }
-                emitRecordingState(session, override: .stopping)
                 let stopped = try await session.stop()
                 activeSession = nil
                 emitLocalArtifact(stopped.artifact)
@@ -157,13 +159,17 @@ private final class RecappiMiniSidecar {
     private func emitRecordingState(
         _ session: SidecarRecordingSession,
         override: RecordingState? = nil,
-        artifact: LocalArtifact? = nil
+        artifact: LocalArtifact? = nil,
+        message: String? = nil
     ) {
         var params: [String: Any] = [
             "type": "recording.state",
             "sessionId": session.id,
             "state": (override ?? session.state).rawValue,
         ]
+        if let message {
+            params["message"] = message
+        }
         if let localSessionRef = session.localSessionRef {
             params["localSessionRef"] = localSessionRef
         }
@@ -356,6 +362,29 @@ private enum RecordingState: String {
     case completed
     case failed
     case cancelled
+
+    init?(captureStatus: CaptureState.Status) {
+        switch captureStatus {
+        case .idle:
+            self = .idle
+        case .starting:
+            self = .starting
+        case .recording:
+            self = .recording
+        case .paused:
+            return nil
+        case .stopping:
+            self = .stopping
+        case .finalizing:
+            self = .finalizing
+        case .completed:
+            self = .completed
+        case .failed:
+            self = .failed
+        case .cancelled:
+            self = .cancelled
+        }
+    }
 }
 
 private struct LocalArtifact {
@@ -388,21 +417,22 @@ private struct StoppedRecording {
     let artifact: LocalArtifact
 }
 
-private final class SidecarRecordingSession {
+private final class SidecarRecordingSession: @unchecked Sendable {
     let id = UUID().uuidString
     let options: RecordingOptions
     let account: [String: Any]
+    private let onState: (SidecarRecordingSession, RecordingState, String?) -> Void
     private let onLevel: (String, CaptureLevel) -> Void
     private(set) var state: RecordingState = .idle
     private(set) var sessionDir: URL?
-    private var systemCapture: SystemAudioCapture?
-    private var microphoneCapture: MicrophoneCapture?
-    private let systemQueue = DispatchQueue(label: "RecappiMiniSidecar.SystemAudio")
-    private let microphoneQueue = DispatchQueue(label: "RecappiMiniSidecar.Microphone")
+    private var coreSession: CaptureAudioRecordingSession?
+    private var stateTask: Task<Void, Never>?
+    private var levelTask: Task<Void, Never>?
 
     init(
         options: RecordingOptions,
         account: [String: Any],
+        onState: @escaping (SidecarRecordingSession, RecordingState, String?) -> Void,
         onLevel: @escaping (String, CaptureLevel) -> Void
     ) async throws {
         guard options.includeSystemAudio || options.includeMicrophone else {
@@ -414,6 +444,7 @@ private final class SidecarRecordingSession {
         }
         self.options = options
         self.account = account
+        self.onState = onState
         self.onLevel = onLevel
     }
 
@@ -427,53 +458,20 @@ private final class SidecarRecordingSession {
         let dir = try Self.createSessionDirectory()
         sessionDir = dir
         try writeSessionMetadata(to: dir)
-        let startedAtUptime = ProcessInfo.processInfo.systemUptime
 
-        if options.includeSystemAudio {
-            let writer = CaptureSegmentedAudioWriter(
-                finalURL: dir.appendingPathComponent("system.caf"),
-                processingQueue: systemQueue
-            )
-            let output = CaptureAudioSampleBufferOutput(
-                writer: writer,
-                input: .system,
-                startedAtUptime: startedAtUptime
-            ) { [weak self] level in
-                guard let self else { return }
-                self.onLevel(self.id, level)
-            }
-            let capture = SystemAudioCapture(
-                output: output,
-                captureQueue: systemQueue,
-                targetBundleId: options.targetBundleId
-            )
-            try await Task.detached(priority: .userInitiated) {
-                try capture.start()
-            }.value
-            systemCapture = capture
-        }
+        let coreSession = CaptureAudioRecordingSession(configuration: CaptureAudioRecordingSessionConfiguration(
+            sessionID: id,
+            sessionDirectoryURL: dir,
+            includeSystemAudio: options.includeSystemAudio,
+            targetBundleID: options.targetBundleId,
+            includeMicrophone: options.includeMicrophone,
+            microphoneDeviceID: options.microphoneDeviceId,
+            metadata: CaptureSessionMetadata(sessionID: id, title: options.title)
+        ))
+        self.coreSession = coreSession
+        forwardEvents(from: coreSession)
 
-        if options.includeMicrophone {
-            let writer = CaptureSegmentedAudioWriter(
-                finalURL: dir.appendingPathComponent("mic.caf"),
-                processingQueue: microphoneQueue
-            )
-            let capture = MicrophoneCapture(
-                output: CaptureAudioSampleBufferOutput(
-                    writer: writer,
-                    input: .microphone,
-                    startedAtUptime: startedAtUptime
-                ) { [weak self] level in
-                    guard let self else { return }
-                    self.onLevel(self.id, level)
-                },
-                queue: microphoneQueue,
-                deviceId: options.microphoneDeviceId
-            )
-            try await capture.start()
-            microphoneCapture = capture
-        }
-
+        try await coreSession.start()
         state = .recording
     }
 
@@ -481,52 +479,67 @@ private final class SidecarRecordingSession {
         guard state == .recording else {
             throw SidecarFailure(code: -32032, message: "Recappi CLI recording is not currently running.")
         }
-        state = .stopping
+        guard let coreSession else {
+            throw SidecarFailure(code: -32032, message: "Recappi CLI recording is not currently running.")
+        }
+        guard let sessionDir else {
+            throw SidecarFailure(code: -32034, message: "Recording session directory is missing.")
+        }
 
-        let systemCapture = systemCapture
-        let microphoneCapture = microphoneCapture
-        self.systemCapture = nil
-        self.microphoneCapture = nil
-
-        microphoneCapture?.stop()
-        systemCapture?.stop()
-
-        state = .finalizing
-        let systemURL = try await systemCapture?.finishWriting()
-        let microphoneURL = try await microphoneCapture?.finishWriting()
-        let sources = [systemURL, microphoneURL].compactMap { $0 }
-        guard !sources.isEmpty else {
+        let artifact = try await coreSession.stop()
+        await waitForForwarders()
+        guard let audioURL = artifact.mixedAudioURL else {
             throw SidecarFailure(
                 code: -32033,
                 message: "No audio was captured. Check macOS permissions and make sure audio is playing before trying again.",
                 data: ["cliCode": "record.capture_failed"]
             )
         }
-        guard let sessionDir else {
-            throw SidecarFailure(code: -32034, message: "Recording session directory is missing.")
-        }
-
-        let audioURL = sessionDir.appendingPathComponent("recording.m4a")
-        try await CaptureAudioMixer.mix(sources: sources, to: audioURL)
-        try? writeCaptureDiagnostics(sources: sources, output: audioURL, to: sessionDir)
         state = .completed
+        self.coreSession = nil
         return StoppedRecording(
             artifact: LocalArtifact(sessionDir: sessionDir, audioURL: audioURL, options: options)
         )
     }
 
     func cancel() async {
+        await coreSession?.cancel()
+        await waitForForwarders()
         state = .cancelled
-        microphoneCapture?.stop()
-        systemCapture?.stop()
-        _ = try? await microphoneCapture?.finishWriting()
-        _ = try? await systemCapture?.finishWriting()
         if let sessionDir {
             try? FileManager.default.removeItem(at: sessionDir)
         }
-        microphoneCapture = nil
-        systemCapture = nil
+        coreSession = nil
         sessionDir = nil
+    }
+
+    private func forwardEvents(from coreSession: CaptureAudioRecordingSession) {
+        let states = coreSession.states
+        stateTask = Task { [weak self] in
+            for await captureState in states {
+                guard let self,
+                      let recordingState = RecordingState(captureStatus: captureState.status)
+                else { continue }
+                self.state = recordingState
+                guard recordingState != .completed else { continue }
+                self.onState(self, recordingState, captureState.message)
+            }
+        }
+
+        let levels = coreSession.levels
+        levelTask = Task { [weak self] in
+            for await level in levels {
+                guard let self else { continue }
+                self.onLevel(self.id, level)
+            }
+        }
+    }
+
+    private func waitForForwarders() async {
+        await stateTask?.value
+        await levelTask?.value
+        stateTask = nil
+        levelTask = nil
     }
 
     private func writeSessionMetadata(to dir: URL) throws {
@@ -555,10 +568,6 @@ private final class SidecarRecordingSession {
         }
         let data = try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: dir.appendingPathComponent("session-metadata.json"))
-    }
-
-    private func writeCaptureDiagnostics(sources: [URL], output: URL, to dir: URL) throws {
-        try CaptureAudioDiagnostics.write(sources: sources, output: output, to: dir)
     }
 
     private static func createSessionDirectory() throws -> URL {
@@ -686,11 +695,39 @@ private struct SidecarFailure: Error {
         if let error = error as? CaptureAudioError {
             return captureAudio(error)
         }
+        if let error = error as? CaptureAudioRecordingSessionError {
+            return recordingSession(error)
+        }
         return SidecarFailure(
             code: -32050,
             message: error.localizedDescription,
             data: ["cliCode": "record.capture_failed"]
         )
+    }
+
+    private static func recordingSession(_ error: CaptureAudioRecordingSessionError) -> SidecarFailure {
+        switch error {
+        case .noAudioInputs:
+            return SidecarFailure(
+                code: -32021,
+                message: "Choose at least one audio source before starting a recording.",
+                data: ["cliCode": "usage.invalid_argument"]
+            )
+        case .targetApplicationUnavailable:
+            return SidecarFailure(
+                code: -32043,
+                message: "The selected app is no longer available for recording.",
+                data: ["cliCode": "record.capture_failed"]
+            )
+        case .notRecording:
+            return SidecarFailure(code: -32032, message: "Recappi CLI recording is not currently running.")
+        case .noDisplay, .noMicrophone, .microphoneUnavailable, .microphoneSetupFailed, .pauseUnsupported:
+            return SidecarFailure(
+                code: -32050,
+                message: error.localizedDescription,
+                data: ["cliCode": "record.capture_failed"]
+            )
+        }
     }
 
     private static func captureAudio(_ error: CaptureAudioError) -> SidecarFailure {
@@ -741,277 +778,6 @@ private struct SidecarFailure: Error {
     }
 }
 
-private final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
-    private let output: CaptureAudioSampleBufferOutput
-    private let queue: DispatchQueue
-    private let deviceId: String?
-    private var session: AVCaptureSession?
-
-    init(
-        output: CaptureAudioSampleBufferOutput,
-        queue: DispatchQueue,
-        deviceId: String?
-    ) {
-        self.output = output
-        self.queue = queue
-        self.deviceId = deviceId
-    }
-
-    func start() async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                do {
-                    guard let device = Self.resolveDevice(id: self.deviceId) else {
-                        throw SidecarFailure(
-                            code: -32040,
-                            message: self.deviceId == nil
-                                ? "No microphone is available."
-                                : "The selected microphone is no longer available.",
-                            data: ["cliCode": "record.capture_failed"]
-                        )
-                    }
-                    let captureSession = AVCaptureSession()
-                    let input = try AVCaptureDeviceInput(device: device)
-                    guard captureSession.canAddInput(input) else {
-                        throw SidecarFailure(code: -32041, message: "Could not attach the selected microphone.")
-                    }
-                    captureSession.addInput(input)
-
-                    let output = AVCaptureAudioDataOutput()
-                    output.audioSettings = [
-                        AVFormatIDKey: kAudioFormatLinearPCM,
-                        AVSampleRateKey: 48_000,
-                        AVNumberOfChannelsKey: 1,
-                        AVLinearPCMBitDepthKey: 32,
-                        AVLinearPCMIsFloatKey: true,
-                        AVLinearPCMIsNonInterleaved: false,
-                    ]
-                    output.setSampleBufferDelegate(self, queue: self.queue)
-                    guard captureSession.canAddOutput(output) else {
-                        throw SidecarFailure(code: -32042, message: "Could not attach microphone output.")
-                    }
-                    captureSession.addOutput(output)
-                    captureSession.startRunning()
-                    self.session = captureSession
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-    }
-
-    func stop() {
-        session?.stopRunning()
-        session = nil
-    }
-
-    func finishWriting() async throws -> URL? {
-        try await output.finishWriting()
-    }
-
-    private static func resolveDevice(id: String?) -> AVCaptureDevice? {
-        if let id,
-           let device = RecordingInputCatalog.microphoneDevices().first(where: { $0.uniqueID == id }) {
-            return device
-        }
-        if id != nil {
-            return nil
-        }
-        return AVCaptureDevice.default(for: .audio)
-    }
-
-    func captureOutput(
-        _ output: AVCaptureOutput,
-        didOutput sampleBuffer: CMSampleBuffer,
-        from connection: AVCaptureConnection
-    ) {
-        self.output.append(sampleBuffer)
-    }
-}
-
-private final class SystemAudioCapture: @unchecked Sendable {
-    private let output: CaptureAudioSampleBufferOutput
-    private let captureQueue: DispatchQueue
-    private let targetBundleId: String?
-    private let stateQueue = DispatchQueue(label: "RecappiMiniSidecar.SystemAudio.state")
-    private var tapID = AudioObjectID(kAudioObjectUnknown)
-    private var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
-    private var ioProcID: AudioDeviceIOProcID?
-    private var sampleFactory: CoreAudioTapSampleBufferFactory?
-    private var isStarted = false
-
-    init(output: CaptureAudioSampleBufferOutput, captureQueue: DispatchQueue, targetBundleId: String?) {
-        self.output = output
-        self.captureQueue = captureQueue
-        self.targetBundleId = targetBundleId
-    }
-
-    deinit {
-        stop()
-    }
-
-    func start() throws {
-        guard !isStarted else { return }
-        let tapDescription = try makeTapDescription()
-        var newTapID = AudioObjectID(kAudioObjectUnknown)
-        try check(AudioHardwareCreateProcessTap(tapDescription, &newTapID), operation: "AudioHardwareCreateProcessTap")
-        tapID = newTapID
-
-        let tapUID = try readTapUID(tapID)
-        let tapFormat = try readTapFormat(tapID)
-        sampleFactory = try CoreAudioTapSampleBufferFactory(sourceFormat: tapFormat)
-
-        var newAggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
-        let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "Recappi CLI System Audio Tap",
-            kAudioAggregateDeviceUIDKey: "com.recappi.mini.cli.system-audio-tap.\(UUID().uuidString)",
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceTapListKey: [
-                [
-                    kAudioSubTapUIDKey: tapUID,
-                    kAudioSubTapDriftCompensationKey: true,
-                    kAudioSubTapDriftCompensationQualityKey: kAudioAggregateDriftCompensationLowQuality,
-                ] as [String: Any],
-            ],
-        ]
-        try check(
-            AudioHardwareCreateAggregateDevice(aggregateDescription as CFDictionary, &newAggregateDeviceID),
-            operation: "AudioHardwareCreateAggregateDevice"
-        )
-        aggregateDeviceID = newAggregateDeviceID
-
-        var newIOProcID: AudioDeviceIOProcID?
-        try check(
-            AudioDeviceCreateIOProcIDWithBlock(&newIOProcID, aggregateDeviceID, captureQueue) { [weak self] _, inputData, inputTime, _, _ in
-                self?.handleInput(inputData, inputTime: inputTime)
-            },
-            operation: "AudioDeviceCreateIOProcIDWithBlock"
-        )
-        ioProcID = newIOProcID
-
-        try check(AudioDeviceStart(aggregateDeviceID, newIOProcID), operation: "AudioDeviceStart")
-        isStarted = true
-    }
-
-    func stop() {
-        stateQueue.sync {
-            guard tapID != kAudioObjectUnknown || aggregateDeviceID != kAudioObjectUnknown else { return }
-
-            if let ioProcID, aggregateDeviceID != kAudioObjectUnknown {
-                AudioDeviceStop(aggregateDeviceID, ioProcID)
-                AudioDeviceDestroyIOProcID(aggregateDeviceID, ioProcID)
-            }
-            ioProcID = nil
-
-            if aggregateDeviceID != kAudioObjectUnknown {
-                AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
-            }
-            aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
-
-            if tapID != kAudioObjectUnknown {
-                AudioHardwareDestroyProcessTap(tapID)
-            }
-            tapID = AudioObjectID(kAudioObjectUnknown)
-            sampleFactory = nil
-            isStarted = false
-        }
-    }
-
-    func finishWriting() async throws -> URL? {
-        try await output.finishWriting()
-    }
-
-    private func makeTapDescription() throws -> CATapDescription {
-        let description = CATapDescription()
-        description.name = "Recappi CLI System Audio Tap"
-        description.isPrivate = true
-        description.muteBehavior = .unmuted
-        description.isMixdown = true
-        description.isMono = false
-
-        if let targetBundleId {
-            let targets = CoreAudioProcessResolver.processObjectIDs(bundleId: targetBundleId)
-            guard !targets.isEmpty else {
-                throw SidecarFailure(
-                    code: -32043,
-                    message: "The selected app is no longer available for recording.",
-                    data: ["cliCode": "record.capture_failed"]
-                )
-            }
-            description.processes = targets
-            description.isExclusive = false
-            return description
-        }
-
-        var excluded: [AudioObjectID] = []
-        if let selfProcessID = CoreAudioProcessResolver.processObjectID(pid: getpid()) {
-            excluded.append(selfProcessID)
-        }
-        description.processes = excluded
-        description.isExclusive = true
-        return description
-    }
-
-    private func handleInput(
-        _ inputData: UnsafePointer<AudioBufferList>?,
-        inputTime: UnsafePointer<AudioTimeStamp>?
-    ) {
-        guard let inputData else { return }
-        do {
-            guard let sampleBuffer = try sampleFactory?.makeSampleBuffer(
-                from: inputData,
-                inputTime: inputTime?.pointee
-            ) else {
-                return
-            }
-            output.append(sampleBuffer)
-        } catch {
-            // Drop individual malformed buffers; the stop path will fail if no
-            // readable source file is produced.
-        }
-    }
-
-    private func readTapUID(_ tapID: AudioObjectID) throws -> CFString {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioTapPropertyUID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var size = UInt32(MemoryLayout<CFString>.size)
-        var tapUID: Unmanaged<CFString>?
-        try check(
-            AudioObjectGetPropertyData(tapID, &address, 0, nil, &size, &tapUID),
-            operation: "kAudioTapPropertyUID"
-        )
-        guard let uid = tapUID?.takeRetainedValue() else {
-            throw CoreAudioStatusError(operation: "kAudioTapPropertyUID(empty)", status: -1)
-        }
-        return uid
-    }
-
-    private func readTapFormat(_ tapID: AudioObjectID) throws -> AudioStreamBasicDescription {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioTapPropertyFormat,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var format = AudioStreamBasicDescription()
-        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
-        try check(
-            AudioObjectGetPropertyData(tapID, &address, 0, nil, &size, &format),
-            operation: "kAudioTapPropertyFormat"
-        )
-        return format
-    }
-
-    private func check(_ status: OSStatus, operation: String) throws {
-        guard status == noErr else {
-            throw CoreAudioStatusError(operation: operation, status: status)
-        }
-    }
-}
-
 private enum CoreAudioProcessResolver {
     static func processObjectIDs(bundleId: String) -> [AudioObjectID] {
         NSWorkspace.shared.runningApplications
@@ -1044,331 +810,6 @@ private enum CoreAudioProcessResolver {
             return nil
         }
         return processObjectID
-    }
-}
-
-private struct CoreAudioStatusError: LocalizedError {
-    let operation: String
-    let status: OSStatus
-
-    var errorDescription: String? {
-        "\(operation) failed with OSStatus \(status)"
-    }
-}
-
-private struct CoreAudioBufferListView {
-    private let buffers: [AudioBuffer]
-
-    init(_ audioBufferList: UnsafePointer<AudioBufferList>) {
-        let mutableList = UnsafeMutablePointer(mutating: audioBufferList)
-        let listPointer = UnsafeMutableAudioBufferListPointer(mutableList)
-        buffers = Array(listPointer)
-    }
-
-    var isEmpty: Bool { buffers.isEmpty }
-    var count: Int { buffers.count }
-
-    subscript(index: Int) -> AudioBuffer {
-        buffers[index]
-    }
-}
-
-private final class CoreAudioTapSampleBufferFactory {
-    private let sourceFormat: AudioStreamBasicDescription
-    private let outputFormat: AudioStreamBasicDescription
-    private let formatDescription: CMAudioFormatDescription
-    private var nextFramePosition: Int64 = 0
-    private var scratchSamples: [Float] = []
-
-    init(sourceFormat: AudioStreamBasicDescription) throws {
-        self.sourceFormat = sourceFormat
-        let channelCount = min(max(Int(sourceFormat.mChannelsPerFrame), 1), 2)
-        let sampleRate = sourceFormat.mSampleRate.isFinite && sourceFormat.mSampleRate > 0
-            ? sourceFormat.mSampleRate
-            : 48_000
-        var output = AudioStreamBasicDescription(
-            mSampleRate: sampleRate,
-            mFormatID: kAudioFormatLinearPCM,
-            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagsNativeEndian,
-            mBytesPerPacket: UInt32(channelCount * MemoryLayout<Float>.size),
-            mFramesPerPacket: 1,
-            mBytesPerFrame: UInt32(channelCount * MemoryLayout<Float>.size),
-            mChannelsPerFrame: UInt32(channelCount),
-            mBitsPerChannel: 32,
-            mReserved: 0
-        )
-        outputFormat = output
-
-        var description: CMAudioFormatDescription?
-        let status = CMAudioFormatDescriptionCreate(
-            allocator: kCFAllocatorDefault,
-            asbd: &output,
-            layoutSize: 0,
-            layout: nil,
-            magicCookieSize: 0,
-            magicCookie: nil,
-            extensions: nil,
-            formatDescriptionOut: &description
-        )
-        guard status == noErr, let description else {
-            throw CoreAudioStatusError(operation: "CMAudioFormatDescriptionCreate", status: status)
-        }
-        formatDescription = description
-    }
-
-    func makeSampleBuffer(
-        from audioBufferList: UnsafePointer<AudioBufferList>,
-        inputTime: AudioTimeStamp?
-    ) throws -> CMSampleBuffer? {
-        if let direct = try directFloat32SampleBuffer(from: audioBufferList, inputTime: inputTime) {
-            return direct
-        }
-
-        let sampleCount = try fillScratch(from: audioBufferList)
-        let channelCount = Int(outputFormat.mChannelsPerFrame)
-        guard channelCount > 0, sampleCount > 0 else { return nil }
-
-        let frameCount = sampleCount / channelCount
-        guard frameCount > 0 else { return nil }
-
-        let ptsFrame = advancePTS(frameCount: frameCount, inputTime: inputTime)
-        let byteCount = sampleCount * MemoryLayout<Float>.stride
-        return try scratchSamples.withUnsafeBytes { rawBuffer -> CMSampleBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else {
-                throw CoreAudioStatusError(operation: "scratchSamples empty base", status: -1)
-            }
-            return try makeCMSampleBuffer(
-                bytes: baseAddress,
-                byteCount: byteCount,
-                frameCount: frameCount,
-                ptsFrame: ptsFrame
-            )
-        }
-    }
-
-    private func advancePTS(frameCount: Int, inputTime: AudioTimeStamp?) -> Int64 {
-        if let inputTime,
-           inputTime.mFlags.contains(.sampleTimeValid),
-           inputTime.mSampleTime.isFinite,
-           inputTime.mSampleTime >= 0 {
-            let ptsFrame = Int64(inputTime.mSampleTime.rounded())
-            nextFramePosition = ptsFrame + Int64(frameCount)
-            return ptsFrame
-        }
-        let ptsFrame = nextFramePosition
-        nextFramePosition += Int64(frameCount)
-        return ptsFrame
-    }
-
-    private func directFloat32SampleBuffer(
-        from audioBufferList: UnsafePointer<AudioBufferList>,
-        inputTime: AudioTimeStamp?
-    ) throws -> CMSampleBuffer? {
-        let sourceChannels = max(Int(sourceFormat.mChannelsPerFrame), 1)
-        let outputChannels = Int(outputFormat.mChannelsPerFrame)
-        guard outputChannels > 0, sourceChannels == outputChannels else { return nil }
-
-        let sourceIsFloat = (sourceFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0
-        let sourceIsNonInterleaved = (sourceFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
-        guard sourceIsFloat, sourceFormat.mBitsPerChannel == 32, !sourceIsNonInterleaved else { return nil }
-
-        let buffers = CoreAudioBufferListView(audioBufferList)
-        guard buffers.count == 1, let data = buffers[0].mData else { return nil }
-
-        let availableSamples = Int(buffers[0].mDataByteSize) / MemoryLayout<Float>.size
-        let frameCount = availableSamples / sourceChannels
-        guard frameCount > 0 else { return nil }
-
-        let ptsFrame = advancePTS(frameCount: frameCount, inputTime: inputTime)
-        let byteCount = frameCount * outputChannels * MemoryLayout<Float>.stride
-        return try makeCMSampleBuffer(
-            bytes: data,
-            byteCount: byteCount,
-            frameCount: frameCount,
-            ptsFrame: ptsFrame
-        )
-    }
-
-    private func fillScratch(from audioBufferList: UnsafePointer<AudioBufferList>) throws -> Int {
-        let buffers = CoreAudioBufferListView(audioBufferList)
-        guard !buffers.isEmpty else { return 0 }
-        let sourceChannels = max(Int(sourceFormat.mChannelsPerFrame), 1)
-        let outputChannels = Int(outputFormat.mChannelsPerFrame)
-        let sourceIsFloat = (sourceFormat.mFormatFlags & kAudioFormatFlagIsFloat) != 0
-        let sourceIsNonInterleaved = (sourceFormat.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
-        let bytesPerSample = max(Int(sourceFormat.mBitsPerChannel / 8), 1)
-
-        if sourceIsFloat, sourceFormat.mBitsPerChannel == 32 {
-            if sourceIsNonInterleaved || buffers.count > 1 {
-                let frameCount = minimumFrameCount(in: buffers, bytesPerSample: MemoryLayout<Float>.size)
-                guard frameCount > 0 else { return 0 }
-                let total = frameCount * outputChannels
-                reserveScratch(total)
-                return scratchSamples.withUnsafeMutableBufferPointer { samples -> Int in
-                    if let baseAddress = samples.baseAddress {
-                        memset(baseAddress, 0, total * MemoryLayout<Float>.size)
-                    }
-                    for channel in 0..<outputChannels {
-                        let bufferIndex = min(channel, buffers.count - 1)
-                        guard let data = buffers[bufferIndex].mData else { continue }
-                        let ptr = data.assumingMemoryBound(to: Float.self)
-                        if outputChannels == 1 {
-                            memcpy(samples.baseAddress!, ptr, frameCount * MemoryLayout<Float>.size)
-                        } else {
-                            for frame in 0..<frameCount {
-                                samples[frame * outputChannels + channel] = ptr[frame]
-                            }
-                        }
-                    }
-                    return total
-                }
-            }
-
-            guard let data = buffers[0].mData else { return 0 }
-            let availableSamples = Int(buffers[0].mDataByteSize) / MemoryLayout<Float>.size
-            let frames = availableSamples / sourceChannels
-            guard frames > 0 else { return 0 }
-            let total = frames * outputChannels
-            reserveScratch(total)
-            let ptr = data.assumingMemoryBound(to: Float.self)
-            return scratchSamples.withUnsafeMutableBufferPointer { samples -> Int in
-                for frame in 0..<frames {
-                    for channel in 0..<outputChannels {
-                        samples[frame * outputChannels + channel] = ptr[frame * sourceChannels + min(channel, sourceChannels - 1)]
-                    }
-                }
-                return total
-            }
-        }
-
-        if sourceFormat.mBitsPerChannel == 16 {
-            if sourceIsNonInterleaved || buffers.count > 1 {
-                let frameCount = minimumFrameCount(in: buffers, bytesPerSample: MemoryLayout<Int16>.size)
-                guard frameCount > 0 else { return 0 }
-                let total = frameCount * outputChannels
-                reserveScratch(total)
-                return scratchSamples.withUnsafeMutableBufferPointer { samples -> Int in
-                    if let baseAddress = samples.baseAddress {
-                        memset(baseAddress, 0, total * MemoryLayout<Float>.size)
-                    }
-                    for channel in 0..<outputChannels {
-                        let bufferIndex = min(channel, buffers.count - 1)
-                        guard let data = buffers[bufferIndex].mData else { continue }
-                        let ptr = data.assumingMemoryBound(to: Int16.self)
-                        if outputChannels == 1 {
-                            convertInt16ToFloat(source: ptr, destination: samples.baseAddress!, count: frameCount)
-                        } else {
-                            for frame in 0..<frameCount {
-                                samples[frame * outputChannels + channel] = Float(ptr[frame]) / 32768.0
-                            }
-                        }
-                    }
-                    return total
-                }
-            }
-
-            guard let data = buffers[0].mData else { return 0 }
-            let availableSamples = Int(buffers[0].mDataByteSize) / MemoryLayout<Int16>.size
-            let frames = availableSamples / sourceChannels
-            guard frames > 0 else { return 0 }
-            let total = frames * outputChannels
-            reserveScratch(total)
-            let ptr = data.assumingMemoryBound(to: Int16.self)
-            return scratchSamples.withUnsafeMutableBufferPointer { samples -> Int in
-                for frame in 0..<frames {
-                    for channel in 0..<outputChannels {
-                        samples[frame * outputChannels + channel] = Float(ptr[frame * sourceChannels + min(channel, sourceChannels - 1)]) / 32768.0
-                    }
-                }
-                return total
-            }
-        }
-
-        throw CoreAudioStatusError(operation: "Unsupported tap format bytesPerSample=\(bytesPerSample)", status: -1)
-    }
-
-    private func reserveScratch(_ count: Int) {
-        if scratchSamples.count < count {
-            scratchSamples.append(contentsOf: repeatElement(0, count: count - scratchSamples.count))
-        }
-    }
-
-    private func convertInt16ToFloat(
-        source: UnsafePointer<Int16>,
-        destination: UnsafeMutablePointer<Float>,
-        count: Int
-    ) {
-        guard count > 0 else { return }
-        vDSP_vflt16(source, 1, destination, 1, vDSP_Length(count))
-        var divisor: Float = 32768.0
-        vDSP_vsdiv(destination, 1, &divisor, destination, 1, vDSP_Length(count))
-    }
-
-    private func minimumFrameCount(in buffers: CoreAudioBufferListView, bytesPerSample: Int) -> Int {
-        var result: Int?
-        for index in 0..<buffers.count {
-            let buffer = buffers[index]
-            let channelCount = max(Int(buffer.mNumberChannels), 1)
-            let frames = Int(buffer.mDataByteSize) / bytesPerSample / channelCount
-            result = min(result ?? frames, frames)
-        }
-        return result ?? 0
-    }
-
-    private func makeCMSampleBuffer(
-        bytes: UnsafeRawPointer,
-        byteCount: Int,
-        frameCount: Int,
-        ptsFrame: Int64
-    ) throws -> CMSampleBuffer {
-        var blockBuffer: CMBlockBuffer?
-        var status = CMBlockBufferCreateWithMemoryBlock(
-            allocator: kCFAllocatorDefault,
-            memoryBlock: nil,
-            blockLength: byteCount,
-            blockAllocator: kCFAllocatorDefault,
-            customBlockSource: nil,
-            offsetToData: 0,
-            dataLength: byteCount,
-            flags: 0,
-            blockBufferOut: &blockBuffer
-        )
-        guard status == kCMBlockBufferNoErr, let blockBuffer else {
-            throw CoreAudioStatusError(operation: "CMBlockBufferCreateWithMemoryBlock", status: status)
-        }
-
-        status = CMBlockBufferReplaceDataBytes(
-            with: bytes,
-            blockBuffer: blockBuffer,
-            offsetIntoDestination: 0,
-            dataLength: byteCount
-        )
-        guard status == kCMBlockBufferNoErr else {
-            throw CoreAudioStatusError(operation: "CMBlockBufferReplaceDataBytes", status: status)
-        }
-
-        let sampleRate = max(Int32(outputFormat.mSampleRate.rounded()), 1)
-        var timing = CMSampleTimingInfo(
-            duration: CMTime(value: 1, timescale: sampleRate),
-            presentationTimeStamp: CMTime(value: ptsFrame, timescale: sampleRate),
-            decodeTimeStamp: .invalid
-        )
-        var sampleBuffer: CMSampleBuffer?
-        status = CMSampleBufferCreateReady(
-            allocator: kCFAllocatorDefault,
-            dataBuffer: blockBuffer,
-            formatDescription: formatDescription,
-            sampleCount: frameCount,
-            sampleTimingEntryCount: 1,
-            sampleTimingArray: &timing,
-            sampleSizeEntryCount: 0,
-            sampleSizeArray: nil,
-            sampleBufferOut: &sampleBuffer
-        )
-        guard status == noErr, let sampleBuffer else {
-            throw CoreAudioStatusError(operation: "CMSampleBufferCreateReady", status: status)
-        }
-        return sampleBuffer
     }
 }
 

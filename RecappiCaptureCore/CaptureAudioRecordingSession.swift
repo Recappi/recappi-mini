@@ -42,6 +42,7 @@ public struct CaptureAudioRecordingSessionConfiguration: Sendable, Equatable {
 public enum CaptureAudioRecordingSessionError: Error, Equatable, LocalizedError {
     case noAudioInputs
     case noDisplay
+    case targetApplicationUnavailable
     case noMicrophone
     case microphoneUnavailable
     case microphoneSetupFailed
@@ -54,6 +55,8 @@ public enum CaptureAudioRecordingSessionError: Error, Equatable, LocalizedError 
             return "No audio inputs were selected"
         case .noDisplay:
             return "No display is available for ScreenCaptureKit audio"
+        case .targetApplicationUnavailable:
+            return "The selected application is unavailable"
         case .noMicrophone:
             return "No microphone is available"
         case .microphoneUnavailable:
@@ -245,6 +248,9 @@ public final class CaptureAudioRecordingSession: CaptureSession, @unchecked Send
         self.systemOutput = output
         self.streamOutput = streamOutput
         self.stream = capture.stream
+        if configuration.targetBundleID != nil, capture.matchedBundleID == nil {
+            throw CaptureAudioRecordingSessionError.targetApplicationUnavailable
+        }
         try await capture.stream.startCapture()
     }
 
