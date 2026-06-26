@@ -159,12 +159,16 @@ Local spike used an ad-hoc signed `SCKHeadlessProbe` with embedded `Info.plist`,
 - [x] Raw executable is not a LaunchServices-registered TCC subject by bundle id. `tccutil reset ScreenCapture com.recappi.mini.sck-headless-probe` failed with `No such bundle identifier`; current `com.recappi.mini.sidecar` has the same failure. After resetting the registered app bundle below, the raw executable still reported `preflightScreenCapture=true`, which strongly indicates parent/launcher attribution for the raw npm-binary shape.
 - [x] Registered helper `.app` shape is TCC-addressable. Packaging the same probe as `SCKHeadlessProbe.app`, registering with `lsregister`, then running `tccutil reset ScreenCapture com.recappi.mini.sck-headless-probe` succeeded. Launching that app via `open` after reset produced `preflightScreenCapture=false` and `SCStreamErrorDomain Code=-3801`.
 - [x] Current `RecappiMiniSidecar/Info.plist` has `NSMicrophoneUsageDescription` but lacks `NSAudioCaptureUsageDescription`; the shared SCK helper path should add the system-audio usage string.
+- [x] Screen Recording grants do not become reliable inside an already-running helper. After resetting the registered helper app, launching it with an 8s pre-capture delay, inserting dev-only allow rows for the probe bundle in both user/system TCC databases, and restarting `tccd`, the same process still reported `preflightAfterDelay=false` and SCK returned `SCStreamErrorDomain Code=-3801`.
+- [x] A fresh LaunchServices relaunch after the same grant succeeds. Launching the registered helper app again via `open` produced `preflightScreenCapture=true`, 153 audio buffers, 1,175,040 bytes, maxAbs `0.296528`, rms `-34.78 dB`, 48 kHz / 2ch / 32-bit float.
 
 Spike conclusion:
 
 - [x] **SCK backend viability: go.** Headless audio-only SCK capture and app filters work.
-- [x] **Current raw npm helper TCC model: no-go for helper-owned permission UX.** If we want predictable helper-owned TCC, the packaged helper should become a signed/notarized helper `.app` or equivalent LaunchServices-registered bundle, and the CLI resolver/package layout must support launching that bundle.
-- [ ] **Manual grant/re-run validation still required.** The spike verified denied/reset behavior; confirming whether Screen Recording grant takes effect in-process or needs helper restart requires a human System Settings grant on a fresh registered helper bundle.
+- [x] **Current raw npm helper TCC model: no-go for helper-owned permission UX.** If we want predictable helper-owned TCC, the packaged helper should become a signed/notarized helper `.app` or equivalent LaunchServices-registered bundle, and the CLI resolver/package layout must support LaunchServices-based execution. Directly spawning `.app/Contents/MacOS/RecappiMiniSidecar` must not be treated as equivalent until TCC attribution is re-verified.
+- [x] **Screen Recording grant path requires helper restart.** `CapturePermission.requiresProcessRestart` should be `true` after a new Screen Recording grant/reset recovery; CLI copy should tell the user to re-run `recappi record` instead of continuing a silent/denied capture in the same process.
+- [x] **No CoreAudio fallback decision is needed for this RFC.** The TCC blocker is packaging/launch attribution, not SCK capture capability; continue with the shared SCK core and helper `.app` packaging.
+- [x] **Permission UX must name the helper as Recappi.** The packaged `.app` needs a user-recognizable display name and icon so System Settings > Privacy & Security > Screen & System Audio Recording does not show a probe-style name or raw bundle id.
 
 Fallback 方案只作为 TCC blocked 时的显式决策，不作为默认实现：
 
@@ -188,7 +192,16 @@ CLI sidecar:
 - [ ] `sources.list` / `microphones.list` / `permissions.status` 直接调用 core。
 - [ ] `recording.start` 调 core，转发 `recording.state`、`audio.level`、`local_artifact.upserted`。
 - [ ] 权限错误复用 CLI `recordErrorCopy` 体系：给 System Settings 路径、不给内部路径/stack/upload 细节，并覆盖 `requiresProcessRestart` 的重新运行提示。
+- [ ] Screen Recording 未授权或刚授权时，用户文案统一走 "enable Recappi helper app, then run `recappi record` again"；不要暗示当前 helper 进程能在授权后继续录，也不要暴露 helper/sidecar/TCC/SCK 等内部词。
 - [ ] 删除 sidecar 内重复 CoreAudio tap、AVCapture mic、writer、mixer 实现。
+
+Permission copy shape:
+
+- Screen Recording denied/unknown:
+  `Recappi needs Screen Recording permission to capture audio. Open System Settings -> Privacy & Security -> Screen Recording, turn on {APP_DISPLAY_NAME}, then run recappi record again.`
+- Screen Recording newly enabled / `requiresProcessRestart=true`:
+  `Screen Recording enabled. Run recappi record again to start - the recorder needs a fresh launch to pick up the new permission.`
+- Microphone remains a separate line only when `includeMicrophone=true`.
 
 CLI/TUI TypeScript:
 
@@ -200,11 +213,11 @@ CLI/TUI TypeScript:
 
 ### Phase 0: RFC + SCK Helper Feasibility
 
-- [ ] 写完本 RFC，拿 @recappi样式专家 review 接口和 UX fallback。
-- [ ] 做最小 signed helper spike：headless helper 调 SCK list + audio-only capture。
-- [ ] 在 fresh TCC 环境验证 permission preflight/request、拒绝态、重置态。
-- [ ] 明确验证 Screen Recording grant 后当前 helper 是否立即可录，还是必须退出重跑；把结果写入 permission model 和 CLI 文案。
-- [ ] 输出 go/no-go：共享 SCK backend 继续，或进入显式 fallback 决策。
+- [x] 写完本 RFC，拿 @recappi样式专家 review 接口和 UX fallback。
+- [x] 做最小 signed helper spike：headless helper 调 SCK list + audio-only capture。
+- [x] 在 fresh TCC 环境验证 permission preflight/request、拒绝态、重置态。
+- [x] 明确验证 Screen Recording grant 后当前 helper 是否立即可录，还是必须退出重跑；把结果写入 permission model 和 CLI 文案。
+- [x] 输出 go/no-go：共享 SCK backend 继续，或进入显式 fallback 决策。
 
 ### Phase 1: Extract Pure Core Pieces
 
@@ -224,6 +237,8 @@ CLI/TUI TypeScript:
 ### Phase 3: Sidecar Switches to Core
 
 - [ ] sidecar link `RecappiCaptureCore`。
+- [ ] helper package 从 raw executable 切到 signed/notarized `.app`，并设置 Recappi-recognizable bundle display name + icon。
+- [ ] CLI helper launcher/resolver 支持 LaunchServices-based helper `.app` execution；若继续使用 stdio JSON-RPC，需要先设计并验证不会丢失 helper-owned TCC attribution。
 - [ ] JSON-RPC methods 调 core；删除 sidecar duplicate capture code。
 - [ ] `audio.level` 从 core `levels` 转发到 IPC。
 - [ ] 更新 `cli/recappi/docs/sidecar-ipc.md`，声明 native capture owned by shared core。
@@ -256,7 +271,7 @@ CLI/TUI TypeScript:
 | CLI | Arc app source, mic off | 不再静音；bundle selection 语义和 app 一致 |
 | CLI | System/app source + mic on | sidecar artifact 和 TUI status 正确 |
 | CLI | No Screen Recording permission | `permissions.status` 可 preflight，start 返回稳定 CLI error |
-| CLI | Screen Recording granted mid-flow | 如果 TCC 要重启进程，提示重新运行 `recappi record`，不继续静音录制 |
+| CLI | Screen Recording granted mid-flow | `requiresProcessRestart=true`，提示重新运行 `recappi record`，不继续静音录制 |
 | CLI | No microphone permission with mic on | mic permission 单独报告，不污染 system source |
 | CLI/TUI | Real level events | waveform 从 rmsDb 更新 |
 | CLI/TUI | Missing level events | 显示 honest fallback，不假装录到波形 |
@@ -265,7 +280,7 @@ Audio signal check 默认用 `ffmpeg -af volumedetect` 或等价工具记录 mea
 
 ## Risks
 
-- [ ] SCK 在 headless helper 中的 TCC 归因可能和 app bundle 不一致，导致 CLI-only 权限 UX 比 app 更复杂。
+- [ ] SCK 在 headless helper 中的 TCC 归因取决于 launch mode；`.app` 需要通过 LaunchServices 路径验证，不能把 direct executable spawn 当成已验证形态。
 - [ ] helper signing/notarization/package 需要保证 `Info.plist` 和 entitlements 被正确嵌入，否则 dev pass、release fail。
 - [ ] 当前 package platform 是 macOS v26；共享 core 初期可沿用，但 release smoke 要覆盖实际目标机器。
 - [ ] `AudioRecorder` 当前耦合 Cloud/Live Caption/diagnostics 较深，迁移时要先画 adapter 边界，避免把网络和 UI 状态也拖进 core。
@@ -283,7 +298,9 @@ Audio signal check 默认用 `ffmpeg -af volumedetect` 或等价工具记录 mea
 
 ## Immediate Next Steps
 
-- [ ] @Mini: 完成 SCK headless helper feasibility spike，并把结果贴回 task #261。
+- [x] @Mini: 完成 SCK headless helper feasibility spike，并把结果贴回 task #261。
 - [ ] @Mini: 起 `RecappiCaptureCore` target，先抽协议/模型/纯工具和测试。
-- [ ] @recappi样式专家: review public interface、权限 UX、fallback 文案和 TUI event shape。
-- [ ] @peng-xiao: 如果 SCK helper 被 TCC/分发限制卡住，决定是否接受 fallback backend。
+- [ ] @Mini: 先定 helper `.app` launcher/transport，保证 JSON-RPC 仍可用且不丢 helper-owned TCC attribution。
+- [ ] @Mini + @recappi样式专家: 定 helper `.app` display name/icon 和 `requiresProcessRestart` preflight copy。
+- [ ] @recappi样式专家: review helper `.app` 用户可见命名、权限文案、TUI event shape。
+- [ ] @peng-xiao: 只有 helper `.app` LaunchServices/package 路径继续被系统限制时，才需要决定是否接受 fallback backend。
