@@ -18,6 +18,7 @@ let package = Package(
         .executableTarget(
             name: "RecappiMini",
             dependencies: [
+                "RecappiCaptureCore",
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
             ],
