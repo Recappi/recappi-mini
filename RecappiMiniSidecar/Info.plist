@@ -14,12 +14,14 @@
     <string>Recappi Recorder</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>LSUIElement</key>
+    <true/>
     <key>CFBundleShortVersionString</key>
     <string>0.1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Recappi CLI needs microphone access when you include microphone audio in a recording.</string>
+    <string>Recappi Recorder needs microphone access when you include microphone audio in a recording.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Recappi Recorder needs system audio access when you capture audio from apps or system playback.</string>
 </dict>

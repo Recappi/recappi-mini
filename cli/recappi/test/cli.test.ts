@@ -713,6 +713,40 @@ describe("recappi CLI contract", () => {
     expect(bundledSidecarCommand("linux", "x64")).toBeNull();
   });
 
+  it.runIf(process.platform === "darwin")(
+    "copies the bundled helper to a stable per-user app before launch",
+    async () => {
+      const homeDir = await mkdtemp(path.join(tmpdir(), "recappi-cli-home-"));
+      const fake = fakeRecordRuntime();
+      try {
+        const result = await run(["record", "--json"], {
+          homeDir,
+          fetchImpl: sessionFetch(),
+          recordRuntime: fake.runtime,
+        });
+        const spawn = fake.calls.find((call) => call.method === "spawn");
+        const command = (spawn?.params as { command?: string } | undefined)?.command;
+        const expected = path.join(
+          homeDir,
+          "Library",
+          "Application Support",
+          "Recappi",
+          "CLI Helper",
+          `darwin-${process.arch}`,
+          "Recappi Recorder.app",
+        );
+
+        expect(result.exitCode).toBe(0);
+        expect(command).toBe(expected);
+        await expect(readFile(path.join(expected, "Contents", "Info.plist"), "utf8")).resolves.toContain(
+          "Recappi Recorder",
+        );
+      } finally {
+        await rm(homeDir, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("rejects record when all audio inputs are disabled", async () => {
     const result = await run([
       "record",

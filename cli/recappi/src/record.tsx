@@ -1,6 +1,17 @@
 import React from "react";
-import { chmodSync, existsSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { render, useInput, type Instance, type RenderOptions as InkRenderOptions } from "ink";
@@ -430,12 +441,14 @@ function assertSidecarCapabilities(
   });
 }
 
-function resolveSidecarCommand(opts: Pick<RecordCommandOptions, "sidecarCommand" | "env">): string {
+function resolveSidecarCommand(
+  opts: Pick<RecordCommandOptions, "sidecarCommand" | "env" | "homeDir">,
+): string {
   const command = opts.sidecarCommand?.trim() || opts.env?.[SIDECAR_COMMAND_ENV]?.trim();
   if (command) return command;
 
   const bundled = bundledSidecarCommand(process.platform, process.arch);
-  if (bundled && existsSync(bundled)) return ensureBundledHelperExecutable(bundled);
+  if (bundled && existsSync(bundled)) return ensureBundledHelperExecutable(bundled, opts);
 
   const platform = `${process.platform}-${process.arch}`;
   if (bundled) {
@@ -448,16 +461,20 @@ function resolveSidecarCommand(opts: Pick<RecordCommandOptions, "sidecarCommand"
   });
 }
 
-function ensureBundledHelperExecutable(path: string): string {
+function ensureBundledHelperExecutable(
+  path: string,
+  opts: Pick<RecordCommandOptions, "env" | "homeDir"> = {},
+): string {
   if (process.platform === "darwin" && path.endsWith(".app")) {
-    const executable = darwinAppExecutablePath(path);
+    const stableApp = ensureStableDarwinHelperApp(path, opts);
+    const executable = darwinAppExecutablePath(stableApp);
     if (!existsSync(executable)) {
       throw cliError("record.helper_unavailable", "Recappi recording helper is not available.", {
-        hint: `Expected bundled helper executable inside ${path}. Reinstall recappi, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
+        hint: `Expected bundled helper executable inside ${stableApp}. Reinstall recappi, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
       });
     }
     ensureExecutableMode(executable);
-    return path;
+    return stableApp;
   }
   if (process.platform === "win32") return path;
   ensureExecutableMode(path);
@@ -474,6 +491,65 @@ function ensureExecutableMode(path: string): void {
     throw cliError("record.helper_unavailable", "Recappi recording helper is not executable.", {
       hint: `Could not make bundled helper executable at ${path}: ${message}. Reinstall recappi, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
     });
+  }
+}
+
+function ensureStableDarwinHelperApp(
+  sourceApp: string,
+  opts: Pick<RecordCommandOptions, "env" | "homeDir"> = {},
+): string {
+  const targetApp = stableDarwinHelperAppPath(opts);
+  const markerPath = join(dirname(targetApp), ".recappi-helper-source");
+  const signature = helperSourceSignature(sourceApp);
+  const currentSignature = readTextIfExists(markerPath);
+
+  if (existsSync(darwinAppExecutablePath(targetApp)) && currentSignature === signature) {
+    return targetApp;
+  }
+
+  const tempApp = `${targetApp}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    mkdirSync(dirname(targetApp), { recursive: true });
+    rmSync(tempApp, { recursive: true, force: true });
+    cpSync(sourceApp, tempApp, { recursive: true });
+    ensureExecutableMode(darwinAppExecutablePath(tempApp));
+    rmSync(targetApp, { recursive: true, force: true });
+    renameSync(tempApp, targetApp);
+    writeFileSync(markerPath, signature);
+    return targetApp;
+  } catch (error) {
+    rmSync(tempApp, { recursive: true, force: true });
+    const message = error instanceof Error ? error.message : String(error);
+    throw cliError("record.helper_unavailable", "Recappi recording helper could not be installed.", {
+      hint: `Could not prepare the local recorder at ${targetApp}: ${message}. Reinstall recappi, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
+    });
+  }
+}
+
+function stableDarwinHelperAppPath(opts: Pick<RecordCommandOptions, "env" | "homeDir"> = {}): string {
+  const base =
+    opts.env?.RECAPPI_HELPER_HOME?.trim() ||
+    join(opts.homeDir ?? homedir(), "Library", "Application Support", "Recappi", "CLI Helper");
+  return join(base, `${process.platform}-${process.arch}`, SIDECAR_APP_BUNDLE_NAME);
+}
+
+function helperSourceSignature(sourceApp: string): string {
+  const executable = statSync(darwinAppExecutablePath(sourceApp));
+  const info = statSync(join(sourceApp, "Contents", "Info.plist"));
+  return JSON.stringify({
+    app: SIDECAR_APP_BUNDLE_NAME,
+    executableSize: executable.size,
+    executableMtimeMs: executable.mtimeMs,
+    infoSize: info.size,
+    infoMtimeMs: info.mtimeMs,
+  });
+}
+
+function readTextIfExists(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
   }
 }
 

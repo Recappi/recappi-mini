@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm, stat } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
@@ -54,6 +54,16 @@ try {
       throw new Error(`Packed helper app executable is not executable: ${appExecutable}`);
     }
     await access(join(helperPath, "Contents", "Info.plist"));
+    const plist = await readFile(join(helperPath, "Contents", "Info.plist"), "utf8");
+    for (const expected of [
+      "<string>Recappi Recorder</string>",
+      "<key>LSUIElement</key>",
+      "<true/>",
+    ]) {
+      if (!plist.includes(expected)) {
+        throw new Error(`Packed helper Info.plist is missing ${expected}`);
+      }
+    }
   } else {
     if (!helperStat.isFile()) {
       throw new Error(`Packed helper is not a file: ${helperPath}`);
