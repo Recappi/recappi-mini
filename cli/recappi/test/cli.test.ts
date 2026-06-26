@@ -138,6 +138,7 @@ describe("recappi CLI contract", () => {
             sceneId: "default",
           }, [{ id: "system", kind: "system", label: "System audio · all apps" }]);
           expect(session?.source).toBe(fake.client);
+          expect(session?.mode).toBe("local");
           await session?.stop();
         },
       });
@@ -157,6 +158,13 @@ describe("recappi CLI contract", () => {
         "stop",
         "kill",
       ]);
+      const recordingHandshake = fake.calls.filter((call) => call.method === "handshake")[1];
+      expect(recordingHandshake?.params).toMatchObject({
+        capabilities: ["recording.capture", "recording.upload", "live_captions.stream"],
+      });
+      expect(fake.calls.find((call) => call.method === "start")?.params).toMatchObject({
+        options: { liveCaptions: true },
+      });
     } finally {
       await rm(homeDir, { recursive: true, force: true });
     }
@@ -682,7 +690,7 @@ describe("recappi CLI contract", () => {
     );
   });
 
-  it("uses the styled recording hero renderer in interactive (non-live) record mode", async () => {
+  it("uses the styled recording hero renderer with live caption stream in default TTY record mode", async () => {
     const fake = fakeRecordRuntime();
     const result = await run(["record", "--sidecar-command", "fake-sidecar"], {
       isTTY: true,
@@ -701,6 +709,12 @@ describe("recappi CLI contract", () => {
     expect(fake.calls.find((call) => call.method === "createHeroRenderer")?.source).toBe(
       fake.client,
     );
+    expect(fake.calls.find((call) => call.method === "handshake")?.params).toMatchObject({
+      capabilities: ["recording.capture", "recording.upload", "live_captions.stream"],
+    });
+    expect(fake.calls.find((call) => call.method === "start")?.params).toMatchObject({
+      options: { liveCaptions: true },
+    });
   });
 
   it("reports a platform-neutral helper error when the helper cannot be started", async () => {

@@ -276,7 +276,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         env: deps.env,
         homeDir: deps.homeDir,
         title: parsed.title,
-        live: parsed.live,
+        live: parsed.live === true || (mode === "human" && isTTY),
         includeSystemAudio: parsed.includeSystemAudio,
         includeMicrophone: parsed.includeMicrophone,
         translationLanguage: parsed.translationLanguage,

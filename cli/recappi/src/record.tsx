@@ -177,7 +177,7 @@ export async function startLiveRecordSession(
     includeMicrophone: capture.includeMicrophone,
     targetBundleId: capture.targetBundleId,
     microphoneDeviceId: capture.microphoneDeviceId,
-    live: false,
+    live: true,
   });
   return {
     mode: "local",
