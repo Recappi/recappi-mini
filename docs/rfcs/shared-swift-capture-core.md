@@ -227,6 +227,7 @@ CLI/TUI TypeScript:
 - [x] 抽 bundle/app source collapsing 逻辑，确保 Arc/Chromium helper 语义有测试覆盖。
 - [x] 抽 `AudioLevelExtractor`，保留 app wrapper 并迁移 vDSP/并发测试到 core target。
 - [x] 抽 `SegmentedAudioWriter`，保留 app wrapper 并迁移 segment 写入测试到 core target。
+- [x] 抽 `CaptureAudioSampleBufferOutput`，把 sample buffer -> writer + throttled `CaptureLevel` sink 移进 core。
 - [x] 抽 `AudioMixer`，app wrapper 保留旧 `RecorderError` / `DiagnosticsLog` 语义。
 - [x] 抽 diagnostics 生成，app wrapper 保留 `DiagnosticsLog` 写失败记录。
 - [x] 抽 `CaptureSourceCatalog.availableSources()`，app/sidecar source list 共用 SCK app source + bundle collapsing 语义。
@@ -245,6 +246,7 @@ CLI/TUI TypeScript:
 - [x] helper package 从 raw executable 切到 signed/notarized `.app`，并设置 Recappi-recognizable bundle display name + icon。
 - [x] CLI helper launcher/resolver 支持 LaunchServices-based helper `.app` execution；stdio JSON-RPC 通过 LaunchServices `--stdin` / `--stdout` FIFO pipes 保持可交互。
 - [x] sidecar stop path 使用 shared `CaptureSegmentedAudioWriter` / `CaptureAudioMixer` / `CaptureAudioDiagnostics`，删除 sidecar 内重复 writer/mixer/diagnostics 实现。
+- [x] sidecar system/mic capture paths 使用 shared `CaptureAudioSampleBufferOutput` 写入 CAF 并发 `audio.level`。
 - [ ] JSON-RPC methods 调 core；删除 sidecar duplicate capture code。
 - [x] sidecar 当前 capture paths 从 shared `CaptureAudioLevelExtractor.captureLevel` 转发 `audio.level { input, rmsDb, atMs }` 到 IPC。
 - [ ] `audio.level` 从 full core `levels` stream 转发到 IPC（等待 JSON-RPC start/stop 全切 core session）。

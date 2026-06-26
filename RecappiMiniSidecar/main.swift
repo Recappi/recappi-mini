@@ -434,7 +434,7 @@ private final class SidecarRecordingSession {
                 finalURL: dir.appendingPathComponent("system.caf"),
                 processingQueue: systemQueue
             )
-            let output = SampleBufferAudioOutput(
+            let output = CaptureAudioSampleBufferOutput(
                 writer: writer,
                 input: .system,
                 startedAtUptime: startedAtUptime
@@ -459,14 +459,17 @@ private final class SidecarRecordingSession {
                 processingQueue: microphoneQueue
             )
             let capture = MicrophoneCapture(
-                writer: writer,
+                output: CaptureAudioSampleBufferOutput(
+                    writer: writer,
+                    input: .microphone,
+                    startedAtUptime: startedAtUptime
+                ) { [weak self] level in
+                    guard let self else { return }
+                    self.onLevel(self.id, level)
+                },
                 queue: microphoneQueue,
-                deviceId: options.microphoneDeviceId,
-                startedAtUptime: startedAtUptime
-            ) { [weak self] level in
-                guard let self else { return }
-                self.onLevel(self.id, level)
-            }
+                deviceId: options.microphoneDeviceId
+            )
             try await capture.start()
             microphoneCapture = capture
         }
@@ -738,71 +741,20 @@ private struct SidecarFailure: Error {
     }
 }
 
-private final class SampleBufferAudioOutput: @unchecked Sendable {
-    private static let levelInterval: TimeInterval = 1.0 / 12.0
-
-    private let writer: CaptureSegmentedAudioWriter
-    private let input: CaptureLevel.Input
-    private let startedAtUptime: TimeInterval
-    private let onLevel: (CaptureLevel) -> Void
-    private var lastLevelEmitUptime: TimeInterval?
-
-    init(
-        writer: CaptureSegmentedAudioWriter,
-        input: CaptureLevel.Input,
-        startedAtUptime: TimeInterval,
-        onLevel: @escaping (CaptureLevel) -> Void
-    ) {
-        self.writer = writer
-        self.input = input
-        self.startedAtUptime = startedAtUptime
-        self.onLevel = onLevel
-    }
-
-    func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-        guard sampleBuffer.isValid else { return }
-        writer.append(sampleBuffer)
-        emitLevelIfNeeded(sampleBuffer)
-    }
-
-    func finishWriting() async throws -> URL? {
-        try await writer.finishWriting()
-    }
-
-    private func emitLevelIfNeeded(_ sampleBuffer: CMSampleBuffer) {
-        let now = ProcessInfo.processInfo.systemUptime
-        if let lastLevelEmitUptime, now - lastLevelEmitUptime < Self.levelInterval {
-            return
-        }
-        lastLevelEmitUptime = now
-        let atMs = Int64(max(0, (now - startedAtUptime) * 1_000).rounded())
-        onLevel(CaptureAudioLevelExtractor.captureLevel(sampleBuffer, input: input, atMs: atMs))
-    }
-}
-
 private final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
-    private static let levelInterval: TimeInterval = 1.0 / 12.0
-
-    private let writer: CaptureSegmentedAudioWriter
+    private let output: CaptureAudioSampleBufferOutput
     private let queue: DispatchQueue
     private let deviceId: String?
-    private let startedAtUptime: TimeInterval
-    private let onLevel: (CaptureLevel) -> Void
     private var session: AVCaptureSession?
-    private var lastLevelEmitUptime: TimeInterval?
 
     init(
-        writer: CaptureSegmentedAudioWriter,
+        output: CaptureAudioSampleBufferOutput,
         queue: DispatchQueue,
-        deviceId: String?,
-        startedAtUptime: TimeInterval,
-        onLevel: @escaping (CaptureLevel) -> Void
+        deviceId: String?
     ) {
-        self.writer = writer
+        self.output = output
         self.queue = queue
         self.deviceId = deviceId
-        self.startedAtUptime = startedAtUptime
-        self.onLevel = onLevel
     }
 
     func start() async throws {
@@ -855,7 +807,7 @@ private final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleB
     }
 
     func finishWriting() async throws -> URL? {
-        try await writer.finishWriting()
+        try await output.finishWriting()
     }
 
     private static func resolveDevice(id: String?) -> AVCaptureDevice? {
@@ -874,24 +826,12 @@ private final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleB
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        writer.append(sampleBuffer)
-        emitLevelIfNeeded(sampleBuffer)
-    }
-
-    private func emitLevelIfNeeded(_ sampleBuffer: CMSampleBuffer) {
-        guard sampleBuffer.isValid else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        if let lastLevelEmitUptime, now - lastLevelEmitUptime < Self.levelInterval {
-            return
-        }
-        lastLevelEmitUptime = now
-        let atMs = Int64(max(0, (now - startedAtUptime) * 1_000).rounded())
-        onLevel(CaptureAudioLevelExtractor.captureLevel(sampleBuffer, input: .microphone, atMs: atMs))
+        self.output.append(sampleBuffer)
     }
 }
 
 private final class SystemAudioCapture: @unchecked Sendable {
-    private let output: SampleBufferAudioOutput
+    private let output: CaptureAudioSampleBufferOutput
     private let captureQueue: DispatchQueue
     private let targetBundleId: String?
     private let stateQueue = DispatchQueue(label: "RecappiMiniSidecar.SystemAudio.state")
@@ -901,7 +841,7 @@ private final class SystemAudioCapture: @unchecked Sendable {
     private var sampleFactory: CoreAudioTapSampleBufferFactory?
     private var isStarted = false
 
-    init(output: SampleBufferAudioOutput, captureQueue: DispatchQueue, targetBundleId: String?) {
+    init(output: CaptureAudioSampleBufferOutput, captureQueue: DispatchQueue, targetBundleId: String?) {
         self.output = output
         self.captureQueue = captureQueue
         self.targetBundleId = targetBundleId
@@ -1025,7 +965,7 @@ private final class SystemAudioCapture: @unchecked Sendable {
             ) else {
                 return
             }
-            output.handleAudioSampleBuffer(sampleBuffer)
+            output.append(sampleBuffer)
         } catch {
             // Drop individual malformed buffers; the stop path will fail if no
             // readable source file is produced.
