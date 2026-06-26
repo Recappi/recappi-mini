@@ -57,6 +57,7 @@ try {
     const plist = await readFile(join(helperPath, "Contents", "Info.plist"), "utf8");
     for (const expected of [
       "<string>Recappi Recorder</string>",
+      "<string>com.recappi.recorder</string>",
       "<key>LSUIElement</key>",
       "<true/>",
     ]) {

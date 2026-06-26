@@ -295,7 +295,7 @@ private extension CaptureSource {
 
 private enum RecordingInputCatalog {
     static func sources() async -> [[String: Any]] {
-        let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.mini.sidecar"
+        let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.recorder"
         if let sources = try? await CaptureSourceCatalog.availableSources(selfBundleID: selfBundleID) {
             return sources.map(\.json)
         }
@@ -634,7 +634,7 @@ private enum PermissionPreflight {
         case .authorized:
             return
         case .notDetermined:
-            let allowed = await AVCaptureDevice.requestAccess(for: .audio)
+            let allowed = await requestMicrophoneAccess()
             if allowed { throw microphoneGrantedRequiresRestart() }
             throw microphoneDenied()
         case .denied, .restricted:
@@ -642,6 +642,13 @@ private enum PermissionPreflight {
         @unknown default:
             throw microphoneDenied()
         }
+    }
+
+    @MainActor
+    private static func requestMicrophoneAccess() async -> Bool {
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.accessory)
+        return await AVCaptureDevice.requestAccess(for: .audio)
     }
 
     private static func requireScreenCapture() throws {
