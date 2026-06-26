@@ -338,7 +338,14 @@ function normalizeSidecarMicrophones(
 }
 
 function assertRecordingPermissions(permissions: SidecarPermissionItem[]): void {
-  const blocked = permissions.find((permission) => permission.status !== "granted");
+  const blocked = permissions.find((permission) => {
+    if (permission.status === "granted") return false;
+    // Microphone "unknown" means macOS has not shown the native prompt yet.
+    // Let recording.start reach AVCaptureDevice.requestAccess instead of
+    // dead-ending the user in System Settings with no prompt/row to approve.
+    if (permission.name === "microphone" && permission.status === "unknown") return false;
+    return true;
+  });
   if (!blocked) return;
   const label =
     blocked.name === "microphone"

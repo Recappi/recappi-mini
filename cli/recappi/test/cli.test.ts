@@ -531,6 +531,56 @@ describe("recappi CLI contract", () => {
     }
   });
 
+  it("continues when microphone permission is not determined so macOS can prompt", async () => {
+    const fake = fakeRecordRuntime({
+      permissions: [
+        { name: "screen_recording", status: "granted" },
+        { name: "microphone", status: "unknown" },
+      ],
+    });
+    const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
+      fetchImpl: sessionFetch(),
+      recordRuntime: fake.runtime,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(fake.calls.map((call) => call.method)).toEqual([
+      "spawn",
+      "handshake",
+      "permissions",
+      "start",
+      "waitForStop",
+      "stop",
+      "kill",
+    ]);
+  });
+
+  it("still blocks when microphone permission is denied", async () => {
+    const fake = fakeRecordRuntime({
+      permissions: [
+        { name: "screen_recording", status: "granted" },
+        { name: "microphone", status: "denied" },
+      ],
+    });
+    const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
+      fetchImpl: sessionFetch(),
+      recordRuntime: fake.runtime,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(fake.calls.map((call) => call.method)).toEqual([
+      "spawn",
+      "handshake",
+      "permissions",
+      "kill",
+    ]);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      command: "record",
+      error: { code: "record.permission_required" },
+    });
+  });
+
   it("uses the live captions renderer in interactive record --live mode", async () => {
     const fake = fakeRecordRuntime();
     const result = await run(["record", "--live", "--sidecar-command", "fake-sidecar"], {
@@ -1130,7 +1180,12 @@ async function run(
   return { exitCode, stdout, stderr };
 }
 
-function fakeRecordRuntime(opts: { capabilities?: string[] } = {}): {
+function fakeRecordRuntime(
+  opts: {
+    capabilities?: string[];
+    permissions?: Array<{ name: "screen_recording" | "microphone"; status: string }>;
+  } = {},
+): {
   runtime: RecordRuntimeDeps;
   client: unknown;
   calls: Array<{ method: string; params?: unknown; source?: unknown }>;
@@ -1169,7 +1224,7 @@ function fakeRecordRuntime(opts: { capabilities?: string[] } = {}): {
     async getPermissionStatus(params: unknown) {
       calls.push({ method: "permissions", params });
       return {
-        permissions: [
+        permissions: opts.permissions ?? [
           { name: "screen_recording", status: "granted" },
           { name: "microphone", status: "granted" },
         ],
