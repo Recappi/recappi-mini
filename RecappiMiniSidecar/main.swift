@@ -122,6 +122,9 @@ private final class RecappiMiniSidecar {
                     "sessionId": sessionId.isEmpty ? "none" : sessionId,
                     "state": RecordingState.cancelled.rawValue,
                 ])
+            case "recappi.shutdown":
+                result(id: id, ["ok": true])
+                Foundation.exit(0)
             default:
                 throw SidecarFailure(
                     code: -32601,

@@ -742,8 +742,6 @@ describe("recappi CLI contract", () => {
           "Library",
           "Application Support",
           "Recappi",
-          "CLI Helper",
-          `darwin-${process.arch}`,
           "Recappi Recorder.app",
         );
         const command = ensureBundledHelperExecutable(sourceApp, { homeDir });

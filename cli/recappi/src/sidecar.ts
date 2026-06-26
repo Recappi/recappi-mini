@@ -389,13 +389,31 @@ function spawnLaunchServicesSidecar(opts: SpawnMiniSidecarOptions): SpawnedMiniS
   return {
     client,
     kill: () => {
+      requestLaunchServicesSidecarShutdown(input);
       client.close();
       input.end();
       output.destroy();
-      child.kill();
+      const killTimer = setTimeout(() => child.kill(), 2_000);
+      killTimer.unref?.();
+      child.once("exit", () => clearTimeout(killTimer));
       cleanup();
     },
   };
+}
+
+function requestLaunchServicesSidecarShutdown(input: Writable): void {
+  try {
+    input.write(
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        id: "shutdown",
+        method: "recappi.shutdown",
+        params: {},
+      })}\n`,
+    );
+  } catch {
+    /* best-effort shutdown before closing the FIFO */
+  }
 }
 
 function createFifo(path: string): void {

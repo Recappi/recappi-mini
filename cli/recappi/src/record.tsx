@@ -529,8 +529,8 @@ function ensureStableDarwinHelperApp(
 function stableDarwinHelperAppPath(opts: Pick<RecordCommandOptions, "env" | "homeDir"> = {}): string {
   const base =
     opts.env?.RECAPPI_HELPER_HOME?.trim() ||
-    join(opts.homeDir ?? homedir(), "Library", "Application Support", "Recappi", "CLI Helper");
-  return join(base, `${process.platform}-${process.arch}`, SIDECAR_APP_BUNDLE_NAME);
+    join(opts.homeDir ?? homedir(), "Library", "Application Support", "Recappi");
+  return join(base, SIDECAR_APP_BUNDLE_NAME);
 }
 
 function helperSourceSignature(sourceApp: string): string {
