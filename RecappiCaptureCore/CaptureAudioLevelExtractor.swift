@@ -4,12 +4,20 @@ import CoreMedia
 
 // MARK: - Audio level extraction
 
+private let captureSilenceRmsDb: Float = -120
+
 public struct CaptureAudioMeterFrame: Sendable, Equatable {
     public let peak: Float
+    public let rmsDb: Float
     public let bands: [Float]
 
     public init(peak: Float, bands: [Float]) {
+        self.init(peak: peak, rmsDb: captureSilenceRmsDb, bands: bands)
+    }
+
+    public init(peak: Float, rmsDb: Float, bands: [Float]) {
         self.peak = peak
+        self.rmsDb = rmsDb
         self.bands = bands
     }
 }
@@ -291,6 +299,15 @@ public enum CaptureAudioLevelExtractor {
         return silence(bucketCount: bucketCount)
     }
 
+    public static func captureLevel(
+        _ sampleBuffer: CMSampleBuffer,
+        input: CaptureLevel.Input,
+        atMs: Int64
+    ) -> CaptureLevel {
+        let frame = meterFrame(sampleBuffer, bucketCount: 1)
+        return CaptureLevel(input: input, rmsDb: frame.rmsDb, atMs: atMs)
+    }
+
     /// Collapse interleaved 32-bit float frames to a mono buffer
     /// (`mean across channels`), matching the previous scalar averaging.
     ///
@@ -412,17 +429,30 @@ public enum CaptureAudioLevelExtractor {
         samples.withUnsafeBufferPointer { ptr in
             vDSP_maxmgv(ptr.baseAddress!, 1, &peak, vDSP_Length(ptr.count))
         }
+        let rmsDb = rmsDb(for: samples)
 
         guard sampleRate.isFinite, sampleRate > 0 else {
-            return CaptureAudioMeterFrame(peak: min(peak, 1), bands: Array(repeating: min(peak, 1), count: bucketCount))
+            return CaptureAudioMeterFrame(
+                peak: min(peak, 1),
+                rmsDb: rmsDb,
+                bands: Array(repeating: min(peak, 1), count: bucketCount)
+            )
         }
 
         guard samples.count >= 32 else {
             let clampedPeak = min(peak, 1)
-            return CaptureAudioMeterFrame(peak: clampedPeak, bands: Array(repeating: clampedPeak, count: bucketCount))
+            return CaptureAudioMeterFrame(
+                peak: clampedPeak,
+                rmsDb: rmsDb,
+                bands: Array(repeating: clampedPeak, count: bucketCount)
+            )
         }
         guard let plan = AudioSpectrumAnalysisPlan.plan(sampleRate: sampleRate, bucketCount: bucketCount) else {
-            return CaptureAudioMeterFrame(peak: min(peak, 1), bands: Array(repeating: 0, count: bucketCount))
+            return CaptureAudioMeterFrame(
+                peak: min(peak, 1),
+                rmsDb: rmsDb,
+                bands: Array(repeating: 0, count: bucketCount)
+            )
         }
 
         var bandMagnitudes = [Float](repeating: 0, count: bucketCount)
@@ -474,11 +504,25 @@ public enum CaptureAudioLevelExtractor {
             normalizedBands.append(min(1, equalized * amplitudeScale))
         }
 
-        return CaptureAudioMeterFrame(peak: min(peak, 1), bands: normalizedBands)
+        return CaptureAudioMeterFrame(peak: min(peak, 1), rmsDb: rmsDb, bands: normalizedBands)
     }
 
     private static func silence(bucketCount: Int) -> CaptureAudioMeterFrame {
-        CaptureAudioMeterFrame(peak: 0, bands: Array(repeating: 0, count: max(bucketCount, 0)))
+        CaptureAudioMeterFrame(
+            peak: 0,
+            rmsDb: captureSilenceRmsDb,
+            bands: Array(repeating: 0, count: max(bucketCount, 0))
+        )
+    }
+
+    private static func rmsDb(for samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return captureSilenceRmsDb }
+        var rms: Float = 0
+        samples.withUnsafeBufferPointer { ptr in
+            vDSP_rmsqv(ptr.baseAddress!, 1, &rms, vDSP_Length(ptr.count))
+        }
+        guard rms.isFinite, rms > 0 else { return captureSilenceRmsDb }
+        return max(captureSilenceRmsDb, min(0, 20 * log10(rms)))
     }
 
     private static func safeDeclaredSampleCount(

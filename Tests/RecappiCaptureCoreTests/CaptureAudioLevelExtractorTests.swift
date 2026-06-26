@@ -326,6 +326,32 @@ final class CaptureAudioLevelExtractorTests: XCTestCase {
         XCTAssertEqual(frame.peak, expectedPeak, accuracy: 1e-3)
     }
 
+    func testCaptureLevelReportsRMSDecibelsForSystemInput() throws {
+        let sampleRate = 48_000.0
+        let samples = (0..<2_048).map { index in
+            index.isMultiple(of: 2) ? Float(0.5) : Float(-0.5)
+        }
+        let buffer = try makeSampleBuffer(interleaved: [samples], sampleRate: sampleRate, asInt16: false)
+
+        let level = CaptureAudioLevelExtractor.captureLevel(buffer, input: .system, atMs: 123)
+
+        XCTAssertEqual(level.input, .system)
+        XCTAssertEqual(level.atMs, 123)
+        XCTAssertEqual(level.rmsDb, -6.0206, accuracy: 0.001)
+    }
+
+    func testCaptureLevelClampsSilenceToFloor() throws {
+        let sampleRate = 48_000.0
+        let samples = Array<Float>(repeating: 0, count: 2_048)
+        let buffer = try makeSampleBuffer(interleaved: [samples], sampleRate: sampleRate, asInt16: false)
+
+        let level = CaptureAudioLevelExtractor.captureLevel(buffer, input: .microphone, atMs: 456)
+
+        XCTAssertEqual(level.input, .microphone)
+        XCTAssertEqual(level.atMs, 456)
+        XCTAssertLessThanOrEqual(level.rmsDb, -119)
+    }
+
     func testMeterFrameSpectrumMatchesReferenceForStereoFloat() throws {
         let sampleRate = 48_000.0
         let left = mixedSine(components: [(200, 0.7), (2_000, 0.4)], sampleRate: sampleRate, count: 2_500)

@@ -146,7 +146,9 @@ Events are JSON-RPC notifications with `method: "recappi.event"`:
 
 `audio.level` carries one physical input lane only: `input` is `system` or
 `microphone`. The sidecar must not emit `mixed` in IPC; the CLI/TUI combines
-system and microphone levels itself when it needs a single meter.
+system and microphone levels itself when it needs a single meter. Native macOS
+helpers emit levels from captured sample buffers at a throttled UI cadence,
+using `rmsDb` plus `atMs`.
 
 `live_caption.delta` is provisional stream data. It carries `stream`, `text`, optional `isFinal`, optional `segmentId`/`speaker`, and optional timing fields (`atMs`, `startMs`, `endMs`) so the CLI can map it to connecting/live/error status, partial caption rows, and finalized caption lines. If persisted, the artifact kind is `live_caption_draft`; it must not be treated as the official transcript.
 

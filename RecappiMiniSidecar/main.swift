@@ -26,6 +26,7 @@ struct RecappiMiniSidecarMain {
 
 private final class RecappiMiniSidecar {
     private var activeSession: SidecarRecordingSession?
+    private let outputLock = NSLock()
 
     func handle(_ line: String) async {
         guard let data = line.data(using: .utf8),
@@ -74,7 +75,9 @@ private final class RecappiMiniSidecar {
                 let params = object["params"] as? [String: Any] ?? [:]
                 let options = RecordingOptions(params["options"] as? [String: Any] ?? [:])
                 let account = params["account"] as? [String: Any] ?? [:]
-                let session = try await SidecarRecordingSession(options: options, account: account)
+                let session = try await SidecarRecordingSession(options: options, account: account) { [weak self] sessionID, level in
+                    self?.emitAudioLevel(sessionID: sessionID, level: level)
+                }
                 try await session.start()
                 activeSession = session
                 emitRecordingState(session)
@@ -185,6 +188,20 @@ private final class RecappiMiniSidecar {
         ])
     }
 
+    private func emitAudioLevel(sessionID: String, level: CaptureLevel) {
+        writeJSON([
+            "jsonrpc": "2.0",
+            "method": "recappi.event",
+            "params": [
+                "type": "audio.level",
+                "sessionId": sessionID,
+                "input": level.input.rawValue,
+                "rmsDb": Double(level.rmsDb),
+                "atMs": level.atMs,
+            ],
+        ])
+    }
+
     @discardableResult
     private func writeJSON(_ value: [String: Any]) -> Bool {
         guard JSONSerialization.isValidJSONObject(value),
@@ -193,6 +210,8 @@ private final class RecappiMiniSidecar {
         else {
             return false
         }
+        outputLock.lock()
+        defer { outputLock.unlock() }
         print(line)
         fflush(stdout)
         return true
@@ -373,6 +392,7 @@ private final class SidecarRecordingSession {
     let id = UUID().uuidString
     let options: RecordingOptions
     let account: [String: Any]
+    private let onLevel: (String, CaptureLevel) -> Void
     private(set) var state: RecordingState = .idle
     private(set) var sessionDir: URL?
     private var systemCapture: SystemAudioCapture?
@@ -380,7 +400,11 @@ private final class SidecarRecordingSession {
     private let systemQueue = DispatchQueue(label: "RecappiMiniSidecar.SystemAudio")
     private let microphoneQueue = DispatchQueue(label: "RecappiMiniSidecar.Microphone")
 
-    init(options: RecordingOptions, account: [String: Any]) async throws {
+    init(
+        options: RecordingOptions,
+        account: [String: Any],
+        onLevel: @escaping (String, CaptureLevel) -> Void
+    ) async throws {
         guard options.includeSystemAudio || options.includeMicrophone else {
             throw SidecarFailure(
                 code: -32021,
@@ -390,6 +414,7 @@ private final class SidecarRecordingSession {
         }
         self.options = options
         self.account = account
+        self.onLevel = onLevel
     }
 
     var localSessionRef: String? {
@@ -402,13 +427,21 @@ private final class SidecarRecordingSession {
         let dir = try Self.createSessionDirectory()
         sessionDir = dir
         try writeSessionMetadata(to: dir)
+        let startedAtUptime = ProcessInfo.processInfo.systemUptime
 
         if options.includeSystemAudio {
             let writer = CaptureSegmentedAudioWriter(
                 finalURL: dir.appendingPathComponent("system.caf"),
                 processingQueue: systemQueue
             )
-            let output = SampleBufferAudioOutput(writer: writer)
+            let output = SampleBufferAudioOutput(
+                writer: writer,
+                input: .system,
+                startedAtUptime: startedAtUptime
+            ) { [weak self] level in
+                guard let self else { return }
+                self.onLevel(self.id, level)
+            }
             let capture = SystemAudioCapture(
                 output: output,
                 captureQueue: systemQueue,
@@ -428,8 +461,12 @@ private final class SidecarRecordingSession {
             let capture = MicrophoneCapture(
                 writer: writer,
                 queue: microphoneQueue,
-                deviceId: options.microphoneDeviceId
-            )
+                deviceId: options.microphoneDeviceId,
+                startedAtUptime: startedAtUptime
+            ) { [weak self] level in
+                guard let self else { return }
+                self.onLevel(self.id, level)
+            }
             try await capture.start()
             microphoneCapture = capture
         }
@@ -702,32 +739,70 @@ private struct SidecarFailure: Error {
 }
 
 private final class SampleBufferAudioOutput: @unchecked Sendable {
-    private let writer: CaptureSegmentedAudioWriter
+    private static let levelInterval: TimeInterval = 1.0 / 12.0
 
-    init(writer: CaptureSegmentedAudioWriter) {
+    private let writer: CaptureSegmentedAudioWriter
+    private let input: CaptureLevel.Input
+    private let startedAtUptime: TimeInterval
+    private let onLevel: (CaptureLevel) -> Void
+    private var lastLevelEmitUptime: TimeInterval?
+
+    init(
+        writer: CaptureSegmentedAudioWriter,
+        input: CaptureLevel.Input,
+        startedAtUptime: TimeInterval,
+        onLevel: @escaping (CaptureLevel) -> Void
+    ) {
         self.writer = writer
+        self.input = input
+        self.startedAtUptime = startedAtUptime
+        self.onLevel = onLevel
     }
 
     func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
         guard sampleBuffer.isValid else { return }
         writer.append(sampleBuffer)
+        emitLevelIfNeeded(sampleBuffer)
     }
 
     func finishWriting() async throws -> URL? {
         try await writer.finishWriting()
     }
+
+    private func emitLevelIfNeeded(_ sampleBuffer: CMSampleBuffer) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if let lastLevelEmitUptime, now - lastLevelEmitUptime < Self.levelInterval {
+            return
+        }
+        lastLevelEmitUptime = now
+        let atMs = Int64(max(0, (now - startedAtUptime) * 1_000).rounded())
+        onLevel(CaptureAudioLevelExtractor.captureLevel(sampleBuffer, input: input, atMs: atMs))
+    }
 }
 
 private final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
+    private static let levelInterval: TimeInterval = 1.0 / 12.0
+
     private let writer: CaptureSegmentedAudioWriter
     private let queue: DispatchQueue
     private let deviceId: String?
+    private let startedAtUptime: TimeInterval
+    private let onLevel: (CaptureLevel) -> Void
     private var session: AVCaptureSession?
+    private var lastLevelEmitUptime: TimeInterval?
 
-    init(writer: CaptureSegmentedAudioWriter, queue: DispatchQueue, deviceId: String?) {
+    init(
+        writer: CaptureSegmentedAudioWriter,
+        queue: DispatchQueue,
+        deviceId: String?,
+        startedAtUptime: TimeInterval,
+        onLevel: @escaping (CaptureLevel) -> Void
+    ) {
         self.writer = writer
         self.queue = queue
         self.deviceId = deviceId
+        self.startedAtUptime = startedAtUptime
+        self.onLevel = onLevel
     }
 
     func start() async throws {
@@ -800,6 +875,18 @@ private final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleB
         from connection: AVCaptureConnection
     ) {
         writer.append(sampleBuffer)
+        emitLevelIfNeeded(sampleBuffer)
+    }
+
+    private func emitLevelIfNeeded(_ sampleBuffer: CMSampleBuffer) {
+        guard sampleBuffer.isValid else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if let lastLevelEmitUptime, now - lastLevelEmitUptime < Self.levelInterval {
+            return
+        }
+        lastLevelEmitUptime = now
+        let atMs = Int64(max(0, (now - startedAtUptime) * 1_000).rounded())
+        onLevel(CaptureAudioLevelExtractor.captureLevel(sampleBuffer, input: .microphone, atMs: atMs))
     }
 }
 

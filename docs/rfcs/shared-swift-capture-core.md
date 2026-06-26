@@ -136,6 +136,7 @@ sequenceDiagram
 - [x] system source capture 用 all-app system audio 过滤器。
 - [ ] 麦克风继续用 `AVCaptureSession` / `AVCaptureAudioDataOutput`，但移动到 core。
 - [ ] system/mic sample buffer 同时写入 `SegmentedAudioWriter` 和 level extractor，`levels` 以 10-20Hz 输出。
+- [x] 中间态：sidecar 当前 system/mic capture paths 已用 shared `CaptureAudioLevelExtractor` 从 sample buffer 产出 `audio.level`，约 12Hz 转发给 CLI/TUI；full core `levels` stream 仍等待 session 迁移。
 - [ ] stop 时由 core 返回 `CaptureArtifact`，包含 system/mic/mixed URL、duration、diagnostics、effective selection。
 - [ ] capture session 预留实时 sample tap 扩展点；本轮可以不暴露正式 public API，但设计不能只能在 stop 后拿 artifact，否则后续 host 接 Live Caption 会被堵死。
 
@@ -205,8 +206,8 @@ Permission copy shape:
 
 CLI/TUI TypeScript:
 
-- [ ] 不需要产品契约改动。
-- [ ] 继续把 sidecar `audio.level { input, rmsDb, atMs? }` 映射到 `levelFromRmsDb`、telemetry 和 waveform；IPC 只发 `system` / `microphone`。
+- [x] 不需要产品契约改动。
+- [x] 继续把 sidecar `audio.level { input, rmsDb, atMs? }` 映射到 `levelFromRmsDb`、telemetry 和 waveform；IPC 只发 `system` / `microphone`。
 - [ ] 保留没有 level telemetry 时的 honest fallback copy，但真实 helper 应该持续发 level。
 
 ## Migration Plan
@@ -240,14 +241,15 @@ CLI/TUI TypeScript:
 
 ### Phase 3: Sidecar Switches to Core
 
-- [ ] sidecar link `RecappiCaptureCore`。
+- [x] sidecar link `RecappiCaptureCore`。
 - [x] helper package 从 raw executable 切到 signed/notarized `.app`，并设置 Recappi-recognizable bundle display name + icon。
 - [x] CLI helper launcher/resolver 支持 LaunchServices-based helper `.app` execution；stdio JSON-RPC 通过 LaunchServices `--stdin` / `--stdout` FIFO pipes 保持可交互。
 - [x] sidecar stop path 使用 shared `CaptureSegmentedAudioWriter` / `CaptureAudioMixer` / `CaptureAudioDiagnostics`，删除 sidecar 内重复 writer/mixer/diagnostics 实现。
 - [ ] JSON-RPC methods 调 core；删除 sidecar duplicate capture code。
-- [ ] `audio.level` 从 core `levels` 转发到 IPC。
+- [x] sidecar 当前 capture paths 从 shared `CaptureAudioLevelExtractor.captureLevel` 转发 `audio.level { input, rmsDb, atMs }` 到 IPC。
+- [ ] `audio.level` 从 full core `levels` stream 转发到 IPC（等待 JSON-RPC start/stop 全切 core session）。
 - [ ] 更新 `cli/recappi/docs/sidecar-ipc.md`，声明 native capture owned by shared core。
-- [ ] 跑 CLI sidecar contract tests 和 TUI waveform tests。
+- [x] 跑 CLI sidecar contract tests 和 TUI waveform tests。
 
 ### Phase 4: Release Validation
 
@@ -262,6 +264,7 @@ CLI/TUI TypeScript:
 
 - [ ] 删除 sidecar 老 CoreAudio include-mode app tap 分支，除非 fallback 被明确批准。
 - [x] 删除 sidecar 重复 writer/mixer/diagnostics 代码。
+- [x] sidecar 当前 capture paths 已用 shared level extractor 发 `audio.level`，不再需要 TS/TUI fallback 才能显示 waveform。
 - [ ] 删除 app/sidecar 重复 capture/mic/listing adapter 代码。
 - [ ] 加测试或 grep guardrail，防止 sidecar 新增第二套 capture implementation。
 - [ ] 更新 release checklist，把 app-source real audio + `audio.level` 加入 CLI smoke。
@@ -305,8 +308,8 @@ Audio signal check 默认用 `ffmpeg -af volumedetect` 或等价工具记录 mea
 ## Immediate Next Steps
 
 - [x] @Mini: 完成 SCK headless helper feasibility spike，并把结果贴回 task #261。
-- [ ] @Mini: 起 `RecappiCaptureCore` target，先抽协议/模型/纯工具和测试。
+- [x] @Mini: 起 `RecappiCaptureCore` target，先抽协议/模型/纯工具和测试。
 - [x] @Mini: 先定 helper `.app` launcher/transport，保证 JSON-RPC 仍可用且不丢 helper-owned TCC attribution。
 - [x] @Mini + @recappi样式专家: 定 helper `.app` display name/icon 和 `requiresProcessRestart` preflight copy。
-- [ ] @recappi样式专家: review helper `.app` 用户可见命名、权限文案、TUI event shape。
+- [x] @recappi样式专家: review helper `.app` 用户可见命名、权限文案、TUI event shape。
 - [ ] @peng-xiao: 只有 helper `.app` LaunchServices/package 路径继续被系统限制时，才需要决定是否接受 fallback backend。

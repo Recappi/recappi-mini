@@ -269,6 +269,11 @@ describe("Mini sidecar JSON-RPC client", () => {
       if (event.type === "local_artifact.upserted") {
         expect(event.artifact.kind).toBe("live_caption_draft");
       }
+      if (event.type === "audio.level") {
+        expect(event.input).toBe("system");
+        expect(event.rmsDb).toBeCloseTo(-6.02);
+        expect(event.atMs).toBe(180);
+      }
     });
 
     try {
@@ -290,6 +295,17 @@ describe("Mini sidecar JSON-RPC client", () => {
         jsonrpc: "2.0",
         method: "recappi.event",
         params: {
+          type: "audio.level",
+          sessionId: "sidecar_session_1",
+          input: "system",
+          rmsDb: -6.02,
+          atMs: 180,
+        },
+      });
+      fake.write({
+        jsonrpc: "2.0",
+        method: "recappi.event",
+        params: {
           type: "local_artifact.upserted",
           sessionId: "sidecar_session_1",
           artifact: {
@@ -300,7 +316,7 @@ describe("Mini sidecar JSON-RPC client", () => {
       });
 
       await tick();
-      expect(events).toEqual(["live_caption.delta", "local_artifact.upserted"]);
+      expect(events).toEqual(["live_caption.delta", "audio.level", "local_artifact.upserted"]);
     } finally {
       unsubscribe();
       fake.close();
