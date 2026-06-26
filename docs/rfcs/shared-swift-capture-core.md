@@ -241,7 +241,7 @@ CLI/TUI TypeScript:
 - [x] `AudioRecorder` 的 ScreenCaptureKit path 通过 core start/stop；UI、Cloud、Live Caption 行为保持在 host adapter。
 - [x] core `microphoneIncluded` closure 保留 app 运行中 mic toggle：mic sample 仍可捕获，但 host 状态为 off 时写静音且不发 mic level。
 - [x] 跑 focused `RecappiMiniCoreTests` / Realtime Live Caption / meter 回归；新增 core muted-sample regression。
-- [ ] 手动验证 app system source、app source、mic on/off、level/waveform、stop 后 merged output。
+- [x] 手动验证 app system source、Arc app source、mic off/on、level/waveform、Live Caption sample routing、stop 后 merged output；app path 目前 output/source diagnostics 已落盘，`captureHealth` snapshot 仍为空。
 
 ### Phase 3: Sidecar Switches to Core
 
