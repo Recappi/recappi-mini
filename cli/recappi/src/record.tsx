@@ -30,11 +30,13 @@ import {
 } from "../../packages/contracts/src/index";
 import { cliError } from "./errors";
 import {
+  applyRecordingEventToTelemetry,
   DEFAULT_RECORDING_SOURCES,
   recordingCaptureMappingFromSelection,
   type RecordingMicrophoneDevice,
   type RecordingInputSelection,
   type RecordingSource,
+  type RecordingTelemetry,
 } from "./recordingCore";
 import {
   defaultSidecarHandshakeParams,
@@ -43,6 +45,7 @@ import {
 } from "./sidecar";
 import { openCliStore, requireAccountPartition } from "./store";
 import { LiveCaptionsScreen, type LiveCaptionEventSource } from "./tui/LiveCaptionsScreen";
+import { RecordingHeroScreen } from "./tui/RecordingHeroScreen";
 
 const SIDECAR_COMMAND_ENV = "RECAPPI_MINI_SIDECAR";
 const SIDECAR_HELPER_NAME = "RecappiMiniSidecar";
@@ -65,6 +68,7 @@ export interface RecordCommandOptions {
   sidecarCommand?: string;
   sidecarArgs?: string[];
   renderLive?: boolean;
+  renderHero?: boolean;
   runtime?: RecordRuntimeDeps;
 }
 
@@ -75,6 +79,7 @@ export interface RecordRuntimeDeps {
     env?: NodeJS.ProcessEnv;
   }) => SpawnedMiniSidecar;
   createLiveRenderer?: (source: LiveCaptionEventSource) => RecordLiveRenderer;
+  createHeroRenderer?: (source: LiveCaptionEventSource) => RecordLiveRenderer;
   waitForStop?: () => Promise<void>;
   now?: () => number;
   renderApp?: LiveRendererRenderApp;
@@ -122,6 +127,17 @@ export async function recordViaSidecar(opts: RecordCommandOptions): Promise<Reco
           renderApp: opts.runtime?.renderApp,
           now: opts.runtime?.now,
         });
+    } else if (opts.renderHero) {
+      liveRenderer =
+        opts.runtime?.createHeroRenderer?.(session.source) ??
+        createInkRecordingHeroRenderer({
+        source: session.source,
+        sourceLabel:
+          opts.includeSystemAudio === false ? "Microphone" : "System audio · all apps",
+        micEnabled: opts.includeMicrophone !== false,
+        renderApp: opts.runtime?.renderApp,
+        now: opts.runtime?.now,
+      });
     }
 
     if (liveRenderer) {
@@ -684,4 +700,73 @@ function RecordLiveScreen({
     if (input === "q" || key.escape || key.leftArrow) onStop();
   });
   return <LiveCaptionsScreen source={source} now={now} />;
+}
+
+// Full-screen recording "hero" for `recappi record` in a TTY: the same styled
+// view the dashboard uses (recappi wordmark + elapsed + live waveform), fed by
+// the sidecar's recording.state / audio.level stream. q / esc / Ctrl-C stop &
+// save (mirrors the previous Ctrl-C behavior). Non-TTY / --json paths never
+// reach here, so machine output stays plain.
+function createInkRecordingHeroRenderer(opts: {
+  source: LiveCaptionEventSource;
+  sourceLabel: string;
+  micEnabled: boolean;
+  renderApp?: LiveRendererRenderApp;
+  now?: () => number;
+}): RecordLiveRenderer {
+  let resolveStop: (() => void) | undefined;
+  const stopped = new Promise<void>((resolve) => {
+    resolveStop = resolve;
+  });
+  const onStop = () => resolveStop?.();
+  const onSigint = () => onStop();
+  process.once("SIGINT", onSigint);
+  const renderApp = opts.renderApp ?? render;
+  const app = renderApp(
+    <RecordingHeroLive
+      source={opts.source}
+      sourceLabel={opts.sourceLabel}
+      micEnabled={opts.micEnabled}
+      onStop={onStop}
+      now={opts.now ?? Date.now}
+    />,
+    { alternateScreen: true, interactive: true },
+  );
+  return {
+    waitUntilStop: () => stopped,
+    close: () => {
+      process.removeListener("SIGINT", onSigint);
+      app.unmount();
+    },
+  };
+}
+
+function RecordingHeroLive({
+  source,
+  sourceLabel,
+  micEnabled,
+  onStop,
+  now,
+}: {
+  source: LiveCaptionEventSource;
+  sourceLabel: string;
+  micEnabled: boolean;
+  onStop: () => void;
+  now: () => number;
+}): React.ReactElement {
+  const [telemetry, setTelemetry] = React.useState<RecordingTelemetry>(() => ({
+    status: "recording",
+    startedAtMs: now(),
+    sourceLabel,
+    micEnabled,
+  }));
+  React.useEffect(() => {
+    return source.onEvent((event) => {
+      setTelemetry((prev) => applyRecordingEventToTelemetry(prev, event));
+    });
+  }, [source]);
+  useInput((input, key) => {
+    if (input === "q" || key.escape) onStop();
+  });
+  return <RecordingHeroScreen telemetry={telemetry} now={now} />;
 }

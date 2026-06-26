@@ -682,6 +682,27 @@ describe("recappi CLI contract", () => {
     );
   });
 
+  it("uses the styled recording hero renderer in interactive (non-live) record mode", async () => {
+    const fake = fakeRecordRuntime();
+    const result = await run(["record", "--sidecar-command", "fake-sidecar"], {
+      isTTY: true,
+      fetchImpl: sessionFetch(),
+      recordRuntime: fake.runtime,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Recording complete");
+    // default `record` in a TTY renders the styled hero, not the live-captions UI
+    const methods = fake.calls.map((call) => call.method);
+    expect(methods).toContain("createHeroRenderer");
+    expect(methods).toContain("heroWait");
+    expect(methods).toContain("heroClose");
+    expect(methods).not.toContain("createLiveRenderer");
+    expect(fake.calls.find((call) => call.method === "createHeroRenderer")?.source).toBe(
+      fake.client,
+    );
+  });
+
   it("reports a platform-neutral helper error when the helper cannot be started", async () => {
     const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
       fetchImpl: sessionFetch(),
@@ -1463,6 +1484,15 @@ function fakeRecordRuntime(
             calls.push({ method: "liveWait" });
           },
           close: () => calls.push({ method: "liveClose" }),
+        };
+      },
+      createHeroRenderer: (source) => {
+        calls.push({ method: "createHeroRenderer", source });
+        return {
+          waitUntilStop: async () => {
+            calls.push({ method: "heroWait" });
+          },
+          close: () => calls.push({ method: "heroClose" }),
         };
       },
     },

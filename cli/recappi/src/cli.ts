@@ -266,9 +266,6 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
           hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
         });
       }
-      if (mode === "human" && isTTY && !parsed.live) {
-        stderr("Recording… press Ctrl-C to stop.\n");
-      }
       const data = await recordViaSidecar({
         account: {
           backendOrigin: auth.origin,
@@ -286,6 +283,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         transcriptionLanguage: parsed.transcriptionLanguage,
         sidecarCommand: parsed.sidecarCommand,
         renderLive: parsed.live === true && mode === "human" && isTTY,
+        renderHero: parsed.live !== true && mode === "human" && isTTY,
         runtime: deps.recordRuntime,
       });
       renderSuccess("record", data, render);
