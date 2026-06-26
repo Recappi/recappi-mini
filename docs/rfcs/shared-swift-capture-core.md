@@ -32,7 +32,7 @@ Recappi 现在有两套 macOS 录音实现：
 
 - [ ] 不重写 CLI/TUI 产品界面；本 RFC 只定义 native capture core 和 host adapter 边界。
 - [ ] 不改变 backend transcription / Cloud API / upload 协议。
-- [ ] 不把 Live Caption 网络会话放进 capture core；core 只提供音频流/本地 artifact，app/sidecar host 决定是否接 Realtime。
+- [ ] 不把 Live Caption 网络会话放进 capture core；core 提供本地 artifact，并预留实时 sample tap，app/sidecar host 决定是否接 Realtime。
 - [ ] 不在本轮设计 Windows/Linux helper；但 JSON-RPC 外壳继续保持 OS-neutral。
 
 ## Proposal
@@ -85,8 +85,19 @@ public struct CaptureSelection: Sendable, Codable, Equatable {
     public var microphoneDeviceId: String?
 }
 
+public struct CapturePermissions: Sendable, Codable, Equatable {
+    public var screenRecording: CapturePermission
+    public var microphone: CapturePermission?
+}
+
+public struct CapturePermission: Sendable, Codable, Equatable {
+    public enum Status: String, Sendable, Codable { case granted, denied, unknown }
+    public var status: Status
+    public var requiresProcessRestart: Bool
+}
+
 public struct CaptureLevel: Sendable, Codable, Equatable {
-    public enum Input: String, Sendable, Codable { case system, microphone, mixed }
+    public enum Input: String, Sendable, Codable { case system, microphone }
     public var input: Input
     public var rmsDb: Float
     public var atMs: Int64
@@ -94,6 +105,8 @@ public struct CaptureLevel: Sendable, Codable, Equatable {
 ```
 
 注意：麦克风不是 source，它是 additive input。source 只表示系统音频范围：all apps 或某个 app。
+
+`CaptureLevel` 对外只发布物理输入 lane：`system` 和 `microphone`。core 可以在内部计算 mixed artifact 或 mixed meter，但不要把 `mixed` 透传到 sidecar IPC；现有 TS telemetry/TUI 会对 system/mic 取 max，零改动即可。如果未来必须暴露 mixed，需要同步更新 sidecar IPC contract 和 `applyRecordingEventToTelemetry`，不能依赖 fallthrough。
 
 ## Target Shape
 
@@ -124,6 +137,7 @@ sequenceDiagram
 - [ ] 麦克风继续用 `AVCaptureSession` / `AVCaptureAudioDataOutput`，但移动到 core。
 - [ ] system/mic sample buffer 同时写入 `SegmentedAudioWriter` 和 level extractor，`levels` 以 10-20Hz 输出。
 - [ ] stop 时由 core 返回 `CaptureArtifact`，包含 system/mic/mixed URL、duration、diagnostics、effective selection。
+- [ ] capture session 预留实时 sample tap 扩展点；本轮可以不暴露正式 public API，但设计不能只能在 stop 后拿 artifact，否则后续 host 接 Live Caption 会被堵死。
 
 可行性关键点：SCK 能否在 npm 分发的 signed headless helper 内稳定运行，且 TCC 归因正确。
 
@@ -134,6 +148,7 @@ sequenceDiagram
 - [ ] TCC prompt 文案显示 helper 还是 Recappi Mini，是否影响用户理解和支持成本。
 - [ ] CLI-only npm helper 的 bundle identifier、Sparkle app helper、dev `--sidecar-command` 三种运行形态能否保持同一权限语义。
 - [ ] 新安装、升级、权限已拒绝、权限重置后的 preflight/request 行为是否可预测。
+- [ ] Screen Recording 授权后是否需要重启 helper 进程才生效；如果需要，对应 `CapturePermission.requiresProcessRestart` 和 CLI copy 必须诚实提示用户重新运行 `recappi record`，不能授权后继续录出静音。
 
 Fallback 方案只作为 TCC blocked 时的显式决策，不作为默认实现：
 
@@ -156,12 +171,13 @@ CLI sidecar:
 - [ ] 只保留 JSON-RPC adapter、account partition、本地 artifact event 映射、进程生命周期。
 - [ ] `sources.list` / `microphones.list` / `permissions.status` 直接调用 core。
 - [ ] `recording.start` 调 core，转发 `recording.state`、`audio.level`、`local_artifact.upserted`。
+- [ ] 权限错误复用 CLI `recordErrorCopy` 体系：给 System Settings 路径、不给内部路径/stack/upload 细节，并覆盖 `requiresProcessRestart` 的重新运行提示。
 - [ ] 删除 sidecar 内重复 CoreAudio tap、AVCapture mic、writer、mixer 实现。
 
 CLI/TUI TypeScript:
 
 - [ ] 不需要产品契约改动。
-- [ ] 继续把 sidecar `audio.level { input, rmsDb }` 映射到 `levelFromRmsDb`、telemetry 和 waveform。
+- [ ] 继续把 sidecar `audio.level { input, rmsDb, atMs? }` 映射到 `levelFromRmsDb`、telemetry 和 waveform；IPC 只发 `system` / `microphone`。
 - [ ] 保留没有 level telemetry 时的 honest fallback copy，但真实 helper 应该持续发 level。
 
 ## Migration Plan
@@ -171,6 +187,7 @@ CLI/TUI TypeScript:
 - [ ] 写完本 RFC，拿 @recappi样式专家 review 接口和 UX fallback。
 - [ ] 做最小 signed helper spike：headless helper 调 SCK list + audio-only capture。
 - [ ] 在 fresh TCC 环境验证 permission preflight/request、拒绝态、重置态。
+- [ ] 明确验证 Screen Recording grant 后当前 helper 是否立即可录，还是必须退出重跑；把结果写入 permission model 和 CLI 文案。
 - [ ] 输出 go/no-go：共享 SCK backend 继续，或进入显式 fallback 决策。
 
 ### Phase 1: Extract Pure Core Pieces
@@ -223,6 +240,7 @@ CLI/TUI TypeScript:
 | CLI | Arc app source, mic off | 不再静音；bundle selection 语义和 app 一致 |
 | CLI | System/app source + mic on | sidecar artifact 和 TUI status 正确 |
 | CLI | No Screen Recording permission | `permissions.status` 可 preflight，start 返回稳定 CLI error |
+| CLI | Screen Recording granted mid-flow | 如果 TCC 要重启进程，提示重新运行 `recappi record`，不继续静音录制 |
 | CLI | No microphone permission with mic on | mic permission 单独报告，不污染 system source |
 | CLI/TUI | Real level events | waveform 从 rmsDb 更新 |
 | CLI/TUI | Missing level events | 显示 honest fallback，不假装录到波形 |
