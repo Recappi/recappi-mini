@@ -125,7 +125,7 @@ jobs:
           CODESIGN_IDENTITY: ${{ env.DEVELOPER_ID_IDENTITY }}
           RELEASE: "1"
 
-      - run: node ../check-helper-pack.mjs RecappiMiniSidecar
+      - run: node ../check-helper-pack.mjs RecappiMiniSidecar.app Contents/MacOS/RecappiMiniSidecar
         working-directory: cli/helpers/darwin-arm64
 
       - name: Check recappi package
