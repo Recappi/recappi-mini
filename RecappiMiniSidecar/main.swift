@@ -404,7 +404,7 @@ private final class SidecarRecordingSession {
         try writeSessionMetadata(to: dir)
 
         if options.includeSystemAudio {
-            let writer = SegmentedAudioWriter(
+            let writer = CaptureSegmentedAudioWriter(
                 finalURL: dir.appendingPathComponent("system.caf"),
                 processingQueue: systemQueue
             )
@@ -421,7 +421,7 @@ private final class SidecarRecordingSession {
         }
 
         if options.includeMicrophone {
-            let writer = SegmentedAudioWriter(
+            let writer = CaptureSegmentedAudioWriter(
                 finalURL: dir.appendingPathComponent("mic.caf"),
                 processingQueue: microphoneQueue
             )
@@ -467,7 +467,7 @@ private final class SidecarRecordingSession {
         }
 
         let audioURL = sessionDir.appendingPathComponent("recording.m4a")
-        try await AudioMixer.mix(sources: sources, to: audioURL)
+        try await CaptureAudioMixer.mix(sources: sources, to: audioURL)
         try? writeCaptureDiagnostics(sources: sources, output: audioURL, to: sessionDir)
         state = .completed
         return StoppedRecording(
@@ -518,23 +518,7 @@ private final class SidecarRecordingSession {
     }
 
     private func writeCaptureDiagnostics(sources: [URL], output: URL, to dir: URL) throws {
-        let payload: [String: Any] = [
-            "createdAt": ISO8601DateFormatter().string(from: Date()),
-            "sources": sources.map(Self.fileInfo),
-            "output": Self.fileInfo(output),
-        ]
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: dir.appendingPathComponent("audio-capture.json"))
-    }
-
-    private static func fileInfo(_ url: URL) -> [String: Any] {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-        return [
-            "fileName": url.lastPathComponent,
-            "path": url.path,
-            "exists": FileManager.default.fileExists(atPath: url.path),
-            "byteCount": attrs?[.size] as? Int64 as Any,
-        ].compactJSON()
+        try CaptureAudioDiagnostics.write(sources: sources, output: output, to: dir)
     }
 
     private static func createSessionDirectory() throws -> URL {
@@ -659,18 +643,68 @@ private struct SidecarFailure: Error {
         if let failure = error as? SidecarFailure {
             return failure
         }
+        if let error = error as? CaptureAudioError {
+            return captureAudio(error)
+        }
         return SidecarFailure(
             code: -32050,
             message: error.localizedDescription,
             data: ["cliCode": "record.capture_failed"]
         )
     }
+
+    private static func captureAudio(_ error: CaptureAudioError) -> SidecarFailure {
+        switch error {
+        case .noCapturedAudio:
+            return SidecarFailure(
+                code: -32033,
+                message: "No audio was captured. Check macOS permissions and make sure audio is playing before trying again.",
+                data: ["cliCode": "record.capture_failed"]
+            )
+        case .finishAlreadyRequested:
+            return SidecarFailure(
+                code: -32062,
+                message: "Audio finishing is already in progress.",
+                data: ["cliCode": "record.capture_failed"]
+            )
+        case .failedToCreateAudioInput:
+            return SidecarFailure(
+                code: -32063,
+                message: "Couldn't create the audio writer input.",
+                data: ["cliCode": "record.capture_failed"]
+            )
+        case .failedToStartWriter:
+            return SidecarFailure(
+                code: -32064,
+                message: "Couldn't start the audio writer.",
+                data: ["cliCode": "record.capture_failed"]
+            )
+        case .failedToFinalizeSegment:
+            return SidecarFailure(
+                code: -32065,
+                message: "Couldn't finalize a captured audio segment.",
+                data: ["cliCode": "record.capture_failed"]
+            )
+        case .exportFailed, .sourceUnreadable:
+            return SidecarFailure(
+                code: -32066,
+                message: "Failed to merge audio sources.",
+                data: ["cliCode": "record.capture_failed"]
+            )
+        case .invalidAudioFormat, .failedToAppendAudio:
+            return SidecarFailure(
+                code: -32061,
+                message: "Couldn't append captured audio.",
+                data: ["cliCode": "record.capture_failed"]
+            )
+        }
+    }
 }
 
 private final class SampleBufferAudioOutput: @unchecked Sendable {
-    private let writer: SegmentedAudioWriter
+    private let writer: CaptureSegmentedAudioWriter
 
-    init(writer: SegmentedAudioWriter) {
+    init(writer: CaptureSegmentedAudioWriter) {
         self.writer = writer
     }
 
@@ -685,12 +719,12 @@ private final class SampleBufferAudioOutput: @unchecked Sendable {
 }
 
 private final class MicrophoneCapture: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
-    private let writer: SegmentedAudioWriter
+    private let writer: CaptureSegmentedAudioWriter
     private let queue: DispatchQueue
     private let deviceId: String?
     private var session: AVCaptureSession?
 
-    init(writer: SegmentedAudioWriter, queue: DispatchQueue, deviceId: String?) {
+    init(writer: CaptureSegmentedAudioWriter, queue: DispatchQueue, deviceId: String?) {
         self.writer = writer
         self.queue = queue
         self.deviceId = deviceId
@@ -1308,465 +1342,6 @@ private final class CoreAudioTapSampleBufferFactory {
             throw CoreAudioStatusError(operation: "CMSampleBufferCreateReady", status: status)
         }
         return sampleBuffer
-    }
-}
-
-private struct CaptureStreamFormat: Equatable {
-    let sampleRate: Int
-    let channelCount: Int
-
-    init(sampleRate: Int, channelCount: Int) {
-        self.sampleRate = max(sampleRate, 1)
-        self.channelCount = min(max(channelCount, 1), 2)
-    }
-
-    init(sampleBuffer: CMSampleBuffer) throws {
-        guard let formatDescription = sampleBuffer.formatDescription,
-              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription)
-        else {
-            throw SidecarFailure(code: -32060, message: "Audio format information is unavailable.")
-        }
-
-        self.init(
-            sampleRate: Int(asbd.pointee.mSampleRate.rounded()),
-            channelCount: Int(asbd.pointee.mChannelsPerFrame)
-        )
-    }
-
-    var recommendedBitRate: Int {
-        min(max(channelCount, 1) * 64_000, 256_000)
-    }
-}
-
-private final class UncheckedAssetWriterRef: @unchecked Sendable {
-    let writer: AVAssetWriter
-
-    init(_ writer: AVAssetWriter) {
-        self.writer = writer
-    }
-}
-
-private final class SegmentedAudioWriter: @unchecked Sendable {
-    private let finalURL: URL
-    private let processingQueue: DispatchQueue
-    private var activeWriter: AVAssetWriter?
-    private var activeInput: AVAssetWriterInput?
-    private var activeFormat: CaptureStreamFormat?
-    private var activeSessionStarted = false
-    private var segmentURLs: [URL] = []
-    private var segmentIndex = 0
-    private var pendingFinalizationCount = 0
-    private var pendingError: Error?
-    private var finishContinuation: CheckedContinuation<URL?, Error>?
-
-    init(finalURL: URL, processingQueue: DispatchQueue) {
-        self.finalURL = finalURL
-        self.processingQueue = processingQueue
-    }
-
-    func append(_ sampleBuffer: CMSampleBuffer) {
-        guard finishContinuation == nil else { return }
-
-        do {
-            let streamFormat = try CaptureStreamFormat(sampleBuffer: sampleBuffer)
-
-            if activeFormat != streamFormat || activeWriter == nil || activeInput == nil {
-                finishActiveSegment()
-                try startSegment(for: sampleBuffer, format: streamFormat)
-            }
-
-            guard let writer = activeWriter, let input = activeInput else { return }
-
-            if !activeSessionStarted {
-                writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-                activeSessionStarted = true
-            }
-
-            guard writer.status == .writing else {
-                if writer.status == .failed || writer.status == .cancelled {
-                    pendingError = pendingError ?? writer.error ?? SidecarFailure(code: -32061, message: "Couldn't append captured audio.")
-                }
-                return
-            }
-
-            guard input.isReadyForMoreMediaData else { return }
-
-            if !input.append(sampleBuffer) {
-                pendingError = pendingError ?? writer.error ?? SidecarFailure(code: -32061, message: "Couldn't append captured audio.")
-            }
-        } catch {
-            pendingError = pendingError ?? error
-        }
-    }
-
-    func finishWriting() async throws -> URL? {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL?, Error>) in
-            processingQueue.async {
-                guard self.finishContinuation == nil else {
-                    continuation.resume(throwing: SidecarFailure(code: -32062, message: "Audio finishing is already in progress."))
-                    return
-                }
-
-                self.finishContinuation = continuation
-                self.finishActiveSegment()
-                self.completeFinishIfPossible()
-            }
-        }
-    }
-
-    private func startSegment(for sampleBuffer: CMSampleBuffer, format: CaptureStreamFormat) throws {
-        let segmentURL = makeSegmentURL(index: segmentIndex)
-        segmentIndex += 1
-
-        let fileType = Self.fileType(for: segmentURL)
-        let settings = Self.outputSettings(for: format, fileType: fileType)
-        let writer = try AVAssetWriter(url: segmentURL, fileType: fileType)
-        let input = AVAssetWriterInput(
-            mediaType: .audio,
-            outputSettings: settings,
-            sourceFormatHint: sampleBuffer.formatDescription
-        )
-        input.expectsMediaDataInRealTime = true
-
-        guard writer.canAdd(input) else {
-            throw SidecarFailure(code: -32063, message: "Couldn't create the audio writer input.")
-        }
-
-        writer.add(input)
-        guard writer.startWriting() else {
-            throw writer.error ?? SidecarFailure(code: -32064, message: "Couldn't start the audio writer.")
-        }
-
-        activeWriter = writer
-        activeInput = input
-        activeFormat = format
-        activeSessionStarted = false
-        segmentURLs.append(segmentURL)
-    }
-
-    private func finishActiveSegment() {
-        guard let writer = activeWriter, let input = activeInput else { return }
-
-        activeWriter = nil
-        activeInput = nil
-        activeFormat = nil
-        activeSessionStarted = false
-
-        input.markAsFinished()
-        pendingFinalizationCount += 1
-
-        let writerRef = UncheckedAssetWriterRef(writer)
-        writer.finishWriting { [weak self, writerRef] in
-            guard let self else { return }
-            let status = writerRef.writer.status
-            let error = writerRef.writer.error
-
-            self.processingQueue.async {
-                if status == .failed || status == .cancelled {
-                    self.pendingError = self.pendingError ?? error ?? SidecarFailure(code: -32065, message: "Couldn't finalize a captured audio segment.")
-                }
-                self.pendingFinalizationCount -= 1
-                self.completeFinishIfPossible()
-            }
-        }
-    }
-
-    private func completeFinishIfPossible() {
-        guard pendingFinalizationCount == 0 else { return }
-        guard let continuation = finishContinuation else { return }
-
-        finishContinuation = nil
-
-        if let error = pendingError {
-            continuation.resume(throwing: error)
-            return
-        }
-
-        Task {
-            do {
-                let finalizedURL = try await finalizeSegments()
-                continuation.resume(returning: finalizedURL)
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-    }
-
-    private func finalizeSegments() async throws -> URL? {
-        guard !segmentURLs.isEmpty else { return nil }
-
-        let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: finalURL.path) {
-            try fileManager.removeItem(at: finalURL)
-        }
-
-        if segmentURLs.count == 1 {
-            try fileManager.moveItem(at: segmentURLs[0], to: finalURL)
-            return finalURL
-        }
-
-        let outputFileType = Self.fileType(for: finalURL)
-        if outputFileType == .caf {
-            try Self.concatenateCAFSegments(segmentURLs, to: finalURL)
-            for segmentURL in segmentURLs {
-                try? fileManager.removeItem(at: segmentURL)
-            }
-            return finalURL
-        }
-
-        let composition = AVMutableComposition()
-        guard let track = composition.addMutableTrack(
-            withMediaType: .audio,
-            preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
-            throw SidecarFailure(code: -32066, message: "Failed to merge audio segments.")
-        }
-
-        var cursor = CMTime.zero
-        for segmentURL in segmentURLs {
-            let asset = AVURLAsset(url: segmentURL)
-            let sourceTracks = try await asset.loadTracks(withMediaType: .audio)
-            guard let sourceTrack = sourceTracks.first else {
-                throw SidecarFailure(code: -32066, message: "Failed to merge audio segments.")
-            }
-
-            let duration = try await asset.load(.duration)
-            let range = CMTimeRange(start: .zero, duration: duration)
-            try track.insertTimeRange(range, of: sourceTrack, at: cursor)
-            cursor = CMTimeAdd(cursor, duration)
-        }
-
-        guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
-            throw SidecarFailure(code: -32066, message: "Failed to merge audio segments.")
-        }
-
-        try await exporter.export(to: finalURL, as: outputFileType)
-
-        for segmentURL in segmentURLs {
-            try? fileManager.removeItem(at: segmentURL)
-        }
-
-        return finalURL
-    }
-
-    private func makeSegmentURL(index: Int) -> URL {
-        let baseName = finalURL.deletingPathExtension().lastPathComponent
-        let ext = finalURL.pathExtension.isEmpty ? "m4a" : finalURL.pathExtension
-        let segmentName = "\(baseName)-segment-\(String(format: "%03d", index)).\(ext)"
-        return finalURL.deletingLastPathComponent().appendingPathComponent(segmentName)
-    }
-
-    private static func fileType(for url: URL) -> AVFileType {
-        url.pathExtension.lowercased() == "caf" ? .caf : .m4a
-    }
-
-    private static func outputSettings(for format: CaptureStreamFormat, fileType: AVFileType) -> [String: Any] {
-        if fileType == .caf {
-            return [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: format.sampleRate,
-                AVNumberOfChannelsKey: format.channelCount,
-                AVLinearPCMBitDepthKey: 32,
-                AVLinearPCMIsFloatKey: true,
-                AVLinearPCMIsNonInterleaved: false,
-            ]
-        }
-
-        return [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: format.sampleRate,
-            AVNumberOfChannelsKey: format.channelCount,
-            AVEncoderBitRateKey: format.recommendedBitRate,
-        ]
-    }
-
-    private static func concatenateCAFSegments(_ segmentURLs: [URL], to finalURL: URL) throws {
-        guard let firstURL = segmentURLs.first else { return }
-        let firstFile = try AVAudioFile(forReading: firstURL)
-        guard let fileFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: firstFile.fileFormat.sampleRate,
-            channels: firstFile.fileFormat.channelCount,
-            interleaved: true
-        ),
-            let targetFormat = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: firstFile.fileFormat.sampleRate,
-                channels: firstFile.fileFormat.channelCount,
-                interleaved: false
-            )
-        else {
-            throw SidecarFailure(code: -32066, message: "Failed to merge audio segments.")
-        }
-        let output = try AVAudioFile(
-            forWriting: finalURL,
-            settings: fileFormat.settings,
-            commonFormat: targetFormat.commonFormat,
-            interleaved: targetFormat.isInterleaved
-        )
-        for segmentURL in segmentURLs {
-            try appendAudioFile(at: segmentURL, to: output, targetFormat: targetFormat)
-        }
-    }
-
-    private static func appendAudioFile(at url: URL, to output: AVAudioFile, targetFormat: AVAudioFormat) throws {
-        let input = try AVAudioFile(forReading: url)
-        let sourceFormat = input.processingFormat
-        let chunkSize: AVAudioFrameCount = 4_096
-
-        while input.framePosition < input.length {
-            let remaining = input.length - input.framePosition
-            let frameCount = AVAudioFrameCount(min(Int64(chunkSize), remaining))
-            guard let sourceBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: frameCount) else {
-                throw SidecarFailure(code: -32066, message: "Failed to merge audio segments.")
-            }
-            try input.read(into: sourceBuffer, frameCount: frameCount)
-            guard sourceBuffer.frameLength > 0 else { continue }
-
-            if sourceFormat.recappiMatches(targetFormat) {
-                try output.write(from: sourceBuffer)
-                continue
-            }
-
-            guard let converter = AVAudioConverter(from: sourceFormat, to: targetFormat) else {
-                throw SidecarFailure(code: -32066, message: "Failed to merge audio segments.")
-            }
-            let convertedCapacity = AVAudioFrameCount(
-                ceil(Double(sourceBuffer.frameLength) * targetFormat.sampleRate / sourceFormat.sampleRate) + 32
-            )
-            guard let converted = AVAudioPCMBuffer(
-                pcmFormat: targetFormat,
-                frameCapacity: max(convertedCapacity, 1)
-            ) else {
-                throw SidecarFailure(code: -32066, message: "Failed to merge audio segments.")
-            }
-
-            let inputState = AudioFileConverterInputState(source: sourceBuffer)
-            var conversionError: NSError?
-            let status = converter.convert(to: converted, error: &conversionError) { _, inputStatus in
-                inputState.next(status: inputStatus)
-            }
-            guard conversionError == nil, status != .error else {
-                throw SidecarFailure(code: -32066, message: "Failed to merge audio segments.")
-            }
-            if converted.frameLength > 0 {
-                try output.write(from: converted)
-            }
-        }
-    }
-}
-
-private final class AudioFileConverterInputState: @unchecked Sendable {
-    private let source: AVAudioPCMBuffer
-    private let lock = NSLock()
-    private var didProvideInput = false
-
-    init(source: AVAudioPCMBuffer) {
-        self.source = source
-    }
-
-    func next(status: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard !didProvideInput else {
-            status.pointee = .noDataNow
-            return nil
-        }
-        didProvideInput = true
-        status.pointee = .haveData
-        return source
-    }
-}
-
-private extension AVAudioFormat {
-    func recappiMatches(_ other: AVAudioFormat) -> Bool {
-        commonFormat == other.commonFormat
-            && abs(sampleRate - other.sampleRate) < 0.1
-            && channelCount == other.channelCount
-            && isInterleaved == other.isInterleaved
-    }
-}
-
-private enum AudioMixer {
-    private static func outputSettings() -> [String: Any] {
-        [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 48_000,
-            AVNumberOfChannelsKey: 2,
-            AVEncoderBitRateKey: 128_000,
-        ]
-    }
-
-    static func mix(sources: [URL], to destination: URL) async throws {
-        let readable = try sources.map { try AVAudioFile(forReading: $0) }
-        guard !readable.isEmpty else {
-            throw SidecarFailure(code: -32033, message: "No audio was captured.")
-        }
-
-        try await Task.detached(priority: .userInitiated) {
-            try runOfflineRender(files: readable, destination: destination)
-        }.value
-    }
-
-    private static func runOfflineRender(files: [AVAudioFile], destination: URL) throws {
-        let engine = AVAudioEngine()
-        let mainMixer = engine.mainMixerNode
-        mainMixer.outputVolume = files.count > 1 ? 0.5 : 1.0
-
-        guard let renderFormat = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2) else {
-            throw SidecarFailure(code: -32066, message: "Failed to merge audio sources.")
-        }
-
-        try engine.enableManualRenderingMode(.offline, format: renderFormat, maximumFrameCount: 4_096)
-
-        var players: [(AVAudioPlayerNode, AVAudioFile)] = []
-        for file in files {
-            let player = AVAudioPlayerNode()
-            engine.attach(player)
-            engine.connect(player, to: mainMixer, format: file.processingFormat)
-            players.append((player, file))
-        }
-
-        let outputFile = try AVAudioFile(forWriting: destination, settings: outputSettings())
-
-        try engine.start()
-        for (player, file) in players {
-            player.scheduleFile(file, at: nil)
-            player.play()
-        }
-
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: renderFormat, frameCapacity: 4_096) else {
-            throw SidecarFailure(code: -32066, message: "Failed to merge audio sources.")
-        }
-
-        let maxFrames = players
-            .map { _, file in
-                AVAudioFramePosition(Double(file.length) * renderFormat.sampleRate / file.processingFormat.sampleRate)
-            }
-            .max() ?? 0
-
-        renderLoop: while engine.manualRenderingSampleTime < maxFrames {
-            let remaining = maxFrames - engine.manualRenderingSampleTime
-            let toRender = min(AVAudioFrameCount(remaining), buffer.frameCapacity)
-
-            let status = try engine.renderOffline(toRender, to: buffer)
-            switch status {
-            case .success, .insufficientDataFromInputNode:
-                if buffer.frameLength > 0 {
-                    try outputFile.write(from: buffer)
-                } else if status == .insufficientDataFromInputNode {
-                    break renderLoop
-                }
-            case .cannotDoInCurrentContext, .error:
-                throw SidecarFailure(code: -32066, message: "Failed to merge audio sources.")
-            @unknown default:
-                throw SidecarFailure(code: -32066, message: "Failed to merge audio sources.")
-            }
-        }
-
-        for (player, _) in players { player.stop() }
-        engine.stop()
     }
 }
 

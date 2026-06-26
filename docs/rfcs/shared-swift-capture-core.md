@@ -243,6 +243,7 @@ CLI/TUI TypeScript:
 - [ ] sidecar link `RecappiCaptureCore`。
 - [x] helper package 从 raw executable 切到 signed/notarized `.app`，并设置 Recappi-recognizable bundle display name + icon。
 - [x] CLI helper launcher/resolver 支持 LaunchServices-based helper `.app` execution；stdio JSON-RPC 通过 LaunchServices `--stdin` / `--stdout` FIFO pipes 保持可交互。
+- [x] sidecar stop path 使用 shared `CaptureSegmentedAudioWriter` / `CaptureAudioMixer` / `CaptureAudioDiagnostics`，删除 sidecar 内重复 writer/mixer/diagnostics 实现。
 - [ ] JSON-RPC methods 调 core；删除 sidecar duplicate capture code。
 - [ ] `audio.level` 从 core `levels` 转发到 IPC。
 - [ ] 更新 `cli/recappi/docs/sidecar-ipc.md`，声明 native capture owned by shared core。
@@ -260,7 +261,8 @@ CLI/TUI TypeScript:
 ### Phase 5: Cleanup Guardrails
 
 - [ ] 删除 sidecar 老 CoreAudio include-mode app tap 分支，除非 fallback 被明确批准。
-- [ ] 删除 app/sidecar 重复 writer/mixer/mic/listing 代码。
+- [x] 删除 sidecar 重复 writer/mixer/diagnostics 代码。
+- [ ] 删除 app/sidecar 重复 capture/mic/listing adapter 代码。
 - [ ] 加测试或 grep guardrail，防止 sidecar 新增第二套 capture implementation。
 - [ ] 更新 release checklist，把 app-source real audio + `audio.level` 加入 CLI smoke。
 
