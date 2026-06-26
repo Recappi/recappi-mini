@@ -461,7 +461,7 @@ function resolveSidecarCommand(
   });
 }
 
-function ensureBundledHelperExecutable(
+export function ensureBundledHelperExecutable(
   path: string,
   opts: Pick<RecordCommandOptions, "env" | "homeDir"> = {},
 ): string {

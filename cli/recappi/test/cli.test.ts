@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,7 +9,11 @@ import type {
 } from "../../packages/contracts/src/index";
 import { runCli, type CliDeps } from "../src/cli";
 import { cliError } from "../src/errors";
-import { bundledSidecarCommand, type RecordRuntimeDeps } from "../src/record";
+import {
+  bundledSidecarCommand,
+  ensureBundledHelperExecutable,
+  type RecordRuntimeDeps,
+} from "../src/record";
 import { openCliStore, requireAccountPartition } from "../src/store";
 import { CLI_VERSION } from "../src/version";
 
@@ -717,15 +721,22 @@ describe("recappi CLI contract", () => {
     "copies the bundled helper to a stable per-user app before launch",
     async () => {
       const homeDir = await mkdtemp(path.join(tmpdir(), "recappi-cli-home-"));
-      const fake = fakeRecordRuntime();
       try {
-        const result = await run(["record", "--json"], {
-          homeDir,
-          fetchImpl: sessionFetch(),
-          recordRuntime: fake.runtime,
-        });
-        const spawn = fake.calls.find((call) => call.method === "spawn");
-        const command = (spawn?.params as { command?: string } | undefined)?.command;
+        const sourceApp = path.join(homeDir, "source", "Recappi Recorder.app");
+        const sourceExecutable = path.join(
+          sourceApp,
+          "Contents",
+          "MacOS",
+          "RecappiMiniSidecar",
+        );
+        await mkdir(path.dirname(sourceExecutable), { recursive: true });
+        await writeFile(sourceExecutable, "fake helper");
+        await chmod(sourceExecutable, 0o755);
+        await writeFile(
+          path.join(sourceApp, "Contents", "Info.plist"),
+          "<plist><dict><key>CFBundleName</key><string>Recappi Recorder</string></dict></plist>",
+        );
+
         const expected = path.join(
           homeDir,
           "Library",
@@ -735,8 +746,8 @@ describe("recappi CLI contract", () => {
           `darwin-${process.arch}`,
           "Recappi Recorder.app",
         );
+        const command = ensureBundledHelperExecutable(sourceApp, { homeDir });
 
-        expect(result.exitCode).toBe(0);
         expect(command).toBe(expected);
         await expect(readFile(path.join(expected, "Contents", "Info.plist"), "utf8")).resolves.toContain(
           "Recappi Recorder",
