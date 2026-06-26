@@ -624,9 +624,6 @@ private enum PermissionPreflight {
         if options.includeMicrophone {
             try await requireMicrophone()
         }
-        if options.includeSystemAudio {
-            try requireScreenCapture()
-        }
     }
 
     private static func requireMicrophone() async throws {
@@ -649,30 +646,6 @@ private enum PermissionPreflight {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.accessory)
         return await AVCaptureDevice.requestAccess(for: .audio)
-    }
-
-    private static func requireScreenCapture() throws {
-        if CGPreflightScreenCaptureAccess() {
-            return
-        }
-        let requested = CGRequestScreenCaptureAccess()
-        guard CGPreflightScreenCaptureAccess() else {
-            var data: [String: String] = [
-                "cliCode": "record.permission_required",
-                "permission": "screen_recording",
-                "recovery": requested
-                    ? "Screen Recording enabled. Run recappi record again to start."
-                    : "Open System Settings > Privacy & Security > Screen Recording, turn on Recappi Recorder, then run recappi record again.",
-            ]
-            if requested {
-                data["requiresProcessRestart"] = "true"
-            }
-            throw SidecarFailure(
-                code: -32020,
-                message: "Screen & System Audio Recording access is required before the CLI can record system audio.",
-                data: data
-            )
-        }
     }
 
     private static func microphoneDenied() -> SidecarFailure {

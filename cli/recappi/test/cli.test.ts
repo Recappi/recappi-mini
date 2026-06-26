@@ -559,6 +559,30 @@ describe("recappi CLI contract", () => {
     ]);
   });
 
+  it("continues when screen recording preflight is unknown so capture startup can verify", async () => {
+    const fake = fakeRecordRuntime({
+      permissions: [
+        { name: "screen_recording", status: "unknown" },
+        { name: "microphone", status: "granted" },
+      ],
+    });
+    const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
+      fetchImpl: sessionFetch(),
+      recordRuntime: fake.runtime,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(fake.calls.map((call) => call.method)).toEqual([
+      "spawn",
+      "handshake",
+      "permissions",
+      "start",
+      "waitForStop",
+      "stop",
+      "kill",
+    ]);
+  });
+
   it("restarts the helper once after macOS grants microphone access", async () => {
     const fake = fakeRecordRuntime({
       permissions: [

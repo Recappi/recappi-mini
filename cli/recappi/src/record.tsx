@@ -395,6 +395,9 @@ function assertRecordingPermissions(permissions: SidecarPermissionItem[]): void 
     // Let recording.start reach AVCaptureDevice.requestAccess instead of
     // dead-ending the user in System Settings with no prompt/row to approve.
     if (permission.name === "microphone" && permission.status === "unknown") return false;
+    // ScreenCaptureKit can be more authoritative than CGPreflightScreenCaptureAccess
+    // for this helper; let capture startup verify screen/system-audio access.
+    if (permission.name === "screen_recording" && permission.status === "unknown") return false;
     return true;
   });
   if (!blocked) return;
