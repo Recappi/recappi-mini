@@ -74,6 +74,7 @@ export interface RecordCommandOptions {
   sidecarArgs?: string[];
   renderLive?: boolean;
   renderHero?: boolean;
+  requireLiveCaptions?: boolean;
   runtime?: RecordRuntimeDeps;
 }
 
@@ -141,7 +142,7 @@ export async function recordViaSidecar(opts: RecordCommandOptions): Promise<Reco
         sourceLabel:
           opts.includeSystemAudio === false ? "Microphone" : "System audio · all apps",
         micEnabled: opts.includeMicrophone !== false,
-        captionStreamEnabled: opts.live === true,
+        captionStreamEnabled: session.captionStreamEnabled,
         renderApp: opts.runtime?.renderApp,
         now: opts.runtime?.now,
       });
@@ -188,7 +189,7 @@ export async function startLiveRecordSession(
   });
   return {
     mode: "local",
-    captionStreamEnabled: true,
+    captionStreamEnabled: session.captionStreamEnabled,
     source: session.source,
     stop: session.stop,
   };
@@ -222,6 +223,7 @@ export async function listRecordInputs(opts: RecordInputOptions): Promise<Record
 }
 
 interface ActiveRecordSession {
+  captionStreamEnabled: boolean;
   source: LiveCaptionEventSource;
   stop: () => Promise<RecordCommandData>;
   cancel: () => Promise<void>;
@@ -298,6 +300,8 @@ async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<Activ
           : ["recording.capture", "recording.upload"],
       }),
     );
+    const captionStreamEnabled =
+      opts.live === true && handshake.capabilities.includes("live_captions.stream");
     assertSidecarCapabilities(handshake, opts);
 
     const recordingOptions = {
@@ -305,7 +309,7 @@ async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<Activ
       includeMicrophone: opts.includeMicrophone ?? true,
       ...(opts.targetBundleId ? { targetBundleId: opts.targetBundleId } : {}),
       ...(opts.microphoneDeviceId ? { microphoneDeviceId: opts.microphoneDeviceId } : {}),
-      liveCaptions: opts.live === true,
+      liveCaptions: captionStreamEnabled,
       ...(opts.translationLanguage ? { translationLanguage: opts.translationLanguage } : {}),
       ...(opts.transcriptionLanguage ? { transcriptionLanguage: opts.transcriptionLanguage } : {}),
       ...(opts.title ? { title: opts.title } : {}),
@@ -322,6 +326,7 @@ async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<Activ
     localSessionRef = started.localSessionRef;
 
     return {
+      captionStreamEnabled,
       source: sidecar.client,
       stop: () => {
         stopPromise ??= (async () => {
@@ -337,7 +342,7 @@ async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<Activ
             return recordCommandDataSchema.parse({
               origin: account.backendOrigin,
               userId: account.userId,
-              live: opts.live === true,
+              live: captionStreamEnabled,
               sessionId: stopped.sessionId,
               state: stopped.state,
               ...(recordingId ? { recordingId } : {}),
@@ -452,12 +457,12 @@ function assertRecordingPermissions(permissions: SidecarPermissionItem[]): void 
 
 function assertSidecarCapabilities(
   handshake: SidecarHandshakeResult,
-  opts: Pick<RecordCommandOptions, "live">,
+  opts: Pick<RecordCommandOptions, "requireLiveCaptions">,
 ): void {
   const capabilities = new Set<SidecarCapability>(handshake.capabilities);
   const missing: SidecarCapability[] = [];
   if (!capabilities.has("recording.capture")) missing.push("recording.capture");
-  if (opts.live && !capabilities.has("live_captions.stream")) {
+  if (opts.requireLiveCaptions && !capabilities.has("live_captions.stream")) {
     missing.push("live_captions.stream");
   }
   if (missing.length === 0) return;

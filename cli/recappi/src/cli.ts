@@ -284,6 +284,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         sidecarCommand: parsed.sidecarCommand,
         renderLive: parsed.live === true && mode === "human" && isTTY,
         renderHero: parsed.live !== true && mode === "human" && isTTY,
+        requireLiveCaptions: parsed.live === true,
         runtime: deps.recordRuntime,
       });
       renderSuccess("record", data, render);

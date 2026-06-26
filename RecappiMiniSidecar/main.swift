@@ -7,7 +7,10 @@ import RecappiCaptureCore
 
 private let protocolVersion = 1
 private let sidecarName = "recappi-mini-sidecar"
-private let sidecarVersion = ProcessInfo.processInfo.environment["RECAPPI_SIDECAR_VERSION"] ?? "0.1.0"
+private let sidecarVersion =
+    ProcessInfo.processInfo.environment["RECAPPI_SIDECAR_VERSION"]
+    ?? Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    ?? "0.1.0"
 
 @main
 struct RecappiMiniSidecarMain {

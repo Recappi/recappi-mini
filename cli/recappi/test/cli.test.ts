@@ -717,6 +717,45 @@ describe("recappi CLI contract", () => {
     });
   });
 
+  it("keeps default TTY record usable when the helper lacks live captions", async () => {
+    const fake = fakeRecordRuntime({ capabilities: ["recording.capture", "recording.upload"] });
+    const result = await run(["record", "--sidecar-command", "fake-sidecar"], {
+      isTTY: true,
+      fetchImpl: sessionFetch(),
+      recordRuntime: fake.runtime,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const methods = fake.calls.map((call) => call.method);
+    expect(methods).toContain("createHeroRenderer");
+    expect(methods).toContain("heroWait");
+    expect(methods).not.toContain("createLiveRenderer");
+    expect(fake.calls.find((call) => call.method === "start")?.params).toMatchObject({
+      options: { liveCaptions: false },
+    });
+    expect(result.stdout).toContain("Recording complete");
+  });
+
+  it("still rejects explicit record --live when the helper lacks live captions", async () => {
+    const fake = fakeRecordRuntime({ capabilities: ["recording.capture", "recording.upload"] });
+    const result = await run(["record", "--live", "--json", "--sidecar-command", "fake-sidecar"], {
+      fetchImpl: sessionFetch(),
+      recordRuntime: fake.runtime,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(fake.calls.map((call) => call.method)).toEqual(["spawn", "handshake", "kill"]);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      command: "record",
+      error: {
+        code: "record.capture_unavailable",
+        message: "Recappi recording helper does not support capture.",
+      },
+    });
+    expect(JSON.parse(result.stdout).error.hint).toContain("live_captions.stream");
+  });
+
   it("reports a platform-neutral helper error when the helper cannot be started", async () => {
     const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
       fetchImpl: sessionFetch(),

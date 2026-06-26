@@ -41,6 +41,9 @@ mkdir -p "$MACOS_DIR"
 cp "$BUILD_DIR/$PRODUCT_NAME" "$DEST"
 cp "$PROJECT_DIR/RecappiMiniSidecar/Info.plist" "$CONTENTS_DIR/Info.plist"
 chmod 755 "$DEST"
+HELPER_VERSION="$(node -e 'const fs = require("fs"); const pkg = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(pkg.version);' "$DEST_DIR/package.json")"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $HELPER_VERSION" "$CONTENTS_DIR/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${HELPER_VERSION%%-*}" "$CONTENTS_DIR/Info.plist"
 
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
     SIGN_ARGS=(--force --sign "$CODESIGN_IDENTITY" --entitlements "$ENTITLEMENTS_PATH")
