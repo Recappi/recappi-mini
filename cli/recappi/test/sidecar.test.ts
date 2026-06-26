@@ -6,9 +6,46 @@ import {
   sidecarRequestSchema,
   type SidecarRequest,
 } from "../../packages/contracts/src/index";
-import { defaultSidecarHandshakeParams, MiniSidecarClient } from "../src/sidecar";
+import {
+  defaultSidecarHandshakeParams,
+  isLaunchServicesAppCommand,
+  launchServicesOpenArgs,
+  MiniSidecarClient,
+} from "../src/sidecar";
 
 describe("Mini sidecar JSON-RPC client", () => {
+  it("detects LaunchServices app helpers and builds stable open args", () => {
+    expect(isLaunchServicesAppCommand("/Applications/RecappiMiniSidecar.app", "darwin")).toBe(true);
+    expect(isLaunchServicesAppCommand("/usr/local/bin/RecappiMiniSidecar", "darwin")).toBe(false);
+    expect(isLaunchServicesAppCommand("C:/RecappiMiniSidecar.app", "win32")).toBe(false);
+
+    expect(
+      launchServicesOpenArgs(
+        "/Applications/RecappiMiniSidecar.app",
+        {
+          stdin: "/tmp/recappi/stdin.fifo",
+          stdout: "/tmp/recappi/stdout.fifo",
+          stderr: "/tmp/recappi/stderr.log",
+        },
+        ["--log-level", "debug"],
+      ),
+    ).toEqual([
+      "-W",
+      "-n",
+      "-g",
+      "--stdin",
+      "/tmp/recappi/stdin.fifo",
+      "--stdout",
+      "/tmp/recappi/stdout.fifo",
+      "--stderr",
+      "/tmp/recappi/stderr.log",
+      "/Applications/RecappiMiniSidecar.app",
+      "--args",
+      "--log-level",
+      "debug",
+    ]);
+  });
+
   it("handshakes with protocol version, capabilities, and account partition", async () => {
     const fake = createFakeSidecar(async (request, write) => {
       expect(request).toMatchObject({
@@ -187,7 +224,12 @@ describe("Mini sidecar JSON-RPC client", () => {
         id: request.id,
         result: {
           permissions: [
-            { name: "screen_recording", status: "unknown", hint: "Open System Settings." },
+            {
+              name: "screen_recording",
+              status: "unknown",
+              hint: "Open System Settings.",
+              requiresProcessRestart: true,
+            },
             { name: "microphone", status: "granted" },
           ],
         },
@@ -201,7 +243,12 @@ describe("Mini sidecar JSON-RPC client", () => {
         }),
       ).resolves.toMatchObject({
         permissions: [
-          { name: "screen_recording", status: "unknown", hint: "Open System Settings." },
+          {
+            name: "screen_recording",
+            status: "unknown",
+            hint: "Open System Settings.",
+            requiresProcessRestart: true,
+          },
           { name: "microphone", status: "granted" },
         ],
       });

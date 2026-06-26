@@ -29,9 +29,15 @@ swift build "${BUILD_ARGS[@]}"
 BUILD_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 
 DEST_DIR="$PROJECT_DIR/cli/helpers/darwin-$NPM_ARCH"
-DEST="$DEST_DIR/$PRODUCT_NAME"
+APP_BUNDLE="$DEST_DIR/$PRODUCT_NAME.app"
+CONTENTS_DIR="$APP_BUNDLE/Contents"
+MACOS_DIR="$CONTENTS_DIR/MacOS"
+DEST="$MACOS_DIR/$PRODUCT_NAME"
 mkdir -p "$DEST_DIR"
+rm -rf "$APP_BUNDLE"
+mkdir -p "$MACOS_DIR"
 cp "$BUILD_DIR/$PRODUCT_NAME" "$DEST"
+cp "$PROJECT_DIR/RecappiMiniSidecar/Info.plist" "$CONTENTS_DIR/Info.plist"
 chmod 755 "$DEST"
 
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
@@ -42,8 +48,8 @@ if [ -n "${CODESIGN_IDENTITY:-}" ]; then
             SIGN_ARGS+=(--timestamp)
         fi
     fi
-    codesign "${SIGN_ARGS[@]}" "$DEST"
-    codesign --verify --strict --verbose=2 "$DEST"
+    codesign "${SIGN_ARGS[@]}" "$APP_BUNDLE"
+    codesign --verify --strict --verbose=2 "$APP_BUNDLE"
 fi
 
-echo "Built $PRODUCT_NAME helper at $DEST"
+echo "Built $PRODUCT_NAME helper app at $APP_BUNDLE"

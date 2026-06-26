@@ -531,21 +531,21 @@ private final class SidecarRecordingSession {
 }
 
 private enum PermissionPreflight {
-    static func status(options: RecordingOptions) -> [[String: String]] {
-        var permissions: [[String: String]] = []
+    static func status(options: RecordingOptions) -> [[String: Any]] {
+        var permissions: [[String: Any]] = []
         if options.includeSystemAudio {
             let granted = CGPreflightScreenCaptureAccess()
             permissions.append([
                 "name": "screen_recording",
                 "status": granted ? "granted" : "unknown",
-                "hint": "Open System Settings > Privacy & Security > Screen & System Audio Recording, allow Recappi Mini Sidecar or your terminal, then retry recappi record.",
+                "hint": "Open System Settings > Privacy & Security > Screen Recording, turn on Recappi Recorder, then run recappi record again.",
             ])
         }
         if options.includeMicrophone {
             permissions.append([
                 "name": "microphone",
                 "status": microphoneStatus(),
-                "hint": "Open System Settings > Privacy & Security > Microphone, allow Recappi Mini Sidecar or your terminal, then retry recappi record.",
+                "hint": "Open System Settings > Privacy & Security > Microphone, turn on Recappi Recorder, then run recappi record again.",
             ])
         }
         return permissions
@@ -579,16 +579,22 @@ private enum PermissionPreflight {
         if CGPreflightScreenCaptureAccess() {
             return
         }
-        _ = CGRequestScreenCaptureAccess()
+        let requested = CGRequestScreenCaptureAccess()
         guard CGPreflightScreenCaptureAccess() else {
+            var data: [String: String] = [
+                "cliCode": "record.permission_required",
+                "permission": "screen_recording",
+                "recovery": requested
+                    ? "Screen Recording enabled. Run recappi record again to start."
+                    : "Open System Settings > Privacy & Security > Screen Recording, turn on Recappi Recorder, then run recappi record again.",
+            ]
+            if requested {
+                data["requiresProcessRestart"] = "true"
+            }
             throw SidecarFailure(
                 code: -32020,
                 message: "Screen & System Audio Recording access is required before the CLI can record system audio.",
-                data: [
-                    "cliCode": "record.permission_required",
-                    "permission": "screen_recording",
-                    "recovery": "Open System Settings > Privacy & Security > Screen & System Audio Recording, allow Recappi Mini Sidecar or your terminal, then retry recappi record.",
-                ]
+                data: data
             )
         }
     }
@@ -600,7 +606,7 @@ private enum PermissionPreflight {
             data: [
                 "cliCode": "record.permission_required",
                 "permission": "microphone",
-                "recovery": "Open System Settings > Privacy & Security > Microphone, allow Recappi Mini Sidecar or your terminal, then retry recappi record.",
+                "recovery": "Open System Settings > Privacy & Security > Microphone, turn on Recappi Recorder, then run recappi record again.",
             ]
         )
     }

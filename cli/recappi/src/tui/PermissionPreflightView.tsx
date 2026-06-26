@@ -9,13 +9,14 @@ export interface PermissionItem {
   name: string;
   status: PermissionStatus;
   hint?: string;
+  requiresProcessRestart?: boolean;
 }
 
 const DEFAULT_HINTS: Record<string, string> = {
   "Screen Recording":
-    "Open System Settings › Privacy & Security › Screen Recording, enable recappi, then recheck.",
+    "Open System Settings › Privacy & Security › Screen Recording, enable Recappi Recorder, then run recappi record again.",
   Microphone:
-    "Open System Settings › Privacy & Security › Microphone, enable recappi, then recheck.",
+    "Open System Settings › Privacy & Security › Microphone, enable Recappi Recorder, then recheck.",
 };
 
 function statusGlyph(status: PermissionStatus): { glyph: string; color: string; label: string } {
@@ -34,7 +35,9 @@ export function PermissionPreflightView({
 }: {
   items: PermissionItem[];
 }): React.ReactElement {
-  const allGranted = items.length > 0 && items.every((item) => item.status === "granted");
+  const allGranted =
+    items.length > 0 &&
+    items.every((item) => item.status === "granted" && !item.requiresProcessRestart);
   return (
     <Box flexDirection="column" paddingX={1}>
       <Text dimColor>‹ Recording permissions</Text>
@@ -45,8 +48,11 @@ export function PermissionPreflightView({
         ) : (
           items.map((item) => {
             const status = statusGlyph(item.status);
-            const hint =
-              item.status === "granted" ? undefined : item.hint ?? DEFAULT_HINTS[item.name];
+            const hint = item.requiresProcessRestart
+              ? "Screen Recording enabled. Run recappi record again to start."
+              : item.status === "granted"
+                ? undefined
+                : item.hint ?? DEFAULT_HINTS[item.name];
             return (
               <Box key={item.name} flexDirection="column">
                 <Text>

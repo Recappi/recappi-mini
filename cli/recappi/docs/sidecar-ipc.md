@@ -1,6 +1,6 @@
 # Recappi Mini Sidecar IPC v1
 
-Status: task #252 contract for CLI reuse. Transport is newline-delimited JSON-RPC 2.0 over stdio.
+Status: task #252 contract for CLI reuse, updated by task #261 for packaged macOS helper `.app` launch. Transport is newline-delimited JSON-RPC 2.0 over stdio.
 
 ## Ownership
 
@@ -10,11 +10,15 @@ Status: task #252 contract for CLI reuse. Transport is newline-delimited JSON-RP
 
 ## Startup
 
-The CLI resolves a sidecar helper, spawns that process, and immediately sends
+The CLI resolves a sidecar helper, launches it, and immediately sends
 `recappi.handshake`. Development builds can pass `--sidecar-command` or set
-`RECAPPI_MINI_SIDECAR`; packaged builds resolve helpers from
-`helpers/<platform>-<arch>/` in the npm package. The JSON-RPC contract is
-OS-neutral so macOS and Windows helpers can share the same CLI/TUI surface.
+`RECAPPI_MINI_SIDECAR`. Packaged macOS builds resolve a signed helper `.app`
+from `helpers/<platform>-<arch>/` and launch it through LaunchServices so
+Screen Recording permission is attributed to the helper app. The CLI still
+speaks newline-delimited JSON-RPC over stdin/stdout; on macOS `.app` helpers
+that stdio is connected through LaunchServices `--stdin` / `--stdout` pipes.
+The JSON-RPC contract remains OS-neutral so macOS and Windows helpers can share
+the same CLI/TUI surface.
 
 ```json
 {
@@ -92,7 +96,23 @@ recording attempt hits macOS TCC:
 
 The sidecar replies with a `permissions` array. Permission names are
 `screen_recording` and `microphone`; status is `granted`, `denied`, or
-`unknown`.
+`unknown`. Permission items may include `requiresProcessRestart: true`; for
+Screen Recording this means permission was enabled but the current helper
+process cannot use it, so the CLI must ask the user to run `recappi record`
+again.
+
+```json
+{
+  "permissions": [
+    {
+      "name": "screen_recording",
+      "status": "granted",
+      "requiresProcessRestart": true,
+      "hint": "Screen Recording enabled. Run recappi record again to start."
+    }
+  ]
+}
+```
 
 Recording start params include the account partition and recording options:
 
@@ -123,6 +143,10 @@ Events are JSON-RPC notifications with `method: "recappi.event"`:
 - `live_caption.delta`
 - `local_artifact.upserted`
 - `error`
+
+`audio.level` carries one physical input lane only: `input` is `system` or
+`microphone`. The sidecar must not emit `mixed` in IPC; the CLI/TUI combines
+system and microphone levels itself when it needs a single meter.
 
 `live_caption.delta` is provisional stream data. It carries `stream`, `text`, optional `isFinal`, optional `segmentId`/`speaker`, and optional timing fields (`atMs`, `startMs`, `endMs`) so the CLI can map it to connecting/live/error status, partial caption rows, and finalized caption lines. If persisted, the artifact kind is `live_caption_draft`; it must not be treated as the official transcript.
 

@@ -234,6 +234,7 @@ export const sidecarPermissionItemSchema = z.object({
   name: sidecarPermissionNameSchema,
   status: sidecarPermissionStatusSchema,
   hint: z.string().optional(),
+  requiresProcessRestart: z.boolean().optional(),
 });
 export type SidecarPermissionItem = z.infer<typeof sidecarPermissionItemSchema>;
 
@@ -416,10 +417,11 @@ export const sidecarEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("audio.level"),
     sessionId: z.string(),
-    input: z.enum(["system", "microphone", "mixed"]),
+    input: z.enum(["system", "microphone"]),
     rmsDb: z.number().optional(),
     peakDb: z.number().optional(),
     at: z.number().int().optional(),
+    atMs: z.number().int().optional(),
   }),
   z.object({
     type: z.literal("live_caption.delta"),

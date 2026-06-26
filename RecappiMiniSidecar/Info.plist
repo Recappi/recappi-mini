@@ -8,8 +8,10 @@
     <string>RecappiMiniSidecar</string>
     <key>CFBundleIdentifier</key>
     <string>com.recappi.mini.sidecar</string>
+    <key>CFBundleDisplayName</key>
+    <string>Recappi Recorder</string>
     <key>CFBundleName</key>
-    <string>Recappi Mini Sidecar</string>
+    <string>Recappi Recorder</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -18,5 +20,7 @@
     <string>1</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Recappi CLI needs microphone access when you include microphone audio in a recording.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Recappi Recorder needs system audio access when you capture audio from apps or system playback.</string>
 </dict>
 </plist>

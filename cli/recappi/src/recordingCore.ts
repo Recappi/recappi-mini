@@ -45,6 +45,7 @@ export interface RecordingPermission {
   name: "screen_recording" | "microphone";
   status: "granted" | "denied" | "unknown";
   hint?: string;
+  requiresProcessRestart?: boolean;
 }
 
 export interface RecordingPreflight {

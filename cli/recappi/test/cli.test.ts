@@ -605,10 +605,10 @@ describe("recappi CLI contract", () => {
 
   it("resolves bundled helper locations per platform and architecture", () => {
     expect(bundledSidecarCommand("darwin", "arm64")).toMatch(
-      /helpers\/darwin-arm64\/RecappiMiniSidecar$/,
+      /helpers\/darwin-arm64\/RecappiMiniSidecar\.app$/,
     );
     expect(bundledSidecarCommand("darwin", "x64")).toMatch(
-      /helpers\/darwin-x64\/RecappiMiniSidecar$/,
+      /helpers\/darwin-x64\/RecappiMiniSidecar\.app$/,
     );
     expect(bundledSidecarCommand("win32", "x64")).toMatch(
       /helpers\/win32-x64\/RecappiMiniSidecar\.exe$/,

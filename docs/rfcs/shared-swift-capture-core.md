@@ -237,8 +237,8 @@ CLI/TUI TypeScript:
 ### Phase 3: Sidecar Switches to Core
 
 - [ ] sidecar link `RecappiCaptureCore`。
-- [ ] helper package 从 raw executable 切到 signed/notarized `.app`，并设置 Recappi-recognizable bundle display name + icon。
-- [ ] CLI helper launcher/resolver 支持 LaunchServices-based helper `.app` execution；若继续使用 stdio JSON-RPC，需要先设计并验证不会丢失 helper-owned TCC attribution。
+- [x] helper package 从 raw executable 切到 signed/notarized `.app`，并设置 Recappi-recognizable bundle display name + icon。
+- [x] CLI helper launcher/resolver 支持 LaunchServices-based helper `.app` execution；stdio JSON-RPC 通过 LaunchServices `--stdin` / `--stdout` FIFO pipes 保持可交互。
 - [ ] JSON-RPC methods 调 core；删除 sidecar duplicate capture code。
 - [ ] `audio.level` 从 core `levels` 转发到 IPC。
 - [ ] 更新 `cli/recappi/docs/sidecar-ipc.md`，声明 native capture owned by shared core。
@@ -300,7 +300,7 @@ Audio signal check 默认用 `ffmpeg -af volumedetect` 或等价工具记录 mea
 
 - [x] @Mini: 完成 SCK headless helper feasibility spike，并把结果贴回 task #261。
 - [ ] @Mini: 起 `RecappiCaptureCore` target，先抽协议/模型/纯工具和测试。
-- [ ] @Mini: 先定 helper `.app` launcher/transport，保证 JSON-RPC 仍可用且不丢 helper-owned TCC attribution。
-- [ ] @Mini + @recappi样式专家: 定 helper `.app` display name/icon 和 `requiresProcessRestart` preflight copy。
+- [x] @Mini: 先定 helper `.app` launcher/transport，保证 JSON-RPC 仍可用且不丢 helper-owned TCC attribution。
+- [x] @Mini + @recappi样式专家: 定 helper `.app` display name/icon 和 `requiresProcessRestart` preflight copy。
 - [ ] @recappi样式专家: review helper `.app` 用户可见命名、权限文案、TUI event shape。
 - [ ] @peng-xiao: 只有 helper `.app` LaunchServices/package 路径继续被系统限制时，才需要决定是否接受 fallback backend。
