@@ -391,6 +391,8 @@ private struct LocalArtifact {
     let sessionDir: URL
     let audioURL: URL
     let options: RecordingOptions
+    let durationMs: Int64?
+    let diagnostics: [String: String]
 
     var json: [String: Any] {
         var metadata: [String: Any] = [
@@ -404,6 +406,12 @@ private struct LocalArtifact {
         }
         if let microphoneDeviceId = options.microphoneDeviceId {
             metadata["microphoneDeviceId"] = microphoneDeviceId
+        }
+        if let durationMs {
+            metadata["durationMs"] = durationMs
+        }
+        if let sizeBytes = diagnostics["mixed.byteCount"].flatMap(Int64.init) {
+            metadata["sizeBytes"] = sizeBytes
         }
         return [
             "kind": "recording_session",
@@ -498,7 +506,13 @@ private final class SidecarRecordingSession: @unchecked Sendable {
         state = .completed
         self.coreSession = nil
         return StoppedRecording(
-            artifact: LocalArtifact(sessionDir: sessionDir, audioURL: audioURL, options: options)
+            artifact: LocalArtifact(
+                sessionDir: sessionDir,
+                audioURL: audioURL,
+                options: options,
+                durationMs: artifact.durationMs,
+                diagnostics: artifact.diagnostics
+            )
         )
     }
 

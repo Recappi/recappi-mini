@@ -87,23 +87,44 @@ public struct CaptureAudioDiagnostics: Codable, Sendable {
         self.captureHealth = captureHealth
     }
 
+    @discardableResult
     public static func write(
         sources: [URL],
         output: URL?,
         to sessionDir: URL,
         captureHealth: [CaptureAudioHealth] = []
-    ) throws {
+    ) throws -> CaptureAudioDiagnostics {
         let diagnostics = CaptureAudioDiagnostics(
             sources: sources,
             output: output,
             captureHealth: captureHealth
         )
+        try diagnostics.write(to: sessionDir)
+        return diagnostics
+    }
 
+    public func write(to sessionDir: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(diagnostics)
+        let data = try encoder.encode(self)
         try data.write(to: sessionDir.appendingPathComponent("audio-capture.json"))
+    }
+
+    public var artifactDurationMs: Int64? {
+        guard let seconds = output?.durationSeconds else { return nil }
+        return Int64(max(0, seconds * 1_000).rounded())
+    }
+
+    public var artifactDiagnostics: [String: String] {
+        var fields: [String: String] = [
+            "source.count": "\(sources.count)",
+        ]
+        for source in sources {
+            source.appendArtifactDiagnostics(to: &fields)
+        }
+        output?.appendArtifactDiagnostics(to: &fields)
+        return fields
     }
 
     private static func role(for url: URL) -> String {
@@ -112,5 +133,32 @@ public struct CaptureAudioDiagnostics: Codable, Sendable {
         case "mic": "mic"
         default: "source"
         }
+    }
+}
+
+private extension CaptureAudioDiagnostics.FileInfo {
+    func appendArtifactDiagnostics(to fields: inout [String: String]) {
+        let prefix = role
+        fields["\(prefix).fileName"] = fileName
+        fields["\(prefix).exists"] = exists ? "true" : "false"
+        if let byteCount {
+            fields["\(prefix).byteCount"] = "\(byteCount)"
+        }
+        if let sampleRate {
+            fields["\(prefix).sampleRate"] = Self.format(sampleRate)
+        }
+        if let channelCount {
+            fields["\(prefix).channelCount"] = "\(channelCount)"
+        }
+        if let durationSeconds {
+            fields["\(prefix).durationSeconds"] = Self.format(durationSeconds)
+        }
+        if let error {
+            fields["\(prefix).error"] = error
+        }
+    }
+
+    private static func format(_ value: Double) -> String {
+        String(format: "%.3f", value)
     }
 }

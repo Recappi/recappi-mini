@@ -169,6 +169,10 @@ Supported v1 artifact kinds:
 - `download`
 - `live_caption_draft`
 
+`recording_session.metadata` should include `audioPath` when the sidecar has a
+local mixed audio file. Native macOS sidecars also include `durationMs` and
+`sizeBytes` when `RecappiCaptureCore` can derive them from the mixed artifact.
+
 ## Errors
 
 JSON-RPC errors reject the pending CLI request. Sidecar-originated async failures use the `error` event and include a string `code`, human-readable `message`, optional `sessionId`, and optional `retryable`.

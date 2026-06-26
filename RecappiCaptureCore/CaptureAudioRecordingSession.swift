@@ -191,11 +191,11 @@ public final class CaptureAudioRecordingSession: CaptureSession, @unchecked Send
 
             let mixedURL = configuration.sessionDirectoryURL.appendingPathComponent("recording.m4a")
             try await CaptureAudioMixer.mix(sources: sourceURLs, to: mixedURL)
-            try? CaptureAudioDiagnostics.write(
+            let diagnostics = CaptureAudioDiagnostics(
                 sources: sourceURLs,
-                output: mixedURL,
-                to: configuration.sessionDirectoryURL
+                output: mixedURL
             )
+            try? diagnostics.write(to: configuration.sessionDirectoryURL)
 
             transition(to: .completed)
             finishEventStreams()
@@ -204,6 +204,8 @@ public final class CaptureAudioRecordingSession: CaptureSession, @unchecked Send
                 mixedAudioURL: mixedURL,
                 systemAudioURL: systemURL,
                 microphoneAudioURL: microphoneURL,
+                durationMs: diagnostics.artifactDurationMs,
+                diagnostics: diagnostics.artifactDiagnostics,
                 effectiveSelection: configuration.effectiveSelection
             )
         } catch {
