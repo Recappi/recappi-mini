@@ -646,6 +646,27 @@ describe("views render", () => {
     expect(failedFrame).toContain("Network unreachable");
     expect(failedFrame).not.toContain("not nowNetwork");
   });
+  it("RecordingHeroScreen shows honest activity (not a flat meter) before level telemetry arrives", () => {
+    // No `level` field → helper hasn't emitted audio.level yet. Must not draw a
+    // flat waveform that reads as silence (the bug peng saw as "audio is 0").
+    const noLevel = render(
+      <RecordingHeroScreen
+        telemetry={{ status: "recording", startedAtMs: 0, sourceLabel: "System audio", micEnabled: false }}
+        now={() => 0}
+      />,
+    );
+    const nf = noAnsi(noLevel.lastFrame());
+    expect(nf).toContain("REC");
+    expect(nf).toContain("Capturing audio");
+    // Once real level telemetry arrives, the waveform replaces the placeholder.
+    const withLevel = render(
+      <RecordingHeroScreen
+        telemetry={{ status: "recording", startedAtMs: 0, sourceLabel: "System audio", micEnabled: false, level: { system: 0.7 } }}
+        now={() => 0}
+      />,
+    );
+    expect(noAnsi(withLevel.lastFrame())).not.toContain("Capturing audio");
+  });
   it("RecordingScreen shows local recording status, not captions waiting copy", async () => {
     let emit: (e: unknown) => void = () => {};
     const source = {

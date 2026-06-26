@@ -42,9 +42,12 @@ export function RecordingHeroScreen({
   const [tick, setTick] = useState(() => now());
   const [wave, setWave] = useState<number[]>([]);
 
-  // Append the loudest of system/mic to the rolling waveform buffer on each update.
+  // Append the loudest of system/mic to the rolling waveform buffer on each
+  // update — only once real level telemetry has arrived. Appending zeros before
+  // the helper emits audio.level would draw a flat meter that reads as silence.
   useEffect(() => {
-    const lvl = Math.max(telemetry.level?.system ?? 0, telemetry.level?.mic ?? 0);
+    if (telemetry.level == null) return;
+    const lvl = Math.max(telemetry.level.system ?? 0, telemetry.level.mic ?? 0);
     setWave((w) => [...w.slice(-512), lvl]);
   }, [telemetry.level]);
 
@@ -112,7 +115,13 @@ export function RecordingHeroScreen({
         <Text bold color={paused ? "yellow" : "red"}>{badge}</Text>
         <Text bold>{elapsed}</Text>
         <Box marginTop={1}>
-          <Text color={paused ? "gray" : "red"}>{waveform(wave, innerWidth)}</Text>
+          {telemetry.level == null ? (
+            // No level telemetry yet — show honest activity, not a flat meter that
+            // looks like silence (the elapsed timer above proves it's live).
+            <Text dimColor>{paused ? "Paused" : `Capturing audio${".".repeat((Math.floor(tick / 1000) % 3) + 1)}`}</Text>
+          ) : (
+            <Text color={paused ? "gray" : "red"}>{waveform(wave, innerWidth)}</Text>
+          )}
         </Box>
         <Box marginTop={1}>
           <Text dimColor>
