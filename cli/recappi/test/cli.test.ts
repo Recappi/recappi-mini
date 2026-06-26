@@ -160,9 +160,20 @@ describe("recappi CLI contract", () => {
       ]);
       const recordingHandshake = fake.calls.filter((call) => call.method === "handshake")[1];
       expect(recordingHandshake?.params).toMatchObject({
+        account: {
+          backendOrigin: "https://recordmeet.ing",
+          userId: "user_123",
+        },
         capabilities: ["recording.capture", "recording.upload", "live_captions.stream"],
       });
-      expect(fake.calls.find((call) => call.method === "start")?.params).toMatchObject({
+      expect(JSON.stringify(recordingHandshake?.params)).not.toContain("authToken");
+      const startCall = fake.calls.find((call) => call.method === "start");
+      expect(startCall?.params).toMatchObject({
+        account: {
+          backendOrigin: "https://recordmeet.ing",
+          userId: "user_123",
+          authToken: "token",
+        },
         options: { liveCaptions: true },
       });
     } finally {
@@ -491,12 +502,18 @@ describe("recappi CLI contract", () => {
         account: {
           backendOrigin: "https://recordmeet.ing",
           userId: "user_123",
-          email: "agent@example.com",
         },
         capabilities: ["recording.capture", "recording.upload", "live_captions.stream"],
       });
+      expect(JSON.stringify(fake.calls.find((call) => call.method === "handshake")?.params)).not.toContain(
+        "authToken",
+      );
       expect(fake.calls.find((call) => call.method === "start")?.params).toMatchObject({
-        account: { backendOrigin: "https://recordmeet.ing", userId: "user_123" },
+        account: {
+          backendOrigin: "https://recordmeet.ing",
+          userId: "user_123",
+          authToken: "token",
+        },
         options: {
           title: "CLI smoke",
           liveCaptions: true,
@@ -524,6 +541,8 @@ describe("recappi CLI contract", () => {
           ],
         },
       });
+      expect(result.stdout).not.toContain("authToken");
+      expect(result.stdout).not.toContain("token");
 
       const store = openCliStore({ homeDir, readonly: true });
       try {
@@ -713,6 +732,11 @@ describe("recappi CLI contract", () => {
       capabilities: ["recording.capture", "recording.upload", "live_captions.stream"],
     });
     expect(fake.calls.find((call) => call.method === "start")?.params).toMatchObject({
+      account: {
+        backendOrigin: "https://recordmeet.ing",
+        userId: "user_123",
+        authToken: "token",
+      },
       options: { liveCaptions: true },
     });
   });

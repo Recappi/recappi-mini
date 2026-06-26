@@ -93,8 +93,10 @@ describe("Mini sidecar JSON-RPC client", () => {
 
   it("starts and stops recording sessions over line-delimited JSON-RPC", async () => {
     const methods: string[] = [];
+    const requests: SidecarRequest[] = [];
     const fake = createFakeSidecar(async (request, write) => {
       methods.push(request.method);
+      requests.push(request);
       if (request.method === "recappi.recording.start") {
         write({
           jsonrpc: "2.0",
@@ -129,7 +131,11 @@ describe("Mini sidecar JSON-RPC client", () => {
 
     try {
       const started = await fake.client.startRecording({
-        account: { backendOrigin: "https://recordmeet.ing", userId: "user_123" },
+        account: {
+          backendOrigin: "https://recordmeet.ing",
+          userId: "user_123",
+          authToken: "token",
+        },
         options: {
           includeSystemAudio: true,
           includeMicrophone: true,
@@ -143,6 +149,15 @@ describe("Mini sidecar JSON-RPC client", () => {
       const stopped = await fake.client.stopRecording({ sessionId: started.sessionId });
 
       expect(methods).toEqual(["recappi.recording.start", "recappi.recording.stop"]);
+      expect(requests[0]).toMatchObject({
+        params: {
+          account: {
+            backendOrigin: "https://recordmeet.ing",
+            userId: "user_123",
+            authToken: "token",
+          },
+        },
+      });
       expect(started).toMatchObject({ sessionId: "sidecar_session_1", state: "recording" });
       expect(stopped).toMatchObject({
         sessionId: "sidecar_session_1",

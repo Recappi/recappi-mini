@@ -5,6 +5,7 @@ import { cliError, RecappiCliError, toCliError } from "./errors";
 import {
   clearAuthConfig,
   inspectMacOSAppKeychain,
+  requireToken,
   resolveAuthContext,
   saveAuthConfig,
 } from "./auth";
@@ -136,6 +137,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
               account: {
                 backendOrigin: auth.origin,
                 userId: liveStatus.userId,
+                authToken: requireToken(auth),
                 ...(liveStatus.email ? { email: liveStatus.email } : {}),
               },
               cliVersion: CLI_VERSION,
@@ -270,6 +272,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         account: {
           backendOrigin: auth.origin,
           userId: status.userId,
+          authToken: requireToken(auth),
           ...(status.email ? { email: status.email } : {}),
         },
         cliVersion: CLI_VERSION,

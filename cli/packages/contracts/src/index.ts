@@ -169,6 +169,7 @@ export const sidecarAccountSchema = z.object({
   backendOrigin: z.string(),
   userId: z.string(),
   email: z.string().optional(),
+  authToken: z.string().optional(),
 });
 export type SidecarAccount = z.infer<typeof sidecarAccountSchema>;
 

@@ -253,7 +253,7 @@ async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<Activ
   const sidecarArgs = opts.sidecarArgs ?? [];
   const spawnSidecar = opts.runtime?.spawnSidecar ?? spawnMiniSidecar;
   const sidecar = spawnSidecar({ command, args: sidecarArgs, env: opts.env });
-  const account = requireAccountPartition(opts.account);
+  const accountPartition = requireAccountPartition(opts.account);
   const artifacts: SidecarLocalArtifact[] = [];
   let handshake: SidecarHandshakeResult | undefined;
   let sessionId: string | undefined;
@@ -294,7 +294,7 @@ async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<Activ
     handshake = await sidecar.client.handshake(
       defaultSidecarHandshakeParams({
         client: { name: "recappi-cli", version: opts.cliVersion },
-        account: opts.account,
+        account: accountPartition,
         capabilities: opts.live
           ? ["recording.capture", "recording.upload", "live_captions.stream"]
           : ["recording.capture", "recording.upload"],
@@ -318,7 +318,7 @@ async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<Activ
     assertRecordingPermissions(preflight.permissions);
 
     const started = await sidecar.client.startRecording({
-      account,
+      account: opts.account,
       options: recordingOptions,
     });
     sessionId = started.sessionId;
@@ -338,10 +338,10 @@ async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<Activ
             artifacts.push(...(stopped.artifacts ?? []));
 
             const uniqueArtifacts = dedupeArtifacts(artifacts);
-            persistArtifacts(uniqueArtifacts, account, opts);
+            persistArtifacts(uniqueArtifacts, accountPartition, opts);
             return recordCommandDataSchema.parse({
-              origin: account.backendOrigin,
-              userId: account.userId,
+              origin: accountPartition.backendOrigin,
+              userId: accountPartition.userId,
               live: captionStreamEnabled,
               sessionId: stopped.sessionId,
               state: stopped.state,
