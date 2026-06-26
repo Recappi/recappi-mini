@@ -1,7 +1,10 @@
 import AVFoundation
 import CoreMedia
 import os
+import RecappiCaptureCore
 @preconcurrency import ScreenCaptureKit
+
+typealias CaptureAudioHealth = RecappiCaptureCore.CaptureAudioHealth
 
 final class RecordingPerformanceProbe: @unchecked Sendable {
     enum AudioSource {
@@ -193,18 +196,6 @@ struct AudioMeterFrameGate {
         self.lastEmitTime = now
         return true
     }
-}
-
-struct CaptureAudioHealth: Codable, Equatable {
-    let source: String
-    let bufferCount: Int
-    let includedBufferCount: Int?
-    let firstBufferUptime: TimeInterval?
-    let lastBufferUptime: TimeInterval?
-    let secondsSinceLastBuffer: TimeInterval?
-    let meterFrameCount: Int
-    let averagePeak: Float?
-    let maxPeak: Float?
 }
 
 private struct CapturePeakStats {

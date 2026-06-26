@@ -1,4 +1,7 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createReadStream, createWriteStream, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import {
@@ -60,6 +63,12 @@ export interface SpawnMiniSidecarOptions {
 export interface SpawnedMiniSidecar {
   client: MiniSidecarClient;
   kill: () => void;
+}
+
+interface LaunchServicesPipePaths {
+  stdin: string;
+  stdout: string;
+  stderr: string;
 }
 
 export class MiniSidecarClient {
@@ -285,6 +294,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function spawnMiniSidecar(opts: SpawnMiniSidecarOptions): SpawnedMiniSidecar {
+  if (isLaunchServicesAppCommand(opts.command)) {
+    return spawnLaunchServicesSidecar(opts);
+  }
+
   const spawnProcess = opts.spawnProcess ?? spawn;
   const child = spawnProcess(opts.command, opts.args ?? [], {
     env: opts.env,
@@ -311,4 +324,85 @@ export function defaultSidecarHandshakeParams(
     protocolVersion: SIDECAR_PROTOCOL_VERSION,
     ...params,
   };
+}
+
+export function isLaunchServicesAppCommand(
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform === "darwin" && command.endsWith(".app");
+}
+
+export function launchServicesOpenArgs(
+  appPath: string,
+  pipes: LaunchServicesPipePaths,
+  sidecarArgs: string[] = [],
+): string[] {
+  return [
+    "-W",
+    "-n",
+    "-g",
+    "--stdin",
+    pipes.stdin,
+    "--stdout",
+    pipes.stdout,
+    "--stderr",
+    pipes.stderr,
+    appPath,
+    "--args",
+    ...sidecarArgs,
+  ];
+}
+
+function spawnLaunchServicesSidecar(opts: SpawnMiniSidecarOptions): SpawnedMiniSidecar {
+  const spawnProcess = opts.spawnProcess ?? spawn;
+  const tempDir = mkdtempSync(join(tmpdir(), "recappi-sidecar-"));
+  const pipes: LaunchServicesPipePaths = {
+    stdin: join(tempDir, "stdin.fifo"),
+    stdout: join(tempDir, "stdout.fifo"),
+    stderr: join(tempDir, "stderr.log"),
+  };
+  createFifo(pipes.stdin);
+  createFifo(pipes.stdout);
+
+  const output = createReadStream(pipes.stdout);
+  const input = createWriteStream(pipes.stdin);
+  const child = spawnProcess("open", launchServicesOpenArgs(opts.command, pipes, opts.args ?? []), {
+    env: opts.env,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  const client = new MiniSidecarClient({
+    input,
+    output,
+    requestTimeoutMs: opts.requestTimeoutMs,
+  });
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    rmSync(tempDir, { recursive: true, force: true });
+  };
+  child.once("exit", cleanup);
+  child.once("error", cleanup);
+
+  return {
+    client,
+    kill: () => {
+      client.close();
+      input.end();
+      output.destroy();
+      child.kill();
+      cleanup();
+    },
+  };
+}
+
+function createFifo(path: string): void {
+  const result = spawnSync("mkfifo", [path], { encoding: "utf8" });
+  if (result.status !== 0) {
+    throw cliError("record.helper_unavailable", "Recappi recording helper could not start.", {
+      hint: result.stderr || "Could not create the local recorder pipes. Try again.",
+    });
+  }
 }

@@ -354,6 +354,9 @@ function assertRecordingPermissions(permissions: SidecarPermissionItem[]): void 
       data: {
         cliCode: "record.permission_required",
         permission: blocked.name,
+        ...(blocked.requiresProcessRestart
+          ? { requiresProcessRestart: blocked.requiresProcessRestart }
+          : {}),
         ...(blocked.hint ? { recovery: blocked.hint } : {}),
         permissions,
       },
@@ -399,9 +402,24 @@ function resolveSidecarCommand(opts: Pick<RecordCommandOptions, "sidecarCommand"
 }
 
 function ensureBundledHelperExecutable(path: string): string {
+  if (process.platform === "darwin" && path.endsWith(".app")) {
+    const executable = darwinAppExecutablePath(path);
+    if (!existsSync(executable)) {
+      throw cliError("record.helper_unavailable", "Recappi recording helper is not available.", {
+        hint: `Expected bundled helper executable inside ${path}. Reinstall recappi, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
+      });
+    }
+    ensureExecutableMode(executable);
+    return path;
+  }
   if (process.platform === "win32") return path;
+  ensureExecutableMode(path);
+  return path;
+}
+
+function ensureExecutableMode(path: string): void {
   const mode = statSync(path).mode;
-  if ((mode & 0o111) !== 0) return path;
+  if ((mode & 0o111) !== 0) return;
   try {
     chmodSync(path, mode | 0o755);
   } catch (error) {
@@ -410,7 +428,6 @@ function ensureBundledHelperExecutable(path: string): string {
       hint: `Could not make bundled helper executable at ${path}: ${message}. Reinstall recappi, or set ${SIDECAR_COMMAND_ENV} to a compatible helper.`,
     });
   }
-  return path;
 }
 
 export function bundledSidecarCommand(
@@ -429,9 +446,13 @@ export function bundledSidecarCommand(
 }
 
 function helperExecutableName(platform: NodeJS.Platform): string | null {
-  if (platform === "darwin") return SIDECAR_HELPER_NAME;
+  if (platform === "darwin") return `${SIDECAR_HELPER_NAME}.app`;
   if (platform === "win32") return `${SIDECAR_HELPER_NAME}.exe`;
   return null;
+}
+
+function darwinAppExecutablePath(appPath: string): string {
+  return join(appPath, "Contents", "MacOS", SIDECAR_HELPER_NAME);
 }
 
 function helperPackageName(platform: NodeJS.Platform, arch: string): string | null {

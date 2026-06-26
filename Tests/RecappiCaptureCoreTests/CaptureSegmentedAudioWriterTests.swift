@@ -1,14 +1,14 @@
 import AVFoundation
 import CoreMedia
 import XCTest
-@testable import RecappiMini
+@testable import RecappiCaptureCore
 
-final class SegmentedAudioWriterTests: XCTestCase {
+final class CaptureSegmentedAudioWriterTests: XCTestCase {
     func testWritesSingleCAFIntermediateSegment() async throws {
         let dir = try Self.makeTemporaryDirectory()
         let url = dir.appendingPathComponent("system.caf")
-        let queue = DispatchQueue(label: "SegmentedAudioWriterTests.single")
-        let writer = SegmentedAudioWriter(finalURL: url, processingQueue: queue)
+        let queue = DispatchQueue(label: "CaptureSegmentedAudioWriterTests.single")
+        let writer = CaptureSegmentedAudioWriter(finalURL: url, processingQueue: queue)
 
         writer.append(try Self.makeInterleavedFloatSampleBuffer(
             sampleRate: 48_000,
@@ -28,8 +28,8 @@ final class SegmentedAudioWriterTests: XCTestCase {
     func testWritesMultipleCAFIntermediateSegmentsWhenFormatChanges() async throws {
         let dir = try Self.makeTemporaryDirectory()
         let url = dir.appendingPathComponent("mic.caf")
-        let queue = DispatchQueue(label: "SegmentedAudioWriterTests.multiple")
-        let writer = SegmentedAudioWriter(finalURL: url, processingQueue: queue)
+        let queue = DispatchQueue(label: "CaptureSegmentedAudioWriterTests.multiple")
+        let writer = CaptureSegmentedAudioWriter(finalURL: url, processingQueue: queue)
 
         writer.append(try Self.makeInterleavedFloatSampleBuffer(
             sampleRate: 48_000,
@@ -52,7 +52,7 @@ final class SegmentedAudioWriterTests: XCTestCase {
 
     private static func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SegmentedAudioWriterTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("CaptureSegmentedAudioWriterTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

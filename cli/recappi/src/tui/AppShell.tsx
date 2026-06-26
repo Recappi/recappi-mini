@@ -159,7 +159,7 @@ export function recordErrorCopy(
     case "record.permission_required":
       return {
         title: "Recording needs macOS permission first.",
-        detail: "Open System Settings > Privacy & Security, allow recording access, then retry.",
+        detail: "Open System Settings > Privacy & Security, allow recording access, then run recappi record again.",
         tone: "yellow",
       };
     case "record.capture_failed":
@@ -240,13 +240,22 @@ export function permissionItemsFromRecordError(data: unknown): PermissionItem[] 
   const sidecarData = isRecord(sidecarError?.data) ? sidecarError.data : undefined;
   const permission = typeof sidecarData?.permission === "string" ? sidecarData.permission : "";
   const hint = typeof sidecarData?.recovery === "string" ? sidecarData.recovery : undefined;
+  const requiresProcessRestart =
+    sidecarData?.requiresProcessRestart === true || sidecarData?.requiresProcessRestart === "true";
   const item =
     permission === "microphone"
       ? "Microphone"
       : permission === "screen_recording"
         ? "Screen Recording"
         : "Recording";
-  return [{ name: item, status: "denied", ...(hint ? { hint } : {}) }];
+  return [
+    {
+      name: item,
+      status: requiresProcessRestart ? "granted" : "denied",
+      ...(hint ? { hint } : {}),
+      ...(requiresProcessRestart ? { requiresProcessRestart } : {}),
+    },
+  ];
 }
 
 function settingsUrlFromRecordError(data: unknown): string {

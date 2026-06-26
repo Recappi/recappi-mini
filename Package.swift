@@ -11,9 +11,19 @@ let package = Package(
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", exact: "9.13.0"),
     ],
     targets: [
+        .target(
+            name: "RecappiCaptureCore",
+            path: "RecappiCaptureCore",
+            linkerSettings: [
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("CoreMedia"),
+                .linkedFramework("ScreenCaptureKit"),
+            ]
+        ),
         .executableTarget(
             name: "RecappiMini",
             dependencies: [
+                "RecappiCaptureCore",
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
             ],
@@ -31,6 +41,9 @@ let package = Package(
         ),
         .executableTarget(
             name: "RecappiMiniSidecar",
+            dependencies: [
+                "RecappiCaptureCore",
+            ],
             path: "RecappiMiniSidecar",
             exclude: ["Info.plist"],
             linkerSettings: [
@@ -47,6 +60,11 @@ let package = Package(
             name: "RecappiMiniCoreTests",
             dependencies: ["RecappiMini"],
             path: "Tests/RecappiMiniCoreTests"
+        ),
+        .testTarget(
+            name: "RecappiCaptureCoreTests",
+            dependencies: ["RecappiCaptureCore"],
+            path: "Tests/RecappiCaptureCoreTests"
         ),
     ]
 )
