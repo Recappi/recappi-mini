@@ -11,6 +11,10 @@ let package = Package(
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", exact: "9.13.0"),
     ],
     targets: [
+        .target(
+            name: "RecappiCaptureCore",
+            path: "RecappiCaptureCore"
+        ),
         .executableTarget(
             name: "RecappiMini",
             dependencies: [
@@ -47,6 +51,11 @@ let package = Package(
             name: "RecappiMiniCoreTests",
             dependencies: ["RecappiMini"],
             path: "Tests/RecappiMiniCoreTests"
+        ),
+        .testTarget(
+            name: "RecappiCaptureCoreTests",
+            dependencies: ["RecappiCaptureCore"],
+            path: "Tests/RecappiCaptureCoreTests"
         ),
     ]
 )
