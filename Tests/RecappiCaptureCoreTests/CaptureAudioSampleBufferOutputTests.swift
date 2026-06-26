@@ -11,12 +11,17 @@ final class CaptureAudioSampleBufferOutputTests: XCTestCase {
         let writer = CaptureSegmentedAudioWriter(finalURL: url, processingQueue: queue)
         var now: TimeInterval = 10
         var levels: [CaptureLevel] = []
+        let taps = TapRecorder()
         let output = CaptureAudioSampleBufferOutput(
             writer: writer,
             input: .system,
             startedAtUptime: now,
             levelInterval: 0.25,
-            uptime: { now }
+            uptime: { now },
+            onSampleBuffer: { input, sampleBuffer in
+                XCTAssertTrue(sampleBuffer.isValid)
+                taps.record(input)
+            }
         ) { level in
             levels.append(level)
         }
@@ -42,6 +47,7 @@ final class CaptureAudioSampleBufferOutputTests: XCTestCase {
         XCTAssertEqual(levels.map(\.input), [.system, .system])
         XCTAssertEqual(levels.map(\.atMs), [0, 260])
         XCTAssertEqual(levels[0].rmsDb, -6.0206, accuracy: 0.001)
+        XCTAssertEqual(taps.inputs(), [.system, .system, .system])
     }
 
     private static func makeTemporaryDirectory() throws -> URL {
@@ -135,5 +141,23 @@ final class CaptureAudioSampleBufferOutputTests: XCTestCase {
         )
         XCTAssertEqual(status, noErr)
         return try XCTUnwrap(sampleBuffer)
+    }
+}
+
+private final class TapRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _inputs: [CaptureLevel.Input] = []
+
+    func record(_ input: CaptureLevel.Input) {
+        lock.lock()
+        _inputs.append(input)
+        lock.unlock()
+    }
+
+    func inputs() -> [CaptureLevel.Input] {
+        lock.lock()
+        let inputs = _inputs
+        lock.unlock()
+        return inputs
     }
 }

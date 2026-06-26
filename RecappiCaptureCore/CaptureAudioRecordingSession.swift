@@ -11,6 +11,7 @@ public struct CaptureAudioRecordingSessionConfiguration: Sendable, Equatable {
     public var includeMicrophone: Bool
     public var microphoneDeviceID: String?
     public var metadata: CaptureSessionMetadata
+    public var sampleBufferTap: CaptureAudioSampleBufferTap?
 
     public init(
         sessionID: String,
@@ -19,7 +20,8 @@ public struct CaptureAudioRecordingSessionConfiguration: Sendable, Equatable {
         targetBundleID: String? = nil,
         includeMicrophone: Bool,
         microphoneDeviceID: String? = nil,
-        metadata: CaptureSessionMetadata
+        metadata: CaptureSessionMetadata,
+        sampleBufferTap: CaptureAudioSampleBufferTap? = nil
     ) {
         self.sessionID = sessionID
         self.sessionDirectoryURL = sessionDirectoryURL
@@ -28,6 +30,20 @@ public struct CaptureAudioRecordingSessionConfiguration: Sendable, Equatable {
         self.includeMicrophone = includeMicrophone
         self.microphoneDeviceID = microphoneDeviceID
         self.metadata = metadata
+        self.sampleBufferTap = sampleBufferTap
+    }
+
+    public static func == (
+        lhs: CaptureAudioRecordingSessionConfiguration,
+        rhs: CaptureAudioRecordingSessionConfiguration
+    ) -> Bool {
+        lhs.sessionID == rhs.sessionID
+            && lhs.sessionDirectoryURL == rhs.sessionDirectoryURL
+            && lhs.includeSystemAudio == rhs.includeSystemAudio
+            && lhs.targetBundleID == rhs.targetBundleID
+            && lhs.includeMicrophone == rhs.includeMicrophone
+            && lhs.microphoneDeviceID == rhs.microphoneDeviceID
+            && lhs.metadata == rhs.metadata
     }
 
     public var effectiveSelection: CaptureSelection {
@@ -235,7 +251,8 @@ public final class CaptureAudioRecordingSession: CaptureSession, @unchecked Send
         let output = CaptureAudioSampleBufferOutput(
             writer: writer,
             input: .system,
-            startedAtUptime: startedAtUptime ?? uptime()
+            startedAtUptime: startedAtUptime ?? uptime(),
+            onSampleBuffer: configuration.sampleBufferTap
         ) { [weak self] level in
             self?.levelContinuation.yield(level)
         }
@@ -264,7 +281,8 @@ public final class CaptureAudioRecordingSession: CaptureSession, @unchecked Send
         let output = CaptureAudioSampleBufferOutput(
             writer: writer,
             input: .microphone,
-            startedAtUptime: startedAtUptime ?? uptime()
+            startedAtUptime: startedAtUptime ?? uptime(),
+            onSampleBuffer: configuration.sampleBufferTap
         ) { [weak self] level in
             self?.levelContinuation.yield(level)
         }

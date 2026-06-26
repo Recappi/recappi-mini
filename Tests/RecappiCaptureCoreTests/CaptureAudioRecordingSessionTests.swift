@@ -81,4 +81,26 @@ final class CaptureAudioRecordingSessionTests: XCTestCase {
             microphoneDeviceID: "mic-1"
         ))
     }
+
+    func testConfigurationEqualityIgnoresSampleBufferTapIdentity() {
+        let metadata = CaptureSessionMetadata(sessionID: "session-3")
+        let lhs = CaptureAudioRecordingSessionConfiguration(
+            sessionID: "session-3",
+            sessionDirectoryURL: URL(fileURLWithPath: "/tmp/session-3"),
+            includeSystemAudio: true,
+            includeMicrophone: false,
+            metadata: metadata,
+            sampleBufferTap: { _, _ in }
+        )
+        let rhs = CaptureAudioRecordingSessionConfiguration(
+            sessionID: "session-3",
+            sessionDirectoryURL: URL(fileURLWithPath: "/tmp/session-3"),
+            includeSystemAudio: true,
+            includeMicrophone: false,
+            metadata: metadata,
+            sampleBufferTap: nil
+        )
+
+        XCTAssertEqual(lhs, rhs)
+    }
 }

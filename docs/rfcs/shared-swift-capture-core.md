@@ -139,7 +139,7 @@ sequenceDiagram
 - [x] sidecar JSON-RPC start/stop 已切到 core `CaptureAudioRecordingSession`；`audio.level` 从 full core `levels` stream 转发到 CLI/TUI。
 - [x] 新增 `CaptureAudioRecordingSession` foundation：core 内部已有 SCK system audio、AVCapture mic、writer/mixer/diagnostics、`states` / `levels` streams 的 native session object；sidecar adapter 已接入，app adapter 切换仍 pending。
 - [x] stop 时由 core 返回 `CaptureArtifact`，包含 system/mic/mixed URL、duration、diagnostics、effective selection；sidecar stop artifact metadata 已透传 `durationMs` / `sizeBytes` 给 CLI。
-- [ ] capture session 预留实时 sample tap 扩展点；本轮可以不暴露正式 public API，但设计不能只能在 stop 后拿 artifact，否则后续 host 接 Live Caption 会被堵死。
+- [x] capture session 预留实时 sample tap 扩展点：`CaptureAudioRecordingSessionConfiguration.sampleBufferTap` 可让 host 接收 system/microphone sample buffer；Live Caption 网络会话仍留在 host adapter。
 
 可行性关键点：SCK 能否在 npm 分发的 signed headless helper 内稳定运行，且 TCC 归因正确。
 

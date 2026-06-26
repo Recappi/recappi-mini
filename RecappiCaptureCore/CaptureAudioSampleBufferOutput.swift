@@ -1,12 +1,15 @@
 import CoreMedia
 import Foundation
 
+public typealias CaptureAudioSampleBufferTap = @Sendable (_ input: CaptureLevel.Input, _ sampleBuffer: CMSampleBuffer) -> Void
+
 public final class CaptureAudioSampleBufferOutput: @unchecked Sendable {
     private let writer: CaptureSegmentedAudioWriter
     private let input: CaptureLevel.Input
     private let startedAtUptime: TimeInterval
     private let levelInterval: TimeInterval
     private let uptime: () -> TimeInterval
+    private let onSampleBuffer: CaptureAudioSampleBufferTap?
     private let onLevel: (CaptureLevel) -> Void
     private var lastLevelEmitUptime: TimeInterval?
 
@@ -16,6 +19,7 @@ public final class CaptureAudioSampleBufferOutput: @unchecked Sendable {
         startedAtUptime: TimeInterval,
         levelInterval: TimeInterval = 1.0 / 12.0,
         uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        onSampleBuffer: CaptureAudioSampleBufferTap? = nil,
         onLevel: @escaping (CaptureLevel) -> Void
     ) {
         self.writer = writer
@@ -23,12 +27,14 @@ public final class CaptureAudioSampleBufferOutput: @unchecked Sendable {
         self.startedAtUptime = startedAtUptime
         self.levelInterval = levelInterval
         self.uptime = uptime
+        self.onSampleBuffer = onSampleBuffer
         self.onLevel = onLevel
     }
 
     public func append(_ sampleBuffer: CMSampleBuffer) {
         guard sampleBuffer.isValid else { return }
         writer.append(sampleBuffer)
+        onSampleBuffer?(input, sampleBuffer)
         emitLevelIfNeeded(sampleBuffer)
     }
 
