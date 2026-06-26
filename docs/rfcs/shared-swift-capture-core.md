@@ -137,6 +137,7 @@ sequenceDiagram
 - [ ] 麦克风继续用 `AVCaptureSession` / `AVCaptureAudioDataOutput`，但移动到 core。
 - [ ] system/mic sample buffer 同时写入 `SegmentedAudioWriter` 和 level extractor，`levels` 以 10-20Hz 输出。
 - [x] 中间态：sidecar 当前 system/mic capture paths 已用 shared `CaptureAudioLevelExtractor` 从 sample buffer 产出 `audio.level`，约 12Hz 转发给 CLI/TUI；full core `levels` stream 仍等待 session 迁移。
+- [x] 新增 `CaptureAudioRecordingSession` foundation：core 内部已有 SCK system audio、AVCapture mic、writer/mixer/diagnostics、`states` / `levels` streams 的 native session object；host adapter 切换仍 pending。
 - [ ] stop 时由 core 返回 `CaptureArtifact`，包含 system/mic/mixed URL、duration、diagnostics、effective selection。
 - [ ] capture session 预留实时 sample tap 扩展点；本轮可以不暴露正式 public API，但设计不能只能在 stop 后拿 artifact，否则后续 host 接 Live Caption 会被堵死。
 
@@ -235,6 +236,7 @@ CLI/TUI TypeScript:
 
 ### Phase 2: App Uses Core First
 
+- [x] 新增 core native `CaptureAudioRecordingSession` foundation，但 app 尚未接入。
 - [ ] 把 app 的 SCK + mic + writer/mixer 流程迁进 core。
 - [ ] `AudioRecorder` 通过 core start/stop，但 UI、Cloud、Live Caption 行为保持不变。
 - [ ] 跑现有 `RecappiMiniCoreTests`，补 app adapter regression tests。
@@ -247,6 +249,7 @@ CLI/TUI TypeScript:
 - [x] CLI helper launcher/resolver 支持 LaunchServices-based helper `.app` execution；stdio JSON-RPC 通过 LaunchServices `--stdin` / `--stdout` FIFO pipes 保持可交互。
 - [x] sidecar stop path 使用 shared `CaptureSegmentedAudioWriter` / `CaptureAudioMixer` / `CaptureAudioDiagnostics`，删除 sidecar 内重复 writer/mixer/diagnostics 实现。
 - [x] sidecar system/mic capture paths 使用 shared `CaptureAudioSampleBufferOutput` 写入 CAF 并发 `audio.level`。
+- [x] 新增 core native `CaptureAudioRecordingSession` foundation，但 sidecar JSON-RPC 尚未接入。
 - [ ] JSON-RPC methods 调 core；删除 sidecar duplicate capture code。
 - [x] sidecar 当前 capture paths 从 shared `CaptureAudioLevelExtractor.captureLevel` 转发 `audio.level { input, rmsDb, atMs }` 到 IPC。
 - [ ] `audio.level` 从 full core `levels` stream 转发到 IPC（等待 JSON-RPC start/stop 全切 core session）。
