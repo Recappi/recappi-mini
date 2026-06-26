@@ -16,7 +16,7 @@ const DEFAULT_HINTS: Record<string, string> = {
   "Screen Recording":
     "Open System Settings › Privacy & Security › Screen Recording, enable Recappi Recorder, then run recappi record again.",
   Microphone:
-    "Open System Settings › Privacy & Security › Microphone, enable Recappi Recorder, then recheck.",
+    "Open System Settings › Privacy & Security › Microphone, enable Recappi Recorder, then run recappi record again.",
 };
 
 function statusGlyph(status: PermissionStatus): { glyph: string; color: string; label: string } {
@@ -38,6 +38,7 @@ export function PermissionPreflightView({
   const allGranted =
     items.length > 0 &&
     items.every((item) => item.status === "granted" && !item.requiresProcessRestart);
+  const hasRestartRequired = items.some((item) => item.requiresProcessRestart);
   return (
     <Box flexDirection="column" paddingX={1}>
       <Text dimColor>‹ Recording permissions</Text>
@@ -49,7 +50,7 @@ export function PermissionPreflightView({
           items.map((item) => {
             const status = statusGlyph(item.status);
             const hint = item.requiresProcessRestart
-              ? "Screen Recording enabled. Run recappi record again to start."
+              ? item.hint ?? `${item.name} enabled. Run recappi record again to start.`
               : item.status === "granted"
                 ? undefined
                 : item.hint ?? DEFAULT_HINTS[item.name];
@@ -70,6 +71,8 @@ export function PermissionPreflightView({
       <Box marginTop={1}>
         {allGranted ? (
           <Text color="green">All set — ready to record.</Text>
+        ) : hasRestartRequired ? (
+          <Text dimColor>Run recappi record again to start, or press r to retry.</Text>
         ) : (
           <Text dimColor>Grant the permissions above, then press r to recheck.</Text>
         )}

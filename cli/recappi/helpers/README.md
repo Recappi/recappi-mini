@@ -2,8 +2,8 @@ This directory contains native recording helpers bundled in the npm package.
 
 The CLI selects helpers by `process.platform` and `process.arch`:
 
-- `darwin-arm64/RecappiMiniSidecar`
-- `darwin-x64/RecappiMiniSidecar`
+- `darwin-arm64/Recappi Recorder.app`
+- `darwin-x64/Recappi Recorder.app`
 - `win32-x64/RecappiMiniSidecar.exe`
 - `win32-arm64/RecappiMiniSidecar.exe`
 

@@ -4,7 +4,7 @@
   "private": false,
   "description": "Darwin arm64 native recording helper for the recappi CLI.",
   "bin": {
-    "recappi-helper-darwin-arm64": "./RecappiMiniSidecar.app/Contents/MacOS/RecappiMiniSidecar"
+    "recappi-helper-darwin-arm64": "./Recappi Recorder.app/Contents/MacOS/RecappiMiniSidecar"
   },
   "os": [
     "darwin"
@@ -13,13 +13,13 @@
     "arm64"
   ],
   "files": [
-    "RecappiMiniSidecar.app"
+    "Recappi Recorder.app"
   ],
   "type": "module",
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "pack:check": "node ../check-helper-pack.mjs RecappiMiniSidecar.app Contents/MacOS/RecappiMiniSidecar"
+    "pack:check": "node ../check-helper-pack.mjs 'Recappi Recorder.app' Contents/MacOS/RecappiMiniSidecar"
   }
 }

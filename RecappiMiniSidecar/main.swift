@@ -632,7 +632,7 @@ private enum PermissionPreflight {
             return
         case .notDetermined:
             let allowed = await AVCaptureDevice.requestAccess(for: .audio)
-            if allowed { return }
+            if allowed { throw microphoneGrantedRequiresRestart() }
             throw microphoneDenied()
         case .denied, .restricted:
             throw microphoneDenied()
@@ -673,6 +673,19 @@ private enum PermissionPreflight {
                 "cliCode": "record.permission_required",
                 "permission": "microphone",
                 "recovery": "Open System Settings > Privacy & Security > Microphone, turn on Recappi Recorder, then run recappi record again.",
+            ]
+        )
+    }
+
+    private static func microphoneGrantedRequiresRestart() -> SidecarFailure {
+        SidecarFailure(
+            code: -32020,
+            message: "Microphone access is enabled; restart the local recorder to use it.",
+            data: [
+                "cliCode": "record.permission_required",
+                "permission": "microphone",
+                "requiresProcessRestart": "true",
+                "recovery": "Microphone enabled. Run recappi record again to start.",
             ]
         )
     }

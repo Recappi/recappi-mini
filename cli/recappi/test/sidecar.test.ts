@@ -15,13 +15,13 @@ import {
 
 describe("Mini sidecar JSON-RPC client", () => {
   it("detects LaunchServices app helpers and builds stable open args", () => {
-    expect(isLaunchServicesAppCommand("/Applications/RecappiMiniSidecar.app", "darwin")).toBe(true);
+    expect(isLaunchServicesAppCommand("/Applications/Recappi Recorder.app", "darwin")).toBe(true);
     expect(isLaunchServicesAppCommand("/usr/local/bin/RecappiMiniSidecar", "darwin")).toBe(false);
     expect(isLaunchServicesAppCommand("C:/RecappiMiniSidecar.app", "win32")).toBe(false);
 
     expect(
       launchServicesOpenArgs(
-        "/Applications/RecappiMiniSidecar.app",
+        "/Applications/Recappi Recorder.app",
         {
           stdin: "/tmp/recappi/stdin.fifo",
           stdout: "/tmp/recappi/stdout.fifo",
@@ -39,7 +39,7 @@ describe("Mini sidecar JSON-RPC client", () => {
       "/tmp/recappi/stdout.fifo",
       "--stderr",
       "/tmp/recappi/stderr.log",
-      "/Applications/RecappiMiniSidecar.app",
+      "/Applications/Recappi Recorder.app",
       "--args",
       "--log-level",
       "debug",

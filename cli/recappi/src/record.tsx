@@ -34,6 +34,7 @@ import { LiveCaptionsScreen, type LiveCaptionEventSource } from "./tui/LiveCapti
 
 const SIDECAR_COMMAND_ENV = "RECAPPI_MINI_SIDECAR";
 const SIDECAR_HELPER_NAME = "RecappiMiniSidecar";
+const SIDECAR_APP_BUNDLE_NAME = "Recappi Recorder.app";
 const requireFromCli = createRequire(import.meta.url);
 
 export interface RecordCommandOptions {
@@ -192,6 +193,24 @@ interface ActiveRecordSession {
 }
 
 async function startRecordSession(opts: RecordCommandOptions): Promise<ActiveRecordSession> {
+  let retriedAfterMicrophoneGrant = false;
+  while (true) {
+    try {
+      return await startRecordSessionOnce(opts);
+    } catch (error) {
+      if (
+        !retriedAfterMicrophoneGrant &&
+        isPermissionRestartRequiredError(error, "microphone")
+      ) {
+        retriedAfterMicrophoneGrant = true;
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<ActiveRecordSession> {
   const command = resolveSidecarCommand(opts);
   const sidecarArgs = opts.sidecarArgs ?? [];
   const spawnSidecar = opts.runtime?.spawnSidecar ?? spawnMiniSidecar;
@@ -303,6 +322,27 @@ async function startRecordSession(opts: RecordCommandOptions): Promise<ActiveRec
     await cancel();
     throw error;
   }
+}
+
+function isPermissionRestartRequiredError(
+  error: unknown,
+  permissionName: "microphone" | "screen_recording",
+): boolean {
+  const root = isRecord(error) ? error : undefined;
+  const descriptor = isRecord(root?.descriptor) ? root.descriptor : undefined;
+  if (descriptor?.code !== "record.permission_required") return false;
+
+  const sidecarError = isRecord(root?.data) ? root.data : undefined;
+  const sidecarData = isRecord(sidecarError?.data) ? sidecarError.data : undefined;
+  return (
+    sidecarData?.permission === permissionName &&
+    (sidecarData.requiresProcessRestart === true ||
+      sidecarData.requiresProcessRestart === "true")
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeSidecarSources(sources: SidecarRecordingSource[]): RecordingSource[] {
@@ -453,7 +493,7 @@ export function bundledSidecarCommand(
 }
 
 function helperExecutableName(platform: NodeJS.Platform): string | null {
-  if (platform === "darwin") return `${SIDECAR_HELPER_NAME}.app`;
+  if (platform === "darwin") return SIDECAR_APP_BUNDLE_NAME;
   if (platform === "win32") return `${SIDECAR_HELPER_NAME}.exe`;
   return null;
 }

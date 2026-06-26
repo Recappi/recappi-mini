@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_CONFIG="${BUILD_CONFIG:-release}"
 PRODUCT_NAME="RecappiMiniSidecar"
+APP_BUNDLE_NAME="Recappi Recorder.app"
 HOST_ARCH="$(uname -m)"
 case "$HOST_ARCH" in
     arm64) NPM_ARCH="arm64" ;;
@@ -29,7 +30,7 @@ swift build "${BUILD_ARGS[@]}"
 BUILD_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 
 DEST_DIR="$PROJECT_DIR/cli/helpers/darwin-$NPM_ARCH"
-APP_BUNDLE="$DEST_DIR/$PRODUCT_NAME.app"
+APP_BUNDLE="$DEST_DIR/$APP_BUNDLE_NAME"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 DEST="$MACOS_DIR/$PRODUCT_NAME"

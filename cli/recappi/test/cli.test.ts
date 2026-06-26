@@ -555,6 +555,53 @@ describe("recappi CLI contract", () => {
     ]);
   });
 
+  it("restarts the helper once after macOS grants microphone access", async () => {
+    const fake = fakeRecordRuntime({
+      permissions: [
+        { name: "screen_recording", status: "granted" },
+        { name: "microphone", status: "unknown" },
+      ],
+      startErrors: [
+        cliError(
+          "record.permission_required",
+          "Microphone access is enabled; restart the local recorder to use it.",
+          {
+            data: {
+              code: -32020,
+              message: "Microphone access is enabled; restart the local recorder to use it.",
+              data: {
+                cliCode: "record.permission_required",
+                permission: "microphone",
+                requiresProcessRestart: "true",
+                recovery: "Microphone enabled. Run recappi record again to start.",
+              },
+            },
+          },
+        ),
+      ],
+    });
+    const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
+      fetchImpl: sessionFetch(),
+      recordRuntime: fake.runtime,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(fake.calls.map((call) => call.method)).toEqual([
+      "spawn",
+      "handshake",
+      "permissions",
+      "start",
+      "kill",
+      "spawn",
+      "handshake",
+      "permissions",
+      "start",
+      "waitForStop",
+      "stop",
+      "kill",
+    ]);
+  });
+
   it("still blocks when microphone permission is denied", async () => {
     const fake = fakeRecordRuntime({
       permissions: [
@@ -655,10 +702,10 @@ describe("recappi CLI contract", () => {
 
   it("resolves bundled helper locations per platform and architecture", () => {
     expect(bundledSidecarCommand("darwin", "arm64")).toMatch(
-      /helpers\/darwin-arm64\/RecappiMiniSidecar\.app$/,
+      /helpers\/darwin-arm64\/Recappi Recorder\.app$/,
     );
     expect(bundledSidecarCommand("darwin", "x64")).toMatch(
-      /helpers\/darwin-x64\/RecappiMiniSidecar\.app$/,
+      /helpers\/darwin-x64\/Recappi Recorder\.app$/,
     );
     expect(bundledSidecarCommand("win32", "x64")).toMatch(
       /helpers\/win32-x64\/RecappiMiniSidecar\.exe$/,
@@ -1184,6 +1231,7 @@ function fakeRecordRuntime(
   opts: {
     capabilities?: string[];
     permissions?: Array<{ name: "screen_recording" | "microphone"; status: string }>;
+    startErrors?: unknown[];
   } = {},
 ): {
   runtime: RecordRuntimeDeps;
@@ -1191,6 +1239,7 @@ function fakeRecordRuntime(
   calls: Array<{ method: string; params?: unknown; source?: unknown }>;
 } {
   const calls: Array<{ method: string; params?: unknown; source?: unknown }> = [];
+  const startErrors = [...(opts.startErrors ?? [])];
   const listeners = new Set<(event: SidecarEvent) => void>();
   const emit = (event: SidecarEvent) => {
     for (const listener of listeners) listener(event);
@@ -1210,6 +1259,8 @@ function fakeRecordRuntime(
     },
     async startRecording(params: SidecarRecordingStartParams) {
       calls.push({ method: "start", params });
+      const startError = startErrors.shift();
+      if (startError) throw startError;
       emit({
         type: "local_artifact.upserted",
         sessionId: "sidecar_session_1",

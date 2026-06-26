@@ -193,6 +193,28 @@ describe("record error copy", () => {
         requiresProcessRestart: true,
       },
     ]);
+
+    const microphoneRestartError = Object.assign(new Error("Microphone enabled."), {
+      descriptor: { code: "record.permission_required" },
+      data: {
+        code: -32020,
+        message: "Microphone enabled.",
+        data: {
+          cliCode: "record.permission_required",
+          permission: "microphone",
+          recovery: "Microphone enabled. Run recappi record again to start.",
+          requiresProcessRestart: "true",
+        },
+      },
+    });
+    expect(permissionItemsFromRecordError(recordErrorState(microphoneRestartError).data)).toEqual([
+      {
+        name: "Microphone",
+        status: "granted",
+        hint: "Microphone enabled. Run recappi record again to start.",
+        requiresProcessRestart: true,
+      },
+    ]);
   });
 
   it("maps transcribe handoff failures without leaking internal details", () => {
@@ -405,6 +427,22 @@ describe("views render", () => {
     const restartFrame = noAnsi(restart.lastFrame());
     expect(restartFrame).toContain("Run recappi record again");
     expect(restartFrame).not.toContain("All set");
+
+    const micRestart = render(
+      <PermissionPreflightView
+        items={[
+          {
+            name: "Microphone",
+            status: "granted",
+            hint: "Microphone enabled. Run recappi record again to start.",
+            requiresProcessRestart: true,
+          },
+        ]}
+      />,
+    );
+    const micRestartFrame = noAnsi(micRestart.lastFrame());
+    expect(micRestartFrame).toContain("Microphone enabled");
+    expect(micRestartFrame).not.toContain("Screen Recording enabled");
   });
   it("RecordingDetailView shows title, status, audio + transcript actions", () => {
     const { lastFrame } = render(<RecordingDetailView item={rec()} nowMs={10_000_000} />);

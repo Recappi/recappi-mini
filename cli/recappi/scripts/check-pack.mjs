@@ -54,6 +54,19 @@ try {
       throw error;
     }
   }
+  try {
+    await access(join(outDir, "package", "helpers", "darwin-arm64", "RecappiMiniSidecar.app"));
+    throw new Error("recappi package must not bundle darwin helper app bundles directly");
+  } catch (error) {
+    if (
+      !error ||
+      typeof error !== "object" ||
+      !("code" in error) ||
+      error.code !== "ENOENT"
+    ) {
+      throw error;
+    }
+  }
   const consumerDir = join(outDir, "consumer");
   await mkdir(consumerDir);
   const install = spawnSync(
