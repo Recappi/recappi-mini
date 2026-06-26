@@ -9,6 +9,7 @@ public final class CaptureAudioSampleBufferOutput: @unchecked Sendable {
     private let startedAtUptime: TimeInterval
     private let levelInterval: TimeInterval
     private let uptime: () -> TimeInterval
+    private let shouldMute: @Sendable () -> Bool
     private let onSampleBuffer: CaptureAudioSampleBufferTap?
     private let onLevel: (CaptureLevel) -> Void
     private var lastLevelEmitUptime: TimeInterval?
@@ -19,6 +20,7 @@ public final class CaptureAudioSampleBufferOutput: @unchecked Sendable {
         startedAtUptime: TimeInterval,
         levelInterval: TimeInterval = 1.0 / 12.0,
         uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        shouldMute: @escaping @Sendable () -> Bool = { false },
         onSampleBuffer: CaptureAudioSampleBufferTap? = nil,
         onLevel: @escaping (CaptureLevel) -> Void
     ) {
@@ -27,14 +29,17 @@ public final class CaptureAudioSampleBufferOutput: @unchecked Sendable {
         self.startedAtUptime = startedAtUptime
         self.levelInterval = levelInterval
         self.uptime = uptime
+        self.shouldMute = shouldMute
         self.onSampleBuffer = onSampleBuffer
         self.onLevel = onLevel
     }
 
     public func append(_ sampleBuffer: CMSampleBuffer) {
         guard sampleBuffer.isValid else { return }
-        writer.append(sampleBuffer)
+        let muted = shouldMute()
+        writer.append(sampleBuffer, muted: muted)
         onSampleBuffer?(input, sampleBuffer)
+        guard !muted else { return }
         emitLevelIfNeeded(sampleBuffer)
     }
 

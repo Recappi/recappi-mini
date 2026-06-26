@@ -12,6 +12,7 @@ public struct CaptureAudioRecordingSessionConfiguration: Sendable, Equatable {
     public var microphoneDeviceID: String?
     public var metadata: CaptureSessionMetadata
     public var sampleBufferTap: CaptureAudioSampleBufferTap?
+    public var microphoneIncluded: (@Sendable () -> Bool)?
 
     public init(
         sessionID: String,
@@ -21,7 +22,8 @@ public struct CaptureAudioRecordingSessionConfiguration: Sendable, Equatable {
         includeMicrophone: Bool,
         microphoneDeviceID: String? = nil,
         metadata: CaptureSessionMetadata,
-        sampleBufferTap: CaptureAudioSampleBufferTap? = nil
+        sampleBufferTap: CaptureAudioSampleBufferTap? = nil,
+        microphoneIncluded: (@Sendable () -> Bool)? = nil
     ) {
         self.sessionID = sessionID
         self.sessionDirectoryURL = sessionDirectoryURL
@@ -31,6 +33,7 @@ public struct CaptureAudioRecordingSessionConfiguration: Sendable, Equatable {
         self.microphoneDeviceID = microphoneDeviceID
         self.metadata = metadata
         self.sampleBufferTap = sampleBufferTap
+        self.microphoneIncluded = microphoneIncluded
     }
 
     public static func == (
@@ -282,6 +285,9 @@ public final class CaptureAudioRecordingSession: CaptureSession, @unchecked Send
             writer: writer,
             input: .microphone,
             startedAtUptime: startedAtUptime ?? uptime(),
+            shouldMute: { [microphoneIncluded = configuration.microphoneIncluded] in
+                !(microphoneIncluded?() ?? true)
+            },
             onSampleBuffer: configuration.sampleBufferTap
         ) { [weak self] level in
             self?.levelContinuation.yield(level)

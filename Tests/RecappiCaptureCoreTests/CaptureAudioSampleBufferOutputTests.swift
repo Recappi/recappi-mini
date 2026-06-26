@@ -50,6 +50,55 @@ final class CaptureAudioSampleBufferOutputTests: XCTestCase {
         XCTAssertEqual(taps.inputs(), [.system, .system, .system])
     }
 
+    func testMutedSamplesStillWriteAndTapButDoNotEmitLevels() async throws {
+        let dir = try Self.makeTemporaryDirectory()
+        let url = dir.appendingPathComponent("mic.caf")
+        let queue = DispatchQueue(label: "CaptureAudioSampleBufferOutputTests.muted.writer")
+        let writer = CaptureSegmentedAudioWriter(finalURL: url, processingQueue: queue)
+        var now: TimeInterval = 10
+        let muteState = BooleanRecorder(true)
+        var levels: [CaptureLevel] = []
+        let taps = TapRecorder()
+        let output = CaptureAudioSampleBufferOutput(
+            writer: writer,
+            input: .microphone,
+            startedAtUptime: now,
+            levelInterval: 0.25,
+            uptime: { now },
+            shouldMute: { muteState.value() },
+            onSampleBuffer: { input, sampleBuffer in
+                XCTAssertTrue(sampleBuffer.isValid)
+                taps.record(input)
+            }
+        ) { level in
+            levels.append(level)
+        }
+
+        output.append(try Self.makeInterleavedFloatSampleBuffer(
+            sampleRate: 48_000,
+            channelCount: 1,
+            timestamp: .zero,
+            frames: (0..<2_048).map { _ in Float(0.5) }
+        ))
+        muteState.set(false)
+        now += 0.26
+        output.append(try Self.makeInterleavedFloatSampleBuffer(
+            sampleRate: 48_000,
+            channelCount: 1,
+            timestamp: CMTime(value: 2_048, timescale: 48_000),
+            frames: (0..<2_048).map { _ in Float(0.5) }
+        ))
+
+        let finalizedURL = try await output.finishWriting()
+        XCTAssertEqual(finalizedURL, url)
+        let file = try AVAudioFile(forReading: url)
+        XCTAssertGreaterThan(file.length, 0)
+        XCTAssertEqual(levels.map(\.input), [.microphone])
+        XCTAssertEqual(levels.map(\.atMs), [260])
+        XCTAssertEqual(levels[0].rmsDb, -6.0206, accuracy: 0.001)
+        XCTAssertEqual(taps.inputs(), [.microphone, .microphone])
+    }
+
     private static func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("CaptureAudioSampleBufferOutputTests-\(UUID().uuidString)", isDirectory: true)
@@ -159,5 +208,27 @@ private final class TapRecorder: @unchecked Sendable {
         let inputs = _inputs
         lock.unlock()
         return inputs
+    }
+}
+
+private final class BooleanRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: Bool
+
+    init(_ value: Bool) {
+        _value = value
+    }
+
+    func set(_ value: Bool) {
+        lock.lock()
+        _value = value
+        lock.unlock()
+    }
+
+    func value() -> Bool {
+        lock.lock()
+        let value = _value
+        lock.unlock()
+        return value
     }
 }

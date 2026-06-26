@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import CoreAudio
+import os
 import RecappiCaptureCore
 @preconcurrency import ScreenCaptureKit
 
@@ -15,6 +16,85 @@ private struct PreparedMicrophoneCapture: @unchecked Sendable {
 
     func startRunning() {
         session.startRunning()
+    }
+}
+
+private final class AppCaptureSampleBufferRouter: @unchecked Sendable {
+    private struct State: Sendable {
+        var meteringEnabled = true
+        var microphoneIncluded = true
+        var systemMeterGate = AudioMeterFrameGate()
+        var microphoneMeterGate = AudioMeterFrameGate()
+        var meterHandler: (@Sendable (AudioMeterFrame) -> Void)?
+        var liveCaptionHandler: (@Sendable (CMSampleBuffer) -> Void)?
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func setMeteringEnabled(_ enabled: Bool) {
+        state.withLock { $0.meteringEnabled = enabled }
+    }
+
+    func setMicrophoneIncluded(_ included: Bool) {
+        state.withLock { $0.microphoneIncluded = included }
+    }
+
+    func isMicrophoneIncluded() -> Bool {
+        state.withLock { $0.microphoneIncluded }
+    }
+
+    func setMeterHandler(_ handler: (@Sendable (AudioMeterFrame) -> Void)?) {
+        state.withLock { $0.meterHandler = handler }
+    }
+
+    func setLiveCaptionHandler(_ handler: (@Sendable (CMSampleBuffer) -> Void)?) {
+        state.withLock { $0.liveCaptionHandler = handler }
+    }
+
+    func handleLiveCaptionSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+        let handler = state.withLock { $0.liveCaptionHandler }
+        handler?(sampleBuffer)
+    }
+
+    func handle(input: CaptureLevel.Input, sampleBuffer: CMSampleBuffer) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let source: RecordingPerformanceProbe.AudioSource = input == .system ? .system : .mic
+        let decision = state.withLock { state -> (
+            shouldEmitMeter: Bool,
+            meterHandler: (@Sendable (AudioMeterFrame) -> Void)?,
+            liveCaptionHandler: (@Sendable (CMSampleBuffer) -> Void)?
+        ) in
+            let included = input == .system || state.microphoneIncluded
+            let meteringEnabled = state.meteringEnabled && included
+            let shouldEmit: Bool
+            if meteringEnabled {
+                switch input {
+                case .system:
+                    shouldEmit = state.systemMeterGate.shouldEmit(at: now)
+                case .microphone:
+                    shouldEmit = state.microphoneMeterGate.shouldEmit(at: now)
+                }
+            } else {
+                shouldEmit = false
+            }
+            return (
+                shouldEmitMeter: shouldEmit,
+                meterHandler: meteringEnabled ? state.meterHandler : nil,
+                liveCaptionHandler: input == .system ? state.liveCaptionHandler : nil
+            )
+        }
+
+        decision.liveCaptionHandler?(sampleBuffer)
+        RecordingPerformanceProbe.shared.noteAudioBuffer(source: source, at: now)
+        guard decision.shouldEmitMeter, let meterHandler = decision.meterHandler else {
+            RecordingPerformanceProbe.shared.noteMeterSkipped(source: source, at: now)
+            return
+        }
+
+        let frame = RecordingPerformanceProbe.shared.measureMeterExtraction(source: source) {
+            AudioLevelExtractor.meterFrame(sampleBuffer, bucketCount: AudioSpectrumConfiguration.bucketCount)
+        }
+        meterHandler(frame)
     }
 }
 
@@ -71,6 +151,8 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// observes the same refresh clock as runningApps updates.
     let activityMonitor = AudioActivityMonitor()
 
+    private let appCaptureSampleBufferRouter = AppCaptureSampleBufferRouter()
+    private var coreRecordingSession: CaptureAudioRecordingSession?
     private var stream: SCStream?
     private var systemOutput: SystemAudioOutput?
     /// Phase 2 — explicit lifecycle for the active live-caption
@@ -152,6 +234,9 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        appCaptureSampleBufferRouter.setMeterHandler { [weak self] frame in
+            self?.ingestMeterFrame(frame)
+        }
         warmMicrophoneDeviceCache()
     }
 
@@ -165,6 +250,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     func setRecordingMeterVisible(_ visible: Bool) {
+        appCaptureSampleBufferRouter.setMeteringEnabled(visible)
         systemOutput?.setMeteringEnabled(visible)
         micOutput?.setMeteringEnabled(visible)
         guard !visible else { return }
@@ -830,6 +916,17 @@ final class AudioRecorder: NSObject, ObservableObject {
             let outputAudioDeviceID = try OutputDeviceAudioFormat.currentDefaultOutputDeviceID()
             self.currentOutputAudioDeviceID = outputAudioDeviceID
 
+            if systemAudioBackend == .screenCaptureKit {
+                try await startCoreScreenCaptureRecording(
+                    sessionDir: sessionDir,
+                    metadata: metadata,
+                    autoStopContext: autoStopContext,
+                    outputAudioDeviceID: outputAudioDeviceID,
+                    disablesBackendLiveCaptions: disablesBackendLiveCaptions
+                )
+                return
+            }
+
             // --- System audio pipeline ---
             let sysWriter = SegmentedAudioWriter(finalURL: systemURL, processingQueue: systemCaptureQueue)
             let sysOut = SystemAudioOutput(writer: sysWriter)
@@ -917,6 +1014,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             activeLiveCaptionConfiguration = nil
             detectedMeetingRecordingContext = nil
             stopMonitoringOutputDeviceChanges()
+            self.coreRecordingSession = nil
             self.micSession?.stopRunning()
             self.stream = nil
             self.coreAudioTapCapture?.stop()
@@ -925,8 +1023,89 @@ final class AudioRecorder: NSObject, ObservableObject {
             self.micSession = nil
             self.micOutput = nil
             self.stopLiveCaptions(saveTo: nil)
+            appCaptureSampleBufferRouter.setLiveCaptionHandler(nil)
             endRecordingProcessActivity()
             throw error
+        }
+    }
+
+    private func startCoreScreenCaptureRecording(
+        sessionDir: URL,
+        metadata: RecordingSessionMetadata,
+        autoStopContext: DetectedMeetingRecordingContext?,
+        outputAudioDeviceID: AudioDeviceID,
+        disablesBackendLiveCaptions: Bool
+    ) async throws {
+        let selectedMicrophoneID = AppConfig.shared.recordingMicrophoneDeviceID
+        let selectionLogValue = Self.microphoneSelectionLogValue(for: selectedMicrophoneID)
+        guard let micDevice = Self.preferredMicrophoneDevice(
+            selectedID: selectedMicrophoneID,
+            selectionLogValue: selectionLogValue
+        ) else {
+            throw RecorderError.noMicrophone
+        }
+        DiagnosticsLog.event(
+            "recording",
+            "mic.device name=\(DiagnosticsLog.sanitize(micDevice.localizedName, maxLength: 80)) uniqueIDHash=\(micDevice.uniqueID.hashValue) selection=\(selectionLogValue)"
+        )
+
+        appCaptureSampleBufferRouter.setMeteringEnabled(true)
+        appCaptureSampleBufferRouter.setMicrophoneIncluded(includesMicrophoneAudio)
+        if disablesBackendLiveCaptions {
+            DiagnosticsLog.warning(
+                "live-caption",
+                "provider.disabled reason=performance_debug flag=\(RecappiPerformanceDebugOptions.disableBackendLiveCaptionsEnvKey)"
+            )
+        } else {
+            await startLiveCaptions()
+        }
+
+        let sessionID = activeRecordingID?.uuidString ?? UUID().uuidString
+        let coreSession = CaptureAudioRecordingSession(configuration: CaptureAudioRecordingSessionConfiguration(
+            sessionID: sessionID,
+            sessionDirectoryURL: sessionDir,
+            includeSystemAudio: true,
+            targetBundleID: selectedApp?.id,
+            includeMicrophone: true,
+            microphoneDeviceID: micDevice.uniqueID,
+            metadata: CaptureSessionMetadata(
+                sessionID: sessionID,
+                title: metadata.cloudRecordingTitle
+            ),
+            sampleBufferTap: { [appCaptureSampleBufferRouter] input, sampleBuffer in
+                appCaptureSampleBufferRouter.handle(input: input, sampleBuffer: sampleBuffer)
+            },
+            microphoneIncluded: { [appCaptureSampleBufferRouter] in
+                appCaptureSampleBufferRouter.isMicrophoneIncluded()
+            }
+        ))
+
+        self.coreRecordingSession = coreSession
+        try startMonitoringOutputDeviceChanges()
+        try await coreSession.start()
+
+        DiagnosticsLog.event("recording", "system_audio.backend shared_capture_core")
+        DiagnosticsLog.event(
+            "recording",
+            "capture.started dir=\(sessionDir.lastPathComponent) selectedBundle=\(selectedApp?.id ?? "all-system-audio") includeMic=\(includesMicrophoneAudio) microphone=\(microphoneSelectionLogValue) outputDevice=\(outputAudioDeviceID)"
+        )
+
+        self.audioLevel = 0
+        self.audioSpectrumLevels = Array(repeating: 0, count: Self.spectrumBucketCount)
+        self.audioLevelHistory = Array(repeating: 0, count: Self.spectrumBucketCount)
+        self.lastLevelPublish = 0
+        self.lastHistoryPublish = 0
+        self.pendingMeterPeak = 0
+        self.pendingMeterBands = Array(repeating: 0, count: Self.spectrumBucketCount)
+        self.detectedMeetingRecordingContext = autoStopContext
+        self.state = .recording
+        self.recordingAppName = selectedApp?.name
+        beginRecordingProcessActivity()
+        self.elapsedSeconds = 0
+        self.timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.elapsedSeconds += 1
+            }
         }
     }
 
@@ -968,6 +1147,10 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         if uiTestMode.isEnabled {
             return try stopUITestRecording()
+        }
+
+        if let coreSession = coreRecordingSession {
+            return try await stopCoreRecording(coreSession)
         }
 
         // Take local ownership and clear the live capture properties first.
@@ -1102,6 +1285,56 @@ final class AudioRecorder: NSObject, ObservableObject {
         return sessionDir
     }
 
+    private func stopCoreRecording(_ coreSession: CaptureAudioRecordingSession) async throws -> URL {
+        self.coreRecordingSession = nil
+        let sessionDir = self.sessionDir
+        if let sessionDir {
+            self.lastSessionDir = sessionDir
+        }
+
+        do {
+            let artifact = try await coreSession.stop()
+            let finalSessionDir = sessionDir ?? artifact.sessionDirectoryURL
+            await finalizeLiveCaptionsForStop(saveTo: finalSessionDir)
+
+            if hasIncludedMicrophoneAudioInCurrentRecording, artifact.microphoneAudioURL == nil {
+                DiagnosticsLog.error(
+                    "recording",
+                    "mic.capture_missing dir=\(finalSessionDir.lastPathComponent)"
+                )
+                throw RecorderError.micCaptureFailed
+            }
+
+            if Self.shouldKeepRawCaptureSources() {
+                let rawSources = [artifact.systemAudioURL, artifact.microphoneAudioURL]
+                    .compactMap { $0?.lastPathComponent }
+                if !rawSources.isEmpty {
+                    DiagnosticsLog.warning(
+                        "recording",
+                        "raw_sources.retained sources=\(rawSources.joined(separator: ","))"
+                    )
+                }
+            } else {
+                for sourceURL in [artifact.systemAudioURL, artifact.microphoneAudioURL].compactMap({ $0 }) {
+                    try? FileManager.default.removeItem(at: sourceURL)
+                }
+            }
+
+            DiagnosticsLog.event(
+                "recording",
+                "mix.succeeded sources=\([artifact.systemAudioURL, artifact.microphoneAudioURL].compactMap { $0 }.count) output=\(Self.fileSummary(artifact.mixedAudioURL))"
+            )
+            return finalSessionDir
+        } catch {
+            DiagnosticsLog.error(
+                "recording",
+                "core_session.stop.failed \(DiagnosticsLog.errorSummary(error))"
+            )
+            await finalizeLiveCaptionsForStop(saveTo: sessionDir)
+            throw error
+        }
+    }
+
     func discardRecording() async {
         guard state == .recording else {
             reset()
@@ -1112,6 +1345,11 @@ final class AudioRecorder: NSObject, ObservableObject {
             "recording",
             "discard.request dir=\(sessionDir?.lastPathComponent ?? "none") elapsedSeconds=\(elapsedSeconds)"
         )
+
+        if let coreSession = coreRecordingSession {
+            await discardCoreRecording(coreSession, sessionDirToDelete: sessionDir)
+            return
+        }
 
         let scStream = self.stream
         let coreAudioTapCapture = self.coreAudioTapCapture
@@ -1151,6 +1389,32 @@ final class AudioRecorder: NSObject, ObservableObject {
 
         _ = try? await systemOutput?.finishWriting()
         _ = try? await micOutput?.finishWriting()
+
+        if let sessionDirToDelete {
+            try? FileManager.default.removeItem(at: sessionDirToDelete)
+        }
+    }
+
+    private func discardCoreRecording(
+        _ coreSession: CaptureAudioRecordingSession,
+        sessionDirToDelete: URL?
+    ) async {
+        detectedMeetingRecordingContext = nil
+        activeLiveCaptionConfiguration = nil
+        timer?.invalidate()
+        timer = nil
+        stopMonitoringOutputDeviceChanges()
+        endRecordingProcessActivity()
+
+        coreRecordingSession = nil
+        clearDiscardedRecordingState()
+        await coreSession.cancel()
+
+        await finalizeLiveCaptionsForStop(saveTo: nil)
+        liveCaptionStore.clear()
+        pendingRestartTask?.cancel()
+        pendingRestartTask = nil
+        liveCaptionState = .none
 
         if let sessionDirToDelete {
             try? FileManager.default.removeItem(at: sessionDirToDelete)
@@ -1292,11 +1556,13 @@ final class AudioRecorder: NSObject, ObservableObject {
         recordingSuggestion = nil
         meetingPrompt = nil
         micSession?.stopRunning()
+        coreRecordingSession = nil
         stream = nil
         coreAudioTapCapture?.stop()
         coreAudioTapCapture = nil
         systemOutput = nil
         stopLiveCaptions(saveTo: nil)
+        appCaptureSampleBufferRouter.setLiveCaptionHandler(nil)
         liveCaptionSnapshotTask?.cancel()
         liveCaptionSnapshotTask = nil
         // Cancel any in-flight restart chain so an orphaned task from
@@ -1323,6 +1589,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     func setIncludesMicrophoneAudio(_ included: Bool) {
         includesMicrophoneAudio = included
         AppConfig.shared.recordingIncludeMicrophoneAudio = included
+        appCaptureSampleBufferRouter.setMicrophoneIncluded(included)
         if included, state == .recording {
             hasIncludedMicrophoneAudioInCurrentRecording = true
         }
@@ -1440,7 +1707,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             return
         }
         guard #available(macOS 26.0, *) else { return }
-        guard let systemOutput else { return }
+        guard state == .recording else { return }
 
         let oldProvider = liveCaptionState.activeProvider
         // Phase 2 — snapshot the outgoing provider's accumulated
@@ -1459,7 +1726,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         // next actor.
         liveCaptionSnapshotTask?.cancel()
         liveCaptionSnapshotTask = nil
-        systemOutput.onLiveCaptionSampleBuffer = nil
+        appCaptureSampleBufferRouter.setLiveCaptionHandler(nil)
 
         liveCaptionCarryoverSegments = liveCaptionSegments
         liveCaptionMessage = message
@@ -1536,8 +1803,8 @@ final class AudioRecorder: NSObject, ObservableObject {
         guard restartGeneration == generation else { return }
         // Same stop-supersede guard as the DEBUG branch.
         guard isCurrentLiveCaptionTransition(generation: generation) else { return }
-        guard state == .recording, let systemOutput else { return }
-        startLiveCaptionProvider(for: systemOutput, localeIdentifier: localeIdentifier)
+        guard state == .recording else { return }
+        startLiveCaptionProvider(localeIdentifier: localeIdentifier)
     }
 
     /// Phase 2 — returns true when `liveCaptionState` is still
@@ -1553,6 +1820,13 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func startLiveCaptions(for systemOutput: SystemAudioOutput) async {
+        systemOutput.onLiveCaptionSampleBuffer = { [appCaptureSampleBufferRouter] sampleBuffer in
+            appCaptureSampleBufferRouter.handleLiveCaptionSampleBuffer(sampleBuffer)
+        }
+        await startLiveCaptions()
+    }
+
+    private func startLiveCaptions() async {
         guard !RecappiPerformanceDebugOptions.disableBackendLiveCaptions() else {
             DiagnosticsLog.warning(
                 "live-caption",
@@ -1569,14 +1843,10 @@ final class AudioRecorder: NSObject, ObservableObject {
             return
         }
 
-        startLiveCaptionProvider(
-            for: systemOutput,
-            localeIdentifier: AppConfig.shared.normalizedCloudLanguage
-        )
+        startLiveCaptionProvider(localeIdentifier: AppConfig.shared.normalizedCloudLanguage)
     }
 
     private func startLiveCaptionProvider(
-        for systemOutput: SystemAudioOutput,
         localeIdentifier: String
     ) {
         guard let bearerToken = AuthSessionStore.shared.bearerToken() else {
@@ -1623,7 +1893,6 @@ final class AudioRecorder: NSObject, ObservableObject {
         )
         installBackendLiveCaptionActor(
             backendActor,
-            for: systemOutput,
             localeIdentifier: localeIdentifier
         )
     }
@@ -1636,7 +1905,6 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// a different `RecappiAPIClient`) can share the same wiring.
     private func installBackendLiveCaptionActor(
         _ backendActor: RealtimeLiveCaptionActor,
-        for systemOutput: SystemAudioOutput,
         localeIdentifier: String
     ) {
         // Phase 3d — promote the lifecycle to `.running`. Any
@@ -1655,7 +1923,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         // background queue. The actor's nonisolated `append(sampleBuffer:)`
         // does the PCM16 conversion off-actor and hops onto the actor
         // to enqueue the encoded frame, so we can plug it in directly.
-        systemOutput.onLiveCaptionSampleBuffer = { [weak backendActor] sampleBuffer in
+        appCaptureSampleBufferRouter.setLiveCaptionHandler { [weak backendActor] sampleBuffer in
             backendActor?.append(sampleBuffer: sampleBuffer)
         }
 
@@ -1933,6 +2201,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         liveCaptionSnapshotTask?.cancel()
         liveCaptionSnapshotTask = nil
         liveCaptionState = .none
+        appCaptureSampleBufferRouter.setLiveCaptionHandler(nil)
 
         if let sessionDir {
             do {
@@ -2290,6 +2559,10 @@ final class AudioRecorder: NSObject, ObservableObject {
     private func handleOutputDeviceChange(_ deviceID: AudioDeviceID) async {
         guard state == .recording else { return }
         guard currentOutputAudioDeviceID != deviceID else { return }
+        guard coreRecordingSession == nil else {
+            currentOutputAudioDeviceID = deviceID
+            return
+        }
         guard SystemAudioCaptureBackend.current == .screenCaptureKit else {
             currentOutputAudioDeviceID = deviceID
             return
