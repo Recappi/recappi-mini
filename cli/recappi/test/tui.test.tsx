@@ -738,6 +738,49 @@ describe("views render", () => {
     );
     expect(noAnsi(withLevel.lastFrame())).not.toContain("Capturing audio");
   });
+  it("RecordingHeroScreen shows live captions (source + translation + partial) when streaming", () => {
+    const withCaptions = render(
+      <RecordingHeroScreen
+        telemetry={{
+          status: "recording",
+          startedAtMs: 0,
+          sourceLabel: "System audio · all apps",
+          micEnabled: true,
+          level: { system: 0.6 },
+        }}
+        captions={{
+          status: "live",
+          startedAtMs: 0,
+          lines: [
+            { id: "1", text: "Hello everyone, thanks for joining.", translation: "大家好" },
+          ],
+          partial: "So the first item",
+        }}
+        now={() => 0}
+      />,
+    );
+    const cf = noAnsi(withCaptions.lastFrame());
+    expect(cf).toContain("Hello everyone, thanks for joining.");
+    expect(cf).toContain("大家好"); // bilingual translation row
+    expect(cf).toContain("So the first item"); // in-flight partial
+    // captions stream on but no speech yet → honest "listening" hint
+    const listening = render(
+      <RecordingHeroScreen
+        telemetry={{ status: "recording", startedAtMs: 0, sourceLabel: "System audio", micEnabled: false, level: { system: 0 } }}
+        captions={{ status: "live", startedAtMs: 0, lines: [] }}
+        now={() => 0}
+      />,
+    );
+    expect(noAnsi(listening.lastFrame())).toContain("Listening for speech");
+    // no captions prop → no caption area at all (plain hero)
+    const noCaptions = render(
+      <RecordingHeroScreen
+        telemetry={{ status: "recording", startedAtMs: 0, sourceLabel: "System audio", micEnabled: false, level: { system: 0 } }}
+        now={() => 0}
+      />,
+    );
+    expect(noAnsi(noCaptions.lastFrame())).not.toContain("Listening for speech");
+  });
   it("RecordingScreen shows local recording status, not captions waiting copy", async () => {
     let emit: (e: unknown) => void = () => {};
     const source = {

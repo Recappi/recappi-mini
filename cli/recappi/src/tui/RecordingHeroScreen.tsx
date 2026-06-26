@@ -5,6 +5,7 @@ import type {
   RecordingTelemetry,
 } from "../recordingCore";
 import { formatBytes, formatClockMs } from "./format";
+import { type LiveCaptionsState, liveCaptionStatusLabel } from "./liveCaptions";
 import { useTerminalSize } from "./terminal";
 
 const BLOCKS = " ▁▂▃▄▅▆▇█";
@@ -28,12 +29,14 @@ function waveform(samples: number[], width: number): string {
 export function RecordingHeroScreen({
   telemetry,
   artifact,
+  captions,
   canTranscribe = false,
   canPause = false,
   now = () => Date.now(),
 }: {
   telemetry: RecordingTelemetry;
   artifact?: RecordingArtifact;
+  captions?: LiveCaptionsState;
   canTranscribe?: boolean;
   canPause?: boolean;
   now?: () => number;
@@ -129,6 +132,11 @@ export function RecordingHeroScreen({
             {telemetry.micEnabled ? "  +  Microphone" : ""}
           </Text>
         </Box>
+        {captions ? (
+          <Box marginTop={1} flexDirection="column" alignItems="center" width={innerWidth}>
+            <HeroCaptions state={captions} />
+          </Box>
+        ) : null}
       </Box>
 
       <Box>
@@ -137,6 +145,49 @@ export function RecordingHeroScreen({
         </Text>
       </Box>
     </Box>
+  );
+}
+
+// Compact, auto-following live-caption tail — mirrors the macOS app's floating
+// panel (recent source line(s) + a dimmer translation row + the in-flight
+// partial), not the full-screen scroller (that's LiveCaptionsView). Rendered in
+// the hero only when captions are streaming; degrades to a "listening" hint
+// before any speech arrives.
+function HeroCaptions({ state }: { state: LiveCaptionsState }): React.ReactElement {
+  const MAX_LINES = 3;
+  const recent = state.lines.slice(-MAX_LINES);
+  const hasPartial = Boolean(state.partial && state.partial.length > 0);
+  if (recent.length === 0 && !hasPartial) {
+    return (
+      <Text dimColor>
+        {state.status === "live"
+          ? "Listening for speech…"
+          : liveCaptionStatusLabel(state.status)}
+      </Text>
+    );
+  }
+  return (
+    <>
+      {recent.map((line) => (
+        <Box key={line.id} flexDirection="column" alignItems="center">
+          <Text wrap="truncate-end">
+            {line.speaker ? `${line.speaker}: ` : ""}
+            {line.text}
+          </Text>
+          {line.translation ? (
+            <Text dimColor wrap="truncate-end">{`↳ ${line.translation}`}</Text>
+          ) : null}
+        </Box>
+      ))}
+      {hasPartial ? (
+        <Text dimColor wrap="truncate-end">
+          {state.partial}
+        </Text>
+      ) : null}
+      {state.translationPartial ? (
+        <Text dimColor wrap="truncate-end">{`↳ ${state.translationPartial}`}</Text>
+      ) : null}
+    </>
   );
 }
 
