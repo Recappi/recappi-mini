@@ -131,7 +131,7 @@ sequenceDiagram
 
 首选方案：共享 `ScreenCaptureKitCaptureBackend`。
 
-- [ ] `availableSources()` 用 `SCShareableContent.current.applications` 构建 app source，并沿用 app 侧的 bundle collapsing 语义。
+- [x] `availableSources()` 用 `SCShareableContent.current.applications` 构建 app source，并沿用 app 侧的 bundle collapsing 语义。
 - [ ] app source capture 用 `SCContentFilter(display:including:exceptingWindows:)`，让 ScreenCaptureKit 聚合目标 app 及其 helper/audio-service 进程。
 - [ ] system source capture 用 all-app system audio 过滤器。
 - [ ] 麦克风继续用 `AVCaptureSession` / `AVCaptureAudioDataOutput`，但移动到 core。
@@ -228,6 +228,7 @@ CLI/TUI TypeScript:
 - [x] 抽 `SegmentedAudioWriter`，保留 app wrapper 并迁移 segment 写入测试到 core target。
 - [x] 抽 `AudioMixer`，app wrapper 保留旧 `RecorderError` / `DiagnosticsLog` 语义。
 - [x] 抽 diagnostics 生成，app wrapper 保留 `DiagnosticsLog` 写失败记录。
+- [x] 抽 `CaptureSourceCatalog.availableSources()`，app/sidecar source list 共用 SCK app source + bundle collapsing 语义。
 - [x] app 和 sidecar 先编译通过，但 host 行为不切换。
 
 ### Phase 2: App Uses Core First

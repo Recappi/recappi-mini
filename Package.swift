@@ -13,7 +13,12 @@ let package = Package(
     targets: [
         .target(
             name: "RecappiCaptureCore",
-            path: "RecappiCaptureCore"
+            path: "RecappiCaptureCore",
+            linkerSettings: [
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("CoreMedia"),
+                .linkedFramework("ScreenCaptureKit"),
+            ]
         ),
         .executableTarget(
             name: "RecappiMini",
@@ -36,6 +41,9 @@ let package = Package(
         ),
         .executableTarget(
             name: "RecappiMiniSidecar",
+            dependencies: [
+                "RecappiCaptureCore",
+            ],
             path: "RecappiMiniSidecar",
             exclude: ["Info.plist"],
             linkerSettings: [

@@ -6,6 +6,7 @@ import CoreAudio
 import CoreGraphics
 import CoreMedia
 import Foundation
+import RecappiCaptureCore
 
 private let protocolVersion = 1
 private let sidecarName = "recappi-mini-sidecar"
@@ -45,7 +46,7 @@ private final class RecappiMiniSidecar {
                 ])
             case "recappi.recording.sources.list":
                 result(id: id, [
-                    "sources": RecordingInputCatalog.sources(),
+                    "sources": await RecordingInputCatalog.sources(),
                 ])
             case "recappi.recording.microphones.list":
                 result(id: id, [
@@ -247,39 +248,57 @@ private struct RecordingOptions {
     }
 }
 
-private enum RecordingInputCatalog {
-    static func sources() -> [[String: Any]] {
-        var output: [[String: Any]] = [
-            [
-                "id": "system",
-                "kind": "system",
-                "label": "System audio · all apps",
-            ],
+private extension CaptureSource {
+    var json: [String: Any] {
+        var payload: [String: Any] = [
+            "id": id,
+            "kind": kind.rawValue,
+            "label": label,
         ]
+        if let appName {
+            payload["appName"] = appName
+        }
+        if let bundleID {
+            payload["bundleId"] = bundleID
+        }
+        return payload
+    }
+}
+
+private enum RecordingInputCatalog {
+    static func sources() async -> [[String: Any]] {
+        let selfBundleID = Bundle.main.bundleIdentifier ?? "com.recappi.mini.sidecar"
+        if let sources = try? await CaptureSourceCatalog.availableSources(selfBundleID: selfBundleID) {
+            return sources.map(\.json)
+        }
+
+        return workspaceSources(selfBundleID: selfBundleID).map(\.json)
+    }
+
+    private static func workspaceSources(selfBundleID: String) -> [CaptureSource] {
         var seen = Set<String>()
-        let apps = NSWorkspace.shared.runningApplications
+        let applications = NSWorkspace.shared.runningApplications
             .filter { app in
                 app.activationPolicy == .regular && app.isTerminated == false && app.bundleIdentifier != nil
             }
             .sorted { lhs, rhs in
                 (lhs.localizedName ?? lhs.bundleIdentifier ?? "") < (rhs.localizedName ?? rhs.bundleIdentifier ?? "")
             }
+            .compactMap { app -> CaptureSourceApplication? in
+                guard let bundleID = app.bundleIdentifier,
+                      seen.insert(bundleID).inserted,
+                      CoreAudioProcessResolver.processObjectID(pid: app.processIdentifier) != nil
+                else { return nil }
+                return CaptureSourceApplication(
+                    bundleID: bundleID,
+                    name: app.localizedName ?? bundleID
+                )
+            }
 
-        for app in apps {
-            guard let bundleId = app.bundleIdentifier,
-                  seen.insert(bundleId).inserted,
-                  CoreAudioProcessResolver.processObjectID(pid: app.processIdentifier) != nil
-            else { continue }
-            let appName = app.localizedName ?? bundleId
-            output.append([
-                "id": "app:\(bundleId)",
-                "kind": "app",
-                "label": appName,
-                "appName": appName,
-                "bundleId": bundleId,
-            ])
-        }
-        return output
+        return CaptureSourceCatalog.sources(
+            from: applications,
+            selfBundleID: selfBundleID
+        )
     }
 
     static func microphones() -> [[String: Any]] {

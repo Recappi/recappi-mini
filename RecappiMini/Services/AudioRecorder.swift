@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import CoreAudio
+import RecappiCaptureCore
 @preconcurrency import ScreenCaptureKit
 
 private struct AudioAppBundleMetadata {
@@ -615,24 +616,22 @@ final class AudioRecorder: NSObject, ObservableObject {
         selfBundleID: String,
         active: Set<String>
     ) -> [AudioApp] {
-        var byParent: [String: SCRunningApplication] = [:]
-        for scApp in applications {
-            let bid = scApp.bundleIdentifier
-            guard !bid.isEmpty else { continue }
-            let parent = parentBundle(of: bid)
-            guard shouldIncludeRunningApp(bundleID: parent, selfBundleID: selfBundleID) else { continue }
-            if byParent[parent] == nil || scApp.bundleIdentifier == parent {
-                byParent[parent] = scApp
-            }
+        let sourceApps = applications.map {
+            CaptureSourceApplication(bundleID: $0.bundleIdentifier, name: $0.applicationName)
         }
+        let sources = CaptureSourceCatalog.sources(
+            from: sourceApps,
+            selfBundleID: selfBundleID,
+            includeSystemSource: false
+        )
 
-        return byParent.compactMap { parentBid, scApp in
-            let fallbackName = scApp.applicationName
+        return sources.compactMap { source in
+            guard let bundleID = source.bundleID else { return nil }
             return makeAudioApp(
-                bundleID: parentBid,
-                fallbackName: fallbackName,
+                bundleID: bundleID,
+                fallbackName: source.appName ?? source.label,
                 active: active,
-                scApp: scApp
+                scApp: nil
             )
         }
         .sorted(by: sortOrder)
@@ -694,20 +693,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     private static func shouldIncludeRunningApp(bundleID: String, selfBundleID: String) -> Bool {
-        guard bundleID != selfBundleID else { return false }
-        guard !bundleID.hasPrefix("com.apple.") || isNotableAppleApp(bundleID) else { return false }
-        return true
-    }
-
-    private static func isNotableAppleApp(_ bid: String) -> Bool {
-        let notable: Set<String> = [
-            "com.apple.Safari",
-            "com.apple.FaceTime",
-            "com.apple.Music",
-            "com.apple.QuickTimePlayerX",
-            "com.apple.VoiceMemos",
-        ]
-        return notable.contains(bid)
+        CaptureSourceCatalog.shouldInclude(bundleID: bundleID, selfBundleID: selfBundleID)
     }
 
     private func prepareMicrophoneCapture(micURL: URL) async throws -> PreparedMicrophoneCapture {
