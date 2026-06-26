@@ -2,13 +2,13 @@ import Accelerate
 import AVFoundation
 import CoreMedia
 import XCTest
-@testable import RecappiMini
+@testable import RecappiCaptureCore
 
-/// Proves the vDSP / scratch-buffer rewrite of `AudioLevelExtractor` stays
+/// Proves the vDSP / scratch-buffer rewrite of `CaptureAudioLevelExtractor` stays
 /// numerically equivalent to a from-scratch scalar reference, and that the two
 /// concurrent capture-queue callers (`meterFrame`) can't corrupt the now-shared
 /// FFT scratch.
-final class AudioLevelExtractorVDSPTests: XCTestCase {
+final class CaptureAudioLevelExtractorTests: XCTestCase {
     private struct SendableSampleBuffer: @unchecked Sendable {
         let value: CMSampleBuffer
     }
@@ -45,7 +45,7 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
             return Array(repeating: min(peak, 1), count: bucketCount)
         }
 
-        let fftSize = AudioSpectrumConfiguration.fftSize
+        let fftSize = CaptureAudioSpectrumConfiguration.fftSize
         let halfCount = fftSize / 2
         let log2n = vDSP_Length(log2(Float(fftSize)))
         guard let fft = vDSP.FFT(log2n: log2n, radix: .radix2, ofType: DSPSplitComplex.self) else {
@@ -262,8 +262,8 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
         let sampleRate = 48_000.0
         let samples = sine(frequency: 1_000, sampleRate: sampleRate, count: 4_096, amplitude: 0.8)
 
-        let optimized = AudioLevelExtractor.analyzeSamplesForTesting(samples, sampleRate: sampleRate)
-        let reference = referenceBands(samples: samples, sampleRate: sampleRate, bucketCount: AudioSpectrumConfiguration.bucketCount)
+        let optimized = CaptureAudioLevelExtractor.analyzeSamplesForTesting(samples, sampleRate: sampleRate)
+        let reference = referenceBands(samples: samples, sampleRate: sampleRate, bucketCount: CaptureAudioSpectrumConfiguration.bucketCount)
 
         XCTAssertEqual(optimized.count, reference.count)
         for (a, b) in zip(optimized, reference) {
@@ -279,8 +279,8 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
             count: 3_000
         )
 
-        let optimized = AudioLevelExtractor.analyzeSamplesForTesting(samples, sampleRate: sampleRate)
-        let reference = referenceBands(samples: samples, sampleRate: sampleRate, bucketCount: AudioSpectrumConfiguration.bucketCount)
+        let optimized = CaptureAudioLevelExtractor.analyzeSamplesForTesting(samples, sampleRate: sampleRate)
+        let reference = referenceBands(samples: samples, sampleRate: sampleRate, bucketCount: CaptureAudioSpectrumConfiguration.bucketCount)
 
         XCTAssertEqual(optimized.count, reference.count)
         for (a, b) in zip(optimized, reference) {
@@ -293,8 +293,8 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
         let sampleRate = 44_100.0
         let samples = sine(frequency: 880, sampleRate: sampleRate, count: 512, amplitude: 0.5)
 
-        let optimized = AudioLevelExtractor.analyzeSamplesForTesting(samples, sampleRate: sampleRate)
-        let reference = referenceBands(samples: samples, sampleRate: sampleRate, bucketCount: AudioSpectrumConfiguration.bucketCount)
+        let optimized = CaptureAudioLevelExtractor.analyzeSamplesForTesting(samples, sampleRate: sampleRate)
+        let reference = referenceBands(samples: samples, sampleRate: sampleRate, bucketCount: CaptureAudioSpectrumConfiguration.bucketCount)
 
         for (a, b) in zip(optimized, reference) {
             XCTAssertEqual(a, b, accuracy: 1e-3)
@@ -302,11 +302,11 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
     }
 
     func testSilenceProducesAllZeroBands() {
-        let bands = AudioLevelExtractor.analyzeSamplesForTesting(
+        let bands = CaptureAudioLevelExtractor.analyzeSamplesForTesting(
             Array(repeating: 0, count: 4_096),
             sampleRate: 48_000
         )
-        XCTAssertEqual(bands.count, AudioSpectrumConfiguration.bucketCount)
+        XCTAssertEqual(bands.count, CaptureAudioSpectrumConfiguration.bucketCount)
         XCTAssertTrue(bands.allSatisfy { $0 == 0 })
     }
 
@@ -318,7 +318,7 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
         let right = sine(frequency: 1_000, sampleRate: sampleRate, count: 2_000, amplitude: 0.3)
         let buffer = try makeSampleBuffer(interleaved: [left, right], sampleRate: sampleRate, asInt16: false)
 
-        let frame = AudioLevelExtractor.meterFrame(buffer)
+        let frame = CaptureAudioLevelExtractor.meterFrame(buffer)
 
         // Mono = (L + R) / 2; peak = max |mono|.
         let mono = zip(left, right).map { ($0 + $1) / 2 }
@@ -332,9 +332,9 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
         let right = mixedSine(components: [(200, 0.5), (5_000, 0.5)], sampleRate: sampleRate, count: 2_500)
         let buffer = try makeSampleBuffer(interleaved: [left, right], sampleRate: sampleRate, asInt16: false)
 
-        let frame = AudioLevelExtractor.meterFrame(buffer)
+        let frame = CaptureAudioLevelExtractor.meterFrame(buffer)
         let mono = zip(left, right).map { ($0 + $1) / 2 }
-        let reference = referenceBands(samples: mono, sampleRate: sampleRate, bucketCount: AudioSpectrumConfiguration.bucketCount)
+        let reference = referenceBands(samples: mono, sampleRate: sampleRate, bucketCount: CaptureAudioSpectrumConfiguration.bucketCount)
 
         XCTAssertEqual(frame.bands.count, reference.count)
         for (a, b) in zip(frame.bands, reference) {
@@ -348,7 +348,7 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
         let right = mixedSine(components: [(300, 0.4), (1_200, 0.5)], sampleRate: sampleRate, count: 2_200)
         let buffer = try makeSampleBuffer(interleaved: [left, right], sampleRate: sampleRate, asInt16: true)
 
-        let frame = AudioLevelExtractor.meterFrame(buffer)
+        let frame = CaptureAudioLevelExtractor.meterFrame(buffer)
 
         // Reconstruct the exact int16 quantization the buffer used, then
         // collapse the same way the extractor does: (Float(s)/32768 averaged).
@@ -357,7 +357,7 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
             return Float(Int16(clamping: Int(clamped * 32_768))) / 32_768
         }
         let mono = zip(left, right).map { (quantize($0) + quantize($1)) / 2 }
-        let reference = referenceBands(samples: mono, sampleRate: sampleRate, bucketCount: AudioSpectrumConfiguration.bucketCount)
+        let reference = referenceBands(samples: mono, sampleRate: sampleRate, bucketCount: CaptureAudioSpectrumConfiguration.bucketCount)
 
         XCTAssertEqual(frame.bands.count, reference.count)
         for (a, b) in zip(frame.bands, reference) {
@@ -370,8 +370,8 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
         let samples = mixedSine(components: [(440, 0.7), (1_760, 0.3)], sampleRate: sampleRate, count: 2_400)
         let buffer = try makeSampleBuffer(interleaved: [samples], sampleRate: sampleRate, asInt16: false)
 
-        let frame = AudioLevelExtractor.meterFrame(buffer)
-        let reference = referenceBands(samples: samples, sampleRate: sampleRate, bucketCount: AudioSpectrumConfiguration.bucketCount)
+        let frame = CaptureAudioLevelExtractor.meterFrame(buffer)
+        let reference = referenceBands(samples: samples, sampleRate: sampleRate, bucketCount: CaptureAudioSpectrumConfiguration.bucketCount)
 
         for (a, b) in zip(frame.bands, reference) {
             XCTAssertEqual(a, b, accuracy: 1e-3)
@@ -394,8 +394,8 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
         )
 
         // Golden serial results.
-        let systemSerial = AudioLevelExtractor.meterFrame(systemBuffer.value).bands
-        let micSerial = AudioLevelExtractor.meterFrame(micBuffer.value).bands
+        let systemSerial = CaptureAudioLevelExtractor.meterFrame(systemBuffer.value).bands
+        let micSerial = CaptureAudioLevelExtractor.meterFrame(micBuffer.value).bands
 
         let systemQueue = DispatchQueue(label: "test.system")
         let micQueue = DispatchQueue(label: "test.mic")
@@ -405,7 +405,7 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
         for _ in 0..<200 {
             group.enter()
             systemQueue.async {
-                let bands = AudioLevelExtractor.meterFrame(systemBuffer.value).bands
+                let bands = CaptureAudioLevelExtractor.meterFrame(systemBuffer.value).bands
                 let ok = bands.count == systemSerial.count
                     && zip(bands, systemSerial).allSatisfy { abs($0 - $1) < 1e-3 }
                 if !ok { mismatches.increment() }
@@ -413,7 +413,7 @@ final class AudioLevelExtractorVDSPTests: XCTestCase {
             }
             group.enter()
             micQueue.async {
-                let bands = AudioLevelExtractor.meterFrame(micBuffer.value).bands
+                let bands = CaptureAudioLevelExtractor.meterFrame(micBuffer.value).bands
                 let ok = bands.count == micSerial.count
                     && zip(bands, micSerial).allSatisfy { abs($0 - $1) < 1e-3 }
                 if !ok { mismatches.increment() }

@@ -224,7 +224,8 @@ CLI/TUI TypeScript:
 - [x] 新增 `RecappiCaptureCore` library target 和 `RecappiCaptureCoreTests`。
 - [x] 抽 `CaptureSource`、`MicrophoneDevice`、`CaptureSelection`、`CapturePermissions`、`CaptureState`、`CaptureLevel`、`CaptureArtifact`。
 - [x] 抽 bundle/app source collapsing 逻辑，确保 Arc/Chromium helper 语义有测试覆盖。
-- [ ] 抽 `AudioLevelExtractor`、`SegmentedAudioWriter`、`AudioMixer`、diagnostics 生成。
+- [x] 抽 `AudioLevelExtractor`，保留 app wrapper 并迁移 vDSP/并发测试到 core target。
+- [ ] 抽 `SegmentedAudioWriter`、`AudioMixer`、diagnostics 生成。
 - [ ] app 和 sidecar 先编译通过，但 host 行为不切换。
 
 ### Phase 2: App Uses Core First
