@@ -849,28 +849,15 @@ final class AudioRecorder: NSObject, ObservableObject {
             switch systemAudioBackend {
             case .screenCaptureKit:
                 guard let content, let display else { throw RecorderError.noDisplay }
-                let filter: SCContentFilter
-                if let app = selectedApp {
-                    let liveApps = content.applications.filter {
-                        BundleCollapser.matches($0.bundleIdentifier, selected: app.id)
-                    }
-                    if !liveApps.isEmpty {
-                        filter = SCContentFilter(display: display, including: liveApps, exceptingWindows: [])
-                        recordingAppName = app.name
-                    } else {
-                        filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-                        recordingAppName = nil
-                    }
-                } else {
-                    filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-                    recordingAppName = nil
-                }
-
-                let config = makeSystemAudioConfiguration()
-
-                let scStream = SCStream(filter: filter, configuration: config, delegate: nil)
-                try scStream.addStreamOutput(sysOut, type: .audio, sampleHandlerQueue: systemCaptureQueue)
-                self.stream = scStream
+                let capture = try CaptureScreenCaptureKitAudio.makeStream(
+                    display: display,
+                    applications: content.applications,
+                    targetBundleID: selectedApp?.id,
+                    output: sysOut,
+                    sampleHandlerQueue: systemCaptureQueue
+                )
+                self.stream = capture.stream
+                recordingAppName = capture.matchedBundleID == nil ? nil : selectedApp?.name
                 DiagnosticsLog.event("recording", "system_audio.backend screen_capture_kit")
 
             case .coreAudioProcessTap:
@@ -2241,26 +2228,6 @@ final class AudioRecorder: NSObject, ObservableObject {
         return sessionDir
     }
 
-    private func makeSystemAudioConfiguration() -> SCStreamConfiguration {
-        let config = SCStreamConfiguration()
-        config.capturesAudio = true
-        // Recappi only consumes the `.audio` output from this SCStream.
-        // Keep the video side tiny so ScreenCaptureKit does not maintain a
-        // default 1920x1080 / 60fps surface while recording audio.
-        config.width = 2
-        config.height = 2
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
-        config.queueDepth = 1
-        // Keep ScreenCaptureKit on a conservative app-friendly format.
-        // Some output devices report 6/8/16-channel layouts or unusual
-        // sample rates; forwarding those directly into realtime AAC encoding
-        // has produced loud noise on other machines.
-        config.sampleRate = 48_000
-        config.channelCount = 2
-        config.excludesCurrentProcessAudio = true
-        return config
-    }
-
     private func startMonitoringOutputDeviceChanges() throws {
         let monitor = try DefaultAudioDeviceMonitor { [weak self] change in
             Task { @MainActor [weak self] in
@@ -2335,7 +2302,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         currentOutputAudioDeviceID = deviceID
 
         do {
-            try await stream.updateConfiguration(makeSystemAudioConfiguration())
+            try await stream.updateConfiguration(CaptureScreenCaptureKitAudio.makeAudioConfiguration())
         } catch {
             DiagnosticsLog.error(
                 "recording",

@@ -132,8 +132,8 @@ sequenceDiagram
 首选方案：共享 `ScreenCaptureKitCaptureBackend`。
 
 - [x] `availableSources()` 用 `SCShareableContent.current.applications` 构建 app source，并沿用 app 侧的 bundle collapsing 语义。
-- [ ] app source capture 用 `SCContentFilter(display:including:exceptingWindows:)`，让 ScreenCaptureKit 聚合目标 app 及其 helper/audio-service 进程。
-- [ ] system source capture 用 all-app system audio 过滤器。
+- [x] app source capture 用 `SCContentFilter(display:including:exceptingWindows:)`，让 ScreenCaptureKit 聚合目标 app 及其 helper/audio-service 进程。
+- [x] system source capture 用 all-app system audio 过滤器。
 - [ ] 麦克风继续用 `AVCaptureSession` / `AVCaptureAudioDataOutput`，但移动到 core。
 - [ ] system/mic sample buffer 同时写入 `SegmentedAudioWriter` 和 level extractor，`levels` 以 10-20Hz 输出。
 - [ ] stop 时由 core 返回 `CaptureArtifact`，包含 system/mic/mixed URL、duration、diagnostics、effective selection。
