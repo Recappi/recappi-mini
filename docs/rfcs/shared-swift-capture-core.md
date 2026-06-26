@@ -150,6 +150,22 @@ sequenceDiagram
 - [ ] 新安装、升级、权限已拒绝、权限重置后的 preflight/request 行为是否可预测。
 - [ ] Screen Recording 授权后是否需要重启 helper 进程才生效；如果需要，对应 `CapturePermission.requiresProcessRestart` 和 CLI copy 必须诚实提示用户重新运行 `recappi record`，不能授权后继续录出静音。
 
+### Phase 0 Spike Result (2026-06-26)
+
+Local spike used an ad-hoc signed `SCKHeadlessProbe` with embedded `Info.plist`, `NSAudioCaptureUsageDescription`, `CGPreflightScreenCaptureAccess`, `SCShareableContent.current`, and an audio-only `SCStream`.
+
+- [x] Raw headless executable can run SCK audio-only capture when launched from this already-authorized agent/terminal context. System all-apps + a probe-triggered system tone produced 202 audio buffers, 1,551,360 bytes, maxAbs `0.296528`, rms `-35.95 dB`, 48 kHz / 2ch / 32-bit float.
+- [x] Raw headless executable can construct and start an app-filtered stream: `--bundle-id com.google.Chrome` matched `Google Chrome:com.google.Chrome` and produced audio buffers. The run was silent because Chrome was not playing audio; this still removes the blocker that SCK app filters require an interactive app UI.
+- [x] Raw executable is not a LaunchServices-registered TCC subject by bundle id. `tccutil reset ScreenCapture com.recappi.mini.sck-headless-probe` failed with `No such bundle identifier`; current `com.recappi.mini.sidecar` has the same failure. After resetting the registered app bundle below, the raw executable still reported `preflightScreenCapture=true`, which strongly indicates parent/launcher attribution for the raw npm-binary shape.
+- [x] Registered helper `.app` shape is TCC-addressable. Packaging the same probe as `SCKHeadlessProbe.app`, registering with `lsregister`, then running `tccutil reset ScreenCapture com.recappi.mini.sck-headless-probe` succeeded. Launching that app via `open` after reset produced `preflightScreenCapture=false` and `SCStreamErrorDomain Code=-3801`.
+- [x] Current `RecappiMiniSidecar/Info.plist` has `NSMicrophoneUsageDescription` but lacks `NSAudioCaptureUsageDescription`; the shared SCK helper path should add the system-audio usage string.
+
+Spike conclusion:
+
+- [x] **SCK backend viability: go.** Headless audio-only SCK capture and app filters work.
+- [x] **Current raw npm helper TCC model: no-go for helper-owned permission UX.** If we want predictable helper-owned TCC, the packaged helper should become a signed/notarized helper `.app` or equivalent LaunchServices-registered bundle, and the CLI resolver/package layout must support launching that bundle.
+- [ ] **Manual grant/re-run validation still required.** The spike verified denied/reset behavior; confirming whether Screen Recording grant takes effect in-process or needs helper restart requires a human System Settings grant on a fresh registered helper bundle.
+
 Fallback 方案只作为 TCC blocked 时的显式决策，不作为默认实现：
 
 - [ ] 保留共享 `RecordingCaptureCore` interface 和 host adapter。
