@@ -127,6 +127,16 @@ export function sidecarToLiveCaptionEvent(event: SidecarEvent): LiveCaptionEvent
       }
       return { kind: "partial", text: event.text };
     }
+    case "live_caption.status":
+      // Connection lifecycle from the helper's reconnect loop (connecting →
+      // live → reconnecting on drop → stopped/error). Route "error" through the
+      // error event so the reason message is preserved; the reducer's status
+      // case carries no message. The sidecar status enum is identical to
+      // LiveCaptionStatus, so it maps straight through.
+      if (event.status === "error") {
+        return { kind: "error", message: event.message ?? "Live captions error" };
+      }
+      return { kind: "status", status: event.status };
     case "error":
       return event.code.startsWith("live_caption.")
         ? { kind: "error", message: event.message }

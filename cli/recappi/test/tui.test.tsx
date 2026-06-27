@@ -883,6 +883,63 @@ describe("views render", () => {
         message: "recording failed",
       } as never),
     ).toBeNull();
+    // live_caption.status from the helper's reconnect loop maps straight through…
+    expect(
+      sidecarToLiveCaptionEvent({
+        type: "live_caption.status",
+        sessionId: "s",
+        status: "reconnecting",
+      } as never),
+    ).toEqual({ kind: "status", status: "reconnecting" });
+    expect(
+      sidecarToLiveCaptionEvent({
+        type: "live_caption.status",
+        sessionId: "s",
+        status: "live",
+      } as never),
+    ).toEqual({ kind: "status", status: "live" });
+    // …except "error", which routes through the error event so the reason survives
+    expect(
+      sidecarToLiveCaptionEvent({
+        type: "live_caption.status",
+        sessionId: "s",
+        status: "error",
+        message: "claim failed",
+      } as never),
+    ).toEqual({ kind: "error", message: "claim failed" });
+    expect(
+      sidecarToLiveCaptionEvent({
+        type: "live_caption.status",
+        sessionId: "s",
+        status: "error",
+      } as never),
+    ).toEqual({ kind: "error", message: "Live captions error" });
+  });
+  it("reconnecting status surfaces in the hero caption tail", () => {
+    // helper drops → reconnecting should render the "Reconnecting…" label, then
+    // recover to live on resume.
+    let state = initialLiveCaptionsState();
+    for (const ev of [
+      { type: "live_caption.status", sessionId: "s", status: "live" },
+      { type: "live_caption.status", sessionId: "s", status: "reconnecting" },
+    ] as const) {
+      const mapped = sidecarToLiveCaptionEvent(ev as never);
+      if (mapped) state = liveCaptionReducer(state, mapped);
+    }
+    expect(state.status).toBe("reconnecting");
+    const { lastFrame } = render(
+      <RecordingHeroScreen
+        telemetry={{
+          status: "recording",
+          startedAtMs: 0,
+          sourceLabel: "System audio",
+          micEnabled: false,
+        }}
+        captions={state}
+        now={() => 1000}
+      />,
+    );
+    expect(lastFrame()).toContain("Reconnecting…");
   });
   it("keeps live-caption sidecar errors out of recording telemetry", () => {
     const telemetry = {
