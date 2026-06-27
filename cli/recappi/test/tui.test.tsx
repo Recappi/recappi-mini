@@ -22,6 +22,7 @@ import { LiveCaptionsScreen } from "../src/tui/LiveCaptionsScreen";
 import { RecordingScreen } from "../src/tui/RecordingScreen";
 import { RecordSetupView } from "../src/tui/RecordSetupView";
 import { RecordingHeroScreen } from "../src/tui/RecordingHeroScreen";
+import { applyRecordingEventToTelemetry } from "../src/recordingCore";
 import {
   liveCaptionReducer,
   initialLiveCaptionsState,
@@ -772,6 +773,21 @@ describe("views render", () => {
       />,
     );
     expect(noAnsi(listening.lastFrame())).toContain("Listening for speech");
+    const captionError = render(
+      <RecordingHeroScreen
+        telemetry={{ status: "recording", startedAtMs: 0, sourceLabel: "System audio", micEnabled: false, level: { system: 0 } }}
+        captions={{
+          status: "error",
+          lines: [],
+          error: "Live captions claim failed (HTTP 429): too many claims",
+        }}
+        now={() => 0}
+      />,
+    );
+    const ef = noAnsi(captionError.lastFrame());
+    expect(ef).toContain("Captions unavailable");
+    expect(ef).toContain("HTTP 429");
+    expect(ef).not.toContain("Recording error");
     // no captions prop → no caption area at all (plain hero)
     const noCaptions = render(
       <RecordingHeroScreen
@@ -853,8 +869,41 @@ describe("views render", () => {
       sidecarToLiveCaptionEvent({ type: "audio.level", sessionId: "s", input: "system" } as never),
     ).toBeNull();
     expect(
-      sidecarToLiveCaptionEvent({ type: "error", code: "E", message: "stream dropped" } as never),
+      sidecarToLiveCaptionEvent({
+        type: "error",
+        code: "live_caption.receive_failed",
+        message: "stream dropped",
+      } as never),
     ).toEqual({ kind: "error", message: "stream dropped" });
+    expect(
+      sidecarToLiveCaptionEvent({
+        type: "error",
+        code: "record.capture_failed",
+        message: "recording failed",
+      } as never),
+    ).toBeNull();
+  });
+  it("keeps live-caption sidecar errors out of recording telemetry", () => {
+    const telemetry = {
+      status: "recording" as const,
+      startedAtMs: 0,
+      sourceLabel: "System audio",
+      micEnabled: true,
+    };
+    expect(
+      applyRecordingEventToTelemetry(telemetry, {
+        type: "error",
+        code: "live_caption.connect_failed",
+        message: "Live captions claim failed (HTTP 429): too many claims",
+      } as never),
+    ).toEqual(telemetry);
+    expect(
+      applyRecordingEventToTelemetry(telemetry, {
+        type: "error",
+        code: "record.capture_failed",
+        message: "No audio was captured.",
+      } as never),
+    ).toMatchObject({ status: "error", error: "No audio was captured." });
   });
   it("handles bilingual captions: translation pairs onto its source line", () => {
     // adapter maps the translation stream

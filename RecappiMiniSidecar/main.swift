@@ -766,8 +766,12 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         let message: String?
     }
 
-    private struct Failure: Error {
+    private struct Failure: LocalizedError {
         let message: String
+
+        var errorDescription: String? {
+            message
+        }
     }
 
     private static let manualCommitByteThreshold = 67_200
@@ -878,7 +882,7 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         } catch {
             emitError(
                 code: "live_caption.connect_failed",
-                message: "Live captions could not connect.",
+                message: Self.errorMessage(error, fallback: "Live captions could not connect."),
                 retryable: true
             )
         }
@@ -905,12 +909,19 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: claimRequestBody())
         let (data, response) = try await urlSession.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode)
-        else {
-            throw Failure(message: "Live captions claim failed.")
+        guard let http = response as? HTTPURLResponse else {
+            throw Failure(message: "Live captions claim returned an invalid response.")
         }
-        return try JSONDecoder().decode(RealtimeClaim.self, from: data)
+        guard (200..<300).contains(http.statusCode) else {
+            let detail = Self.responseMessage(from: data)
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw Failure(message: "Live captions claim failed (HTTP \(http.statusCode)): \(detail)")
+        }
+        do {
+            return try JSONDecoder().decode(RealtimeClaim.self, from: data)
+        } catch {
+            throw Failure(message: "Live captions claim returned an unsupported response.")
+        }
     }
 
     private func claimRequestBody() -> [String: Any] {
@@ -997,10 +1008,10 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         let streamer = self
         sendQueue.async {
             task.send(.string(text)) { error in
-                if error != nil {
+                if let error {
                     streamer.emitError(
                         code: "live_caption.send_failed",
-                        message: "Live captions connection dropped.",
+                        message: "Live captions connection dropped: \(Self.errorMessage(error, fallback: "send failed"))",
                         retryable: true
                     )
                 }
@@ -1024,11 +1035,11 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
                 if !self.isStopped {
                     self.receiveLoop(task)
                 }
-            case .failure:
+            case .failure(let error):
                 if !self.isStopped {
                     self.emitError(
                         code: "live_caption.receive_failed",
-                        message: "Live captions connection dropped.",
+                        message: "Live captions connection dropped: \(Self.errorMessage(error, fallback: "receive failed"))",
                         retryable: true
                     )
                 }
@@ -1177,6 +1188,38 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
 
     private func emitError(code: String, message: String, retryable: Bool) {
         onError(code, message, retryable)
+    }
+
+    private static func responseMessage(from data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let message = cleanMessage(object["message"] as? String) {
+                return message
+            }
+            if let error = cleanMessage(object["error"] as? String) {
+                return error
+            }
+            if let errorObject = object["error"] as? [String: Any],
+               let message = cleanMessage(errorObject["message"] as? String) {
+                return message
+            }
+        }
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        return cleanMessage(text)
+    }
+
+    private static func errorMessage(_ error: Error, fallback: String) -> String {
+        if let failure = error as? Failure {
+            return failure.message
+        }
+        let message = cleanMessage(error.localizedDescription)
+        return message ?? fallback
+    }
+
+    private static func cleanMessage(_ raw: String?) -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(240))
     }
 }
 

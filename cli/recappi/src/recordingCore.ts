@@ -179,10 +179,15 @@ export function applyRecordingEventToTelemetry(
   }
 
   if (event.type === "error") {
+    if (isLiveCaptionSidecarError(event.code)) return telemetry;
     return { ...telemetry, status: "error", error: event.message };
   }
 
   return telemetry;
+}
+
+export function isLiveCaptionSidecarError(code: string | undefined): boolean {
+  return code?.startsWith("live_caption.") === true;
 }
 
 export function recordingArtifactFromRecordData(data: RecordCommandData): RecordingArtifact {

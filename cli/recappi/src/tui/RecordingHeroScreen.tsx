@@ -157,12 +157,17 @@ function HeroCaptions({ state }: { state: LiveCaptionsState }): React.ReactEleme
   const MAX_LINES = 3;
   const recent = state.lines.slice(-MAX_LINES);
   const hasPartial = Boolean(state.partial && state.partial.length > 0);
+  const captionError =
+    state.status === "error"
+      ? `Captions unavailable: ${state.error ?? "Live captions unavailable."}`
+      : null;
   if (recent.length === 0 && !hasPartial) {
     return (
-      <Text dimColor>
-        {state.status === "live"
-          ? "Listening for speech…"
-          : liveCaptionStatusLabel(state.status)}
+      <Text color={captionError ? "yellow" : undefined} dimColor={!captionError}>
+        {captionError ??
+          (state.status === "live"
+            ? "Listening for speech…"
+            : liveCaptionStatusLabel(state.status))}
       </Text>
     );
   }
@@ -186,6 +191,11 @@ function HeroCaptions({ state }: { state: LiveCaptionsState }): React.ReactEleme
       ) : null}
       {state.translationPartial ? (
         <Text dimColor wrap="truncate-end">{`↳ ${state.translationPartial}`}</Text>
+      ) : null}
+      {captionError ? (
+        <Text color="yellow" wrap="truncate-end">
+          {captionError}
+        </Text>
       ) : null}
     </>
   );

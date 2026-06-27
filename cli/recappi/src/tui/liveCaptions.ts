@@ -128,7 +128,9 @@ export function sidecarToLiveCaptionEvent(event: SidecarEvent): LiveCaptionEvent
       return { kind: "partial", text: event.text };
     }
     case "error":
-      return { kind: "error", message: event.message };
+      return event.code.startsWith("live_caption.")
+        ? { kind: "error", message: event.message }
+        : null;
     case "audio.level":
     case "local_artifact.upserted":
       return null;
