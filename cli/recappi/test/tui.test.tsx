@@ -786,8 +786,9 @@ describe("views render", () => {
     );
     const ef = noAnsi(captionError.lastFrame());
     expect(ef).toContain("Captions unavailable");
-    expect(ef).toContain("HTTP 429");
+    expect(ef).toContain("HTTP 429"); // surfaces the real WS reason, not a bare label
     expect(ef).not.toContain("Recording error");
+    expect(ef).toContain("REC"); // recording continues despite caption error
     // no captions prop → no caption area at all (plain hero)
     const noCaptions = render(
       <RecordingHeroScreen

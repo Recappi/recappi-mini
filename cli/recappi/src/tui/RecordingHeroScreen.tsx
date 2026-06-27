@@ -162,8 +162,10 @@ function HeroCaptions({ state }: { state: LiveCaptionsState }): React.ReactEleme
       ? `Captions unavailable: ${state.error ?? "Live captions unavailable."}`
       : null;
   if (recent.length === 0 && !hasPartial) {
+    // Surface the real caption error (the WS status/reason the helper exposes) in
+    // yellow (captions degraded, recording continues) rather than a bare label.
     return (
-      <Text color={captionError ? "yellow" : undefined} dimColor={!captionError}>
+      <Text color={captionError ? "yellow" : undefined} dimColor={!captionError} wrap="truncate-end">
         {captionError ??
           (state.status === "live"
             ? "Listening for speech…"
