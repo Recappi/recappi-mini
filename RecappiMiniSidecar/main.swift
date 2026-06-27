@@ -88,6 +88,9 @@ private final class RecappiMiniSidecar {
                     onLiveCaption: { [weak self] sessionID, delta in
                         self?.emitLiveCaptionDelta(sessionID: sessionID, delta: delta)
                     },
+                    onLiveCaptionStatus: { [weak self] sessionID, status in
+                        self?.emitLiveCaptionStatus(sessionID: sessionID, status: status)
+                    },
                     onError: { [weak self] sessionID, code, message, retryable in
                         self?.emitSessionError(
                             sessionID: sessionID,
@@ -239,6 +242,22 @@ private final class RecappiMiniSidecar {
         }
         if let language = delta.language {
             params["language"] = language
+        }
+        writeJSON([
+            "jsonrpc": "2.0",
+            "method": "recappi.event",
+            "params": params,
+        ])
+    }
+
+    private func emitLiveCaptionStatus(sessionID: String, status: SidecarLiveCaptionStatusUpdate) {
+        var params: [String: Any] = [
+            "type": "live_caption.status",
+            "sessionId": sessionID,
+            "status": status.value.rawValue,
+        ]
+        if let message = status.message {
+            params["message"] = message
         }
         writeJSON([
             "jsonrpc": "2.0",
@@ -494,6 +513,7 @@ private final class SidecarRecordingSession: @unchecked Sendable {
     private let onState: (SidecarRecordingSession, RecordingState, String?) -> Void
     private let onLevel: (String, CaptureLevel) -> Void
     private let onLiveCaption: (String, SidecarLiveCaptionDelta) -> Void
+    private let onLiveCaptionStatus: (String, SidecarLiveCaptionStatusUpdate) -> Void
     private let onError: (String, String, String, Bool) -> Void
     private(set) var state: RecordingState = .idle
     private(set) var sessionDir: URL?
@@ -508,6 +528,7 @@ private final class SidecarRecordingSession: @unchecked Sendable {
         onState: @escaping (SidecarRecordingSession, RecordingState, String?) -> Void,
         onLevel: @escaping (String, CaptureLevel) -> Void,
         onLiveCaption: @escaping (String, SidecarLiveCaptionDelta) -> Void,
+        onLiveCaptionStatus: @escaping (String, SidecarLiveCaptionStatusUpdate) -> Void,
         onError: @escaping (String, String, String, Bool) -> Void
     ) async throws {
         guard options.includeSystemAudio || options.includeMicrophone else {
@@ -522,6 +543,7 @@ private final class SidecarRecordingSession: @unchecked Sendable {
         self.onState = onState
         self.onLevel = onLevel
         self.onLiveCaption = onLiveCaption
+        self.onLiveCaptionStatus = onLiveCaptionStatus
         self.onError = onError
     }
 
@@ -629,6 +651,10 @@ private final class SidecarRecordingSession: @unchecked Sendable {
                 guard let self else { return }
                 self.onLiveCaption(self.id, delta)
             },
+            onStatus: { [weak self] status in
+                guard let self else { return }
+                self.onLiveCaptionStatus(self.id, status)
+            },
             onError: { [weak self] code, message, retryable in
                 guard let self else { return }
                 self.onError(self.id, code, message, retryable)
@@ -718,6 +744,19 @@ private struct SidecarLiveCaptionDelta: Sendable {
     let language: String?
 }
 
+private struct SidecarLiveCaptionStatusUpdate: Sendable {
+    enum Value: String, Sendable {
+        case connecting
+        case live
+        case reconnecting
+        case stopped
+        case error
+    }
+
+    let value: Value
+    let message: String?
+}
+
 private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
     private enum Mode {
         case transcription
@@ -775,6 +814,8 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
     }
 
     private static let manualCommitByteThreshold = 67_200
+    private static let reconnectDelays: [TimeInterval] = [1, 2, 5, 10, 30]
+    private static let rateLimitReconnectDelay: TimeInterval = 30
 
     private let sessionID: String
     private let backendOrigin: String
@@ -782,12 +823,16 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
     private let options: RecordingOptions
     private let mode: Mode
     private let onDelta: (SidecarLiveCaptionDelta) -> Void
+    private let onStatus: (SidecarLiveCaptionStatusUpdate) -> Void
     private let onError: (String, String, Bool) -> Void
     private let urlSession: URLSession
     private let sendQueue = DispatchQueue(label: "com.recappi.sidecar.live-caption.send")
     private let lock = NSLock()
 
     private var socket: URLSessionWebSocketTask?
+    private var openTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectAttempt = 0
     private var stopped = false
     private var uncommittedAudioBytes = 0
     private var transcriptTextBySegment: [String: String] = [:]
@@ -800,6 +845,7 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         authToken: String,
         options: RecordingOptions,
         onDelta: @escaping (SidecarLiveCaptionDelta) -> Void,
+        onStatus: @escaping (SidecarLiveCaptionStatusUpdate) -> Void,
         onError: @escaping (String, String, Bool) -> Void
     ) {
         self.sessionID = sessionID
@@ -816,6 +862,7 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
             mode = .transcription
         }
         self.onDelta = onDelta
+        self.onStatus = onStatus
         self.onError = onError
         let config = URLSessionConfiguration.default
         config.waitsForConnectivity = true
@@ -823,9 +870,8 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
     }
 
     func start() {
-        Task { [weak self] in
-            await self?.open()
-        }
+        emitStatus(.connecting)
+        startOpen(attempt: 0)
     }
 
     func append(input: CaptureLevel.Input, sampleBuffer: CMSampleBuffer) {
@@ -844,6 +890,10 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         let task: URLSessionWebSocketTask?
         lock.lock()
         stopped = true
+        openTask?.cancel()
+        openTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
         task = socket
         socket = nil
         let shouldCommit = !mode.isTranslation && uncommittedAudioBytes > 0
@@ -858,12 +908,30 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
             sendRawText(Self.sessionCloseEventText, task: task)
         }
         task?.cancel(with: .goingAway, reason: nil)
+        emitStatus(.stopped)
         urlSession.invalidateAndCancel()
     }
 
-    private func open() async {
+    private func startOpen(attempt: Int) {
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.open(attempt: attempt)
+        }
+        lock.lock()
+        if stopped {
+            lock.unlock()
+            task.cancel()
+            return
+        }
+        openTask = task
+        lock.unlock()
+    }
+
+    private func open(attempt: Int) async {
+        guard !isStopped else { return }
         do {
             let claim = try await claimSession()
+            guard !Task.isCancelled, !isStopped else { return }
             guard let websocketURL = URL(string: claim.websocketUrl) else {
                 throw Failure(message: "Live captions returned an invalid websocket URL.")
             }
@@ -876,14 +944,19 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
                 task.cancel(with: .goingAway, reason: nil)
                 return
             }
+            guard isCurrentSocket(task) else {
+                task.cancel(with: .goingAway, reason: nil)
+                return
+            }
             task.resume()
+            emitStatus(.live)
             receiveLoop(task)
             _ = claim.sessionId
         } catch {
-            emitError(
+            scheduleReconnect(
                 code: "live_caption.connect_failed",
                 message: Self.errorMessage(error, fallback: "Live captions could not connect."),
-                retryable: true
+                failedTask: nil
             )
         }
     }
@@ -893,6 +966,8 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         defer { lock.unlock() }
         guard !stopped else { return false }
         socket = task
+        reconnectAttempt = 0
+        reconnectTask = nil
         return true
     }
 
@@ -1009,10 +1084,10 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         sendQueue.async {
             task.send(.string(text)) { error in
                 if let error {
-                    streamer.emitError(
+                    streamer.scheduleReconnect(
                         code: "live_caption.send_failed",
                         message: "Live captions connection dropped: \(Self.errorMessage(error, fallback: "send failed"))",
-                        retryable: true
+                        failedTask: task
                     )
                 }
             }
@@ -1031,16 +1106,16 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
             guard let self, let task else { return }
             switch result {
             case .success(let message):
-                self.handle(message: message)
-                if !self.isStopped {
+                self.handle(message: message, task: task)
+                if self.isCurrentSocket(task) {
                     self.receiveLoop(task)
                 }
             case .failure(let error):
                 if !self.isStopped {
-                    self.emitError(
+                    self.scheduleReconnect(
                         code: "live_caption.receive_failed",
                         message: "Live captions connection dropped: \(Self.errorMessage(error, fallback: "receive failed"))",
-                        retryable: true
+                        failedTask: task
                     )
                 }
             }
@@ -1053,7 +1128,14 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         return stopped
     }
 
-    private func handle(message: URLSessionWebSocketTask.Message) {
+    private func isCurrentSocket(_ task: URLSessionWebSocketTask) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !stopped, let socket else { return false }
+        return socket === task
+    }
+
+    private func handle(message: URLSessionWebSocketTask.Message, task: URLSessionWebSocketTask) {
         let data: Data
         switch message {
         case .string(let text):
@@ -1097,10 +1179,10 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
                 segmentId: "translation-current"
             )
         case "error":
-            emitError(
+            scheduleReconnect(
                 code: "live_caption.server_error",
                 message: event.error?.message ?? "Live captions failed.",
-                retryable: true
+                failedTask: task
             )
         default:
             break
@@ -1184,6 +1266,75 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
             trimmed,
             defaultLanguage: stream == .translation ? "zh" : "en"
         )
+    }
+
+    private func scheduleReconnect(
+        code _: String,
+        message: String,
+        failedTask: URLSessionWebSocketTask?
+    ) {
+        let taskToCancel: URLSessionWebSocketTask?
+        let delay: TimeInterval
+        let nextAttempt: Int
+        let statusMessage: String
+
+        lock.lock()
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        if let failedTask {
+            guard let current = socket, current === failedTask else {
+                lock.unlock()
+                return
+            }
+        }
+
+        taskToCancel = socket
+        socket = nil
+        uncommittedAudioBytes = 0
+        let attempt = reconnectAttempt
+        reconnectAttempt += 1
+        nextAttempt = reconnectAttempt
+        delay = Self.reconnectDelay(forAttempt: attempt, after: message)
+        statusMessage = "\(message) Reconnecting in \(Self.formatDelay(delay))."
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: Self.nanoseconds(for: delay))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            await self.open(attempt: nextAttempt)
+        }
+        lock.unlock()
+
+        taskToCancel?.cancel(with: .goingAway, reason: nil)
+        emitStatus(.reconnecting, message: statusMessage)
+    }
+
+    private static func reconnectDelay(forAttempt attempt: Int, after message: String) -> TimeInterval {
+        if message.localizedCaseInsensitiveContains("HTTP 429")
+            || message.localizedCaseInsensitiveContains("rate limit")
+            || message.localizedCaseInsensitiveContains("too many") {
+            return rateLimitReconnectDelay
+        }
+        guard !reconnectDelays.isEmpty else { return 1 }
+        return reconnectDelays[min(attempt, reconnectDelays.count - 1)]
+    }
+
+    private static func formatDelay(_ delay: TimeInterval) -> String {
+        let seconds = Int(delay.rounded())
+        return seconds == 1 ? "1s" : "\(seconds)s"
+    }
+
+    private static func nanoseconds(for delay: TimeInterval) -> UInt64 {
+        UInt64(max(0, delay) * 1_000_000_000)
+    }
+
+    private func emitStatus(_ value: SidecarLiveCaptionStatusUpdate.Value, message: String? = nil) {
+        onStatus(SidecarLiveCaptionStatusUpdate(value: value, message: Self.cleanMessage(message)))
     }
 
     private func emitError(code: String, message: String, retryable: Bool) {

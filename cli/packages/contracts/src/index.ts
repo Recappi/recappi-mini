@@ -262,6 +262,15 @@ export const sidecarRecordingStateSchema = z.enum([
 ]);
 export type SidecarRecordingState = z.infer<typeof sidecarRecordingStateSchema>;
 
+export const sidecarLiveCaptionStatusSchema = z.enum([
+  "connecting",
+  "live",
+  "reconnecting",
+  "stopped",
+  "error",
+]);
+export type SidecarLiveCaptionStatus = z.infer<typeof sidecarLiveCaptionStatusSchema>;
+
 export const sidecarLocalArtifactKindSchema = z.enum([
   "recording_session",
   "download",
@@ -436,6 +445,12 @@ export const sidecarEventSchema = z.discriminatedUnion("type", [
     atMs: z.number().int().nonnegative().optional(),
     startMs: z.number().nonnegative().optional(),
     endMs: z.number().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("live_caption.status"),
+    sessionId: z.string(),
+    status: sidecarLiveCaptionStatusSchema,
+    message: z.string().optional(),
   }),
   z.object({
     type: z.literal("local_artifact.upserted"),

@@ -281,6 +281,10 @@ describe("Mini sidecar JSON-RPC client", () => {
         expect(event.text).toBe("hello");
         expect(event.stream).toBe("source");
       }
+      if (event.type === "live_caption.status") {
+        expect(event.status).toBe("reconnecting");
+        expect(event.message).toBe("Live captions connection dropped. Reconnecting in 1s.");
+      }
       if (event.type === "local_artifact.upserted") {
         expect(event.artifact.kind).toBe("live_caption_draft");
       }
@@ -310,6 +314,16 @@ describe("Mini sidecar JSON-RPC client", () => {
         jsonrpc: "2.0",
         method: "recappi.event",
         params: {
+          type: "live_caption.status",
+          sessionId: "sidecar_session_1",
+          status: "reconnecting",
+          message: "Live captions connection dropped. Reconnecting in 1s.",
+        },
+      });
+      fake.write({
+        jsonrpc: "2.0",
+        method: "recappi.event",
+        params: {
           type: "audio.level",
           sessionId: "sidecar_session_1",
           input: "system",
@@ -331,7 +345,12 @@ describe("Mini sidecar JSON-RPC client", () => {
       });
 
       await tick();
-      expect(events).toEqual(["live_caption.delta", "audio.level", "local_artifact.upserted"]);
+      expect(events).toEqual([
+        "live_caption.delta",
+        "live_caption.status",
+        "audio.level",
+        "local_artifact.upserted",
+      ]);
     } finally {
       unsubscribe();
       fake.close();
