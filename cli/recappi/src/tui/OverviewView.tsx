@@ -47,18 +47,33 @@ export function OverviewView({
 
   return (
     <Box flexDirection="column">
-      {/* Compact status bar — doesn't take list space. */}
+      {/* Compact status bar — headline count leads, each stat carries its own
+          semantic color (green ready · cyan transcribing · yellow queued),
+          secondary totals stay dim. Doesn't take list space. */}
       <Box>
-        <Text dimColor>Recordings </Text>
         <Text bold>{stats?.recordings.total ?? recordings.length}</Text>
+        <Text dimColor> recordings</Text>
         {stats?.recordings.ready != null ? (
-          <Text dimColor>{`  ·  ${stats.recordings.ready} ready`}</Text>
+          <>
+            <Text dimColor>{"  ·  "}</Text>
+            <Text color="green">{`${stats.recordings.ready} ready`}</Text>
+          </>
+        ) : null}
+        {running > 0 ? (
+          <>
+            <Text dimColor>{"  ·  "}</Text>
+            <Text color="cyan">{`${running} transcribing`}</Text>
+          </>
+        ) : null}
+        {queued > 0 ? (
+          <>
+            <Text dimColor>{"  ·  "}</Text>
+            <Text color="yellow">{`${queued} queued`}</Text>
+          </>
         ) : null}
         {stats?.recordings.totalDurationMs != null ? (
           <Text dimColor>{`  ·  ${formatClockMs(stats.recordings.totalDurationMs)} transcribed`}</Text>
         ) : null}
-        {running > 0 ? <Text color="cyan">{`  ·  ${running} transcribing`}</Text> : null}
-        {queued > 0 ? <Text color="yellow">{`  ·  ${queued} queued`}</Text> : null}
       </Box>
 
       <Box flexDirection="row" alignItems="flex-start">
@@ -67,7 +82,10 @@ export function OverviewView({
             items={recordings}
             selectedIndex={selectedIndex}
             nowMs={nowMs}
-            columns={columns}
+            // When the peek panel is shown it eats width on the right; budget the
+            // list columns against the space that actually remains (peek width +
+            // its left margin) so rows don't overflow and wrap the WHEN column.
+            columns={showPeek ? Math.max(20, columns - peekWidth - 1) : columns}
             jobStatusByRecording={jobStatusByRecording}
             downloadedRecordingIds={downloadedRecordingIds}
             spinnerFrame={spinnerFrame}

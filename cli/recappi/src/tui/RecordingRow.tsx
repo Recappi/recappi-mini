@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { RecordingData } from "../../../packages/contracts/src/index";
-import { formatAge, formatClockMs, padDisplay, spinnerChar } from "./format";
+import { formatAge, formatClockMs, spinnerChar } from "./format";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -29,10 +29,11 @@ export function recordingProcessingState(
   return { glyph: "·", color: "gray" }; // ready, no transcript yet
 }
 
-const MARKER_W = 2;
+const MARKER_W = 3;
 const GLYPH_W = 2;
-const LENGTH_W = 9;
+const LENGTH_W = 8;
 const WHEN_W = 9;
+const DL_W = 3;
 
 // Responsive column layout: fixed columns take their minimum, the title flexes
 // to fill the rest, and WHEN is dropped on narrow terminals. Widths are display
@@ -46,11 +47,17 @@ export function recordingLayout(columns: number): RecordingLayout {
   const showWhen = usable >= 54;
   const title = Math.max(
     10,
-    usable - MARKER_W - GLYPH_W - LENGTH_W - (showWhen ? WHEN_W : 0),
+    usable - MARKER_W - GLYPH_W - LENGTH_W - (showWhen ? WHEN_W : 0) - DL_W,
   );
   return { title, showWhen };
 }
 
+// One recording row. Laid out with fixed-width Box columns (not string padding
+// + trailing spaces in adjacent <Text>, which Ink collapses inconsistently at
+// different widths) so the marker · glyph · title · length · when · download
+// columns line up identically at every terminal size. Color is semantic:
+// cyan marker = selection, status glyph carries its own meaning-color, the
+// download mark is green (offline-available), everything else dim.
 export function RecordingRow({
   item,
   selected,
@@ -73,26 +80,15 @@ export function RecordingRow({
   const duration = item.durationMs ? formatClockMs(item.durationMs) : "—";
   return (
     <Box>
-      <Text color="cyan">{selected ? "▸ " : "  "}</Text>
-      <Text color={color}>{`${glyph} `}</Text>
-      <Text bold={selected}>{padDisplay(recordingTitle(item), title)}</Text>
-      <Text dimColor>{padDisplay(duration, LENGTH_W)}</Text>
-      {showWhen ? <Text dimColor>{padDisplay(formatAge(item.createdAt, nowMs), WHEN_W)}</Text> : null}
-      {/* Offline-available marker; constant width keeps columns aligned. */}
-      <Text color="green">{downloaded ? " ⤓" : "  "}</Text>
-    </Box>
-  );
-}
-
-// Column header row, rendered above recording lists. Same layout as the rows.
-export function RecordingHeader({ columns }: { columns: number }): React.ReactElement {
-  const { title, showWhen } = recordingLayout(columns);
-  return (
-    <Box>
-      <Text dimColor>{padDisplay("", MARKER_W + GLYPH_W)}</Text>
-      <Text dimColor>{padDisplay("TITLE", title)}</Text>
-      <Text dimColor>{padDisplay("LENGTH", LENGTH_W)}</Text>
-      {showWhen ? <Text dimColor>WHEN</Text> : null}
+      <Box width={MARKER_W}><Text color="cyan">{selected ? "▸" : ""}</Text></Box>
+      <Box width={GLYPH_W}><Text color={color}>{glyph}</Text></Box>
+      <Box width={title}><Text bold={selected} wrap="truncate-end">{recordingTitle(item)}</Text></Box>
+      <Box width={LENGTH_W} justifyContent="flex-end"><Text dimColor>{duration}</Text></Box>
+      {showWhen ? (
+        <Box width={WHEN_W} justifyContent="flex-end"><Text dimColor>{formatAge(item.createdAt, nowMs)}</Text></Box>
+      ) : null}
+      {/* Offline-available marker; constant-width column keeps rows aligned. */}
+      <Box width={DL_W} justifyContent="flex-end"><Text color="green">{downloaded ? "⤓" : ""}</Text></Box>
     </Box>
   );
 }

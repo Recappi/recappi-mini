@@ -354,7 +354,7 @@ describe("views render", () => {
       />,
     );
     const frame = noAnsi(lastFrame());
-    expect(frame).toContain("Recordings"); // stats bar
+    expect(frame).toContain("recordings"); // stats bar (headline count + label)
     expect(frame).toContain("1 transcribing"); // running job count in stats bar
     expect(frame).toContain("Design review"); // the recordings list
   });
@@ -1138,7 +1138,7 @@ describe("AppShell (interactive)", () => {
     expect(fetchRecordings).toHaveBeenCalledWith({ limit: 50 });
     const frame = noAnsi(lastFrame());
     expect(frame).toContain("Recappi");
-    expect(frame).toContain("Recordings"); // stats bar
+    expect(frame).toContain("recordings"); // stats bar (headline count + label)
     expect(frame).toContain("Design review"); // recordings list on the Overview
     expect(frame).toContain("n record");
     expect(frame).not.toContain("4 Record");

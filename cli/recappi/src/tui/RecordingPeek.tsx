@@ -43,18 +43,20 @@ function PeekBody({
   const meta = [
     item.durationMs ? formatClockMs(item.durationMs) : null,
     formatBytes(item.sizeBytes) || null,
-    item.contentType || null,
+    formatAge(item.createdAt, nowMs),
   ]
     .filter(Boolean)
-    .join("  ·  ");
+    .join(" · ");
   return (
     <>
-      <Text bold color="green" wrap="truncate-end">
+      <Text bold wrap="truncate-end">
         {recordingTitle(item)}
       </Text>
-      <Text color={style.color}>{`${style.glyph} ${style.label}`}</Text>
-      {meta ? <Text dimColor>{meta}</Text> : null}
-      <Text dimColor>{formatAge(item.createdAt, nowMs)}</Text>
+      {/* Status keeps its meaning-color; duration · size · age ride alongside, dim. */}
+      <Box>
+        <Text color={style.color}>{`${style.glyph} ${style.label}`}</Text>
+        {meta ? <Text dimColor>{`  ${meta}`}</Text> : null}
+      </Box>
 
       <Box marginTop={1} flexDirection="column">
         <SummarySection item={item} summary={summary} />
@@ -83,7 +85,7 @@ function SummarySection({
   const points = (summary.keyPoints ?? []).slice(0, 3);
   return (
     <>
-      <Text bold>Summary</Text>
+      <Text dimColor>SUMMARY</Text>
       <Text>{summary.tldr}</Text>
       {points.length > 0 ? (
         <Box marginTop={1} flexDirection="column">

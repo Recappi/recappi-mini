@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { RecordingData } from "../../../packages/contracts/src/index";
-import { RecordingHeader, RecordingRow } from "./RecordingRow";
+import { RecordingRow } from "./RecordingRow";
 import { dateBucket } from "./format";
 
 // Recordings tab body: the full recording list, grouped by date (Today /
@@ -33,7 +33,6 @@ export function RecordingsView({
   }
   return (
     <Box marginTop={1} flexDirection="column">
-      <RecordingHeader columns={columns} />
       {items.map((item, index) => {
         const bucket = dateBucket(item.createdAt, nowMs);
         const showHeader = index === 0 || bucket !== dateBucket(items[index - 1]!.createdAt, nowMs);
@@ -41,7 +40,7 @@ export function RecordingsView({
           <React.Fragment key={item.recordingId}>
             {showHeader ? (
               <Box marginTop={index === 0 ? 0 : 1}>
-                <Text bold color="blue">
+                <Text bold dimColor>
                   {bucket}
                 </Text>
               </Box>
