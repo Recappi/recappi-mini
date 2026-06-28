@@ -128,11 +128,10 @@ export function RecordingDetailView({
     <Box flexDirection="column" paddingX={1}>
       <Text dimColor>‹ Recordings</Text>
 
-      {/* Title header */}
+      {/* Title header — plain bold; green is reserved for brand/status (the
+          status line below carries the meaning-color). */}
       <Box marginTop={1}>
-        <Text bold color="green">
-          {title}
-        </Text>
+        <Text bold>{title}</Text>
       </Box>
       <Text>
         <Text color={style.color}>{`${style.glyph} ${style.label}`}</Text>
@@ -194,7 +193,7 @@ function TabBar({ active }: { active: DetailTab }): React.ReactElement {
         <React.Fragment key={tab}>
           {i > 0 ? <Text dimColor>{"  "}</Text> : null}
           {tab === active ? (
-            <Text inverse bold>{` ${TAB_LABEL[tab]} `}</Text>
+            <Text inverse bold color="cyan">{` ${TAB_LABEL[tab]} `}</Text>
           ) : (
             <Text dimColor>{` ${TAB_LABEL[tab]} `}</Text>
           )}
@@ -294,7 +293,7 @@ function ChaptersPane({
         return (
           <Text key={index} wrap="truncate-end">
             <Text color="cyan">{selected ? "▸ " : "  "}</Text>
-            <Text color="blue">{`[${formatClockMs(chapter.startMs)}] `}</Text>
+            <Text dimColor>{`[${formatClockMs(chapter.startMs)}] `}</Text>
             <Text bold={selected}>{chapter.title}</Text>
           </Text>
         );
@@ -318,8 +317,8 @@ function TranscriptPane({
     <>
       {segments.slice(win.start, win.end).map((seg, i) => (
         <Text key={win.start + i}>
-          <Text color="blue">{`[${formatClockMs(seg.startMs)}] `}</Text>
-          {seg.speaker ? <Text dimColor>{`${seg.speaker}  `}</Text> : null}
+          <Text dimColor>{`[${formatClockMs(seg.startMs)}] `}</Text>
+          {seg.speaker ? <Text color="cyan">{`${seg.speaker}  `}</Text> : null}
           <Text>{seg.text}</Text>
         </Text>
       ))}

@@ -42,8 +42,9 @@ function AccountBody({ status }: { status: AccountStatusData }): React.ReactElem
   return (
     <>
       <Box marginTop={1} flexDirection="column">
-        <Text bold color="green">
-          {status.email ?? status.userId ?? "Signed in"}
+        <Text>
+          <Text color="green">● </Text>
+          <Text bold>{status.email ?? status.userId ?? "Signed in"}</Text>
         </Text>
         {status.email && status.userId ? <Text dimColor>{status.userId}</Text> : null}
         <Text dimColor>{`origin  ${status.origin}`}</Text>
@@ -52,7 +53,7 @@ function AccountBody({ status }: { status: AccountStatusData }): React.ReactElem
       {status.billing ? <Usage billing={status.billing} /> : null}
 
       <Box marginTop={1} flexDirection="column">
-        <Text bold>Local store</Text>
+        <Text dimColor>LOCAL STORE</Text>
         <Text dimColor wrap="truncate-middle">{status.localStore.path}</Text>
         <Text dimColor>
           {`${status.localStore.accountScopedArtifacts} artifact${status.localStore.accountScopedArtifacts === 1 ? "" : "s"} for this account`}
@@ -71,6 +72,7 @@ function Usage({ billing }: { billing: BillingStatusData }): React.ReactElement 
   const storageCap = billing.storageCapBytes;
   return (
     <Box marginTop={1} flexDirection="column">
+      <Text dimColor>USAGE</Text>
       <Text>
         <Text dimColor>Plan </Text>
         <Text bold>{billing.tier}</Text>
