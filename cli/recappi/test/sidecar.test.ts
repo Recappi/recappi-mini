@@ -170,6 +170,88 @@ describe("Mini sidecar JSON-RPC client", () => {
     }
   });
 
+  it("starts/stops setup level previews and parses preview level events", async () => {
+    const methods: string[] = [];
+    const events: string[] = [];
+    const fake = createFakeSidecar(async (request, write) => {
+      methods.push(request.method);
+      if (request.method === "recappi.recording.level_preview.start") {
+        expect(request.params).toMatchObject({
+          options: {
+            includeSystemAudio: true,
+            includeMicrophone: true,
+            targetBundleId: "com.apple.Safari",
+            microphoneDeviceId: "mic_default",
+          },
+        });
+        write({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            previewId: "preview_1",
+          },
+        });
+        write({
+          jsonrpc: "2.0",
+          method: "recappi.event",
+          params: {
+            type: "audio.level",
+            previewId: "preview_1",
+            input: "system",
+            sourceId: "app:com.apple.Safari",
+            rmsDb: -18,
+            atMs: 240,
+          },
+        });
+      }
+      if (request.method === "recappi.recording.level_preview.stop") {
+        expect(request.params).toMatchObject({ previewId: "preview_1" });
+        write({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            previewId: "preview_1",
+            state: "stopped",
+          },
+        });
+      }
+    });
+    const unsubscribe = fake.client.onEvent((event) => {
+      events.push(event.type);
+      if (event.type === "audio.level") {
+        expect(event.previewId).toBe("preview_1");
+        expect(event.sessionId).toBeUndefined();
+        expect(event.sourceId).toBe("app:com.apple.Safari");
+        expect(event.rmsDb).toBe(-18);
+      }
+    });
+
+    try {
+      const started = await fake.client.startLevelPreview({
+        options: {
+          includeSystemAudio: true,
+          includeMicrophone: true,
+          targetBundleId: "com.apple.Safari",
+          microphoneDeviceId: "mic_default",
+          liveCaptions: false,
+        },
+      });
+      await tick();
+      const stopped = await fake.client.stopLevelPreview({ previewId: started.previewId });
+
+      expect(started.previewId).toBe("preview_1");
+      expect(stopped).toEqual({ previewId: "preview_1", state: "stopped" });
+      expect(methods).toEqual([
+        "recappi.recording.level_preview.start",
+        "recappi.recording.level_preview.stop",
+      ]);
+      expect(events).toEqual(["audio.level"]);
+    } finally {
+      unsubscribe();
+      fake.close();
+    }
+  });
+
   it("lists helper-backed recording sources and microphone devices", async () => {
     const methods: string[] = [];
     const fake = createFakeSidecar(async (request, write) => {

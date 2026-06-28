@@ -11,6 +11,10 @@ import {
   sidecarHandshakeParamsSchema,
   sidecarHandshakeResultSchema,
   sidecarJsonRpcIdSchema,
+  sidecarLevelPreviewStartParamsSchema,
+  sidecarLevelPreviewStartResultSchema,
+  sidecarLevelPreviewStopParamsSchema,
+  sidecarLevelPreviewStopResultSchema,
   sidecarMicrophonesListResultSchema,
   sidecarNotificationSchema,
   sidecarPermissionStatusParamsSchema,
@@ -27,6 +31,10 @@ import {
   type SidecarError,
   type SidecarHandshakeParams,
   type SidecarHandshakeResult,
+  type SidecarLevelPreviewStartParams,
+  type SidecarLevelPreviewStartResult,
+  type SidecarLevelPreviewStopParams,
+  type SidecarLevelPreviewStopResult,
   type SidecarMicrophonesListResult,
   type SidecarPermissionStatusParams,
   type SidecarPermissionStatusResult,
@@ -124,6 +132,26 @@ export class MiniSidecarClient {
       "recappi.recording.start",
       sidecarRecordingStartParamsSchema.parse(params),
       sidecarRecordingStartResultSchema,
+    );
+  }
+
+  startLevelPreview(
+    params: SidecarLevelPreviewStartParams,
+  ): Promise<SidecarLevelPreviewStartResult> {
+    return this.request(
+      "recappi.recording.level_preview.start",
+      sidecarLevelPreviewStartParamsSchema.parse(params),
+      sidecarLevelPreviewStartResultSchema,
+    );
+  }
+
+  stopLevelPreview(
+    params: SidecarLevelPreviewStopParams,
+  ): Promise<SidecarLevelPreviewStopResult> {
+    return this.request(
+      "recappi.recording.level_preview.stop",
+      sidecarLevelPreviewStopParamsSchema.parse(params),
+      sidecarLevelPreviewStopResultSchema,
     );
   }
 

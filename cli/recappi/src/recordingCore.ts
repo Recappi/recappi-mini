@@ -61,6 +61,7 @@ export interface RecordingTelemetry {
   sourceLabel: string;
   micEnabled: boolean;
   level?: { system?: number; mic?: number };
+  levelDb?: { system?: number; mic?: number };
   error?: string;
   savedPath?: string;
   durationMs?: number;
@@ -84,6 +85,11 @@ export interface RecordingArtifact {
   // runtime (task #264), not the helper.
   uploadProgress?: number;
   transcriptionProgress?: number;
+}
+
+export interface RecordingSetupLevels {
+  bySourceId: Record<string, number>;
+  byMicrophoneId?: Record<string, number>;
 }
 
 export interface RecordingCaptureMapping {
@@ -178,10 +184,21 @@ export function applyRecordingEventToTelemetry(
 
   if (event.type === "audio.level") {
     const level = levelFromRmsDb(event.rmsDb);
+    const levelDb = typeof event.rmsDb === "number" && Number.isFinite(event.rmsDb)
+      ? event.rmsDb
+      : undefined;
     if (event.input === "microphone") {
-      return { ...telemetry, level: { ...telemetry.level, mic: level } };
+      return {
+        ...telemetry,
+        level: { ...telemetry.level, mic: level },
+        levelDb: { ...telemetry.levelDb, ...(levelDb != null ? { mic: levelDb } : {}) },
+      };
     }
-    return { ...telemetry, level: { ...telemetry.level, system: level } };
+    return {
+      ...telemetry,
+      level: { ...telemetry.level, system: level },
+      levelDb: { ...telemetry.levelDb, ...(levelDb != null ? { system: levelDb } : {}) },
+    };
   }
 
   if (event.type === "error") {

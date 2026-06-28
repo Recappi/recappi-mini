@@ -27,6 +27,7 @@ struct RecappiMiniSidecarMain {
 
 private final class RecappiMiniSidecar {
     private var activeSession: SidecarRecordingSession?
+    private var activePreview: SidecarLevelPreviewSession?
     private let outputLock = NSLock()
 
     func handle(_ line: String) async {
@@ -73,6 +74,10 @@ private final class RecappiMiniSidecar {
                 guard activeSession == nil else {
                     throw SidecarFailure(code: -32030, message: "A Recappi CLI recording is already running.")
                 }
+                if let preview = activePreview {
+                    await preview.stop()
+                    activePreview = nil
+                }
                 let params = object["params"] as? [String: Any] ?? [:]
                 let options = RecordingOptions(params["options"] as? [String: Any] ?? [:])
                 let account = params["account"] as? [String: Any] ?? [:]
@@ -110,6 +115,39 @@ private final class RecappiMiniSidecar {
                     startResult["localSessionRef"] = localSessionRef
                 }
                 result(id: id, startResult)
+            case "recappi.recording.level_preview.start":
+                guard activeSession == nil else {
+                    throw SidecarFailure(
+                        code: -32035,
+                        message: "Stop the active Recappi CLI recording before previewing input levels."
+                    )
+                }
+                if let preview = activePreview {
+                    await preview.stop()
+                    activePreview = nil
+                }
+                let params = object["params"] as? [String: Any] ?? [:]
+                let options = RecordingOptions(params["options"] as? [String: Any] ?? [:])
+                let preview = try SidecarLevelPreviewSession(
+                    options: options,
+                    onLevel: { [weak self] previewID, options, level in
+                        self?.emitAudioLevel(previewID: previewID, options: options, level: level)
+                    }
+                )
+                try await preview.start()
+                activePreview = preview
+                result(id: id, ["previewId": preview.id])
+            case "recappi.recording.level_preview.stop":
+                let params = object["params"] as? [String: Any]
+                let previewId = params?["previewId"] as? String ?? ""
+                if let preview = activePreview, preview.id == previewId {
+                    await preview.stop()
+                    activePreview = nil
+                }
+                result(id: id, [
+                    "previewId": previewId.isEmpty ? "none" : previewId,
+                    "state": "stopped",
+                ])
             case "recappi.recording.stop":
                 let params = object["params"] as? [String: Any]
                 let sessionId = params?["sessionId"] as? String ?? ""
@@ -141,6 +179,10 @@ private final class RecappiMiniSidecar {
                     "state": RecordingState.cancelled.rawValue,
                 ])
             case "recappi.shutdown":
+                if let preview = activePreview {
+                    await preview.stop()
+                    activePreview = nil
+                }
                 result(id: id, ["ok": true])
                 Foundation.exit(0)
             default:
@@ -226,6 +268,27 @@ private final class RecappiMiniSidecar {
                 "rmsDb": Double(level.rmsDb),
                 "atMs": level.atMs,
             ],
+        ])
+    }
+
+    private func emitAudioLevel(previewID: String, options: RecordingOptions, level: CaptureLevel) {
+        var params: [String: Any] = [
+            "type": "audio.level",
+            "previewId": previewID,
+            "input": level.input.rawValue,
+            "rmsDb": Double(level.rmsDb),
+            "atMs": level.atMs,
+        ]
+        if level.input == .system {
+            params["sourceId"] = options.targetBundleId.map { "app:\($0)" } ?? "system"
+        }
+        if level.input == .microphone, let microphoneDeviceId = options.microphoneDeviceId {
+            params["microphoneDeviceId"] = microphoneDeviceId
+        }
+        writeJSON([
+            "jsonrpc": "2.0",
+            "method": "recappi.event",
+            "params": params,
         ])
     }
 
@@ -332,7 +395,7 @@ private final class RecappiMiniSidecar {
     }
 }
 
-private struct RecordingOptions {
+private struct RecordingOptions: Sendable {
     let includeSystemAudio: Bool
     let includeMicrophone: Bool
     let targetBundleId: String?
@@ -726,6 +789,83 @@ private final class SidecarRecordingSession: @unchecked Sendable {
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
         let name = "\(formatter.string(from: Date()))-cli-\(UUID().uuidString.prefix(8))"
         let dir = base.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+}
+
+private final class SidecarLevelPreviewSession: @unchecked Sendable {
+    let id = UUID().uuidString
+    let options: RecordingOptions
+    private let onLevel: (String, RecordingOptions, CaptureLevel) -> Void
+    private var sessionDir: URL?
+    private var coreSession: CaptureAudioRecordingSession?
+    private var levelTask: Task<Void, Never>?
+
+    init(
+        options: RecordingOptions,
+        onLevel: @escaping (String, RecordingOptions, CaptureLevel) -> Void
+    ) throws {
+        guard options.includeSystemAudio || options.includeMicrophone else {
+            throw SidecarFailure(
+                code: -32021,
+                message: "Choose at least one audio source before previewing input levels.",
+                data: ["cliCode": "usage.invalid_argument"]
+            )
+        }
+        self.options = options
+        self.onLevel = onLevel
+    }
+
+    func start() async throws {
+        try await PermissionPreflight.require(options: options)
+        let dir = try Self.createPreviewDirectory(id: id)
+        sessionDir = dir
+
+        let coreSession = CaptureAudioRecordingSession(configuration: CaptureAudioRecordingSessionConfiguration(
+            sessionID: id,
+            sessionDirectoryURL: dir,
+            includeSystemAudio: options.includeSystemAudio,
+            targetBundleID: options.targetBundleId,
+            includeMicrophone: options.includeMicrophone,
+            microphoneDeviceID: options.microphoneDeviceId,
+            metadata: CaptureSessionMetadata(sessionID: id, title: "Recappi CLI level preview")
+        ))
+        self.coreSession = coreSession
+        forwardLevels(from: coreSession)
+
+        do {
+            try await coreSession.start()
+        } catch {
+            await stop()
+            throw error
+        }
+    }
+
+    func stop() async {
+        await coreSession?.cancel()
+        await levelTask?.value
+        if let sessionDir {
+            try? FileManager.default.removeItem(at: sessionDir)
+        }
+        coreSession = nil
+        levelTask = nil
+        sessionDir = nil
+    }
+
+    private func forwardLevels(from coreSession: CaptureAudioRecordingSession) {
+        let levels = coreSession.levels
+        levelTask = Task { [weak self] in
+            for await level in levels {
+                guard let self else { continue }
+                self.onLevel(self.id, self.options, level)
+            }
+        }
+    }
+
+    private static func createPreviewDirectory(id: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("recappi-level-preview-\(id)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

@@ -314,6 +314,35 @@ export const sidecarRecordingStartResultSchema = z.object({
 });
 export type SidecarRecordingStartResult = z.infer<typeof sidecarRecordingStartResultSchema>;
 
+export const sidecarLevelPreviewStartParamsSchema = z.object({
+  options: sidecarRecordingOptionsSchema,
+});
+export type SidecarLevelPreviewStartParams = z.infer<
+  typeof sidecarLevelPreviewStartParamsSchema
+>;
+
+export const sidecarLevelPreviewStartResultSchema = z.object({
+  previewId: z.string(),
+});
+export type SidecarLevelPreviewStartResult = z.infer<
+  typeof sidecarLevelPreviewStartResultSchema
+>;
+
+export const sidecarLevelPreviewStopParamsSchema = z.object({
+  previewId: z.string(),
+});
+export type SidecarLevelPreviewStopParams = z.infer<
+  typeof sidecarLevelPreviewStopParamsSchema
+>;
+
+export const sidecarLevelPreviewStopResultSchema = z.object({
+  previewId: z.string(),
+  state: z.literal("stopped"),
+});
+export type SidecarLevelPreviewStopResult = z.infer<
+  typeof sidecarLevelPreviewStopResultSchema
+>;
+
 export const sidecarSessionParamsSchema = z.object({
   sessionId: z.string(),
 });
@@ -360,6 +389,18 @@ export const sidecarRequestSchema = z.discriminatedUnion("method", [
     id: sidecarJsonRpcIdSchema,
     method: z.literal("recappi.recording.start"),
     params: sidecarRecordingStartParamsSchema,
+  }),
+  z.object({
+    jsonrpc: z.literal("2.0"),
+    id: sidecarJsonRpcIdSchema,
+    method: z.literal("recappi.recording.level_preview.start"),
+    params: sidecarLevelPreviewStartParamsSchema,
+  }),
+  z.object({
+    jsonrpc: z.literal("2.0"),
+    id: sidecarJsonRpcIdSchema,
+    method: z.literal("recappi.recording.level_preview.stop"),
+    params: sidecarLevelPreviewStopParamsSchema,
   }),
   z.object({
     jsonrpc: z.literal("2.0"),
@@ -426,8 +467,11 @@ export const sidecarEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("audio.level"),
-    sessionId: z.string(),
+    sessionId: z.string().optional(),
+    previewId: z.string().optional(),
     input: z.enum(["system", "microphone"]),
+    sourceId: z.string().optional(),
+    microphoneDeviceId: z.string().optional(),
     rmsDb: z.number().optional(),
     peakDb: z.number().optional(),
     at: z.number().int().optional(),

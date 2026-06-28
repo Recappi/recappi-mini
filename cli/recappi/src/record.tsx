@@ -103,6 +103,11 @@ export interface LiveRecordSession {
   stop: () => Promise<RecordCommandData>;
 }
 
+export interface RecordSetupLevelPreviewSession {
+  source: LiveCaptionEventSource;
+  stop: () => Promise<void>;
+}
+
 export interface RecordInputOptions {
   cliVersion: string;
   env?: NodeJS.ProcessEnv;
@@ -219,6 +224,62 @@ export async function listRecordInputs(opts: RecordInputOptions): Promise<Record
     };
   } finally {
     sidecar.kill();
+  }
+}
+
+export async function startRecordSetupLevelPreview(
+  opts: RecordInputOptions,
+  selection: RecordingInputSelection = {
+    sourceId: DEFAULT_RECORDING_SOURCES[0]!.id,
+    includeMicrophone: true,
+  },
+  sources: RecordingSource[] = DEFAULT_RECORDING_SOURCES,
+): Promise<RecordSetupLevelPreviewSession> {
+  const capture = recordingCaptureMappingFromSelection(selection, sources);
+  const command = resolveSidecarCommand(opts);
+  const sidecarArgs = opts.sidecarArgs ?? [];
+  const spawnSidecar = opts.runtime?.spawnSidecar ?? spawnMiniSidecar;
+  const sidecar = spawnSidecar({ command, args: sidecarArgs, env: opts.env });
+  let previewId: string | undefined;
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    sidecar.kill();
+  };
+
+  try {
+    await sidecar.client.handshake(
+      defaultSidecarHandshakeParams({
+        client: { name: "recappi-cli", version: opts.cliVersion },
+        capabilities: ["recording.capture"],
+      }),
+    );
+    const started = await sidecar.client.startLevelPreview({
+      options: {
+        includeSystemAudio: capture.includeSystemAudio,
+        includeMicrophone: capture.includeMicrophone,
+        liveCaptions: false,
+        ...(capture.targetBundleId ? { targetBundleId: capture.targetBundleId } : {}),
+        ...(capture.microphoneDeviceId ? { microphoneDeviceId: capture.microphoneDeviceId } : {}),
+      },
+    });
+    previewId = started.previewId;
+    return {
+      source: sidecar.client,
+      stop: async () => {
+        try {
+          if (previewId) await sidecar.client.stopLevelPreview({ previewId });
+        } catch {
+          /* best-effort preview cleanup */
+        } finally {
+          close();
+        }
+      },
+    };
+  } catch (error) {
+    close();
+    throw error;
   }
 }
 
