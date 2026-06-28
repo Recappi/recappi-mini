@@ -7,6 +7,7 @@ import type {
   AccountStatusData,
   DashboardStatsData,
   JobListData,
+  OperationEvent,
   RecordCommandData,
   RecordingListData,
   TranscriptData,
@@ -43,7 +44,14 @@ export interface RunDashboardDeps {
     selection: RecordingInputSelection,
     sources: RecordingSource[],
   ) => Promise<DashboardLiveRecordSession>;
-  transcribeRecordingArtifact?: (artifact: RecordingArtifact) => Promise<UploadSuccess>;
+  startRecordSetupPreview?: (
+    selection: RecordingInputSelection,
+    sources: RecordingSource[],
+  ) => Promise<DashboardRecordSetupPreview>;
+  transcribeRecordingArtifact?: (
+    artifact: RecordingArtifact,
+    onEvent?: (event: OperationEvent) => void,
+  ) => Promise<UploadSuccess>;
   initialView?: TabKey;
   renderApp?: DashboardRenderer;
 }
@@ -52,6 +60,11 @@ export interface DashboardLiveRecordSession {
   mode?: "local" | "live_captions";
   source: LiveCaptionEventSource;
   stop: () => Promise<RecordCommandData>;
+}
+
+export interface DashboardRecordSetupPreview {
+  source: LiveCaptionEventSource;
+  stop: () => Promise<void> | void;
 }
 
 export interface DashboardRecordSetupModel {
@@ -107,6 +120,7 @@ export async function runDashboard(deps: RunDashboardDeps): Promise<void> {
       listDownloadedRecordingIds: deps.listDownloadedRecordingIds,
       fetchRecordSetup: deps.fetchRecordSetup,
       startLiveRecord: deps.startLiveRecord,
+      startRecordSetupPreview: deps.startRecordSetupPreview,
       transcribeRecordingArtifact: deps.transcribeRecordingArtifact,
       initialView: deps.initialView ?? "overview",
       openUrl,

@@ -27,6 +27,7 @@ import {
   listRecordInputs,
   recordViaSidecar,
   startLiveRecordSession,
+  startRecordSetupLevelPreview,
   type RecordRuntimeDeps,
 } from "./record";
 
@@ -149,7 +150,17 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
             sources,
           );
         },
-        transcribeRecordingArtifact: async (artifact) => {
+        startRecordSetupPreview: async (selection, sources) =>
+          startRecordSetupLevelPreview(
+            {
+              cliVersion: CLI_VERSION,
+              env: deps.env,
+              runtime: deps.recordRuntime,
+            },
+            selection,
+            sources,
+          ),
+        transcribeRecordingArtifact: async (artifact, onEvent) => {
           if (!artifact.audioPath) {
             throw cliError("input.not_found", "No local audio file is available to transcribe.");
           }
@@ -157,6 +168,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
             inputPath: artifact.audioPath,
             transcribe: true,
             wait: false,
+            onEvent,
           });
           if (data.failures.length > 0) {
             const failure = data.failures[0]!;

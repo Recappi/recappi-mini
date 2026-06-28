@@ -603,7 +603,7 @@ describe("views render", () => {
     expect(frame).not.toContain("No app-specific sources available right now");
     expect(frame).toContain("[x] include mic");
     expect(frame).toContain("MacBook Pro Microphone");
-    expect(frame).toContain("CAPTURE PLAN");
+    expect(frame).toContain("Capture");
     expect(frame).not.toContain("Microphone only");
     expect(frame).not.toContain("INPUT PREVIEW");
     stdin.write("m");
@@ -619,6 +619,40 @@ describe("views render", () => {
     );
   });
 
+  it("RecordSetupView shows a live level for the previewed source/mic and — for the rest", () => {
+    const model = {
+      sources: [
+        { id: "sys", kind: "system" as const, label: "System audio · all apps" },
+        { id: "app:arc", kind: "app" as const, label: "Arc", bundleId: "x" },
+      ],
+      microphones: [{ id: "mic_default", label: "MacBook Pro Microphone", isDefault: true }],
+      scenes: [{ id: "default", label: "Default" }],
+    };
+    // P0: only the selected source (sys) + mic are previewed; others show "—".
+    const { lastFrame } = render(
+      <RecordSetupView
+        model={model}
+        levels={{ bySourceId: { sys: 0.6 }, byMicrophoneId: { mic_default: 0.22 } }}
+        onStart={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const f = noAnsi(lastFrame());
+    expect(f).toContain("-24 dB"); // sys: 0.6*60-60 = -24
+    expect(f).toContain("-47 dB"); // mic: 0.22*60-60 ≈ -47
+    expect(f).toContain("—"); // Arc not previewed
+    // A silent (dead) source reads "silent", not a misleading low dB — catches
+    // the Arc-silent capture bug at setup, before recording.
+    const silent = render(
+      <RecordSetupView
+        model={model}
+        levels={{ bySourceId: { sys: 0 }, byMicrophoneId: {} }}
+        onStart={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(noAnsi(silent.lastFrame())).toContain("silent");
+  });
   it("RecordSetupView treats missing app sources as current state, not future work", async () => {
     const { lastFrame } = render(
       <RecordSetupView
@@ -1243,12 +1277,23 @@ describe("AppShell (interactive)", () => {
       source: { onEvent: () => () => {} },
       stop,
     });
-    const transcribeRecordingArtifact = vi.fn().mockResolvedValue({
-      filePath: "/tmp/recappi/session/recording.m4a",
-      recordingId: "rec_new",
-      jobId: "job_new",
-      status: "queued",
-      origin: "https://recordmeet.ing",
+    let finishTranscribe: ((value: {
+      filePath: string;
+      recordingId: string;
+      jobId: string;
+      status: string;
+      origin: string;
+    }) => void) | undefined;
+    const transcribeRecordingArtifact = vi.fn().mockImplementation((_artifact, onEvent) => {
+      onEvent?.({
+        type: "progress",
+        command: "upload",
+        status: "uploading",
+        percent: 64,
+      });
+      return new Promise((resolve) => {
+        finishTranscribe = resolve as typeof finishTranscribe;
+      });
     });
     const { lastFrame, stdin, unmount } = setup({
       startLiveRecord,
@@ -1285,7 +1330,19 @@ describe("AppShell (interactive)", () => {
     await waitFor(() => {
       expect(transcribeRecordingArtifact).toHaveBeenCalledWith(
         expect.objectContaining({ audioPath: "/tmp/recappi/session/recording.m4a" }),
+        expect.any(Function),
       );
+      expect(noAnsi(lastFrame())).toContain("64%");
+    });
+    finishTranscribe?.({
+      filePath: "/tmp/recappi/session/recording.m4a",
+      recordingId: "rec_new",
+      jobId: "job_new",
+      status: "queued",
+      origin: "https://recordmeet.ing",
+    });
+    await flush();
+    await waitFor(() => {
       expect(noAnsi(lastFrame())).toContain("Transcription queued");
     });
     unmount();
@@ -1470,6 +1527,87 @@ describe("AppShell (interactive)", () => {
           expect.objectContaining({ bundleId: "com.apple.Safari", label: "Safari" }),
         ]),
       );
+    });
+    unmount();
+  });
+
+  it("streams setup preview levels for the selected source and microphone", async () => {
+    const fetchRecordSetup = vi.fn().mockResolvedValue({
+      sources: [
+        { id: "system", kind: "system", label: "System audio · all apps" },
+        {
+          id: "app:com.apple.Safari",
+          kind: "app",
+          label: "Safari",
+          appName: "Safari",
+          bundleId: "com.apple.Safari",
+        },
+      ],
+      microphones: [{ id: "mic_default", label: "MacBook Pro Microphone", isDefault: true }],
+    });
+    const previewListeners: Array<(event: never) => void> = [];
+    const stopPreview = vi.fn();
+    const startRecordSetupPreview = vi.fn().mockResolvedValue({
+      source: {
+        onEvent: (listener: (event: never) => void) => {
+          previewListeners.push(listener);
+          return () => {};
+        },
+      },
+      stop: stopPreview,
+    });
+    const emitPreview = (event: unknown) => previewListeners.at(-1)?.(event as never);
+
+    const { lastFrame, stdin, unmount } = setup({ fetchRecordSetup, startRecordSetupPreview });
+    await flush();
+    stdin.write("n");
+    await waitFor(() => {
+      expect(noAnsi(lastFrame())).toContain("Safari");
+      expect(startRecordSetupPreview).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceId: "system", includeMicrophone: true }),
+        expect.arrayContaining([expect.objectContaining({ id: "system" })]),
+      );
+    });
+
+    emitPreview({
+      type: "audio.level",
+      previewId: "preview_1",
+      input: "system",
+      sourceId: "system",
+      rmsDb: -18,
+      atMs: 120,
+    });
+    emitPreview({
+      type: "audio.level",
+      previewId: "preview_1",
+      input: "microphone",
+      microphoneDeviceId: "mic_default",
+      rmsDb: -60,
+      atMs: 120,
+    });
+    await waitFor(() => {
+      const frame = noAnsi(lastFrame());
+      expect(frame).toContain("-18 dB");
+      expect(frame).toContain("silent");
+    });
+
+    stdin.write(DOWN);
+    await waitFor(() => {
+      expect(startRecordSetupPreview).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceId: "app:com.apple.Safari" }),
+        expect.arrayContaining([expect.objectContaining({ bundleId: "com.apple.Safari" })]),
+      );
+    });
+    emitPreview({
+      type: "audio.level",
+      previewId: "preview_2",
+      input: "system",
+      sourceId: "app:com.apple.Safari",
+      rmsDb: -12,
+      atMs: 180,
+    });
+    await waitFor(() => {
+      expect(noAnsi(lastFrame())).toContain("-12 dB");
     });
     unmount();
   });

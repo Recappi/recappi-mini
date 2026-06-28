@@ -9,6 +9,7 @@ import type {
   RecordCommandData,
   RecordingData,
   RecordingListData,
+  OperationEvent,
   SidecarEvent,
   TranscriptData,
   TranscriptSummary,
@@ -41,10 +42,12 @@ import {
   type RecordingMicrophoneDevice,
   applyRecordingEventToTelemetry,
   artifactTelemetryPatch,
+  levelFromRmsDb,
   recordingArtifactFromRecordData,
   recordingCaptureMappingFromSelection,
   type RecordingArtifact,
   type RecordingInputSelection,
+  type RecordingSetupLevels,
   type RecordingSource,
   type RecordingTelemetry,
 } from "../recordingCore";
@@ -54,6 +57,7 @@ import {
   listWindow,
   groupedListWindow,
   dateBucket,
+  transcribeFraction,
 } from "./format";
 import { useTerminalSize } from "./terminal";
 
@@ -78,7 +82,14 @@ export interface AppShellProps {
     selection: RecordingInputSelection,
     sources: RecordingSource[],
   ) => Promise<DashboardLiveRecordSession>;
-  transcribeRecordingArtifact?: (artifact: RecordingArtifact) => Promise<UploadSuccess>;
+  startRecordSetupPreview?: (
+    selection: RecordingInputSelection,
+    sources: RecordingSource[],
+  ) => Promise<DashboardRecordSetupPreview>;
+  transcribeRecordingArtifact?: (
+    artifact: RecordingArtifact,
+    onEvent?: (event: OperationEvent) => void,
+  ) => Promise<UploadSuccess>;
   initialView?: TabKey;
   // Side effects, injected so tests stay pure and the component has no Node deps.
   openUrl?: (url: string) => void;
@@ -93,6 +104,11 @@ export interface DashboardLiveRecordSession {
   captionStreamEnabled?: boolean;
   source: LiveCaptionEventSource;
   stop: () => Promise<RecordCommandData>;
+}
+
+export interface DashboardRecordSetupPreview {
+  source: LiveCaptionEventSource;
+  stop: () => Promise<void> | void;
 }
 
 export interface DashboardRecordSetupModel {
@@ -244,6 +260,49 @@ export function transcribeHandoffErrorCopy(error: unknown): string {
   }
 }
 
+function artifactProgressPatchFromOperationEvent(
+  event: OperationEvent,
+): Partial<RecordingArtifact> | undefined {
+  if (event.command !== "upload") return undefined;
+  if (event.status === "uploading" && typeof event.percent === "number") {
+    return {
+      uploadStatus: "uploading",
+      uploadProgress: Math.max(0, Math.min(1, event.percent / 100)),
+    };
+  }
+  if (event.status === "finishing_upload") {
+    return {
+      uploadStatus: "uploading",
+      uploadProgress: 1,
+    };
+  }
+  if (event.status === "starting_transcription") {
+    return {
+      uploadStatus: "uploaded",
+      uploadProgress: 1,
+      transcriptionStatus: "queued",
+    };
+  }
+  return undefined;
+}
+
+function transcriptionStatusFromJob(
+  status: JobListItem["status"],
+): RecordingArtifact["transcriptionStatus"] {
+  switch (status) {
+    case "queued":
+      return "queued";
+    case "running":
+      return "processing";
+    case "succeeded":
+      return "ready";
+    case "failed":
+      return "failed";
+    default:
+      return "not_started";
+  }
+}
+
 export function permissionItemsFromRecordError(data: unknown): PermissionItem[] {
   const sidecarError = isRecord(data) ? data : undefined;
   const sidecarData = isRecord(sidecarError?.data) ? sidecarError.data : undefined;
@@ -291,6 +350,7 @@ export function AppShell({
   listDownloadedRecordingIds,
   fetchRecordSetup,
   startLiveRecord,
+  startRecordSetupPreview,
   transcribeRecordingArtifact,
   initialView = "overview",
   openUrl,
@@ -325,6 +385,13 @@ export function AppShell({
     sources: DEFAULT_RECORDING_SOURCES,
     microphones: [],
   });
+  const [recordSetupSelection, setRecordSetupSelection] = useState<RecordingInputSelection>(
+    DEFAULT_RECORDING_SELECTION,
+  );
+  const [recordSetupLevels, setRecordSetupLevels] = useState<RecordingSetupLevels>({
+    bySourceId: {},
+    byMicrophoneId: {},
+  });
   const recordSetupModel: RecordSetupModel = {
     sources: recordSetupInputs.sources.length > 0 ? recordSetupInputs.sources : DEFAULT_RECORDING_SOURCES,
     microphones: recordSetupInputs.microphones ?? [],
@@ -347,6 +414,59 @@ export function AppShell({
   }, [refreshDownloadedIds]);
 
   const screen = stack[stack.length - 1]!;
+
+  useEffect(() => {
+    if (screen.kind !== "recordSetup" || !startRecordSetupPreview) return;
+
+    let cancelled = false;
+    let preview: DashboardRecordSetupPreview | undefined;
+    let unsubscribe: (() => void) | undefined;
+    const selection = recordSetupSelection;
+    setRecordSetupLevels({ bySourceId: {}, byMicrophoneId: {} });
+
+    startRecordSetupPreview(selection, recordSetupModel.sources)
+      .then((session) => {
+        if (cancelled) {
+          void session.stop();
+          return;
+        }
+        preview = session;
+        unsubscribe = session.source.onEvent((event: SidecarEvent) => {
+          if (event.type !== "audio.level") return;
+          const level = levelFromRmsDb(event.rmsDb);
+          if (event.input === "microphone") {
+            const microphoneId = event.microphoneDeviceId ?? selection.microphoneDeviceId;
+            if (!microphoneId) return;
+            setRecordSetupLevels((current) => ({
+              ...current,
+              byMicrophoneId: { ...(current.byMicrophoneId ?? {}), [microphoneId]: level },
+            }));
+            return;
+          }
+          const sourceId = event.sourceId ?? selection.sourceId;
+          setRecordSetupLevels((current) => ({
+            ...current,
+            bySourceId: { ...current.bySourceId, [sourceId]: level },
+          }));
+        });
+      })
+      .catch(() => {
+        /* preview levels are best-effort; setup remains usable without them */
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+      if (preview) void preview.stop();
+    };
+  }, [
+    recordSetupSelection.includeMicrophone,
+    recordSetupSelection.microphoneDeviceId,
+    recordSetupSelection.sourceId,
+    recordSetupModel.sources,
+    screen.kind,
+    startRecordSetupPreview,
+  ]);
 
   const beginLiveRecord = useCallback(
     (selection: RecordingInputSelection = DEFAULT_RECORDING_SELECTION) => {
@@ -542,12 +662,29 @@ export function AppShell({
       artifact: {
         ...artifact,
         uploadStatus: "uploading",
+        uploadProgress: 0,
         transcriptionStatus: "not_started",
+        transcriptionProgress: undefined,
         error: undefined,
       },
     });
     try {
-      const uploaded = await transcribeRecordingArtifact(artifact);
+      const uploaded = await transcribeRecordingArtifact(artifact, (event) => {
+        const patch = artifactProgressPatchFromOperationEvent(event);
+        if (!patch) return;
+        setLiveRecord((latest) => {
+          if (latest?.kind !== "stopped" || latest.artifact?.sessionId !== artifact.sessionId) {
+            return latest;
+          }
+          return {
+            ...latest,
+            artifact: {
+              ...latest.artifact,
+              ...patch,
+            },
+          };
+        });
+      });
       const transcriptionStatus =
         uploaded.transcriptId != null || uploaded.status === "succeeded" || uploaded.status === "ready"
           ? "ready"
@@ -556,16 +693,25 @@ export function AppShell({
             : uploaded.jobId
               ? "queued"
               : "not_started";
-      setLiveRecord({
-        ...current,
-        artifact: {
-          ...artifact,
-          recordingId: uploaded.recordingId,
-          ...(uploaded.jobId ? { jobId: uploaded.jobId } : {}),
-          ...(uploaded.transcriptId ? { transcriptId: uploaded.transcriptId } : {}),
-          uploadStatus: "uploaded",
-          transcriptionStatus,
-        },
+      setLiveRecord((latest) => {
+        const base =
+          latest?.kind === "stopped" && latest.artifact?.sessionId === artifact.sessionId
+            ? latest
+            : current;
+        return {
+          ...base,
+          artifact: {
+            ...artifact,
+            ...(base.artifact ?? {}),
+            recordingId: uploaded.recordingId,
+            ...(uploaded.jobId ? { jobId: uploaded.jobId } : {}),
+            ...(uploaded.transcriptId ? { transcriptId: uploaded.transcriptId } : {}),
+            uploadStatus: "uploaded",
+            uploadProgress: 1,
+            transcriptionStatus,
+            ...(transcriptionStatus === "ready" ? { transcriptionProgress: 1 } : {}),
+          },
+        };
       });
       setNotice(
         transcriptionStatus === "ready"
@@ -640,6 +786,27 @@ export function AppShell({
       jobStatusByRecording.set(job.recordingId, job.status);
     }
   }
+  useEffect(() => {
+    setLiveRecord((current) => {
+      if (current?.kind !== "stopped" || !current.artifact?.jobId) return current;
+      const job = jobs.find((item) => item.jobId === current.artifact?.jobId);
+      if (!job) return current;
+      const fraction = transcribeFraction(job);
+      return {
+        ...current,
+        artifact: {
+          ...current.artifact,
+          transcriptionStatus: transcriptionStatusFromJob(job.status),
+          ...(job.transcriptId ? { transcriptId: job.transcriptId } : {}),
+          ...(job.status === "succeeded"
+            ? { transcriptionProgress: 1 }
+            : fraction != null
+              ? { transcriptionProgress: fraction }
+              : {}),
+        },
+      };
+    });
+  }, [jobs]);
 
   // Overview is the recordings workbench: the full list, scrolled/windowed.
   const listLength =
@@ -869,10 +1036,12 @@ export function AppShell({
       <Box flexDirection="column" height={size.rows} paddingX={1}>
         <RecordSetupView
           model={recordSetupModel}
+          levels={recordSetupLevels}
           onStart={beginLiveRecord}
           onCancel={() =>
             setStack((st) => (st.length > 1 ? st.slice(0, -1) : [{ kind: "overview" }]))
           }
+          onSelectionChange={setRecordSetupSelection}
         />
       </Box>
     );
