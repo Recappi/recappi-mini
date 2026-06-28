@@ -23,6 +23,43 @@ function waveform(samples: number[], width: number): string {
   return "▁".repeat(Math.max(0, pad)) + cells.join("");
 }
 
+// The helper sends rms loudness as dB then normalizes to 0..1 via (dB+60)/60
+// (see levelFromRmsDb). That inverse is exact, so we can show the real dB the
+// helper measured — not a fabricated number. Near-zero reads "silent" so a dead
+// source (e.g. the Arc-silent capture bug) is obvious rather than a quiet "-58".
+function levelDb(level: number): string {
+  if (level <= 0.03) return "silent";
+  return `${Math.round(level * 60 - 60)} dB`;
+}
+
+// One labeled per-source meter row: System / Mic + its rolling sparkline + dB.
+function MeterRow({
+  label,
+  samples,
+  level,
+  paused,
+  width,
+}: {
+  label: string;
+  samples: number[];
+  level: number;
+  paused: boolean;
+  width: number;
+}): React.ReactElement {
+  const silent = level <= 0.03;
+  return (
+    <Box>
+      <Box width={9}>
+        <Text dimColor>{label}</Text>
+      </Box>
+      <Box width={width}>
+        <Text color={paused ? "gray" : silent ? "yellow" : "red"}>{waveform(samples, width)}</Text>
+      </Box>
+      <Text dimColor>{`  ${paused ? "paused" : levelDb(level)}`}</Text>
+    </Box>
+  );
+}
+
 // Full-screen recording "hero": recappi brand + big elapsed + full-width live
 // waveform + source line. Responsive — the waveform fills the width; narrow
 // terminals truncate gracefully. Used while mode=local recording.
@@ -43,15 +80,18 @@ export function RecordingHeroScreen({
 }): React.ReactElement {
   const size = useTerminalSize();
   const [tick, setTick] = useState(() => now());
-  const [wave, setWave] = useState<number[]>([]);
+  const [waveSys, setWaveSys] = useState<number[]>([]);
+  const [waveMic, setWaveMic] = useState<number[]>([]);
 
-  // Append the loudest of system/mic to the rolling waveform buffer on each
-  // update — only once real level telemetry has arrived. Appending zeros before
-  // the helper emits audio.level would draw a flat meter that reads as silence.
+  // Keep separate rolling buffers for system and mic so each gets its own meter
+  // — you can tell at a glance whether the mic is actually picking up, instead of
+  // one merged bar. Only append once real level telemetry has arrived; appending
+  // zeros before the helper emits audio.level would draw a flat meter that reads
+  // as silence.
   useEffect(() => {
     if (telemetry.level == null) return;
-    const lvl = Math.max(telemetry.level.system ?? 0, telemetry.level.mic ?? 0);
-    setWave((w) => [...w.slice(-512), lvl]);
+    setWaveSys((w) => [...w.slice(-256), telemetry.level!.system ?? 0]);
+    setWaveMic((w) => [...w.slice(-256), telemetry.level!.mic ?? 0]);
   }, [telemetry.level]);
 
   useEffect(() => {
@@ -106,7 +146,15 @@ export function RecordingHeroScreen({
   const paused = telemetry.status === "paused";
   const starting = telemetry.status === "starting" || telemetry.status === "stopping";
   const badge = paused ? "⏸ PAUSED" : starting ? "…" : "⏺ REC";
+  const meterW = Math.max(10, Math.min(48, innerWidth - 22));
+  const sizeStr = telemetry.sizeBytes ? formatBytes(telemetry.sizeBytes) : "";
+  const context = [telemetry.sourceLabel, telemetry.micEnabled ? "Microphone" : null, sizeStr || null]
+    .filter(Boolean)
+    .join("  ·  ");
 
+  // Active recording: dense, left-aligned, information-rich — REC + elapsed, a
+  // per-source meter for system and mic (so a dead source is visible), the
+  // capture context, and the live-caption tail under a section label.
   return (
     <Box flexDirection="column" paddingX={1} height={size.rows}>
       <Text>
@@ -114,26 +162,35 @@ export function RecordingHeroScreen({
         <Text dimColor> · Recording</Text>
       </Text>
 
-      <Box flexGrow={1} flexDirection="column" justifyContent="center" alignItems="center">
-        <Text bold color={paused ? "yellow" : "red"}>{badge}</Text>
-        <Text bold>{elapsed}</Text>
-        <Box marginTop={1}>
+      <Box marginTop={1} paddingX={1} flexGrow={1} flexDirection="column">
+        <Text>
+          <Text bold color={paused ? "yellow" : "red"}>{badge}</Text>
+          <Text>   </Text>
+          <Text bold>{elapsed}</Text>
+        </Text>
+
+        <Box marginTop={1} flexDirection="column">
           {telemetry.level == null ? (
-            // No level telemetry yet — show honest activity, not a flat meter that
-            // looks like silence (the elapsed timer above proves it's live).
+            // No level telemetry yet — honest activity, not a flat meter that
+            // reads as silence (the elapsed timer above proves it's live).
             <Text dimColor>{paused ? "Paused" : `Capturing audio${".".repeat((Math.floor(tick / 1000) % 3) + 1)}`}</Text>
           ) : (
-            <Text color={paused ? "gray" : "red"}>{waveform(wave, innerWidth)}</Text>
+            <>
+              <MeterRow label="System" samples={waveSys} level={telemetry.level.system ?? 0} paused={paused} width={meterW} />
+              {telemetry.micEnabled ? (
+                <MeterRow label="Mic" samples={waveMic} level={telemetry.level.mic ?? 0} paused={paused} width={meterW} />
+              ) : null}
+            </>
           )}
         </Box>
+
         <Box marginTop={1}>
-          <Text dimColor>
-            {telemetry.sourceLabel}
-            {telemetry.micEnabled ? "  +  Microphone" : ""}
-          </Text>
+          <Text dimColor>{context}</Text>
         </Box>
+
         {captions ? (
-          <Box marginTop={1} flexDirection="column" alignItems="center" width={innerWidth}>
+          <Box marginTop={1} flexDirection="column">
+            <Text dimColor>LIVE CAPTIONS</Text>
             <HeroCaptions state={captions} />
           </Box>
         ) : null}
@@ -176,7 +233,7 @@ function HeroCaptions({ state }: { state: LiveCaptionsState }): React.ReactEleme
   return (
     <>
       {recent.map((line) => (
-        <Box key={line.id} flexDirection="column" alignItems="center">
+        <Box key={line.id} flexDirection="column">
           <Text wrap="truncate-end">
             {line.speaker ? `${line.speaker}: ` : ""}
             {line.text}

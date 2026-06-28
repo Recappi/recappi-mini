@@ -739,6 +739,40 @@ describe("views render", () => {
     );
     expect(noAnsi(withLevel.lastFrame())).not.toContain("Capturing audio");
   });
+  it("RecordingHeroScreen shows separate System/Mic meters with honest dB", () => {
+    // Two per-source meters so a dead mic is visible, not merged into one bar.
+    // dB is the real value the helper sent, recovered exactly from the 0..1 level
+    // (level*60-60): 0.72 -> -17 dB, 0.18 -> -49 dB. Not fabricated.
+    const { lastFrame } = render(
+      <RecordingHeroScreen
+        telemetry={{ status: "recording", startedAtMs: 0, sourceLabel: "Arc", micEnabled: true, level: { system: 0.72, mic: 0.18 } }}
+        now={() => 0}
+      />,
+    );
+    const f = noAnsi(lastFrame());
+    expect(f).toContain("System");
+    expect(f).toContain("Mic");
+    expect(f).toContain("-17 dB");
+    expect(f).toContain("-49 dB");
+    // Mic row is hidden when mic is off (no merged/phantom mic meter).
+    const noMic = render(
+      <RecordingHeroScreen
+        telemetry={{ status: "recording", startedAtMs: 0, sourceLabel: "Arc", micEnabled: false, level: { system: 0.5 } }}
+        now={() => 0}
+      />,
+    );
+    expect(noAnsi(noMic.lastFrame())).not.toContain("Mic");
+  });
+  it("RecordingHeroScreen flags a silent source instead of a misleading low dB", () => {
+    // A dead source (the Arc-silent capture bug) must read "silent", not "-60 dB".
+    const { lastFrame } = render(
+      <RecordingHeroScreen
+        telemetry={{ status: "recording", startedAtMs: 0, sourceLabel: "Arc", micEnabled: false, level: { system: 0 } }}
+        now={() => 0}
+      />,
+    );
+    expect(noAnsi(lastFrame())).toContain("silent");
+  });
   it("RecordingHeroScreen shows live captions (source + translation + partial) when streaming", () => {
     const withCaptions = render(
       <RecordingHeroScreen
