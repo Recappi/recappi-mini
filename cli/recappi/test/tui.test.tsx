@@ -49,6 +49,7 @@ import type {
   JobListItem,
   RecordingData,
   RecordingListData,
+  SidecarEvent,
   TranscriptData,
 } from "../../packages/contracts/src/index";
 
@@ -1545,18 +1546,32 @@ describe("AppShell (interactive)", () => {
       ],
       microphones: [{ id: "mic_default", label: "MacBook Pro Microphone", isDefault: true }],
     });
-    const previewListeners: Array<(event: never) => void> = [];
+    const previewSubscriptions: Array<{ sourceId: string; listener: (event: SidecarEvent) => void }> =
+      [];
     const stopPreview = vi.fn();
-    const startRecordSetupPreview = vi.fn().mockResolvedValue({
-      source: {
-        onEvent: (listener: (event: never) => void) => {
-          previewListeners.push(listener);
-          return () => {};
+    const startRecordSetupPreview = vi
+      .fn()
+      .mockImplementation(async (selection: { sourceId?: string }) => ({
+        source: {
+          onEvent: (listener: (event: SidecarEvent) => void) => {
+            previewSubscriptions.push({ sourceId: selection.sourceId ?? "", listener });
+            return () => {};
+          },
         },
-      },
-      stop: stopPreview,
-    });
-    const emitPreview = (event: unknown) => previewListeners.at(-1)?.(event as never);
+        stop: stopPreview,
+      }));
+    const waitForPreviewListener = async (sourceId: string) => {
+      await waitFor(() => {
+        expect(previewSubscriptions.some((subscription) => subscription.sourceId === sourceId)).toBe(
+          true,
+        );
+      });
+      for (let index = previewSubscriptions.length - 1; index >= 0; index -= 1) {
+        const subscription = previewSubscriptions[index]!;
+        if (subscription.sourceId === sourceId) return subscription.listener;
+      }
+      throw new Error(`missing preview listener for ${sourceId}`);
+    };
 
     const { lastFrame, stdin, unmount } = setup({ fetchRecordSetup, startRecordSetupPreview });
     await flush();
@@ -1565,11 +1580,12 @@ describe("AppShell (interactive)", () => {
       expect(noAnsi(lastFrame())).toContain("Safari");
       expect(startRecordSetupPreview).toHaveBeenCalledWith(
         expect.objectContaining({ sourceId: "system", includeMicrophone: true }),
-        expect.arrayContaining([expect.objectContaining({ id: "system" })]),
+        expect.arrayContaining([expect.objectContaining({ bundleId: "com.apple.Safari" })]),
       );
     });
 
-    emitPreview({
+    const systemPreview = await waitForPreviewListener("system");
+    systemPreview({
       type: "audio.level",
       previewId: "preview_1",
       input: "system",
@@ -1577,7 +1593,7 @@ describe("AppShell (interactive)", () => {
       rmsDb: -18,
       atMs: 120,
     });
-    emitPreview({
+    systemPreview({
       type: "audio.level",
       previewId: "preview_1",
       input: "microphone",
@@ -1598,7 +1614,8 @@ describe("AppShell (interactive)", () => {
         expect.arrayContaining([expect.objectContaining({ bundleId: "com.apple.Safari" })]),
       );
     });
-    emitPreview({
+    const safariPreview = await waitForPreviewListener("app:com.apple.Safari");
+    safariPreview({
       type: "audio.level",
       previewId: "preview_2",
       input: "system",
