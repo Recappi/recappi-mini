@@ -739,6 +739,36 @@ describe("views render", () => {
     );
     expect(noAnsi(withLevel.lastFrame())).not.toContain("Capturing audio");
   });
+  it("RecordingHeroScreen shows the post-stop upload/transcribe lifecycle with a bar", () => {
+    // Uploading: stays "Saved to your Mac" (not yet on cloud) + a progress bar.
+    const uploading = render(
+      <RecordingHeroScreen
+        telemetry={{ status: "stopped", sourceLabel: "Arc", micEnabled: true, durationMs: 60_000, sizeBytes: 1_000_000 }}
+        artifact={{ sessionId: "s", audioPath: "a", uploadStatus: "uploading", uploadProgress: 0.64 }}
+        canTranscribe
+        now={() => 0}
+      />,
+    );
+    const uf = noAnsi(uploading.lastFrame());
+    expect(uf).toContain("Saved to your Mac");
+    expect(uf).toContain("Uploading to Recappi Cloud");
+    expect(uf).toContain("64%");
+    // Uploaded + transcribing: now claims the cloud + shows transcribe progress,
+    // as a percent only (never "N/M parts").
+    const transcribing = render(
+      <RecordingHeroScreen
+        telemetry={{ status: "stopped", sourceLabel: "Arc", micEnabled: true, durationMs: 60_000 }}
+        artifact={{ sessionId: "s", audioPath: "a", uploadStatus: "uploaded", transcriptionStatus: "processing", transcriptionProgress: 0.6 }}
+        canTranscribe
+        now={() => 0}
+      />,
+    );
+    const tf = noAnsi(transcribing.lastFrame());
+    expect(tf).toContain("Saved to Recappi Cloud");
+    expect(tf).toContain("Transcribing");
+    expect(tf).toContain("60%");
+    expect(tf).not.toMatch(/\d+\s*\/\s*\d+\s*parts?/); // no internal chunk exposure
+  });
   it("RecordingHeroScreen shows separate System/Mic meters with honest dB", () => {
     // Two per-source meters so a dead mic is visible, not merged into one bar.
     // dB is the real value the helper sent, recovered exactly from the 0..1 level

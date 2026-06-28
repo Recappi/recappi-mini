@@ -60,6 +60,36 @@ function MeterRow({
   );
 }
 
+// A determinate progress bar (filled cyan, remainder dim). Used for the post-stop
+// upload/transcribe lifecycle once the runtime reports a 0..1 fraction.
+function ProgressBar({ fraction, width = 12 }: { fraction: number; width?: number }): React.ReactElement {
+  const f = Math.max(0, Math.min(1, fraction));
+  const filled = Math.round(f * width);
+  return (
+    <Text color="cyan">
+      {"▓".repeat(filled)}
+      <Text dimColor>{"░".repeat(Math.max(0, width - filled))}</Text>
+    </Text>
+  );
+}
+
+// The active post-stop phase to surface with a bar, derived from the artifact's
+// lifecycle. Transcription "queued" is intentionally left to the handoff line
+// (it already reads "Transcription queued"); only in-flight phases get a bar.
+function stoppedPhase(
+  artifact: RecordingArtifact | undefined,
+): { label: string; fraction?: number } | null {
+  if (!artifact) return null;
+  if (artifact.uploadStatus === "uploading") {
+    return { label: "Uploading to Recappi Cloud", fraction: artifact.uploadProgress };
+  }
+  if (artifact.uploadStatus === "queued") return { label: "Queued to upload" };
+  if (artifact.transcriptionStatus === "processing") {
+    return { label: "Transcribing", fraction: artifact.transcriptionProgress };
+  }
+  return null;
+}
+
 // Full-screen recording "hero": recappi brand + big elapsed + full-width live
 // waveform + source line. Responsive — the waveform fills the width; narrow
 // terminals truncate gracefully. Used while mode=local recording.
@@ -105,20 +135,39 @@ export function RecordingHeroScreen({
 
   if (telemetry.status === "stopped") {
     const handoff = stoppedHandoffCopy(artifact, canTranscribe);
+    const phase = stoppedPhase(artifact);
     const meta = [
       telemetry.durationMs != null ? formatClockMs(telemetry.durationMs) : null,
       formatBytes(telemetry.sizeBytes) || null,
     ]
       .filter(Boolean)
       .join(" · ");
+    // Destination-aware: only claim the cloud once the upload actually landed.
+    const saved = artifact?.uploadStatus === "uploaded" ? "✓ Saved to Recappi Cloud" : "✓ Saved to your Mac";
     return (
       <Box flexDirection="column" paddingX={1}>
         <Text dimColor>recappi · Recording</Text>
         <Box marginTop={1} flexDirection="column">
-          <Text color="green">✓ Saved to your Mac</Text>
+          <Text color="green">{saved}</Text>
           {meta ? <Text dimColor>{meta}</Text> : null}
           {telemetry.savedPath ? <Text dimColor wrap="truncate-middle">{telemetry.savedPath}</Text> : null}
         </Box>
+        {/* Post-stop lifecycle: show the in-flight phase with a bar so the
+            upload→transcribe progression is legible instead of vanishing. */}
+        {phase ? (
+          <Box marginTop={1}>
+            <Text color="cyan">{`◐ ${phase.label}`}</Text>
+            {phase.fraction != null ? (
+              <>
+                <Text>{"   "}</Text>
+                <ProgressBar fraction={phase.fraction} />
+                <Text dimColor>{` ${Math.round(phase.fraction * 100)}%`}</Text>
+              </>
+            ) : (
+              <Text dimColor>…</Text>
+            )}
+          </Box>
+        ) : null}
         <Box marginTop={1} flexDirection="column">
           <Text color={handoff.tone === "red" ? "red" : handoff.tone === "green" ? "green" : undefined} dimColor={handoff.tone === "dim"}>
             {handoff.text}
@@ -264,11 +313,10 @@ function stoppedHandoffCopy(
   artifact: RecordingArtifact | undefined,
   canTranscribe: boolean,
 ): { text: string; tone: "dim" | "green" | "red" | "normal" } {
-  if (artifact?.uploadStatus === "uploading") {
-    return { text: "Uploading…", tone: "normal" };
-  }
-  if (artifact?.transcriptionStatus === "processing") {
-    return { text: "Transcribing…", tone: "normal" };
+  // While uploading / transcribing, the phase line above already shows status +
+  // a progress bar — the footer just offers to detach instead of repeating it.
+  if (artifact?.uploadStatus === "uploading" || artifact?.transcriptionStatus === "processing") {
+    return { text: "esc run in background", tone: "dim" };
   }
   if (artifact?.transcriptionStatus === "queued") {
     return { text: "Transcription queued · ⏎ open recording · n not now", tone: "green" };

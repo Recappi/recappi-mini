@@ -78,6 +78,12 @@ export interface RecordingArtifact {
   error?: string;
   uploadStatus?: "local_only" | "queued" | "uploading" | "uploaded" | "failed";
   transcriptionStatus?: "not_started" | "queued" | "processing" | "ready" | "failed";
+  // 0..1 progress for the post-stop lifecycle, when the runtime can report it
+  // (upload byte progress; transcription job fraction). Absent → the stopped
+  // hero degrades to a plain phase label with no bar. Populated by the record
+  // runtime (task #264), not the helper.
+  uploadProgress?: number;
+  transcriptionProgress?: number;
 }
 
 export interface RecordingCaptureMapping {
