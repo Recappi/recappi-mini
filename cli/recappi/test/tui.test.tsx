@@ -1579,7 +1579,11 @@ describe("AppShell (interactive)", () => {
     await waitFor(() => {
       expect(noAnsi(lastFrame())).toContain("Safari");
       expect(startRecordSetupPreview).toHaveBeenCalledWith(
-        expect.objectContaining({ sourceId: "system", includeMicrophone: true }),
+        expect.objectContaining({
+          sourceId: "system",
+          includeMicrophone: true,
+          microphoneDeviceId: "mic_default",
+        }),
         expect.arrayContaining([expect.objectContaining({ bundleId: "com.apple.Safari" })]),
       );
     });
@@ -1597,7 +1601,6 @@ describe("AppShell (interactive)", () => {
       type: "audio.level",
       previewId: "preview_1",
       input: "microphone",
-      microphoneDeviceId: "mic_default",
       rmsDb: -60,
       atMs: 120,
     });

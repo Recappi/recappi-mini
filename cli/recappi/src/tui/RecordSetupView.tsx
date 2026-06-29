@@ -92,8 +92,16 @@ export function RecordSetupView({
   // Tell the runtime which source/mic to preview whenever the selection changes.
   useEffect(() => {
     onSelectionChange?.(selection);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [srcIdx, includeMic, micIdx]);
+  }, [
+    includeMic,
+    onSelectionChange,
+    selection.includeMicrophone,
+    selection.microphoneDeviceId,
+    selection.sceneId,
+    selection.sourceId,
+    srcIdx,
+    micIdx,
+  ]);
 
   useInput((input, key) => {
     if (key.upArrow || input === "k") setSrcIdx((i) => Math.max(0, i - 1));

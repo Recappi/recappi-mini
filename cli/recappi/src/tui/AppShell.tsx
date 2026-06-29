@@ -435,7 +435,12 @@ export function AppShell({
           if (event.type !== "audio.level") return;
           const level = levelFromRmsDb(event.rmsDb);
           if (event.input === "microphone") {
-            const microphoneId = event.microphoneDeviceId ?? selection.microphoneDeviceId;
+            const microphones = recordSetupModel.microphones ?? [];
+            const microphoneId =
+              event.microphoneDeviceId ??
+              selection.microphoneDeviceId ??
+              microphones.find((device) => device.isDefault)?.id ??
+              microphones[0]?.id;
             if (!microphoneId) return;
             setRecordSetupLevels((current) => ({
               ...current,
@@ -463,6 +468,7 @@ export function AppShell({
     recordSetupSelection.includeMicrophone,
     recordSetupSelection.microphoneDeviceId,
     recordSetupSelection.sourceId,
+    recordSetupModel.microphones,
     recordSetupModel.sources,
     screen.kind,
     startRecordSetupPreview,
