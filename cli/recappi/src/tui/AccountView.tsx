@@ -8,7 +8,13 @@ export type AccountStatus = AccountStatusData | "loading" | "error" | undefined;
 // Account / status screen: the dashboard's hub entry for "who am I, how much
 // have I used, where's my local data". Data comes from the account-status
 // contract (logged-in user + billing/usage + local store).
-export function AccountView({ status }: { status?: AccountStatus }): React.ReactElement {
+export function AccountView({
+  status,
+  nowMs = Date.now(),
+}: {
+  status?: AccountStatus;
+  nowMs?: number;
+}): React.ReactElement {
   return (
     <Box flexDirection="column" paddingX={1}>
       <Text dimColor>‹ Account</Text>
@@ -28,7 +34,7 @@ export function AccountView({ status }: { status?: AccountStatus }): React.React
           <Text dimColor>Run `recappi auth login` to sign in.</Text>
         </Box>
       ) : (
-        <AccountBody status={status} />
+        <AccountBody status={status} nowMs={nowMs} />
       )}
 
       <Box marginTop={1}>
@@ -38,7 +44,13 @@ export function AccountView({ status }: { status?: AccountStatus }): React.React
   );
 }
 
-function AccountBody({ status }: { status: AccountStatusData }): React.ReactElement {
+function AccountBody({
+  status,
+  nowMs,
+}: {
+  status: AccountStatusData;
+  nowMs: number;
+}): React.ReactElement {
   return (
     <>
       <Box marginTop={1} flexDirection="column">
@@ -50,7 +62,7 @@ function AccountBody({ status }: { status: AccountStatusData }): React.ReactElem
         <Text dimColor>{`origin  ${status.origin}`}</Text>
       </Box>
 
-      {status.billing ? <Usage billing={status.billing} /> : null}
+      {status.billing ? <Usage billing={status.billing} nowMs={nowMs} /> : null}
 
       <Box marginTop={1} flexDirection="column">
         <Text bold dimColor>LOCAL STORE</Text>
@@ -66,7 +78,13 @@ function AccountBody({ status }: { status: AccountStatusData }): React.ReactElem
   );
 }
 
-function Usage({ billing }: { billing: BillingStatusData }): React.ReactElement {
+function Usage({
+  billing,
+  nowMs,
+}: {
+  billing: BillingStatusData;
+  nowMs: number;
+}): React.ReactElement {
   const minutesCap = billing.minutesCap;
   const minutesUsed = billing.minutesUsed;
   const storageCap = billing.storageCapBytes;
@@ -110,14 +128,14 @@ function Usage({ billing }: { billing: BillingStatusData }): React.ReactElement 
         </Text>
       ) : null}
 
-      <Text dimColor>{`Period ${periodText(billing)}`}</Text>
+      <Text dimColor>{`Period ${periodText(billing, nowMs)}`}</Text>
     </Box>
   );
 }
 
-function periodText(billing: BillingStatusData): string {
+function periodText(billing: BillingStatusData, nowMs: number): string {
   // periodStart/End are epoch seconds or ms; show a coarse remaining window.
-  const remainingMs = epochToMs(billing.periodEnd) - Date.now();
+  const remainingMs = epochToMs(billing.periodEnd) - nowMs;
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) return "—";
   const days = Math.floor(remainingMs / 86_400_000);
   if (days >= 1) return `${days}d left`;

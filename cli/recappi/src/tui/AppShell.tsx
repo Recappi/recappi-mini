@@ -514,7 +514,9 @@ export function AppShell({
           });
         })
         .catch((error) => {
-          setLiveRecord(recordErrorState(error, selection));
+          setLiveRecord((current) =>
+            current?.kind === "starting" ? recordErrorState(error, selection) : current,
+          );
         });
     },
     [now, recordSetupModel.sources, startLiveRecord],
@@ -538,7 +540,7 @@ export function AppShell({
           current.telemetry.startedAtMs != null
             ? Math.max(0, now() - current.telemetry.startedAtMs)
             : undefined;
-        setLiveRecord({
+        const stoppedRecord: LiveRecordState = {
           kind: "stopped",
           selection: current.selection,
           artifact,
@@ -550,17 +552,30 @@ export function AppShell({
               : {}),
             status: "stopped",
           },
+        };
+        setLiveRecord((next) => {
+          if (next?.kind !== "stopping" || next.session !== current.session) return next;
+          return stoppedRecord;
         });
         void refreshDownloadedIds();
       } catch (error) {
-        setLiveRecord({
-          kind: "error",
-          message: error instanceof Error ? error.message : String(error),
+        setLiveRecord((next) => {
+          if (next?.kind !== "stopping" || next.session !== current.session) return next;
+          return {
+            kind: "error",
+            message: error instanceof Error ? error.message : String(error),
+          };
         });
       }
       return;
     }
-    if (current?.kind === "stopped" || current?.kind === "error") setLiveRecord(undefined);
+    if (
+      current?.kind === "starting" ||
+      current?.kind === "stopping" ||
+      current?.kind === "stopped" ||
+      current?.kind === "error"
+    )
+      setLiveRecord(undefined);
     setStack([{ kind: "overview" }]);
   }, [liveRecord, now, refreshDownloadedIds]);
 
@@ -936,7 +951,11 @@ export function AppShell({
         void transcribeStoppedRecording();
         return;
       }
-      if (input === "q" || key.escape || key.leftArrow || input === "n") void stopLiveRecord();
+      if (liveRecord?.kind === "stopped" && input === "n") {
+        void stopLiveRecord();
+        return;
+      }
+      if (input === "q" || key.escape || key.leftArrow) void stopLiveRecord();
       return;
     }
     if (input === "q") return exit();
@@ -963,6 +982,8 @@ export function AppShell({
     if (input === "r") return void refresh({ resetRecordings: true });
 
     if (screen.kind === "overview") {
+      if (input === "g") setSelected(0);
+      if (input === "G") setSelected(Math.max(0, recordings.length - 1));
       if (key.upArrow || input === "k") setSelected((i) => Math.max(0, i - 1));
       if (key.downArrow || input === "j") setSelected((i) => Math.min(recordings.length - 1, i + 1));
       const rec = recordings[selected];
@@ -972,6 +993,8 @@ export function AppShell({
       return;
     }
     if (screen.kind === "jobs") {
+      if (input === "g") setSelected(0);
+      if (input === "G") setSelected(Math.max(0, jobs.length - 1));
       if (key.upArrow || input === "k") setSelected((i) => Math.max(0, i - 1));
       if (key.downArrow || input === "j") setSelected((i) => Math.min(jobs.length - 1, i + 1));
       const job = jobs[selected];
@@ -1150,7 +1173,7 @@ export function AppShell({
     );
   } else if (screen.kind === "account") {
     position = "";
-    body = <AccountView status={accountStatus} />;
+    body = <AccountView status={accountStatus} nowMs={now()} />;
   } else {
     const win = listWindow(selected, jobs.length, Math.max(3, size.rows - 4));
     position = jobs.length ? `${selected + 1} / ${jobs.length}` : "0";
@@ -1167,7 +1190,7 @@ export function AppShell({
     screen.kind === "jobs"
       ? `${position}  ·  ↑↓ select · ⏎ job · t transcript · n record · 1 overview · 3 account · r refresh · q quit`
       : screen.kind === "account"
-        ? "3 account  ·  n record · 1 overview · 2 jobs · r refresh · q quit"
+        ? "Account  ·  n record · 1 overview · 2 jobs · r refresh · q quit"
       : `${position}  ·  ↑↓ scroll · ⏎ open · t transcript · n record · 2 jobs · 3 account · r refresh · q quit`;
 
   return (

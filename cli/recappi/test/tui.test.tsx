@@ -1254,6 +1254,48 @@ describe("AppShell (interactive)", () => {
     expect(frame).toContain("agent@example.com");
     expect(frame).toContain("Plan");
     expect(frame).toContain("pro");
+    expect(frame).toContain("Period 20949d left");
+    expect(frame).not.toContain("3 account");
+    unmount();
+  });
+
+  it("jumps to the first and last rows with g/G in Overview and Jobs", async () => {
+    const { lastFrame, stdin, unmount } = setup();
+    await flush();
+
+    stdin.write("G");
+    await flush();
+    stdin.write(ENTER);
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Weekly sync");
+
+    stdin.write("1");
+    await flush();
+    stdin.write(DOWN);
+    await flush();
+    stdin.write("g");
+    await flush();
+    stdin.write(ENTER);
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Design review");
+
+    stdin.write("2");
+    await flush();
+    stdin.write("G");
+    await flush();
+    stdin.write(ENTER);
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Product call");
+
+    stdin.write("2");
+    await flush();
+    stdin.write(DOWN);
+    await flush();
+    stdin.write("g");
+    await flush();
+    stdin.write(ENTER);
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Design review");
     unmount();
   });
 
@@ -1344,6 +1386,129 @@ describe("AppShell (interactive)", () => {
     await waitFor(() => {
       expect(noAnsi(lastFrame())).toContain("Transcription queued");
     });
+    unmount();
+  });
+
+  it("does not treat n as stop while a recording is active", async () => {
+    const stop = vi.fn().mockResolvedValue({
+      origin: "https://api.recappi.com",
+      userId: "u_1",
+      live: false,
+      sessionId: "session_1",
+      state: "completed",
+      artifacts: [],
+    });
+    const startLiveRecord = vi.fn().mockResolvedValue({
+      source: { onEvent: () => () => {} },
+      stop,
+    });
+    const { lastFrame, stdin, unmount } = setup({ startLiveRecord });
+    await flush();
+    stdin.write("n");
+    await flush();
+    stdin.write("\r");
+    await waitFor(() => {
+      expect(noAnsi(lastFrame())).toContain("REC");
+    });
+
+    stdin.write("n");
+    await flush();
+    expect(stop).not.toHaveBeenCalled();
+    expect(noAnsi(lastFrame())).toContain("REC");
+
+    stdin.write("q");
+    await waitFor(() => {
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
+    unmount();
+  });
+
+  it("does not revive a canceled starting record session", async () => {
+    let resolveStart:
+      | ((session: { source: { onEvent: () => () => void }; stop: () => Promise<unknown> }) => void)
+      | undefined;
+    const stop = vi.fn().mockResolvedValue({
+      origin: "https://api.recappi.com",
+      userId: "u_1",
+      live: false,
+      sessionId: "session_1",
+      state: "completed",
+      artifacts: [],
+    });
+    const startLiveRecord = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveStart = resolve as typeof resolveStart;
+        }),
+    );
+    const { lastFrame, stdin, unmount } = setup({ startLiveRecord });
+    await flush();
+    stdin.write("n");
+    await flush();
+    stdin.write("\r");
+    await waitFor(() => {
+      expect(startLiveRecord).toHaveBeenCalledTimes(1);
+    });
+
+    stdin.write("q");
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Design review");
+
+    resolveStart?.({ source: { onEvent: () => () => {} }, stop });
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Design review");
+    expect(noAnsi(lastFrame())).not.toContain("REC");
+    expect(stop).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("does not revive a canceled stopping record session", async () => {
+    let resolveStop: ((value: {
+      origin: string;
+      userId: string;
+      live: boolean;
+      sessionId: string;
+      state: string;
+      artifacts: unknown[];
+    }) => void) | undefined;
+    const stop = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveStop = resolve as typeof resolveStop;
+        }),
+    );
+    const startLiveRecord = vi.fn().mockResolvedValue({
+      source: { onEvent: () => () => {} },
+      stop,
+    });
+    const { lastFrame, stdin, unmount } = setup({ startLiveRecord });
+    await flush();
+    stdin.write("n");
+    await flush();
+    stdin.write("\r");
+    await waitFor(() => {
+      expect(noAnsi(lastFrame())).toContain("REC");
+    });
+
+    stdin.write("q");
+    await waitFor(() => {
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
+    stdin.write("q");
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Design review");
+
+    resolveStop?.({
+      origin: "https://api.recappi.com",
+      userId: "u_1",
+      live: false,
+      sessionId: "session_1",
+      state: "completed",
+      artifacts: [],
+    });
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Design review");
+    expect(noAnsi(lastFrame())).not.toContain("Saved to your Mac");
     unmount();
   });
 
