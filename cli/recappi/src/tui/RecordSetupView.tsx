@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type {
   RecordingInputSelection as CoreRecordingInputSelection,
@@ -42,7 +42,9 @@ function InputMeter({ level }: { level?: number }): React.ReactElement {
   const silent = level <= 0.03;
   return (
     <Text>
-      <Text color={silent ? "yellow" : "green"}>{meterBar(level, METER_W)}</Text>
+      {/* cyan = live signal present; yellow = silent. Same scheme as the
+          recording hero meters so setup and recording read as one app. */}
+      <Text color={silent ? "yellow" : "cyan"}>{meterBar(level, METER_W)}</Text>
       <Text dimColor>{`  ${levelDb(level)}`}</Text>
     </Text>
   );
@@ -73,6 +75,9 @@ export function RecordSetupView({
     Math.max(0, model.microphones?.findIndex((device) => device.isDefault) ?? 0),
   );
   const [sceneIdx, setSceneIdx] = useState(0);
+  // The mic list arrives async; once it does, snap to the system default — but
+  // never override a mic the user has already cycled to with `m`.
+  const userPickedMic = useRef(false);
 
   const sources = model.sources;
   const microphones = model.microphones ?? [];
@@ -103,12 +108,24 @@ export function RecordSetupView({
     micIdx,
   ]);
 
+  // When the async mic list first populates, select the system default (the
+  // useState initializer ran while the list was empty). Skipped once the user
+  // has manually changed the device.
+  useEffect(() => {
+    if (userPickedMic.current || microphones.length === 0) return;
+    const di = microphones.findIndex((device) => device.isDefault);
+    if (di > 0) setMicIdx(di);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [microphones.length]);
+
   useInput((input, key) => {
     if (key.upArrow || input === "k") setSrcIdx((i) => Math.max(0, i - 1));
     else if (key.downArrow || input === "j") setSrcIdx((i) => Math.min(sources.length - 1, i + 1));
     else if (input === " ") setIncludeMic((m) => !m);
-    else if (input === "m" && includeMic && hasMultipleMicrophones)
+    else if (input === "m" && includeMic && hasMultipleMicrophones) {
+      userPickedMic.current = true;
       setMicIdx((i) => (i + 1) % microphones.length);
+    }
     else if (input === "s" && model.scenes.length > 1) setSceneIdx((i) => (i + 1) % model.scenes.length);
     else if (key.return && selected) onStart(selection);
     else if (key.escape) onCancel();

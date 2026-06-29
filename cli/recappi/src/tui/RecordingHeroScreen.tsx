@@ -53,7 +53,9 @@ function MeterRow({
         <Text dimColor>{label}</Text>
       </Box>
       <Box width={width}>
-        <Text color={paused ? "gray" : silent ? "yellow" : "red"}>{waveform(samples, width)}</Text>
+        {/* cyan = live audio (active); yellow = silent; gray = paused. Red is
+            reserved for the ⏺ REC badge and errors, not the level itself. */}
+        <Text color={paused ? "gray" : silent ? "yellow" : "cyan"}>{waveform(samples, width)}</Text>
       </Box>
       <Text dimColor>{`  ${paused ? "paused" : levelDb(level)}`}</Text>
     </Box>
@@ -239,7 +241,7 @@ export function RecordingHeroScreen({
 
         {captions ? (
           <Box marginTop={1} flexDirection="column">
-            <Text dimColor>LIVE CAPTIONS</Text>
+            <Text bold dimColor>LIVE CAPTIONS</Text>
             <HeroCaptions state={captions} />
           </Box>
         ) : null}

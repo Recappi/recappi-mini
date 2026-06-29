@@ -43,7 +43,7 @@ export function PermissionPreflightView({
     <Box flexDirection="column" paddingX={1}>
       <Text>
         <Text dimColor>‹ </Text>
-        <Text bold color="cyan">Recording permissions</Text>
+        <Text bold>Recording permissions</Text>
       </Text>
 
       <Box marginTop={1} flexDirection="column">

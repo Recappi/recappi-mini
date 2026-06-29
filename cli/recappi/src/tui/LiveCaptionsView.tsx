@@ -7,9 +7,10 @@ import {
   liveCaptionStatusLabel,
 } from "./liveCaptions";
 
+// cyan = live/active stream; yellow = transitional; gray = stopped; red = error.
 const STATUS_COLOR: Record<string, string> = {
   connecting: "yellow",
-  live: "red",
+  live: "cyan",
   reconnecting: "yellow",
   stopped: "gray",
   error: "red",

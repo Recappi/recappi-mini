@@ -53,7 +53,7 @@ function AccountBody({ status }: { status: AccountStatusData }): React.ReactElem
       {status.billing ? <Usage billing={status.billing} /> : null}
 
       <Box marginTop={1} flexDirection="column">
-        <Text dimColor>LOCAL STORE</Text>
+        <Text bold dimColor>LOCAL STORE</Text>
         <Text dimColor wrap="truncate-middle">{status.localStore.path}</Text>
         <Text dimColor>
           {`${status.localStore.accountScopedArtifacts} artifact${status.localStore.accountScopedArtifacts === 1 ? "" : "s"} for this account`}
@@ -72,7 +72,7 @@ function Usage({ billing }: { billing: BillingStatusData }): React.ReactElement 
   const storageCap = billing.storageCapBytes;
   return (
     <Box marginTop={1} flexDirection="column">
-      <Text dimColor>USAGE</Text>
+      <Text bold dimColor>USAGE</Text>
       <Text>
         <Text dimColor>Plan </Text>
         <Text bold>{billing.tier}</Text>

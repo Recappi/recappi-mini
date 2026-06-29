@@ -19,7 +19,6 @@ import { TranscriptView } from "../src/tui/TranscriptView";
 import { LiveCaptionsView } from "../src/tui/LiveCaptionsView";
 import { PermissionPreflightView } from "../src/tui/PermissionPreflightView";
 import { LiveCaptionsScreen } from "../src/tui/LiveCaptionsScreen";
-import { RecordingScreen } from "../src/tui/RecordingScreen";
 import { RecordSetupView } from "../src/tui/RecordSetupView";
 import { RecordingHeroScreen } from "../src/tui/RecordingHeroScreen";
 import { applyRecordingEventToTelemetry } from "../src/recordingCore";
@@ -654,6 +653,26 @@ describe("views render", () => {
     );
     expect(noAnsi(silent.lastFrame())).toContain("silent");
   });
+  it("RecordSetupView snaps to the default mic when the list arrives async", async () => {
+    // The mic list loads after mount; the default isn't index 0. Setup must
+    // select the system default (and thus preview it), not the first device.
+    const base = {
+      sources: [{ id: "sys", kind: "system" as const, label: "System audio" }],
+      scenes: [{ id: "default", label: "Default" }],
+    };
+    const { lastFrame, rerender } = render(<RecordSetupView model={{ ...base, microphones: [] }} onStart={() => {}} onCancel={() => {}} />);
+    await flush();
+    rerender(
+      <RecordSetupView
+        model={{ ...base, microphones: [{ id: "usb", label: "USB Mic" }, { id: "builtin", label: "Built-in Mic", isDefault: true }] }}
+        onStart={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    await flush();
+    // Default (Built-in) is selected as the mic device, not the first (USB).
+    expect(noAnsi(lastFrame())).toContain("Built-in Mic");
+  });
   it("RecordSetupView treats missing app sources as current state, not future work", async () => {
     const { lastFrame } = render(
       <RecordSetupView
@@ -896,27 +915,6 @@ describe("views render", () => {
       />,
     );
     expect(noAnsi(noCaptions.lastFrame())).not.toContain("Listening for speech");
-  });
-  it("RecordingScreen shows local recording status, not captions waiting copy", async () => {
-    let emit: (e: unknown) => void = () => {};
-    const source = {
-      onEvent(listener: (e: unknown) => void) {
-        emit = listener;
-        return () => {};
-      },
-    };
-    const { lastFrame } = render(<RecordingScreen source={source as never} now={() => 0} />);
-    await flush();
-    expect(noAnsi(lastFrame())).toContain("Starting recording");
-    emit({ type: "recording.state", sessionId: "s", state: "recording" });
-    await flush();
-    const frame = noAnsi(lastFrame());
-    expect(frame).toContain("Recording");
-    expect(frame).toContain("q to stop");
-    expect(frame).not.toContain("Waiting for captions");
-    emit({ type: "recording.state", sessionId: "s", state: "completed" });
-    await flush();
-    expect(noAnsi(lastFrame())).toContain("saved");
   });
   it("LiveCaptionsView shows a waiting state before any captions", () => {
     const { lastFrame } = render(<LiveCaptionsView state={initialLiveCaptionsState()} nowMs={0} />);

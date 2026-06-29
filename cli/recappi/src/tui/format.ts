@@ -47,7 +47,7 @@ export function statusStyle(status: string): StatusStyle {
     case "failed":
       return { label: "Failed", color: "red" };
     default:
-      return { label: status, color: "white" };
+      return { label: status, color: "gray" };
   }
 }
 
@@ -249,7 +249,7 @@ export function recordingStatusStyle(status: string): {
     case "aborted":
       return { label: "Aborted", color: "gray", glyph: "•" };
     default:
-      return { label: status, color: "white", glyph: "•" };
+      return { label: status, color: "gray", glyph: "•" };
   }
 }
 

@@ -63,7 +63,7 @@ function PeekBody({
       </Box>
 
       <Box marginTop={1}>
-        <Text dimColor>⏎ open · t transcript · o web</Text>
+        <Text dimColor>⏎ open · t transcript</Text>
       </Box>
     </>
   );
@@ -85,7 +85,7 @@ function SummarySection({
   const points = (summary.keyPoints ?? []).slice(0, 3);
   return (
     <>
-      <Text dimColor>SUMMARY</Text>
+      <Text bold dimColor>SUMMARY</Text>
       <Text>{summary.tldr}</Text>
       {points.length > 0 ? (
         <Box marginTop={1} flexDirection="column">
