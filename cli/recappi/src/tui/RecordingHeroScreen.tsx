@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import type {
   RecordingArtifact,
@@ -8,31 +8,36 @@ import { formatBytes, formatClockMs } from "./format";
 import { type LiveCaptionsState, liveCaptionStatusLabel } from "./liveCaptions";
 import { useTerminalSize } from "./terminal";
 
-const BLOCKS = " ▁▂▃▄▅▆▇█";
+const WAVE_ROWS = 5; // dot-matrix height — matches the macOS app's DotMatrixWaveform.
+const WAVE_THROTTLE_MS = 220; // ~4.5 Hz; the helper emits levels several times faster, which scrolled too fast.
 
-// Render recent levels as a full-width sparkline waveform (one block per column,
-// height ∝ that sample's loudness).
-function waveform(samples: number[], width: number): string {
-  if (width <= 0) return "";
+// How many of the WAVE_ROWS dots a level lights, mirroring the app's
+// DotMatrixWaveformModel.litRowCounts: perceptual (pow 0.58) so quiet activity
+// still shows, with a small floor below which the column reads as silent.
+function litCount(level: number): number {
+  const amp = Math.max(0, Math.min(1, level));
+  if (amp <= 0.028) return 0;
+  return Math.max(1, Math.min(WAVE_ROWS, Math.ceil(Math.pow(amp, 0.58) * WAVE_ROWS)));
+}
+
+// Per-column lit-dot counts for the rolling window (newest on the right).
+function litCounts(samples: number[], width: number): number[] {
+  if (width <= 0) return [];
   const tail = samples.slice(-width);
-  const pad = width - tail.length;
-  const cells = tail.map((v) => {
-    const i = Math.max(0, Math.min(BLOCKS.length - 1, Math.round(Math.max(0, Math.min(1, v)) * (BLOCKS.length - 1))));
-    return BLOCKS[i];
-  });
-  return "▁".repeat(Math.max(0, pad)) + cells.join("");
+  return [...Array(Math.max(0, width - tail.length)).fill(0), ...tail].map(litCount);
 }
 
 // The helper sends rms loudness as dB then normalizes to 0..1 via (dB+60)/60
 // (see levelFromRmsDb). That inverse is exact, so we can show the real dB the
-// helper measured — not a fabricated number. Near-zero reads "silent" so a dead
+// helper measured, not a fabricated number. Near-zero reads "silent" so a dead
 // source (e.g. the Arc-silent capture bug) is obvious rather than a quiet "-58".
 function levelDb(level: number): string {
   if (level <= 0.03) return "silent";
   return `${Math.round(level * 60 - 60)} dB`;
 }
 
-// One labeled per-source meter row: System / Mic + its rolling sparkline + dB.
+// One labeled per-source meter: System / Mic, a dot-matrix waveform, and the dB.
+// Label + dB are vertically centered against the matrix.
 function MeterRow({
   label,
   samples,
@@ -47,17 +52,40 @@ function MeterRow({
   width: number;
 }): React.ReactElement {
   const silent = level <= 0.03;
+  // cyan = live audio (active); gray = paused. The dB label flags a silent source
+  // in yellow (the Arc-silent bug). Red is reserved for the REC badge / errors.
+  // Unlit cells are a dim · grid (like the app's unlit dots) — also keeps every
+  // row non-empty so Ink doesn't collapse blank rows and break alignment.
+  const cols = litCounts(samples, width);
+  const litColor = paused ? "gray" : "cyan";
+  // Label + dB on a header row, the dot matrix beneath — simpler and more robust
+  // than vertically centering the label against a variable-height matrix.
   return (
-    <Box>
-      <Box width={9}>
-        <Text dimColor>{label}</Text>
+    <Box flexDirection="column">
+      <Box width={width + 9}>
+        <Box width={9}><Text dimColor>{label}</Text></Box>
+        <Box flexGrow={1} justifyContent="flex-end">
+          {!paused && silent ? (
+            <Text color="yellow">silent</Text>
+          ) : (
+            <Text dimColor>{paused ? "paused" : levelDb(level)}</Text>
+          )}
+        </Box>
       </Box>
-      <Box width={width}>
-        {/* cyan = live audio (active); yellow = silent; gray = paused. Red is
-            reserved for the ⏺ REC badge and errors, not the level itself. */}
-        <Text color={paused ? "gray" : silent ? "yellow" : "cyan"}>{waveform(samples, width)}</Text>
-      </Box>
-      <Text dimColor>{`  ${paused ? "paused" : levelDb(level)}`}</Text>
+      {Array.from({ length: WAVE_ROWS }, (_, r) => {
+        const fromBottom = WAVE_ROWS - r;
+        return (
+          <Text key={r}>
+            {cols.map((c, i) =>
+              c >= fromBottom ? (
+                <Text key={i} color={litColor}>{c === fromBottom ? "•" : "●"}</Text>
+              ) : (
+                <Text key={i} dimColor>·</Text>
+              ),
+            )}
+          </Text>
+        );
+      })}
     </Box>
   );
 }
@@ -92,9 +120,8 @@ function stoppedPhase(
   return null;
 }
 
-// Full-screen recording "hero": recappi brand + big elapsed + full-width live
-// waveform + source line. Responsive — the waveform fills the width; narrow
-// terminals truncate gracefully. Used while mode=local recording.
+// Full-screen recording "hero": brand + elapsed + per-source meters + a live
+// caption area that grows to fill the screen. Responsive to terminal size.
 export function RecordingHeroScreen({
   telemetry,
   artifact,
@@ -114,16 +141,21 @@ export function RecordingHeroScreen({
   const [tick, setTick] = useState(() => now());
   const [waveSys, setWaveSys] = useState<number[]>([]);
   const [waveMic, setWaveMic] = useState<number[]>([]);
+  const lastAppendRef = useRef(0);
 
-  // Keep separate rolling buffers for system and mic so each gets its own meter
-  // — you can tell at a glance whether the mic is actually picking up, instead of
-  // one merged bar. Only append once real level telemetry has arrived; appending
-  // zeros before the helper emits audio.level would draw a flat meter that reads
-  // as silence.
+  // Separate rolling buffers for system and mic, so each gets its own meter (you
+  // can see whether the mic is actually picking up). Throttled to WAVE_THROTTLE_MS
+  // so the waveform scrolls at a readable pace rather than racing the event rate.
+  // Only append once real level telemetry has arrived; zeros before the first
+  // audio.level would draw a flat meter that reads as silence.
   useEffect(() => {
     if (telemetry.level == null) return;
-    setWaveSys((w) => [...w.slice(-256), telemetry.level!.system ?? 0]);
-    setWaveMic((w) => [...w.slice(-256), telemetry.level!.mic ?? 0]);
+    const t = now();
+    if (t - lastAppendRef.current < WAVE_THROTTLE_MS) return;
+    lastAppendRef.current = t;
+    setWaveSys((w) => [...w.slice(-512), telemetry.level!.system ?? 0]);
+    setWaveMic((w) => [...w.slice(-512), telemetry.level!.mic ?? 0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [telemetry.level]);
 
   useEffect(() => {
@@ -155,7 +187,7 @@ export function RecordingHeroScreen({
           {telemetry.savedPath ? <Text dimColor wrap="truncate-middle">{telemetry.savedPath}</Text> : null}
         </Box>
         {/* Post-stop lifecycle: show the in-flight phase with a bar so the
-            upload→transcribe progression is legible instead of vanishing. */}
+            upload to transcribe progression is legible instead of vanishing. */}
         {phase ? (
           <Box marginTop={1}>
             <Text color="cyan">{`◐ ${phase.label}`}</Text>
@@ -197,23 +229,31 @@ export function RecordingHeroScreen({
   const paused = telemetry.status === "paused";
   const starting = telemetry.status === "starting" || telemetry.status === "stopping";
   const badge = paused ? "⏸ PAUSED" : starting ? "…" : "⏺ REC";
-  const meterW = Math.max(10, Math.min(48, innerWidth - 22));
+  const meterW = Math.max(10, Math.min(72, innerWidth - 20));
   const sizeStr = telemetry.sizeBytes ? formatBytes(telemetry.sizeBytes) : "";
   const context = [telemetry.sourceLabel, telemetry.micEnabled ? "Microphone" : null, sizeStr || null]
     .filter(Boolean)
     .join("  ·  ");
 
-  // Active recording: dense, left-aligned, information-rich — REC + elapsed, a
-  // per-source meter for system and mic (so a dead source is visible), the
-  // capture context, and the live-caption tail under a section label.
+  // Rows consumed by the fixed chrome (brand, REC, meters, context, footer +
+  // margins); the caption area gets whatever's left so it fills the screen.
+  // Each meter is a header row + WAVE_ROWS matrix rows; the mic meter adds a
+  // top-margin row.
+  const meterBlockRows = (telemetry.micEnabled ? 2 : 1) * (WAVE_ROWS + 1) + (telemetry.micEnabled ? 1 : 0);
+  const fixedRows = 8 + meterBlockRows;
+  const captionRows = Math.max(2, size.rows - fixedRows);
+
+  // Active recording: dense, left-aligned, information-rich — REC + elapsed,
+  // per-source meters, capture context, and a live-caption area that grows to
+  // fill the remaining height.
   return (
-    <Box flexDirection="column" paddingX={1} height={size.rows}>
+    <Box flexDirection="column" paddingX={1}>
       <Text>
         <Text bold color="green">recappi</Text>
         <Text dimColor> · Recording</Text>
       </Text>
 
-      <Box marginTop={1} paddingX={1} flexGrow={1} flexDirection="column">
+      <Box marginTop={1} paddingX={1} flexDirection="column">
         <Text>
           <Text bold color={paused ? "yellow" : "red"}>{badge}</Text>
           <Text>   </Text>
@@ -229,7 +269,9 @@ export function RecordingHeroScreen({
             <>
               <MeterRow label="System" samples={waveSys} level={telemetry.level.system ?? 0} paused={paused} width={meterW} />
               {telemetry.micEnabled ? (
-                <MeterRow label="Mic" samples={waveMic} level={telemetry.level.mic ?? 0} paused={paused} width={meterW} />
+                <Box marginTop={1}>
+                  <MeterRow label="Mic" samples={waveMic} level={telemetry.level.mic ?? 0} paused={paused} width={meterW} />
+                </Box>
               ) : null}
             </>
           )}
@@ -242,12 +284,12 @@ export function RecordingHeroScreen({
         {captions ? (
           <Box marginTop={1} flexDirection="column">
             <Text bold dimColor>LIVE CAPTIONS</Text>
-            <HeroCaptions state={captions} />
+            <HeroCaptions state={captions} maxRows={captionRows} />
           </Box>
         ) : null}
       </Box>
 
-      <Box>
+      <Box marginTop={1}>
         <Text dimColor>
           q stop & save{canPause ? ` · p ${paused ? "resume" : "pause"}` : ""}
         </Text>
@@ -256,20 +298,20 @@ export function RecordingHeroScreen({
   );
 }
 
-// Compact, auto-following live-caption tail — mirrors the macOS app's floating
-// panel (recent source line(s) + a dimmer translation row + the in-flight
-// partial), not the full-screen scroller (that's LiveCaptionsView). Rendered in
-// the hero only when captions are streaming; degrades to a "listening" hint
-// before any speech arrives.
-function HeroCaptions({ state }: { state: LiveCaptionsState }): React.ReactElement {
-  const MAX_LINES = 3;
-  const recent = state.lines.slice(-MAX_LINES);
+// Strip the leading whitespace ASR streams prepend to continuation tokens — it
+// rendered as a stray indent that flickered in on each new line.
+const trimLead = (s: string): string => s.replace(/^\s+/, "");
+
+// Auto-following live-caption area: shows the most recent source + translation
+// (bilingual) lines that fit `maxRows`, growing with the screen. Tail-follows
+// the live stream; degrades to a "listening" hint before any speech arrives.
+function HeroCaptions({ state, maxRows }: { state: LiveCaptionsState; maxRows: number }): React.ReactElement {
   const hasPartial = Boolean(state.partial && state.partial.length > 0);
   const captionError =
     state.status === "error"
       ? `Captions unavailable: ${state.error ?? "Live captions unavailable."}`
       : null;
-  if (recent.length === 0 && !hasPartial) {
+  if (state.lines.length === 0 && !hasPartial) {
     // Surface the real caption error (the WS status/reason the helper exposes) in
     // yellow (captions degraded, recording continues) rather than a bare label.
     return (
@@ -281,31 +323,39 @@ function HeroCaptions({ state }: { state: LiveCaptionsState }): React.ReactEleme
       </Text>
     );
   }
+
+  // Build one row per source / translation / partial line, then keep the last
+  // `maxRows` so the newest stays visible (tail-following).
+  const rows: React.ReactElement[] = [];
+  for (const line of state.lines) {
+    rows.push(
+      <Text key={`${line.id}-s`} wrap="truncate-end">
+        {line.speaker ? `${line.speaker}: ` : ""}
+        {trimLead(line.text)}
+      </Text>,
+    );
+    if (line.translation) {
+      rows.push(
+        <Text key={`${line.id}-t`} dimColor wrap="truncate-end">{`  ↳ ${trimLead(line.translation)}`}</Text>,
+      );
+    }
+  }
+  if (hasPartial) {
+    rows.push(
+      <Text key="partial" dimColor wrap="truncate-end">{trimLead(state.partial!)}</Text>,
+    );
+  }
+  if (state.translationPartial) {
+    rows.push(
+      <Text key="tpartial" dimColor wrap="truncate-end">{`  ↳ ${trimLead(state.translationPartial)}`}</Text>,
+    );
+  }
+  const visible = rows.slice(-Math.max(1, maxRows));
   return (
     <>
-      {recent.map((line) => (
-        <Box key={line.id} flexDirection="column">
-          <Text wrap="truncate-end">
-            {line.speaker ? `${line.speaker}: ` : ""}
-            {line.text}
-          </Text>
-          {line.translation ? (
-            <Text dimColor wrap="truncate-end">{`↳ ${line.translation}`}</Text>
-          ) : null}
-        </Box>
-      ))}
-      {hasPartial ? (
-        <Text dimColor wrap="truncate-end">
-          {state.partial}
-        </Text>
-      ) : null}
-      {state.translationPartial ? (
-        <Text dimColor wrap="truncate-end">{`↳ ${state.translationPartial}`}</Text>
-      ) : null}
+      {visible}
       {captionError ? (
-        <Text color="yellow" wrap="truncate-end">
-          {captionError}
-        </Text>
+        <Text color="yellow" wrap="truncate-end">{captionError}</Text>
       ) : null}
     </>
   );
