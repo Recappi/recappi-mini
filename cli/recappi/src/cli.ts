@@ -280,6 +280,8 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
           hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
         });
       }
+      const translationLanguage =
+        parsed.translationLanguage ?? (mode === "human" && isTTY ? "zh" : undefined);
       const data = await recordViaSidecar({
         account: {
           backendOrigin: auth.origin,
@@ -294,7 +296,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         live: parsed.live === true || (mode === "human" && isTTY),
         includeSystemAudio: parsed.includeSystemAudio,
         includeMicrophone: parsed.includeMicrophone,
-        translationLanguage: parsed.translationLanguage,
+        translationLanguage,
         transcriptionLanguage: parsed.transcriptionLanguage,
         sidecarCommand: parsed.sidecarCommand,
         renderLive: parsed.live === true && mode === "human" && isTTY,

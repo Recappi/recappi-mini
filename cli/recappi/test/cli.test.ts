@@ -737,7 +737,7 @@ describe("recappi CLI contract", () => {
         userId: "user_123",
         authToken: "token",
       },
-      options: { liveCaptions: true },
+      options: { liveCaptions: true, translationLanguage: "zh" },
     });
   });
 
@@ -754,9 +754,13 @@ describe("recappi CLI contract", () => {
     expect(methods).toContain("createHeroRenderer");
     expect(methods).toContain("heroWait");
     expect(methods).not.toContain("createLiveRenderer");
-    expect(fake.calls.find((call) => call.method === "start")?.params).toMatchObject({
+    const startParams = fake.calls.find((call) => call.method === "start")?.params as
+      | SidecarRecordingStartParams
+      | undefined;
+    expect(startParams).toMatchObject({
       options: { liveCaptions: false },
     });
+    expect(startParams?.options).not.toHaveProperty("translationLanguage");
     expect(result.stdout).toContain("Recording complete");
   });
 

@@ -371,7 +371,7 @@ async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<Activ
       ...(opts.targetBundleId ? { targetBundleId: opts.targetBundleId } : {}),
       ...(opts.microphoneDeviceId ? { microphoneDeviceId: opts.microphoneDeviceId } : {}),
       liveCaptions: captionStreamEnabled,
-      ...(opts.translationLanguage ? { translationLanguage: opts.translationLanguage } : {}),
+      ...(captionStreamEnabled && opts.translationLanguage ? { translationLanguage: opts.translationLanguage } : {}),
       ...(opts.transcriptionLanguage ? { transcriptionLanguage: opts.transcriptionLanguage } : {}),
       ...(opts.title ? { title: opts.title } : {}),
     };
