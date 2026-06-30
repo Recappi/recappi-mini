@@ -1579,8 +1579,11 @@ describe("AppShell (interactive)", () => {
     });
     await waitFor(() => {
       const frame = noAnsi(lastFrame());
+      // Default "both" mode shows source + translation as labeled side-by-side
+      // columns (no ↳ pairing — the streams aren't synced 1:1).
       expect(frame).toContain("A: hello world");
-      expect(frame).toContain("↳ 你好世界");
+      expect(frame).toContain("你好世界");
+      expect(frame).toContain("TRANSLATION");
     });
     unmount();
   });

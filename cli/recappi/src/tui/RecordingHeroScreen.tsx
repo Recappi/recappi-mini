@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import type {
   RecordingArtifact,
   RecordingTelemetry,
@@ -9,6 +9,12 @@ import { type LiveCaptionsState, liveCaptionStatusLabel } from "./liveCaptions";
 import { useTerminalSize } from "./terminal";
 
 const WAVE_THROTTLE_MS = 220; // ~4.5 Hz; the helper emits levels several times faster, which scrolled too fast.
+
+// Caption pane mode: both (original + translation, side by side) / original only
+// / translation only. Cycled with `c`. The streams are shown independently — no
+// 1:1 alignment is implied, since the live source/translation can't be synced
+// line-for-line.
+type CaptionMode = "both" | "source" | "translation";
 
 // Dot-matrix height in rows: the app uses 5, but on a short terminal that would
 // crowd out the captions, so drop to 3 when there isn't much vertical room.
@@ -148,7 +154,16 @@ export function RecordingHeroScreen({
   const [tick, setTick] = useState(() => now());
   const [waveSys, setWaveSys] = useState<number[]>([]);
   const [waveMic, setWaveMic] = useState<number[]>([]);
+  const [captionMode, setCaptionMode] = useState<CaptionMode>("both");
   const lastAppendRef = useRef(0);
+
+  // `c` cycles the caption panes: both (split) → original only → translation
+  // only → both. Independent of the parent's q/esc/p handler (Ink multiplexes).
+  useInput((input) => {
+    if (input === "c") {
+      setCaptionMode((m) => (m === "both" ? "source" : m === "source" ? "translation" : "both"));
+    }
+  });
 
   // Separate rolling buffers for system and mic, so each gets its own meter (you
   // can see whether the mic is actually picking up). Throttled to WAVE_THROTTLE_MS
@@ -293,7 +308,7 @@ export function RecordingHeroScreen({
         {captions ? (
           <Box marginTop={1} flexDirection="column">
             <Text bold dimColor>LIVE CAPTIONS</Text>
-            <HeroCaptions state={captions} maxRows={captionRows} width={innerWidth} />
+            <HeroCaptions state={captions} maxRows={captionRows} width={innerWidth} mode={captionMode} />
           </Box>
         ) : null}
       </Box>
@@ -301,6 +316,7 @@ export function RecordingHeroScreen({
       <Box marginTop={1}>
         <Text dimColor>
           q stop & save{canPause ? ` · p ${paused ? "resume" : "pause"}` : ""}
+          {captions ? " · c captions" : ""}
         </Text>
       </Box>
     </Box>
@@ -316,18 +332,43 @@ function wrappedRows(text: string, width: number): number {
   return Math.max(1, Math.ceil(displayWidth(text) / Math.max(1, width)));
 }
 
-// Auto-following live-caption area: the most recent source + translation
-// (bilingual) lines, each WRAPPED (long sentences span multiple lines, never
-// truncated), filling `maxRows` of vertical space. Tail-follows the live stream;
-// degrades to a "listening" hint before any speech arrives.
+interface CapItem {
+  key: string;
+  text: string;
+}
+
+// Tail-fill a caption stream: from the newest item backward, keep adding until
+// the wrapped heights would exceed `maxRows`, so the most recent captions stay
+// visible. Returns wrapped <Text> rows (long lines span multiple terminal rows).
+function captionColumn(items: CapItem[], maxRows: number, width: number, dim: boolean): React.ReactElement[] {
+  const budget = Math.max(1, maxRows);
+  const chosen: CapItem[] = [];
+  let used = 0;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const h = wrappedRows(items[i]!.text, width);
+    if (used + h > budget && chosen.length > 0) break;
+    chosen.unshift(items[i]!);
+    used += h;
+  }
+  return chosen.map((it) => (
+    <Text key={it.key} dimColor={dim} wrap="wrap">{it.text}</Text>
+  ));
+}
+
+// Live-caption area. Source and translation are shown as independent streams,
+// never paired 1:1 (the live streams can't be synced line-for-line). `mode`
+// (cycled with `c`) picks the layout: "both" = side-by-side columns, "source" /
+// "translation" = a single full-width column. Each stream wraps + tail-follows.
 function HeroCaptions({
   state,
   maxRows,
   width,
+  mode,
 }: {
   state: LiveCaptionsState;
   maxRows: number;
   width: number;
+  mode: CaptionMode;
 }): React.ReactElement {
   const hasPartial = Boolean(state.partial && state.partial.length > 0);
   const captionError =
@@ -345,41 +386,43 @@ function HeroCaptions({
     );
   }
 
-  // Flatten to caption lines (source, then its translation), newest last.
-  type Line = { key: string; text: string; dim: boolean };
-  const lines: Line[] = [];
-  for (const line of state.lines) {
-    lines.push({
-      key: `${line.id}-s`,
-      text: `${line.speaker ? `${line.speaker}: ` : ""}${trimLead(line.text)}`,
-      dim: false,
-    });
-    if (line.translation) {
-      lines.push({ key: `${line.id}-t`, text: `  ↳ ${trimLead(line.translation)}`, dim: true });
-    }
+  const sourceItems: CapItem[] = state.lines.map((l) => ({
+    key: `${l.id}-s`,
+    text: `${l.speaker ? `${l.speaker}: ` : ""}${trimLead(l.text)}`,
+  }));
+  if (hasPartial) sourceItems.push({ key: "sp", text: trimLead(state.partial!) });
+  const translationItems: CapItem[] = state.lines
+    .filter((l) => l.translation)
+    .map((l) => ({ key: `${l.id}-t`, text: trimLead(l.translation!) }));
+  if (state.translationPartial) translationItems.push({ key: "tp", text: trimLead(state.translationPartial) });
+
+  const errLine = captionError ? <Text color="yellow" wrap="wrap">{captionError}</Text> : null;
+  const hasTranslation = translationItems.length > 0;
+
+  // Single-column when asked, or when there's no translation to split out.
+  if (mode === "source" || !hasTranslation) {
+    return (<>{captionColumn(sourceItems, maxRows, width, false)}{errLine}</>);
   }
-  if (hasPartial) lines.push({ key: "partial", text: trimLead(state.partial!), dim: true });
-  if (state.translationPartial) {
-    lines.push({ key: "tpartial", text: `  ↳ ${trimLead(state.translationPartial)}`, dim: true });
+  if (mode === "translation") {
+    return (<>{captionColumn(translationItems, maxRows, width, false)}{errLine}</>);
   }
 
-  // Tail-fill: from the newest line backward, keep adding until the wrapped
-  // heights would exceed the budget, so the most recent captions stay visible.
-  const budget = Math.max(1, maxRows);
-  const chosen: Line[] = [];
-  let used = 0;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const h = wrappedRows(lines[i]!.text, width);
-    if (used + h > budget && chosen.length > 0) break;
-    chosen.unshift(lines[i]!);
-    used += h;
-  }
+  // both → side-by-side columns; headers label which is which (no 1:1 implied).
+  const gap = 2;
+  const colW = Math.max(12, Math.floor((width - gap) / 2));
   return (
     <>
-      {chosen.map((l) => (
-        <Text key={l.key} dimColor={l.dim} wrap="wrap">{l.text}</Text>
-      ))}
-      {captionError ? <Text color="yellow" wrap="wrap">{captionError}</Text> : null}
+      <Box flexDirection="row">
+        <Box width={colW} flexDirection="column" marginRight={gap}>
+          <Text dimColor>ORIGINAL</Text>
+          {captionColumn(sourceItems, Math.max(1, maxRows - 1), colW, false)}
+        </Box>
+        <Box width={colW} flexDirection="column">
+          <Text dimColor>TRANSLATION</Text>
+          {captionColumn(translationItems, Math.max(1, maxRows - 1), colW, false)}
+        </Box>
+      </Box>
+      {errLine}
     </>
   );
 }
