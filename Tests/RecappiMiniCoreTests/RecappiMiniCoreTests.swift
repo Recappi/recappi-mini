@@ -105,6 +105,12 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(AuthSessionStore.normalizeBearerToken("set-auth-token: qwe.456"), "qwe.456")
     }
 
+    func testKeychainBearerSaveSkipsUnchangedToken() {
+        XCTAssertFalse(KeychainAuthStore.shouldWriteBearerToken(existing: "same.token", newValue: "same.token"))
+        XCTAssertTrue(KeychainAuthStore.shouldWriteBearerToken(existing: nil, newValue: "new.token"))
+        XCTAssertTrue(KeychainAuthStore.shouldWriteBearerToken(existing: "old.token", newValue: "new.token"))
+    }
+
     func testResolveBearerTokenOnlyUsesSetAuthHeader() {
         XCTAssertEqual(
             RecappiAPIClient.resolveBearerToken(headerToken: "set-auth-token: header.123"),

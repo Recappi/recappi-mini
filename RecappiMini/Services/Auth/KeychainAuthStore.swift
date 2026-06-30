@@ -21,6 +21,10 @@ struct KeychainAuthStore {
     }
 
     func saveBearerToken(_ value: String) -> Bool {
+        if !Self.shouldWriteBearerToken(existing: readBearerToken(), newValue: value) {
+            return true
+        }
+
         let data = Data(value.utf8)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
@@ -39,6 +43,10 @@ struct KeychainAuthStore {
         SecItemDelete(baseQuery as CFDictionary) == errSecSuccess
     }
 
+    static func shouldWriteBearerToken(existing: String?, newValue: String) -> Bool {
+        existing != newValue
+    }
+
     private var baseQuery: [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
@@ -47,4 +55,3 @@ struct KeychainAuthStore {
         ]
     }
 }
-
