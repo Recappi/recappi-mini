@@ -746,7 +746,9 @@ describe("views render", () => {
         now={() => 0}
       />,
     );
-    expect(noAnsi(stopped.lastFrame())).toContain("Transcribe now? ⏎ yes");
+    // Auto-flow: stopped + local + not-yet-transcribed shows the auto handoff
+    // ("Starting transcription…"), not a manual "Transcribe now?" prompt.
+    expect(noAnsi(stopped.lastFrame())).toContain("Starting transcription…");
     // Failed handoff: the retry prompt and the error reason must be on separate
     // lines (the column box), not concatenated onto one line.
     stopped.rerender(

@@ -448,5 +448,8 @@ function stoppedHandoffCopy(
   if (!canTranscribe || !artifact?.audioPath) {
     return { text: "Saved locally · n back", tone: "dim" };
   }
-  return { text: "Transcribe now? ⏎ yes · n not now", tone: "normal" };
+  // Auto-flow: the runtime hands the stopped recording to the cloud on its own
+  // (no manual "Transcribe now?" gate). This is the brief window before the
+  // upload's first progress event flips the phase line to "Uploading…".
+  return { text: "Starting transcription…", tone: "normal" };
 }
