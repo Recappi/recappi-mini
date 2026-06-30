@@ -1,6 +1,11 @@
 import { Command, CommanderError, InvalidArgumentError } from "commander/esm.mjs";
 import os from "node:os";
-import type { JobStatusFilter } from "../../packages/contracts/src/index";
+import {
+  recordCommandDataSchema,
+  type JobStatusFilter,
+  type OperationEvent,
+  type RecordCommandData,
+} from "../../packages/contracts/src/index";
 import { cliError, RecappiCliError, toCliError } from "./errors";
 import {
   clearAuthConfig,
@@ -30,8 +35,64 @@ import {
   startRecordSetupLevelPreview,
   type RecordRuntimeDeps,
 } from "./record";
+import { recordingArtifactFromRecordData } from "./recordingCore";
 
 const DASHBOARD_RECORDINGS_PAGE_SIZE = 50;
+
+interface RecordCloudHandoffOptions {
+  title?: string;
+  language?: string;
+  onEvent?: (event: OperationEvent) => void;
+}
+
+async function uploadRecordedSessionAfterStop(
+  client: RecappiApiClient,
+  data: RecordCommandData,
+  opts: RecordCloudHandoffOptions = {},
+): Promise<RecordCommandData> {
+  const artifact = recordingArtifactFromRecordData(data);
+  if (!artifact.audioPath) return data;
+
+  try {
+    const upload = await client.uploadPathBatch({
+      inputPath: artifact.audioPath,
+      transcribe: true,
+      wait: false,
+      ...(opts.title ? { title: opts.title } : {}),
+      ...(opts.language ? { language: opts.language } : {}),
+      onEvent: opts.onEvent,
+    });
+    if (upload.failures.length > 0) {
+      const failure = upload.failures[0]!;
+      return recordCommandDataSchema.parse({
+        ...data,
+        cloudHandoffError: failure.error,
+      });
+    }
+    const success = upload.successes[0];
+    if (!success) {
+      return recordCommandDataSchema.parse({
+        ...data,
+        cloudHandoffError: cliError(
+          "input.unsupported_audio",
+          "No supported local audio file was uploaded.",
+        ).descriptor,
+      });
+    }
+
+    return recordCommandDataSchema.parse({
+      ...data,
+      recordingId: success.recordingId,
+      ...(success.jobId ? { jobId: success.jobId } : {}),
+      ...(success.transcriptId ? { transcriptId: success.transcriptId } : {}),
+    });
+  } catch (error) {
+    return recordCommandDataSchema.parse({
+      ...data,
+      cloudHandoffError: toCliError(error).descriptor,
+    });
+  }
+}
 
 export interface CliDeps {
   argv?: string[];
@@ -282,7 +343,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       }
       const translationLanguage =
         parsed.translationLanguage ?? (mode === "human" && isTTY ? "zh" : undefined);
-      const data = await recordViaSidecar({
+      const captured = await recordViaSidecar({
         account: {
           backendOrigin: auth.origin,
           userId: status.userId,
@@ -303,6 +364,11 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         renderHero: parsed.live !== true && mode === "human" && isTTY,
         requireLiveCaptions: parsed.live === true,
         runtime: deps.recordRuntime,
+      });
+      const data = await uploadRecordedSessionAfterStop(client, captured, {
+        title: parsed.title,
+        language: parsed.transcriptionLanguage,
+        onEvent: (event) => renderEvent(event, render),
       });
       renderSuccess("record", data, render);
       return 0;

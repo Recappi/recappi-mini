@@ -1,3 +1,4 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -483,7 +484,7 @@ describe("recappi CLI contract", () => {
         ],
         {
           homeDir,
-          fetchImpl: sessionFetch(),
+          fetchImpl: uploadFetch(),
           recordRuntime: fake.runtime,
         },
       );
@@ -530,13 +531,14 @@ describe("recappi CLI contract", () => {
           sessionId: "sidecar_session_1",
           state: "completed",
           recordingId: "rec_123",
+          jobId: "job_123",
           localSessionRef: "2026-06-25_153000",
           artifacts: [
             { kind: "live_caption_draft", localPath: "/tmp/live-captions.json" },
             {
               kind: "recording_session",
-              localPath: "/Users/pengx17/Documents/Recappi Mini/2026-06-25_153000",
-              remoteId: "rec_123",
+              localPath: expect.any(String),
+              metadata: { audioPath: expect.any(String) },
             },
           ],
         },
@@ -562,6 +564,41 @@ describe("recappi CLI contract", () => {
     }
   });
 
+  it("keeps the local recording result when the cloud handoff fails", async () => {
+    const fake = fakeRecordRuntime();
+    const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
+      fetchImpl: uploadCreateFailureFetch(),
+      recordRuntime: fake.runtime,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const envelope = JSON.parse(result.stdout);
+    expect(envelope).toMatchObject({
+      ok: true,
+      command: "record",
+      data: {
+        origin: "https://recordmeet.ing",
+        userId: "user_123",
+        sessionId: "sidecar_session_1",
+        state: "completed",
+        cloudHandoffError: {
+          code: "cloud.http_error",
+          message: "temporary outage",
+          retryable: true,
+        },
+        artifacts: [
+          { kind: "live_caption_draft", localPath: "/tmp/live-captions.json" },
+          {
+            kind: "recording_session",
+            localPath: expect.any(String),
+            metadata: { audioPath: expect.any(String) },
+          },
+        ],
+      },
+    });
+    expect(envelope.data.recordingId).toBeUndefined();
+  });
+
   it("continues when microphone permission is not determined so macOS can prompt", async () => {
     const fake = fakeRecordRuntime({
       permissions: [
@@ -570,7 +607,7 @@ describe("recappi CLI contract", () => {
       ],
     });
     const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
-      fetchImpl: sessionFetch(),
+      fetchImpl: uploadFetch(),
       recordRuntime: fake.runtime,
     });
 
@@ -594,7 +631,7 @@ describe("recappi CLI contract", () => {
       ],
     });
     const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
-      fetchImpl: sessionFetch(),
+      fetchImpl: uploadFetch(),
       recordRuntime: fake.runtime,
     });
 
@@ -636,7 +673,7 @@ describe("recappi CLI contract", () => {
       ],
     });
     const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
-      fetchImpl: sessionFetch(),
+      fetchImpl: uploadFetch(),
       recordRuntime: fake.runtime,
     });
 
@@ -665,7 +702,7 @@ describe("recappi CLI contract", () => {
       ],
     });
     const result = await run(["record", "--json", "--sidecar-command", "fake-sidecar"], {
-      fetchImpl: sessionFetch(),
+      fetchImpl: uploadFetch(),
       recordRuntime: fake.runtime,
     });
 
@@ -687,7 +724,7 @@ describe("recappi CLI contract", () => {
     const fake = fakeRecordRuntime();
     const result = await run(["record", "--live", "--sidecar-command", "fake-sidecar"], {
       isTTY: true,
-      fetchImpl: sessionFetch(),
+      fetchImpl: uploadFetch(),
       recordRuntime: fake.runtime,
     });
 
@@ -713,7 +750,7 @@ describe("recappi CLI contract", () => {
     const fake = fakeRecordRuntime();
     const result = await run(["record", "--sidecar-command", "fake-sidecar"], {
       isTTY: true,
-      fetchImpl: sessionFetch(),
+      fetchImpl: uploadFetch(),
       recordRuntime: fake.runtime,
     });
 
@@ -745,7 +782,7 @@ describe("recappi CLI contract", () => {
     const fake = fakeRecordRuntime({ capabilities: ["recording.capture", "recording.upload"] });
     const result = await run(["record", "--sidecar-command", "fake-sidecar"], {
       isTTY: true,
-      fetchImpl: sessionFetch(),
+      fetchImpl: uploadFetch(),
       recordRuntime: fake.runtime,
     });
 
@@ -1453,6 +1490,7 @@ function fakeRecordRuntime(
     capabilities?: string[];
     permissions?: Array<{ name: "screen_recording" | "microphone"; status: string }>;
     startErrors?: unknown[];
+    audioPath?: string;
   } = {},
 ): {
   runtime: RecordRuntimeDeps;
@@ -1461,6 +1499,8 @@ function fakeRecordRuntime(
 } {
   const calls: Array<{ method: string; params?: unknown; source?: unknown }> = [];
   const startErrors = [...(opts.startErrors ?? [])];
+  const audioPath = opts.audioPath ?? writeWavFixtureSync();
+  const sessionDir = path.dirname(audioPath);
   const listeners = new Set<(event: SidecarEvent) => void>();
   const emit = (event: SidecarEvent) => {
     for (const listener of listeners) listener(event);
@@ -1528,13 +1568,12 @@ function fakeRecordRuntime(
       return {
         sessionId: "sidecar_session_1",
         state: "completed",
-        recordingId: "rec_123",
         localSessionRef: "2026-06-25_153000",
         artifacts: [
           {
             kind: "recording_session",
-            localPath: "/Users/pengx17/Documents/Recappi Mini/2026-06-25_153000",
-            remoteId: "rec_123",
+            localPath: sessionDir,
+            metadata: { audioPath },
           },
         ],
       };
@@ -1578,6 +1617,13 @@ function fakeRecordRuntime(
       },
     },
   };
+}
+
+function writeWavFixtureSync(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), "recappi-cli-test-"));
+  const filePath = path.join(dir, "sample.wav");
+  writeFileSync(filePath, buildWav(1600));
+  return filePath;
 }
 
 function sessionFetch(): typeof fetch {
@@ -1672,6 +1718,19 @@ function uploadFetch(): typeof fetch {
     }
     if (url.pathname === "/api/auth/get-session") {
       return jsonResponse({ user: { id: "user_123", email: "agent@example.com" } });
+    }
+    return jsonResponse({ message: `unexpected ${url.pathname}` }, { status: 404 });
+  };
+}
+
+function uploadCreateFailureFetch(): typeof fetch {
+  return async (input, init) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/auth/get-session") {
+      return jsonResponse({ user: { id: "user_123", email: "agent@example.com" } });
+    }
+    if (url.pathname === "/api/recordings" && init?.method === "POST") {
+      return jsonResponse({ message: "temporary outage" }, { status: 503 });
     }
     return jsonResponse({ message: `unexpected ${url.pathname}` }, { status: 404 });
   };

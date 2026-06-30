@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import type { RecordingAudioRuntime } from "../audio";
 import type {
@@ -392,6 +392,7 @@ export function AppShell({
     bySourceId: {},
     byMicrophoneId: {},
   });
+  const autoTranscribeStartedSessionIds = useRef<Set<string>>(new Set());
   const recordSetupModel: RecordSetupModel = {
     sources: recordSetupInputs.sources.length > 0 ? recordSetupInputs.sources : DEFAULT_RECORDING_SOURCES,
     microphones: recordSetupInputs.microphones ?? [],
@@ -755,6 +756,18 @@ export function AppShell({
       setNotice("Transcription failed. Press enter to retry.");
     }
   }, [liveRecord, refresh, transcribeRecordingArtifact]);
+
+  useEffect(() => {
+    if (liveRecord?.kind !== "stopped") return;
+    const artifact = liveRecord.artifact;
+    if (!artifact?.audioPath || !transcribeRecordingArtifact) return;
+    if (artifact.uploadStatus !== "local_only" || artifact.transcriptionStatus !== "not_started") {
+      return;
+    }
+    if (autoTranscribeStartedSessionIds.current.has(artifact.sessionId)) return;
+    autoTranscribeStartedSessionIds.current.add(artifact.sessionId);
+    void transcribeStoppedRecording();
+  }, [liveRecord, transcribeRecordingArtifact, transcribeStoppedRecording]);
 
   const loadMoreRecordings = useCallback(async () => {
     if (!fetchRecordings || !recordingsNextCursor || loadingMoreRecordings) return;

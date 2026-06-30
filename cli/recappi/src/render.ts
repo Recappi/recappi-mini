@@ -235,6 +235,10 @@ function renderHumanSuccess(command: string, data: unknown, opts: RenderOptions)
   if (command === "record" && isRecord(data)) {
     opts.stdout("Recording complete\n");
     if (typeof data.recordingId === "string") opts.stdout(`  recordingId: ${data.recordingId}\n`);
+    if (typeof data.jobId === "string") opts.stdout(`  jobId: ${data.jobId}\n`);
+    if (typeof data.transcriptId === "string") {
+      opts.stdout(`  transcriptId: ${data.transcriptId}\n`);
+    }
     if (typeof data.sessionId === "string") opts.stdout(`  sessionId: ${data.sessionId}\n`);
     if (typeof data.localSessionRef === "string") {
       opts.stdout(`  localSessionRef: ${data.localSessionRef}\n`);
@@ -248,7 +252,16 @@ function renderHumanSuccess(command: string, data: unknown, opts: RenderOptions)
         opts.stdout(`    - ${kind}: ${localPath}\n`);
       }
     }
-    if (typeof data.recordingId === "string") {
+    const cloudHandoffError = isRecord(data.cloudHandoffError) ? data.cloudHandoffError : undefined;
+    if (cloudHandoffError && typeof cloudHandoffError.message === "string") {
+      opts.stderr(`Cloud handoff failed: ${cloudHandoffError.message}\n`);
+      if (typeof cloudHandoffError.hint === "string") opts.stderr(`${cloudHandoffError.hint}\n`);
+    }
+    if (typeof data.transcriptId === "string") {
+      opts.stdout(`\nNext:\n  recappi transcript get ${data.transcriptId}\n`);
+    } else if (typeof data.jobId === "string") {
+      opts.stdout(`\nNext:\n  recappi jobs wait ${data.jobId}\n`);
+    } else if (typeof data.recordingId === "string") {
       opts.stdout(`\nNext:\n  recappi recordings get ${data.recordingId}\n`);
     }
     return;

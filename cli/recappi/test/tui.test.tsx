@@ -1364,11 +1364,6 @@ describe("AppShell (interactive)", () => {
     await flush();
     await waitFor(() => {
       expect(stop).toHaveBeenCalledTimes(1);
-      expect(noAnsi(lastFrame())).toContain("Saved to your Mac");
-    });
-    stdin.write("\r");
-    await flush();
-    await waitFor(() => {
       expect(transcribeRecordingArtifact).toHaveBeenCalledWith(
         expect.objectContaining({ audioPath: "/tmp/recappi/session/recording.m4a" }),
         expect.any(Function),
