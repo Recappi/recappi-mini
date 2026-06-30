@@ -4,27 +4,32 @@ import type {
   RecordingArtifact,
   RecordingTelemetry,
 } from "../recordingCore";
-import { formatBytes, formatClockMs } from "./format";
+import { displayWidth, formatBytes, formatClockMs } from "./format";
 import { type LiveCaptionsState, liveCaptionStatusLabel } from "./liveCaptions";
 import { useTerminalSize } from "./terminal";
 
-const WAVE_ROWS = 5; // dot-matrix height — matches the macOS app's DotMatrixWaveform.
 const WAVE_THROTTLE_MS = 220; // ~4.5 Hz; the helper emits levels several times faster, which scrolled too fast.
 
-// How many of the WAVE_ROWS dots a level lights, mirroring the app's
+// Dot-matrix height in rows: the app uses 5, but on a short terminal that would
+// crowd out the captions, so drop to 3 when there isn't much vertical room.
+function waveRowsFor(terminalRows: number): number {
+  return terminalRows >= 30 ? 5 : 3;
+}
+
+// How many of `rows` dots a level lights, mirroring the app's
 // DotMatrixWaveformModel.litRowCounts: perceptual (pow 0.58) so quiet activity
 // still shows, with a small floor below which the column reads as silent.
-function litCount(level: number): number {
+function litCount(level: number, rows: number): number {
   const amp = Math.max(0, Math.min(1, level));
   if (amp <= 0.028) return 0;
-  return Math.max(1, Math.min(WAVE_ROWS, Math.ceil(Math.pow(amp, 0.58) * WAVE_ROWS)));
+  return Math.max(1, Math.min(rows, Math.ceil(Math.pow(amp, 0.58) * rows)));
 }
 
 // Per-column lit-dot counts for the rolling window (newest on the right).
-function litCounts(samples: number[], width: number): number[] {
+function litCounts(samples: number[], width: number, rows: number): number[] {
   if (width <= 0) return [];
   const tail = samples.slice(-width);
-  return [...Array(Math.max(0, width - tail.length)).fill(0), ...tail].map(litCount);
+  return [...Array(Math.max(0, width - tail.length)).fill(0), ...tail].map((v) => litCount(v, rows));
 }
 
 // The helper sends rms loudness as dB then normalizes to 0..1 via (dB+60)/60
@@ -44,19 +49,21 @@ function MeterRow({
   level,
   paused,
   width,
+  rows,
 }: {
   label: string;
   samples: number[];
   level: number;
   paused: boolean;
   width: number;
+  rows: number;
 }): React.ReactElement {
   const silent = level <= 0.03;
   // cyan = live audio (active); gray = paused. The dB label flags a silent source
   // in yellow (the Arc-silent bug). Red is reserved for the REC badge / errors.
   // Unlit cells are a dim · grid (like the app's unlit dots) — also keeps every
   // row non-empty so Ink doesn't collapse blank rows and break alignment.
-  const cols = litCounts(samples, width);
+  const cols = litCounts(samples, width, rows);
   const litColor = paused ? "gray" : "cyan";
   // Label + dB on a header row, the dot matrix beneath — simpler and more robust
   // than vertically centering the label against a variable-height matrix.
@@ -72,8 +79,8 @@ function MeterRow({
           )}
         </Box>
       </Box>
-      {Array.from({ length: WAVE_ROWS }, (_, r) => {
-        const fromBottom = WAVE_ROWS - r;
+      {Array.from({ length: rows }, (_, r) => {
+        const fromBottom = rows - r;
         return (
           <Text key={r}>
             {cols.map((c, i) =>
@@ -235,11 +242,13 @@ export function RecordingHeroScreen({
     .filter(Boolean)
     .join("  ·  ");
 
+  // Waveform height adapts to the terminal so it doesn't crowd out captions.
+  const waveRows = waveRowsFor(size.rows);
   // Rows consumed by the fixed chrome (brand, REC, meters, context, footer +
   // margins); the caption area gets whatever's left so it fills the screen.
-  // Each meter is a header row + WAVE_ROWS matrix rows; the mic meter adds a
+  // Each meter is a header row + waveRows matrix rows; the mic meter adds a
   // top-margin row.
-  const meterBlockRows = (telemetry.micEnabled ? 2 : 1) * (WAVE_ROWS + 1) + (telemetry.micEnabled ? 1 : 0);
+  const meterBlockRows = (telemetry.micEnabled ? 2 : 1) * (waveRows + 1) + (telemetry.micEnabled ? 1 : 0);
   const fixedRows = 8 + meterBlockRows;
   const captionRows = Math.max(2, size.rows - fixedRows);
 
@@ -267,10 +276,10 @@ export function RecordingHeroScreen({
             <Text dimColor>{paused ? "Paused" : `Capturing audio${".".repeat((Math.floor(tick / 1000) % 3) + 1)}`}</Text>
           ) : (
             <>
-              <MeterRow label="System" samples={waveSys} level={telemetry.level.system ?? 0} paused={paused} width={meterW} />
+              <MeterRow label="System" samples={waveSys} level={telemetry.level.system ?? 0} paused={paused} width={meterW} rows={waveRows} />
               {telemetry.micEnabled ? (
                 <Box marginTop={1}>
-                  <MeterRow label="Mic" samples={waveMic} level={telemetry.level.mic ?? 0} paused={paused} width={meterW} />
+                  <MeterRow label="Mic" samples={waveMic} level={telemetry.level.mic ?? 0} paused={paused} width={meterW} rows={waveRows} />
                 </Box>
               ) : null}
             </>
@@ -284,7 +293,7 @@ export function RecordingHeroScreen({
         {captions ? (
           <Box marginTop={1} flexDirection="column">
             <Text bold dimColor>LIVE CAPTIONS</Text>
-            <HeroCaptions state={captions} maxRows={captionRows} />
+            <HeroCaptions state={captions} maxRows={captionRows} width={innerWidth} />
           </Box>
         ) : null}
       </Box>
@@ -302,20 +311,32 @@ export function RecordingHeroScreen({
 // rendered as a stray indent that flickered in on each new line.
 const trimLead = (s: string): string => s.replace(/^\s+/, "");
 
-// Auto-following live-caption area: shows the most recent source + translation
-// (bilingual) lines that fit `maxRows`, growing with the screen. Tail-follows
-// the live stream; degrades to a "listening" hint before any speech arrives.
-function HeroCaptions({ state, maxRows }: { state: LiveCaptionsState; maxRows: number }): React.ReactElement {
+// Estimate how many terminal rows a caption line takes once wrapped to `width`.
+function wrappedRows(text: string, width: number): number {
+  return Math.max(1, Math.ceil(displayWidth(text) / Math.max(1, width)));
+}
+
+// Auto-following live-caption area: the most recent source + translation
+// (bilingual) lines, each WRAPPED (long sentences span multiple lines, never
+// truncated), filling `maxRows` of vertical space. Tail-follows the live stream;
+// degrades to a "listening" hint before any speech arrives.
+function HeroCaptions({
+  state,
+  maxRows,
+  width,
+}: {
+  state: LiveCaptionsState;
+  maxRows: number;
+  width: number;
+}): React.ReactElement {
   const hasPartial = Boolean(state.partial && state.partial.length > 0);
   const captionError =
     state.status === "error"
       ? `Captions unavailable: ${state.error ?? "Live captions unavailable."}`
       : null;
   if (state.lines.length === 0 && !hasPartial) {
-    // Surface the real caption error (the WS status/reason the helper exposes) in
-    // yellow (captions degraded, recording continues) rather than a bare label.
     return (
-      <Text color={captionError ? "yellow" : undefined} dimColor={!captionError} wrap="truncate-end">
+      <Text color={captionError ? "yellow" : undefined} dimColor={!captionError}>
         {captionError ??
           (state.status === "live"
             ? "Listening for speech…"
@@ -324,39 +345,41 @@ function HeroCaptions({ state, maxRows }: { state: LiveCaptionsState; maxRows: n
     );
   }
 
-  // Build one row per source / translation / partial line, then keep the last
-  // `maxRows` so the newest stays visible (tail-following).
-  const rows: React.ReactElement[] = [];
+  // Flatten to caption lines (source, then its translation), newest last.
+  type Line = { key: string; text: string; dim: boolean };
+  const lines: Line[] = [];
   for (const line of state.lines) {
-    rows.push(
-      <Text key={`${line.id}-s`} wrap="truncate-end">
-        {line.speaker ? `${line.speaker}: ` : ""}
-        {trimLead(line.text)}
-      </Text>,
-    );
+    lines.push({
+      key: `${line.id}-s`,
+      text: `${line.speaker ? `${line.speaker}: ` : ""}${trimLead(line.text)}`,
+      dim: false,
+    });
     if (line.translation) {
-      rows.push(
-        <Text key={`${line.id}-t`} dimColor wrap="truncate-end">{`  ↳ ${trimLead(line.translation)}`}</Text>,
-      );
+      lines.push({ key: `${line.id}-t`, text: `  ↳ ${trimLead(line.translation)}`, dim: true });
     }
   }
-  if (hasPartial) {
-    rows.push(
-      <Text key="partial" dimColor wrap="truncate-end">{trimLead(state.partial!)}</Text>,
-    );
-  }
+  if (hasPartial) lines.push({ key: "partial", text: trimLead(state.partial!), dim: true });
   if (state.translationPartial) {
-    rows.push(
-      <Text key="tpartial" dimColor wrap="truncate-end">{`  ↳ ${trimLead(state.translationPartial)}`}</Text>,
-    );
+    lines.push({ key: "tpartial", text: `  ↳ ${trimLead(state.translationPartial)}`, dim: true });
   }
-  const visible = rows.slice(-Math.max(1, maxRows));
+
+  // Tail-fill: from the newest line backward, keep adding until the wrapped
+  // heights would exceed the budget, so the most recent captions stay visible.
+  const budget = Math.max(1, maxRows);
+  const chosen: Line[] = [];
+  let used = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const h = wrappedRows(lines[i]!.text, width);
+    if (used + h > budget && chosen.length > 0) break;
+    chosen.unshift(lines[i]!);
+    used += h;
+  }
   return (
     <>
-      {visible}
-      {captionError ? (
-        <Text color="yellow" wrap="truncate-end">{captionError}</Text>
-      ) : null}
+      {chosen.map((l) => (
+        <Text key={l.key} dimColor={l.dim} wrap="wrap">{l.text}</Text>
+      ))}
+      {captionError ? <Text color="yellow" wrap="wrap">{captionError}</Text> : null}
     </>
   );
 }
