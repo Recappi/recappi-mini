@@ -67,6 +67,26 @@ describe("recappi CLI contract", () => {
     expect(result.stdout).toContain("--json");
   });
 
+  it("points agents at the machine-readable schema from root help", async () => {
+    const result = await run(["--help"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("recappi schema --json --compact");
+    expect(result.stdout).toContain("capabilities");
+    expect(result.stdout).toContain("examples");
+  });
+
+  it("renders command examples and related commands from shared metadata", async () => {
+    const result = await run(["upload", "--help"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Examples:");
+    expect(result.stdout).toContain("recappi upload talk.m4a --transcribe --wait");
+    expect(result.stdout).toContain("Related:");
+    expect(result.stdout).toContain("jobs wait");
+    expect(result.stdout).toContain("recordings list");
+  });
+
   it("opens the dashboard for bare `recappi` in an interactive terminal", async () => {
     let dashboardCalls = 0;
     const recordingRequests: string[] = [];
@@ -1456,6 +1476,15 @@ describe("recappi CLI contract", () => {
     expect(upload).toBeTruthy();
     expect(upload.arguments).toEqual([{ name: "file-or-dir", required: true }]);
     expect(upload.data.type).toBe("object");
+    expect(upload.capabilities).toEqual(expect.arrayContaining(["Transcribe uploaded audio"]));
+    expect(upload.examples).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          command: "recappi upload talk.m4a --transcribe --wait",
+        }),
+      ]),
+    );
+    expect(upload.relatedCommands).toEqual(expect.arrayContaining(["jobs wait", "recordings list"]));
     const audio = env.data.commands.find((c: { name: string }) => c.name === "audio");
     expect(audio.arguments).toEqual([
       { name: "recording-id", required: true, description: "recording id" },
@@ -1466,6 +1495,10 @@ describe("recappi CLI contract", () => {
     expect(record.data.properties.artifacts.type).toBe("array");
     const transcript = env.data.commands.find((c: { name: string }) => c.name === "transcript get");
     expect(transcript.data.properties.transcriptId.type).toBe("string");
+    expect(transcript.capabilities).toContain("Fetch a finished transcript by id");
+    expect(transcript.relatedCommands).toEqual(
+      expect.arrayContaining(["recordings get", "jobs wait"]),
+    );
     const doctor = env.data.commands.find((c: { name: string }) => c.name === "doctor");
     expect(doctor.data.properties.status.enum).toContain("ok");
     const jobsList = env.data.commands.find((c: { name: string }) => c.name === "jobs list");
@@ -1478,6 +1511,9 @@ describe("recappi CLI contract", () => {
       (c: { name: string }) => c.name === "recordings retranscribe",
     );
     expect(recordingsRetranscribe.data.properties.status.enum).toContain("queued");
+    expect(recordingsRetranscribe.capabilities).toContain(
+      "Re-transcribe an existing recording",
+    );
     const dashboardStats = env.data.commands.find(
       (c: { name: string }) => c.name === "dashboard stats",
     );
@@ -1490,7 +1526,9 @@ describe("recappi CLI contract", () => {
     expect(accountStatus.data.required).not.toContain("billing");
     // Common options live once at the top, not duplicated onto every command.
     expect(upload.options.some((o: { flags: string }) => o.flags === "--json")).toBe(false);
+    expect(upload.options.some((o: { flags: string }) => o.flags === "--verbose")).toBe(false);
     expect(env.data.commonOptions.some((o: { flags: string }) => o.flags === "--json")).toBe(true);
+    expect(env.data.commonOptions.some((o: { flags: string }) => o.flags === "--verbose")).toBe(true);
     // partial_failure advertises a dynamic exit code, not a misleading fixed one.
     const partial = env.data.errorCodes.find(
       (c: { code: string }) => c.code === "input.partial_failure",
@@ -1517,7 +1555,9 @@ describe("recappi CLI contract", () => {
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Commands:");
-    expect(result.stdout).toContain("upload — Upload an audio file");
+    expect(result.stdout).toContain("upload — Upload a local audio file");
+    expect(result.stdout).toContain("capabilities: Upload a local audio file");
+    expect(result.stdout).toContain("example: recappi upload talk.m4a --transcribe --wait");
     expect(result.stdout).toContain("recappi schema --json");
   });
 

@@ -17,6 +17,7 @@ import {
 import { loginWithDeviceCode } from "./auth-login";
 import { RecappiApiClient } from "./api";
 import { createRecordingAudioRuntime } from "./audio";
+import { commandMetadataHelpText, commonTasksHelpText } from "./commandMetadata";
 import {
   createHumanProgressState,
   renderEvent,
@@ -794,6 +795,8 @@ function buildProgram({ onHelpOutput, onSelect }: BuildProgramOptions): Command 
     .addHelpText(
       "after",
       `
+${commonTasksHelpText()}
+
 Transcribe:
   Local audio file          recappi upload <file> --transcribe --wait
   Existing cloud recording  recappi recordings retranscribe <recordingId> --wait
@@ -802,16 +805,19 @@ Transcribe:
 Agent mode:
   Non-TTY stdout defaults to JSON. Progress and human diagnostics go to stderr.
   Use --json for a single envelope or --jsonl for a terminal event stream.
+  Use recappi schema --json --compact to probe commands, capabilities, examples,
+  related commands, output schemas, error codes, and JSONL events.
 `,
     );
   addCommonOptions(program);
 
-  const auth = program.command("auth").description("Authentication commands");
+  const auth = program.command("auth").description("Sign in/out and check Recappi Cloud auth");
   addCommonOptions(auth);
   const authLogin = auth
     .command("login")
     .description("Sign in to Recappi Cloud with a device code")
-    .option("--no-open", "print the device URL without opening a browser");
+    .option("--no-open", "print the device URL without opening a browser")
+    .addHelpText("after", commandMetadataHelpText("auth login"));
   addCommonOptions(authLogin);
   authLogin.action((opts: AuthLoginCommanderOptions, command: Command) => {
     onSelect({
@@ -822,7 +828,10 @@ Agent mode:
     });
   });
 
-  const authLogout = auth.command("logout").description("Remove the Recappi CLI sign-in token");
+  const authLogout = auth
+    .command("logout")
+    .description("Remove the Recappi CLI sign-in token")
+    .addHelpText("after", commandMetadataHelpText("auth logout"));
   addCommonOptions(authLogout);
   authLogout.action((_options: CommanderCommonOptions, command: Command) => {
     onSelect({
@@ -834,7 +843,8 @@ Agent mode:
 
   const authImportMacOS = auth
     .command("import-macos")
-    .description("Copy the Recappi Mini macOS app session into CLI config");
+    .description("Copy the Recappi Mini macOS app session into CLI config")
+    .addHelpText("after", commandMetadataHelpText("auth import-macos"));
   addCommonOptions(authImportMacOS);
   authImportMacOS.action((_options: CommanderCommonOptions, command: Command) => {
     onSelect({
@@ -844,7 +854,10 @@ Agent mode:
     });
   });
 
-  const authStatus = auth.command("status").description("Show Recappi Cloud sign-in status");
+  const authStatus = auth
+    .command("status")
+    .description("Show Recappi Cloud sign-in status")
+    .addHelpText("after", commandMetadataHelpText("auth status"));
   addCommonOptions(authStatus);
   authStatus.action((_options: CommanderCommonOptions, command: Command) => {
     onSelect({
@@ -856,7 +869,8 @@ Agent mode:
 
   const doctor = program
     .command("doctor")
-    .description("Check Recappi auth, cloud connectivity, and local audio support");
+    .description("Check Recappi auth, cloud connectivity, and local audio support")
+    .addHelpText("after", commandMetadataHelpText("doctor"));
   addCommonOptions(doctor);
   doctor.action((_options: CommanderCommonOptions, command: Command) => {
     onSelect({
@@ -866,11 +880,12 @@ Agent mode:
     });
   });
 
-  const account = program.command("account").description("Account and quota commands");
+  const account = program.command("account").description("Show account status, quota, and usage");
   addCommonOptions(account);
   const accountStatus = account
     .command("status")
-    .description("Show account, quota, and local state");
+    .description("Show account, quota, and local state")
+    .addHelpText("after", commandMetadataHelpText("account status"));
   addCommonOptions(accountStatus);
   accountStatus.action((_options: CommanderCommonOptions, command: Command) => {
     onSelect({
@@ -882,14 +897,15 @@ Agent mode:
 
   const upload = program
     .command("upload <file-or-dir>")
-    .description("Upload an audio file or directory to Recappi Cloud")
+    .description("Upload a local audio file or directory (optionally transcribe)")
     .option("--title <title>", "recording title", parseStringOption("--title"))
     .option("--transcribe", "start transcription after upload")
     .option("--wait", "wait for the transcription job to reach a terminal state")
     .option("--language <lang>", "transcription language hint", parseStringOption("--language"))
     .option("--provider <name>", "transcription provider", parseStringOption("--provider"))
     .option("--prompt <text>", "transcription prompt/context", parseStringOption("--prompt"))
-    .option("--force", "force upload if a conflict is retryable");
+    .option("--force", "force upload if a conflict is retryable")
+    .addHelpText("after", commandMetadataHelpText("upload"));
   addCommonOptions(upload);
   upload.action((inputPath: string, opts: UploadCommanderOptions, command: Command) => {
     onSelect({
@@ -909,7 +925,7 @@ Agent mode:
 
   const record = program
     .command("record")
-    .description("Start a Recappi Mini sidecar recording")
+    .description("Record system/mic audio via the Recappi Mini sidecar")
     .option("--title <title>", "recording title", parseStringOption("--title"))
     .option("--live", "show live captions while recording")
     .option("--no-system-audio", "record microphone only")
@@ -928,7 +944,8 @@ Agent mode:
       "--sidecar-command <path>",
       "Recappi Mini sidecar executable",
       parseStringOption("--sidecar-command"),
-    );
+    )
+    .addHelpText("after", commandMetadataHelpText("record"));
   addCommonOptions(record);
   record.action((opts: RecordCommanderOptions, command: Command) => {
     if (opts.systemAudio === false && opts.microphone === false) {
@@ -956,7 +973,7 @@ Agent mode:
 
   const audio = program
     .command("audio")
-    .description("Download or open a recording audio file")
+    .description("Download, open, or reveal a recording's audio file")
     .argument("<recording-id>", "recording id")
     .option("--download", "download audio and print the local path")
     .option("--open", "download if needed, then open the audio file")
@@ -965,7 +982,8 @@ Agent mode:
       "--output-dir <dir>",
       "directory for downloaded audio",
       parseStringOption("--output-dir"),
-    );
+    )
+    .addHelpText("after", commandMetadataHelpText("audio"));
   addCommonOptions(audio);
   audio.action((recordingId: string, opts: AudioCommanderOptions, command: Command) => {
     onSelect({
@@ -980,7 +998,8 @@ Agent mode:
 
   const schema = program
     .command("schema")
-    .description("Print the machine-readable CLI contract (commands, error codes, JSON Schemas)");
+    .description("Print the machine-readable CLI contract (commands, error codes, JSON Schemas)")
+    .addHelpText("after", commandMetadataHelpText("schema"));
   addCommonOptions(schema);
   schema.action((_options: CommanderCommonOptions, command: Command) => {
     onSelect({
@@ -991,9 +1010,12 @@ Agent mode:
     });
   });
 
-  const dashboard = program.command("dashboard").description("Dashboard data commands");
+  const dashboard = program.command("dashboard").description("Fetch dashboard counters and stats");
   addCommonOptions(dashboard);
-  const dashboardStats = dashboard.command("stats").description("Fetch dashboard counters");
+  const dashboardStats = dashboard
+    .command("stats")
+    .description("Fetch dashboard counters")
+    .addHelpText("after", commandMetadataHelpText("dashboard stats"));
   addCommonOptions(dashboardStats);
   dashboardStats.action((_options: CommanderCommonOptions, command: Command) => {
     onSelect({
@@ -1003,14 +1025,15 @@ Agent mode:
     });
   });
 
-  const recordings = program.command("recordings").description("Recording commands");
+  const recordings = program.command("recordings").description("List, fetch, and re-transcribe recordings");
   addCommonOptions(recordings);
   const recordingsList = recordings
     .command("list")
     .description("List recent recordings")
     .option("--limit <n>", "number of recordings to show", parseLimitOption("--limit", 1, 100), 20)
     .option("--cursor <cursor>", "pagination cursor", parseStringOption("--cursor"))
-    .option("--search <query>", "search recordings and transcripts", parseStringOption("--search"));
+    .option("--search <query>", "search recordings and transcripts", parseStringOption("--search"))
+    .addHelpText("after", commandMetadataHelpText("recordings list"));
   addCommonOptions(recordingsList);
   recordingsList.action((_options: RecordingsListCommanderOptions, command: Command) => {
     const opts = command.opts<RecordingsListCommanderOptions>();
@@ -1026,7 +1049,8 @@ Agent mode:
 
   const recordingsGet = recordings
     .command("get <recordingId>")
-    .description("Fetch a recording by recording id");
+    .description("Fetch a recording by recording id")
+    .addHelpText("after", commandMetadataHelpText("recordings get"));
   addCommonOptions(recordingsGet);
   recordingsGet.action(
     (recordingId: string, _options: CommanderCommonOptions, command: Command) => {
@@ -1047,7 +1071,8 @@ Agent mode:
     .option("--model <name>", "transcription model", parseStringOption("--model"))
     .option("--prompt <text>", "custom transcription prompt/context", parseStringOption("--prompt"))
     .option("--scene <id>", "transcription scene preset", parseStringOption("--scene"))
-    .option("--wait", "wait for the transcription job to reach a terminal state");
+    .option("--wait", "wait for the transcription job to reach a terminal state")
+    .addHelpText("after", commandMetadataHelpText("recordings retranscribe"));
   addCommonOptions(recordingsRetranscribe);
   recordingsRetranscribe.action(
     (recordingId: string, _options: RecordingsRetranscribeCommanderOptions, command: Command) => {
@@ -1069,7 +1094,7 @@ Agent mode:
 
   const transcript = program
     .command("transcript")
-    .description("Read transcripts (to create one, see below)")
+    .description("Read transcripts (create via upload --transcribe or recordings retranscribe)")
     .addHelpText(
       "after",
       `
@@ -1081,7 +1106,8 @@ To create a transcript (not here):
   addCommonOptions(transcript);
   const transcriptGet = transcript
     .command("get <transcriptId>")
-    .description("Fetch a transcript by transcript id");
+    .description("Fetch a transcript by transcript id")
+    .addHelpText("after", commandMetadataHelpText("transcript get"));
   addCommonOptions(transcriptGet);
   transcriptGet.action(
     (transcriptId: string, _options: CommanderCommonOptions, command: Command) => {
@@ -1094,7 +1120,7 @@ To create a transcript (not here):
     },
   );
 
-  const jobs = program.command("jobs").description("Transcription job commands");
+  const jobs = program.command("jobs").description("List transcription jobs and wait for one to finish");
   addCommonOptions(jobs);
   const jobsList = jobs
     .command("list")
@@ -1106,6 +1132,7 @@ To create a transcript (not here):
       "all",
     )
     .option("--limit <n>", "number of jobs to show", parseLimitOption("--limit", 1, 50), 10);
+  jobsList.addHelpText("after", commandMetadataHelpText("jobs list"));
   addCommonOptions(jobsList);
   jobsList.action((_options: JobsListCommanderOptions, command: Command) => {
     const opts = command.opts<JobsListCommanderOptions>();
@@ -1120,7 +1147,8 @@ To create a transcript (not here):
 
   const jobsWait = jobs
     .command("wait <jobId>")
-    .description("Wait for an existing transcription job to finish");
+    .description("Wait for an existing transcription job to finish")
+    .addHelpText("after", commandMetadataHelpText("jobs wait"));
   addCommonOptions(jobsWait);
   jobsWait.action((jobId: string, _options: CommanderCommonOptions, command: Command) => {
     onSelect({

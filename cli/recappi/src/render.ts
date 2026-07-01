@@ -316,6 +316,17 @@ function renderHumanSuccess(command: string, data: unknown, opts: RenderOptions)
       if (!isRecord(entry) || typeof entry.name !== "string") continue;
       const summary = typeof entry.summary === "string" ? ` — ${entry.summary}` : "";
       opts.stdout(`  ${entry.name}${summary}\n`);
+      if (Array.isArray(entry.capabilities) && entry.capabilities.length > 0) {
+        opts.stdout(`    capabilities: ${entry.capabilities.join(", ")}\n`);
+      }
+      if (Array.isArray(entry.examples) && entry.examples.length > 0) {
+        const first = entry.examples.find(
+          (example) => isRecord(example) && typeof example.command === "string",
+        );
+        if (isRecord(first) && typeof first.command === "string") {
+          opts.stdout(`    example: ${first.command}\n`);
+        }
+      }
     }
     const errorCount = Array.isArray(data.errorCodes) ? data.errorCodes.length : 0;
     opts.stdout(`\n${errorCount} error codes. Run recappi schema --json for the full contract.\n`);

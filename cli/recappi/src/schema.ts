@@ -22,6 +22,7 @@ import {
   uploadBatchDataSchema,
   type ContractSchema,
 } from "../../packages/contracts/src/index";
+import { COMMAND_METADATA, type CommandExampleDoc } from "./commandMetadata";
 import { allErrorCodeDescriptors } from "./errors";
 
 // Per-command result `data` shapes, keyed by the full command path. Keying by
@@ -57,6 +58,7 @@ const COMMON_OPTION_LONGS = new Set([
   "--human",
   "--fields",
   "--compact",
+  "--verbose",
   "--origin",
 ]);
 
@@ -83,8 +85,11 @@ interface CommandOptionDoc {
 interface CommandDoc {
   name: string;
   summary: string;
+  capabilities: string[];
   arguments: CommandArgumentDoc[];
   options: CommandOptionDoc[];
+  examples: CommandExampleDoc[];
+  relatedCommands?: string[];
   data?: unknown;
 }
 
@@ -136,11 +141,18 @@ function walkCommands(command: Command, path: string[], out: CommandDoc[]): void
 
 function leafCommandDoc(command: Command, fullName: string): CommandDoc {
   const dataSchema = COMMAND_DATA_SCHEMAS[fullName];
+  const metadata = COMMAND_METADATA[fullName] ?? {
+    capabilities: [],
+    examples: [],
+  };
   return {
     name: fullName,
     summary: command.description(),
+    capabilities: metadata.capabilities,
     arguments: argumentDocs(command),
     options: optionDocs(command).filter((opt) => !isCommonOption(opt)),
+    examples: metadata.examples,
+    ...(metadata.relatedCommands ? { relatedCommands: metadata.relatedCommands } : {}),
     ...(dataSchema ? { data: toJsonSchema(dataSchema) } : {}),
   };
 }
