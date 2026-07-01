@@ -219,6 +219,28 @@ describe("recappi CLI contract", () => {
     }
   });
 
+  it("exposes a recording retranscribe launcher to dashboard deps", async () => {
+    let dashboardCalls = 0;
+    const transcribeRequests: unknown[] = [];
+    const result = await run([], {
+      fetchImpl: dashboardFetch([], transcribeRequests),
+      isTTY: true,
+      runDashboard: async (deps) => {
+        dashboardCalls += 1;
+        const data = await deps.retranscribeRecording?.("rec_page_1", { prompt: "Use names" });
+        expect(data).toMatchObject({
+          recordingId: "rec_page_1",
+          jobId: "job_retranscribe",
+          status: "queued",
+        });
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(dashboardCalls).toBe(1);
+    expect(transcribeRequests).toEqual([{ prompt: "Use names" }]);
+  });
+
   it("opens the dashboard for `recappi jobs` in an interactive terminal", async () => {
     let dashboardCalls = 0;
     const result = await run(["jobs"], {
@@ -1159,6 +1181,77 @@ describe("recappi CLI contract", () => {
     });
   });
 
+  it("starts a fresh retranscription for an existing recording", async () => {
+    const requests: unknown[] = [];
+    const result = await run(
+      [
+        "recordings",
+        "retranscribe",
+        "rec_done",
+        "--language",
+        "en",
+        "--provider",
+        "gemini",
+        "--model",
+        "gemini-2.5-flash",
+        "--json",
+      ],
+      { fetchImpl: recordingTranscribeFetch(requests) },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(requests).toEqual([
+      {
+        provider: "gemini",
+        model: "gemini-2.5-flash",
+        language: "en",
+        force: true,
+      },
+    ]);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: "recordings retranscribe",
+      data: {
+        origin: "https://recordmeet.ing",
+        recordingId: "rec_done",
+        jobId: "job_retranscribe",
+        status: "queued",
+      },
+    });
+  });
+
+  it("retranscribes with a custom prompt without forcing the default prompt", async () => {
+    const requests: unknown[] = [];
+    const result = await run(
+      ["recordings", "retranscribe", "rec_done", "--prompt", "Names are Alice and Bob", "--json"],
+      { fetchImpl: recordingTranscribeFetch(requests) },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(requests).toEqual([{ prompt: "Names are Alice and Bob" }]);
+  });
+
+  it("rejects unknown retranscription scenes before hitting the network", async () => {
+    const result = await run(
+      ["recordings", "retranscribe", "rec_done", "--scene", "meeting", "--json"],
+      {
+        fetchImpl: (() => {
+          throw new Error("scene validation should run before network");
+        }) as unknown as typeof fetch,
+      },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: false,
+      command: "recordings retranscribe",
+      error: {
+        code: "usage.invalid_argument",
+        message: "Unknown transcription scene 'meeting'.",
+      },
+    });
+  });
+
   it("downloads recording audio once and reuses the local artifact on the next run", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "recappi-cli-home-"));
     const audio = audioDownloadFetch();
@@ -1381,6 +1474,10 @@ describe("recappi CLI contract", () => {
       (c: { name: string }) => c.name === "recordings list",
     );
     expect(recordingsList.data.properties.items.type).toBe("array");
+    const recordingsRetranscribe = env.data.commands.find(
+      (c: { name: string }) => c.name === "recordings retranscribe",
+    );
+    expect(recordingsRetranscribe.data.properties.status.enum).toContain("queued");
     const dashboardStats = env.data.commands.find(
       (c: { name: string }) => c.name === "dashboard stats",
     );
@@ -1840,7 +1937,7 @@ function jobsFetch(): typeof fetch {
   };
 }
 
-function dashboardFetch(recordingRequests: string[]): typeof fetch {
+function dashboardFetch(recordingRequests: string[], transcribeRequests: unknown[] = []): typeof fetch {
   const base = jobsFetch();
   return async (input, init) => {
     const url = requestUrl(input);
@@ -1877,7 +1974,25 @@ function dashboardFetch(recordingRequests: string[]): typeof fetch {
         isOverMinutes: false,
       });
     }
+    if (url.pathname === "/api/recordings/rec_page_1/transcribe" && init?.method === "POST") {
+      transcribeRequests.push(parseJsonBody(init.body));
+      return jsonResponse({ jobId: "job_retranscribe", status: "queued" });
+    }
     return base(input, init);
+  };
+}
+
+function recordingTranscribeFetch(requests: unknown[]): typeof fetch {
+  return async (input, init) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/recordings/rec_done/transcribe" && init?.method === "POST") {
+      requests.push(parseJsonBody(init.body));
+      return jsonResponse({ jobId: "job_retranscribe", status: "queued" });
+    }
+    if (url.pathname === "/api/auth/get-session") {
+      return jsonResponse({ user: { id: "user_123", email: "agent@example.com" } });
+    }
+    return jsonResponse({ message: `unexpected ${url.pathname}` }, { status: 404 });
   };
 }
 
@@ -2011,6 +2126,11 @@ function requestUrl(input: Parameters<typeof fetch>[0]): URL {
   if (input instanceof Request) return new URL(input.url);
   if (input instanceof URL) return input;
   return new URL(input);
+}
+
+function parseJsonBody(body: BodyInit | null | undefined): unknown {
+  if (typeof body !== "string") return body;
+  return JSON.parse(body);
 }
 
 async function writeWavFixture(): Promise<string> {

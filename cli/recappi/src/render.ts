@@ -202,6 +202,19 @@ function renderHumanSuccess(command: string, data: unknown, opts: RenderOptions)
     }
     return;
   }
+  if (command === "recordings retranscribe" && isRecord(data)) {
+    opts.stdout("Transcription started\n");
+    if (typeof data.recordingId === "string") opts.stdout(`  recordingId: ${data.recordingId}\n`);
+    if (typeof data.jobId === "string") opts.stdout(`  jobId: ${data.jobId}\n`);
+    if (typeof data.status === "string") opts.stdout(`  status: ${data.status}\n`);
+    if (typeof data.transcriptId === "string") {
+      opts.stdout(`  transcriptId: ${data.transcriptId}\n`);
+      opts.stdout(`\nNext:\n  recappi transcript get ${data.transcriptId}\n`);
+    } else if (typeof data.jobId === "string") {
+      opts.stdout(`\nNext:\n  recappi jobs wait ${data.jobId}\n`);
+    }
+    return;
+  }
   if (command === "dashboard stats" && isRecord(data)) {
     const recordings = isRecord(data.recordings) ? data.recordings : {};
     const jobs = isRecord(data.jobs) ? data.jobs : {};

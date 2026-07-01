@@ -577,6 +577,15 @@ export const uploadBatchDataSchema = z.object({
 });
 export type UploadBatchData = z.infer<typeof uploadBatchDataSchema>;
 
+export const recordingTranscribeDataSchema = z.object({
+  origin: z.string(),
+  recordingId: z.string(),
+  jobId: z.string(),
+  status: transcriptionJobStatusSchema,
+  transcriptId: z.string().nullable().optional(),
+});
+export type RecordingTranscribeData = z.infer<typeof recordingTranscribeDataSchema>;
+
 export const jobDataSchema = z.object({
   jobId: z.string(),
   recordingId: z.string().optional(),

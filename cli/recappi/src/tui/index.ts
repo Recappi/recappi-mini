@@ -10,10 +10,15 @@ import type {
   OperationEvent,
   RecordCommandData,
   RecordingListData,
+  RecordingTranscribeData,
   TranscriptData,
   UploadSuccess,
 } from "../../../packages/contracts/src/index";
-import { AppShell, type DashboardRecordingsPageOptions } from "./AppShell";
+import {
+  AppShell,
+  type DashboardRecordingsPageOptions,
+  type DashboardRetranscribeOptions,
+} from "./AppShell";
 import type { LiveCaptionEventSource } from "./LiveCaptionsScreen";
 import type {
   RecordingArtifact,
@@ -52,6 +57,10 @@ export interface RunDashboardDeps {
     artifact: RecordingArtifact,
     onEvent?: (event: OperationEvent) => void,
   ) => Promise<UploadSuccess>;
+  retranscribeRecording?: (
+    recordingId: string,
+    options?: DashboardRetranscribeOptions,
+  ) => Promise<RecordingTranscribeData>;
   initialView?: TabKey;
   renderApp?: DashboardRenderer;
 }
@@ -122,6 +131,7 @@ export async function runDashboard(deps: RunDashboardDeps): Promise<void> {
       startLiveRecord: deps.startLiveRecord,
       startRecordSetupPreview: deps.startRecordSetupPreview,
       transcribeRecordingArtifact: deps.transcribeRecordingArtifact,
+      onRetranscribe: deps.retranscribeRecording,
       initialView: deps.initialView ?? "overview",
       openUrl,
       copyText,

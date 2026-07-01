@@ -14,6 +14,7 @@ import type {
   TranscriptData,
   TranscriptSummary,
   UploadSuccess,
+  RecordingTranscribeData,
 } from "../../../packages/contracts/src/index";
 
 // Lazily-loaded summary state for the peek panel.
@@ -90,6 +91,10 @@ export interface AppShellProps {
     artifact: RecordingArtifact,
     onEvent?: (event: OperationEvent) => void,
   ) => Promise<UploadSuccess>;
+  onRetranscribe?: (
+    recordingId: string,
+    options?: DashboardRetranscribeOptions,
+  ) => Promise<RecordingTranscribeData>;
   initialView?: TabKey;
   // Side effects, injected so tests stay pure and the component has no Node deps.
   openUrl?: (url: string) => void;
@@ -114,6 +119,15 @@ export interface DashboardRecordSetupPreview {
 export interface DashboardRecordSetupModel {
   sources: RecordingSource[];
   microphones?: RecordingMicrophoneDevice[];
+}
+
+export interface DashboardRetranscribeOptions {
+  language?: string;
+  provider?: string;
+  model?: string;
+  prompt?: string;
+  scene?: string;
+  wait?: boolean;
 }
 
 type Screen =

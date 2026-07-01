@@ -244,6 +244,8 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
           }
           return success;
         },
+        retranscribeRecording: (recordingId, options = {}) =>
+          client.transcribeRecording({ recordingId, ...options }),
         initialView: parsed.initialView,
       });
       return 0;
@@ -443,6 +445,28 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       renderSuccess("recordings get", data, render);
       return 0;
     }
+    if (parsed.kind === "recordings-retranscribe") {
+      const eventMode: OutputMode = parsed.options.mode === "jsonl" ? "jsonl" : "human";
+      const data = await client.transcribeRecording({
+        recordingId: parsed.recordingId,
+        language: parsed.language,
+        provider: parsed.provider,
+        model: parsed.model,
+        prompt: parsed.prompt,
+        scene: parsed.scene,
+        wait: parsed.wait,
+        onEvent:
+          parsed.wait || mode === "jsonl"
+            ? (event) =>
+                renderEvent(event, {
+                  ...render,
+                  mode: eventMode,
+                })
+            : undefined,
+      });
+      renderSuccess("recordings retranscribe", data, render);
+      return 0;
+    }
     if (parsed.kind === "dashboard-stats") {
       const data = await client.dashboardStats();
       renderSuccess("dashboard stats", data, render);
@@ -535,6 +559,18 @@ type ParsedCommand =
       options: GlobalOptions;
       commandName: "recordings get";
       recordingId: string;
+    }
+  | {
+      kind: "recordings-retranscribe";
+      options: GlobalOptions;
+      commandName: "recordings retranscribe";
+      recordingId: string;
+      language?: string;
+      provider?: string;
+      model?: string;
+      prompt?: string;
+      scene?: string;
+      wait?: boolean;
     }
   | { kind: "dashboard-stats"; options: GlobalOptions; commandName: "dashboard stats" }
   | {
@@ -731,6 +767,15 @@ interface RecordingsListCommanderOptions extends CommanderCommonOptions {
   limit?: number;
   cursor?: string;
   search?: string;
+}
+
+interface RecordingsRetranscribeCommanderOptions extends CommanderCommonOptions {
+  language?: string;
+  provider?: string;
+  model?: string;
+  prompt?: string;
+  scene?: string;
+  wait?: boolean;
 }
 
 function buildProgram({ onHelpOutput, onSelect }: BuildProgramOptions): Command {
@@ -989,6 +1034,34 @@ Agent mode:
     },
   );
 
+  const recordingsRetranscribe = recordings
+    .command("retranscribe <recordingId>")
+    .description("Start a fresh transcription job for an existing recording")
+    .option("--language <lang>", "transcription language hint", parseStringOption("--language"))
+    .option("--provider <name>", "transcription provider", parseStringOption("--provider"))
+    .option("--model <name>", "transcription model", parseStringOption("--model"))
+    .option("--prompt <text>", "custom transcription prompt/context", parseStringOption("--prompt"))
+    .option("--scene <id>", "transcription scene preset", parseStringOption("--scene"))
+    .option("--wait", "wait for the transcription job to reach a terminal state");
+  addCommonOptions(recordingsRetranscribe);
+  recordingsRetranscribe.action(
+    (recordingId: string, _options: RecordingsRetranscribeCommanderOptions, command: Command) => {
+      const opts = command.opts<RecordingsRetranscribeCommanderOptions>();
+      onSelect({
+        kind: "recordings-retranscribe",
+        options: collectGlobalOptions(command),
+        commandName: "recordings retranscribe",
+        recordingId,
+        ...(typeof opts.language === "string" ? { language: opts.language } : {}),
+        ...(typeof opts.provider === "string" ? { provider: opts.provider } : {}),
+        ...(typeof opts.model === "string" ? { model: opts.model } : {}),
+        ...(typeof opts.prompt === "string" ? { prompt: opts.prompt } : {}),
+        ...(typeof opts.scene === "string" ? { scene: opts.scene } : {}),
+        ...(opts.wait === true ? { wait: true } : {}),
+      });
+    },
+  );
+
   const transcript = program.command("transcript").description("Transcript commands");
   addCommonOptions(transcript);
   const transcriptGet = transcript
@@ -1142,7 +1215,9 @@ const VALUE_OPTIONS = new Set([
   "--title",
   "--language",
   "--provider",
+  "--model",
   "--prompt",
+  "--scene",
   "--translation-language",
   "--transcription-language",
   "--sidecar-command",

@@ -17,6 +17,7 @@ import type {
   OperationEvent,
   RecordingData,
   RecordingListData,
+  RecordingTranscribeData,
   SummaryStatus,
   TranscriptData,
   TranscriptSegment,
@@ -31,6 +32,7 @@ import {
   jobListDataSchema,
   recordingDataSchema,
   recordingListDataSchema,
+  recordingTranscribeDataSchema,
   transcriptDataSchema,
 } from "../../packages/contracts/src/index";
 import { cliError, describeHttpError, RecappiCliError, toCliError } from "./errors";
@@ -66,6 +68,17 @@ export interface ListRecordingsOptions {
   limit: number;
   cursor?: string;
   search?: string;
+}
+
+export interface TranscribeRecordingOptions {
+  recordingId: string;
+  language?: string;
+  provider?: string;
+  model?: string;
+  prompt?: string;
+  scene?: string;
+  wait?: boolean;
+  onEvent?: (event: OperationEvent) => void;
 }
 
 export interface RecordingAudioDownload {
@@ -283,6 +296,68 @@ export class RecappiApiClient {
       `/api/recordings/${encodeURIComponent(recordingId)}`,
     );
     return mapRecording(parsed, this.auth.origin);
+  }
+
+  async transcribeRecording(opts: TranscribeRecordingOptions): Promise<RecordingTranscribeData> {
+    if (opts.scene && opts.scene !== "default") {
+      throw cliError("usage.invalid_argument", `Unknown transcription scene '${opts.scene}'.`, {
+        hint: "Only the default scene is available today; use --prompt for custom context.",
+      });
+    }
+
+    opts.onEvent?.({
+      type: "started",
+      command: "recordings retranscribe",
+      recordingId: opts.recordingId,
+      message: "Starting transcription",
+    });
+    const hasPrompt = Boolean(opts.prompt?.trim());
+    const parsed = await this.postJson<TranscribeResponse>(
+      `/api/recordings/${encodeURIComponent(opts.recordingId)}/transcribe`,
+      {
+        ...(opts.language ? { language: opts.language } : {}),
+        ...(opts.provider ? { provider: opts.provider } : {}),
+        ...(opts.model ? { model: opts.model } : {}),
+        ...(hasPrompt ? { prompt: opts.prompt } : { force: true }),
+      },
+    );
+    let result = recordingTranscribeDataSchema.parse({
+      origin: this.auth.origin,
+      recordingId: opts.recordingId,
+      jobId: parsed.jobId,
+      status: parsed.status,
+      ...(typeof parsed.transcriptId === "string" || parsed.transcriptId === null
+        ? { transcriptId: parsed.transcriptId }
+        : {}),
+    });
+    opts.onEvent?.({
+      type: "progress",
+      command: "recordings retranscribe",
+      recordingId: opts.recordingId,
+      jobId: result.jobId,
+      status: result.status,
+      ...(result.transcriptId ? { transcriptId: result.transcriptId } : {}),
+      message:
+        result.status === "succeeded" ? "Transcription already ready" : "Transcription queued",
+    });
+    if (opts.wait && result.status !== "succeeded") {
+      const waited = await this.waitForJob(result.jobId, {
+        onEvent: (event) =>
+          opts.onEvent?.({
+            ...event,
+            command: "recordings retranscribe",
+            recordingId: opts.recordingId,
+          }),
+      });
+      result = recordingTranscribeDataSchema.parse({
+        origin: this.auth.origin,
+        recordingId: opts.recordingId,
+        jobId: waited.jobId,
+        status: waited.status,
+        ...(waited.transcriptId !== undefined ? { transcriptId: waited.transcriptId } : {}),
+      });
+    }
+    return result;
   }
 
   async downloadRecordingAudio(
