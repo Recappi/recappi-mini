@@ -37,21 +37,27 @@ function CompactMeter({ label, level }: { label: string; level: number }): React
   );
 }
 
-// Tail-following column of caption lines, wrapped to `width`, filling `rows`.
+// Column of caption lines, wrapped to `width`, filling `rows`. Tail-following by
+// default (scrollBack 0 = newest); scrollBack>0 pages back through history.
 function CaptionColumn({
   lines,
   width,
   rows,
   dim,
+  scrollBack = 0,
 }: {
   lines: string[];
   width: number;
   rows: number;
   dim?: boolean;
+  scrollBack?: number;
 }): React.ReactElement {
+  // Index one past the last visible line: the tail (length) minus the scroll,
+  // clamped so we never page past the first line. 0 when there are no lines.
+  const end = lines.length - Math.min(scrollBack, Math.max(0, lines.length - 1));
   const chosen: string[] = [];
   let used = 0;
-  for (let i = lines.length - 1; i >= 0; i--) {
+  for (let i = end - 1; i >= 0; i--) {
     const h = wrappedRows(lines[i]!, width);
     if (used + h > rows && chosen.length > 0) break;
     chosen.unshift(lines[i]!);
@@ -118,10 +124,18 @@ export function RecordFrame({
 }): React.ReactElement {
   const size = useTerminalSize();
   const [captionMode, setCaptionMode] = useState<CaptionMode>("both");
-  useInput((input) => {
+  // Caption scroll: 0 = live (tail-following); >0 pages back through history.
+  const [scrollBack, setScrollBack] = useState(0);
+  const PAGE = 8;
+  useInput((input, key) => {
     if (input === "c") {
       setCaptionMode((m) => (m === "both" ? "source" : m === "source" ? "translation" : "both"));
-    }
+    } else if (key.upArrow || input === "k") setScrollBack((s) => s + 1);
+    else if (key.downArrow || input === "j") setScrollBack((s) => Math.max(0, s - 1));
+    else if (key.pageUp || input === "b") setScrollBack((s) => s + PAGE);
+    else if (key.pageDown || input === " ") setScrollBack((s) => Math.max(0, s - PAGE));
+    else if (input === "g") setScrollBack(Number.MAX_SAFE_INTEGER);
+    else if (input === "G") setScrollBack(0);
   });
 
   const elapsed = telemetry.startedAtMs != null ? formatClockMs(Math.max(0, nowMs - telemetry.startedAtMs)) : "00:00";
@@ -215,6 +229,7 @@ export function RecordFrame({
               {captionMode !== "translation" ? <Box width={captionMode === "both" ? Math.floor((rightWidth - 3) / 2) : rightWidth}><Text bold dimColor>ORIGINAL</Text></Box> : null}
               {captionMode === "both" ? <Box width={3} /> : null}
               {captionMode !== "source" ? <Text bold dimColor>TRANSLATION</Text> : null}
+              {scrollBack > 0 ? <Text color="yellow">{"   ⏸ scrolled · G live"}</Text> : null}
             </Box>
             <Box>
               {captionMode !== "translation" ? (
@@ -222,6 +237,7 @@ export function RecordFrame({
                   lines={sourceLines}
                   width={captionMode === "both" ? Math.floor((rightWidth - 3) / 2) : rightWidth}
                   rows={captionRows}
+                  scrollBack={scrollBack}
                 />
               ) : null}
               {captionMode === "both" ? (
@@ -233,6 +249,7 @@ export function RecordFrame({
                   width={captionMode === "both" ? Math.floor((rightWidth - 3) / 2) : rightWidth}
                   rows={captionRows}
                   dim
+                  scrollBack={scrollBack}
                 />
               ) : null}
             </Box>
@@ -248,7 +265,7 @@ export function RecordFrame({
 
       {/* Footer */}
       <Text dimColor>{"─".repeat(innerWidth)}</Text>
-      <Text dimColor>{`q stop & save · c captions (${captionMode}) · ↑↓ select · ⏎ open · 1 overview 2 jobs 3 account`}</Text>
+      <Text dimColor>{`q stop & save · c captions (${captionMode}) · ↑↓ scroll · G live · T re-transcribe · 1 overview 2 jobs 3 account`}</Text>
     </Box>
   );
 }

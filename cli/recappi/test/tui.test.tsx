@@ -822,6 +822,20 @@ describe("views render", () => {
     expect(f).toContain("watching the guy below"); // translation stream (independent)
     expect(f).toContain("OUTCOME");
   });
+  it("RecordFrame renders without captions (no speech yet) without crashing", () => {
+    // Empty caption streams must not access lines[0] during scroll windowing.
+    const { lastFrame } = render(
+      <RecordFrame
+        telemetry={{ status: "recording", startedAtMs: 0, sourceLabel: "System audio", micEnabled: false, level: { system: 0.4 } }}
+        captions={{ status: "live", lines: [] }}
+        recordings={[rec()]}
+        nowMs={0}
+      />,
+    );
+    const f = noAnsi(lastFrame());
+    expect(f).toContain("REC");
+    expect(f).toContain("Listening for speech");
+  });
   it("RecordingHeroScreen shows the post-stop upload/transcribe lifecycle with a bar", () => {
     // Uploading: stays "Saved to your Mac" (not yet on cloud) + a progress bar.
     const uploading = render(
