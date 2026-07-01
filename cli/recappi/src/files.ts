@@ -80,7 +80,12 @@ async function readDurationMs(
   contentType: SupportedAudioType,
 ): Promise<number | undefined> {
   if (contentType === "audio/wav") {
-    const handle = await fs.open(filePath, "r");
+    let handle: Awaited<ReturnType<typeof fs.open>>;
+    try {
+      handle = await fs.open(filePath, "r");
+    } catch (error) {
+      throwReadablePathError(filePath, error);
+    }
     try {
       const buffer = Buffer.alloc(4096);
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
@@ -95,7 +100,10 @@ async function readDurationMs(
     if (typeof metadata.format.duration === "number" && Number.isFinite(metadata.format.duration)) {
       return Math.max(1, Math.round(metadata.format.duration * 1000));
     }
-  } catch {
+  } catch (error) {
+    if (isPermissionDenied(error)) {
+      throwPermissionDenied(filePath);
+    }
     throw cliError(
       "input.duration_unavailable",
       `Could not read duration for non-WAV file: ${filePath}`,
@@ -111,4 +119,29 @@ async function readDurationMs(
       hint: "Pass a WAV file, or use an audio file with readable duration metadata.",
     },
   );
+}
+
+function throwReadablePathError(filePath: string, error: unknown): never {
+  if (isPermissionDenied(error)) {
+    throwPermissionDenied(filePath);
+  }
+  throw error;
+}
+
+function throwPermissionDenied(filePath: string): never {
+  throw cliError("input.permission_denied", `Permission denied reading path: ${filePath}`, {
+    hint: "Grant this terminal/agent access to the file, or copy the audio to a readable location.",
+  });
+}
+
+function isPermissionDenied(error: unknown): boolean {
+  if (isNodeErrorCode(error, "EACCES") || isNodeErrorCode(error, "EPERM")) return true;
+  if (typeof error === "object" && error !== null && "cause" in error) {
+    const cause = error.cause;
+    if (cause && cause !== error && isPermissionDenied(cause)) return true;
+  }
+  if (error instanceof Error) {
+    return /(?:EACCES|EPERM|permission denied|operation not permitted)/i.test(error.message);
+  }
+  return false;
 }

@@ -1652,6 +1652,35 @@ describe("recappi CLI contract", () => {
     }
   });
 
+  it("reports non-WAV duration probe permission errors as permission_denied", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
+    const filePath = path.join(dir, "wechat-container.mp3");
+    await writeFile(filePath, Buffer.from("not-readable-mp3"));
+    await chmod(filePath, 0o000);
+    try {
+      const result = await run(["upload", filePath, "--json"], { fetchImpl: uploadFetch() });
+      const env = JSON.parse(result.stdout);
+      expect(result.exitCode).toBe(4);
+      expect(env).toMatchObject({
+        ok: false,
+        command: "upload",
+        data: {
+          attemptedCount: 1,
+          totalCount: 1,
+          successes: [],
+        },
+      });
+      expect(env.data.failures[0].error).toMatchObject({
+        code: "input.permission_denied",
+        message: expect.stringContaining("Permission denied reading path:"),
+        hint: expect.stringContaining("copy the audio to a readable location"),
+      });
+    } finally {
+      await chmod(filePath, 0o600).catch(() => {});
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects directory inputs instead of recursively uploading hidden files", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
     await writeFile(path.join(dir, "a.wav"), buildWav(1600));
