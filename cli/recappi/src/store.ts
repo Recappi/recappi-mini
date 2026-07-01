@@ -27,9 +27,17 @@ interface SqliteDatabase {
   close: () => void;
 }
 
-type SqliteConstructor = new (filename: string, options?: { readonly?: boolean }) => SqliteDatabase;
+interface NodeSqliteDatabase {
+  exec: (source: string) => void;
+  prepare: (source: string) => SqliteStatement;
+  close: () => void;
+}
 
-const Database = require("better-sqlite3") as SqliteConstructor;
+interface NodeSqliteModule {
+  DatabaseSync: new (filename: string, options?: { readOnly?: boolean }) => NodeSqliteDatabase;
+}
+
+let sqliteModule: NodeSqliteModule | null = null;
 
 export const CLI_STORE_SCHEMA_VERSION = 2;
 
@@ -136,7 +144,7 @@ export class CliLocalStore {
     if (!opts.readonly && dbPath !== ":memory:") {
       mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
     }
-    this.db = new Database(dbPath, opts.readonly === true ? { readonly: true } : undefined);
+    this.db = openSqliteDatabase(dbPath, { readonly: opts.readonly === true });
     this.now = opts.now ?? Date.now;
     if (!opts.readonly) this.migrate();
   }
@@ -448,6 +456,54 @@ function parseAccountPartition(
     if (mode === "strict") throw error;
     return null;
   }
+}
+
+function openSqliteDatabase(filename: string, opts: { readonly: boolean }): SqliteDatabase {
+  const { DatabaseSync } = loadNodeSqlite();
+  const db = new DatabaseSync(filename, opts.readonly ? { readOnly: true } : {});
+  return {
+    exec: (source) => db.exec(source),
+    prepare: (source) => db.prepare(source),
+    pragma: (source) => db.prepare(`PRAGMA ${source.trim().replace(/;$/, "")}`).all(),
+    close: () => db.close(),
+  };
+}
+
+function loadNodeSqlite(): NodeSqliteModule {
+  if (sqliteModule) return sqliteModule;
+  sqliteModule = suppressNodeSqliteWarning(() => require("node:sqlite") as NodeSqliteModule);
+  return sqliteModule;
+}
+
+function suppressNodeSqliteWarning<T>(run: () => T): T {
+  const emitWarning = process.emitWarning;
+  process.emitWarning = function emitWarningWithoutNodeSqliteNoise(
+    warning: string | Error,
+    ...args: Parameters<typeof process.emitWarning> extends [unknown, ...infer Rest] ? Rest : never
+  ): void {
+    const message = typeof warning === "string" ? warning : warning.message;
+    if (message.includes("SQLite is an experimental feature")) return;
+    return emitWarning.call(process, warning, ...args);
+  } as typeof process.emitWarning;
+  try {
+    return run();
+  } catch (error) {
+    if (isMissingNodeSqlite(error)) {
+      throw cliError("internal.unexpected", "Local SQLite store requires Node.js 22 or newer.", {
+        hint: "Upgrade Node.js, then retry. Cloud-only commands that do not touch local state can still run.",
+      });
+    }
+    throw error;
+  } finally {
+    process.emitWarning = emitWarning;
+  }
+}
+
+function isMissingNodeSqlite(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    ("code" in error ? error.code === "ERR_UNKNOWN_BUILTIN_MODULE" : false)
+  );
 }
 
 function cleanString(value: string | null | undefined): string | null {

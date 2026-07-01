@@ -10,5 +10,5 @@ export default defineConfig({
   sourcemap: true,
   bundle: true,
   splitting: false,
-  external: ["better-sqlite3", "music-metadata"],
+  external: ["music-metadata"],
 });
