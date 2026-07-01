@@ -797,11 +797,6 @@ function buildProgram({ onHelpOutput, onSelect }: BuildProgramOptions): Command 
       `
 ${commonTasksHelpText()}
 
-Transcribe:
-  Local audio file          recappi upload <file> --transcribe --wait
-  Existing cloud recording  recappi recordings retranscribe <recordingId> --wait
-  (the "transcript" command only fetches an existing transcript by id.)
-
 Agent mode:
   Non-TTY stdout defaults to JSON. Progress and human diagnostics go to stderr.
   Use --json for a single envelope or --jsonl for a terminal event stream.
