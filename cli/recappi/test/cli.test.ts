@@ -1622,6 +1622,53 @@ describe("recappi CLI contract", () => {
     expect(result.stderr).not.toContain("Inspect data.failures");
   });
 
+  it("reports upload transport failures as retryable cloud errors", async () => {
+    const fixture = await writeWavFixture();
+    try {
+      const result = await run(["upload", fixture, "--json"], {
+        fetchImpl: uploadTransportFailureFetch(),
+      });
+      const env = JSON.parse(result.stdout);
+      expect(result.exitCode).toBe(5);
+      expect(env).toMatchObject({
+        ok: false,
+        command: "upload",
+        error: { code: "input.partial_failure", exitCode: 5, retryable: false },
+        data: {
+          attemptedCount: 1,
+          totalCount: 1,
+          successes: [],
+        },
+      });
+      expect(env.data.failures[0].error).toMatchObject({
+        code: "cloud.http_error",
+        exitCode: 5,
+        retryable: true,
+        message: "Recappi Cloud request failed: fetch failed",
+        hint: expect.stringContaining("Check your network connection"),
+      });
+    } finally {
+      await rm(path.dirname(fixture), { recursive: true, force: true });
+    }
+  });
+
+  it("renders upload transport failures without leaking agent-only JSON hints", async () => {
+    const fixture = await writeWavFixture();
+    try {
+      const result = await run(["upload", fixture, "--human"], {
+        fetchImpl: uploadTransportFailureFetch(),
+      });
+      expect(result.exitCode).toBe(5);
+      expect(result.stderr).toContain("recappi: 1 of 1 upload(s) failed.");
+      expect(result.stderr).toContain("Failures:");
+      expect(result.stderr).toContain("sample.wav: Recappi Cloud request failed: fetch failed (cloud.http_error)");
+      expect(result.stderr).toContain("Check your network connection");
+      expect(result.stderr).not.toContain("Inspect data.failures");
+    } finally {
+      await rm(path.dirname(fixture), { recursive: true, force: true });
+    }
+  });
+
   it("reports unreadable upload paths as permission_denied", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
     const blockedDir = path.join(dir, "blocked");
@@ -1994,6 +2041,19 @@ function uploadCreateFailureFetch(): typeof fetch {
     }
     if (url.pathname === "/api/recordings" && init?.method === "POST") {
       return jsonResponse({ message: "temporary outage" }, { status: 503 });
+    }
+    return jsonResponse({ message: `unexpected ${url.pathname}` }, { status: 404 });
+  };
+}
+
+function uploadTransportFailureFetch(): typeof fetch {
+  return async (input, init) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/recordings" && init?.method === "POST") {
+      throw new TypeError("fetch failed");
+    }
+    if (url.pathname === "/api/auth/get-session") {
+      return jsonResponse({ user: { id: "user_123", email: "agent@example.com" } });
     }
     return jsonResponse({ message: `unexpected ${url.pathname}` }, { status: 404 });
   };

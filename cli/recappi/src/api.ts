@@ -711,14 +711,27 @@ export class RecappiApiClient {
     opts: { headers?: Record<string, string>; allowAuthFailure?: boolean } = {},
   ): Promise<Response> {
     const token = requireToken(this.auth);
-    const response = await this.fetchImpl(new URL(pathname, this.auth.origin), {
-      method,
-      headers: {
-        authorization: `Bearer ${token}`,
-        ...opts.headers,
-      },
-      ...(body ? { body } : {}),
-    });
+    let response: Response;
+    try {
+      response = await this.fetchImpl(new URL(pathname, this.auth.origin), {
+        method,
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...opts.headers,
+        },
+        ...(body ? { body } : {}),
+      });
+    } catch (error) {
+      if (error instanceof RecappiCliError) throw error;
+      throw cliError(
+        "cloud.http_error",
+        `Recappi Cloud request failed: ${transportErrorMessage(error)}`,
+        {
+          retryable: true,
+          hint: `Check your network connection and Recappi Cloud origin (${this.auth.origin}), then retry.`,
+        },
+      );
+    }
     if (
       !response.ok &&
       !(opts.allowAuthFailure && (response.status === 401 || response.status === 403))
@@ -728,6 +741,11 @@ export class RecappiApiClient {
     }
     return response;
   }
+}
+
+function transportErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return String(error || "network request failed");
 }
 
 async function parseJson(response: Response): Promise<unknown> {
