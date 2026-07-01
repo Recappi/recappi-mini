@@ -74,6 +74,8 @@ async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> 
 }
 const noAnsi = (s: string | undefined) => (s ?? "").replace(/\[[0-9;]*m/g, "");
 const DOWN = "[B";
+const LEFT = "[D";
+const ESC = "";
 const ENTER = "\r";
 
 afterEach(() => {
@@ -1427,7 +1429,7 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
-  it("does not treat n as stop while a recording is active", async () => {
+  it("gates global navigation and back keys while a recording is active", async () => {
     const stop = vi.fn().mockResolvedValue({
       origin: "https://api.recappi.com",
       userId: "u_1",
@@ -1449,15 +1451,58 @@ describe("AppShell (interactive)", () => {
       expect(noAnsi(lastFrame())).toContain("REC");
     });
 
-    stdin.write("n");
-    await flush();
-    expect(stop).not.toHaveBeenCalled();
-    expect(noAnsi(lastFrame())).toContain("REC");
+    for (const key of ["n", "1", "2", "3", LEFT, ESC]) {
+      stdin.write(key);
+      await flush();
+      expect(stop).not.toHaveBeenCalled();
+      expect(noAnsi(lastFrame())).toContain("REC");
+    }
 
     stdin.write("q");
     await waitFor(() => {
       expect(stop).toHaveBeenCalledTimes(1);
     });
+    unmount();
+  });
+
+  it("returns to the current stopped recording instead of opening setup", async () => {
+    const stop = vi.fn().mockResolvedValue({
+      origin: "https://api.recappi.com",
+      userId: "u_1",
+      live: false,
+      sessionId: "session_1",
+      state: "completed",
+      artifacts: [],
+    });
+    const startLiveRecord = vi.fn().mockResolvedValue({
+      source: { onEvent: () => () => {} },
+      stop,
+    });
+    const { lastFrame, stdin, unmount } = setup({ startLiveRecord });
+    await flush();
+    stdin.write("n");
+    await flush();
+    stdin.write("\r");
+    await waitFor(() => {
+      expect(noAnsi(lastFrame())).toContain("REC");
+    });
+
+    stdin.write("q");
+    await waitFor(() => {
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(noAnsi(lastFrame())).toContain("STOPPED");
+    });
+
+    stdin.write("1");
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Design review");
+
+    stdin.write("n");
+    await flush();
+    const frame = noAnsi(lastFrame());
+    expect(frame).toContain("STOPPED");
+    expect(frame).toContain("New recording");
+    expect(startLiveRecord).toHaveBeenCalledTimes(1);
     unmount();
   });
 

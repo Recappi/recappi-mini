@@ -1035,6 +1035,15 @@ export function AppShell({
     setNotice(undefined);
   };
   const back = () => setStack((st) => (st.length > 1 ? st.slice(0, -1) : st));
+  const hasCurrentRecord =
+    liveRecord?.kind === "starting" ||
+    liveRecord?.kind === "live" ||
+    liveRecord?.kind === "stopping" ||
+    liveRecord?.kind === "stopped";
+  const openCurrentRecord = () => {
+    setStack((st) => (st[st.length - 1]?.kind === "record" ? st : [...st, { kind: "record" }]));
+    setNotice(undefined);
+  };
 
   useInput((input, key) => {
     setNotice(undefined);
@@ -1063,7 +1072,19 @@ export function AppShell({
         void stopLiveRecord();
         return;
       }
-      if (input === "q" || key.escape || key.leftArrow) void stopLiveRecord();
+      if (liveRecord?.kind === "stopped" && input === "1") return goTab("overview");
+      if (liveRecord?.kind === "stopped" && input === "2") return goTab("jobs");
+      if (liveRecord?.kind === "stopped" && input === "3") return goTab("account");
+      if (input === "q") {
+        void stopLiveRecord();
+        return;
+      }
+      if (
+        (liveRecord?.kind === "stopped" || liveRecord?.kind === "error") &&
+        (key.escape || key.leftArrow)
+      ) {
+        void stopLiveRecord();
+      }
       return;
     }
     if (input === "q") return exit();
@@ -1072,6 +1093,10 @@ export function AppShell({
     if (input === "2") return goTab("jobs");
     if (input === "3") return goTab("account");
     if (input === "n") {
+      if (hasCurrentRecord) {
+        openCurrentRecord();
+        return;
+      }
       setStack((st) => [...st, { kind: "recordSetup" }]);
       if (fetchRecordSetup) {
         fetchRecordSetup()
