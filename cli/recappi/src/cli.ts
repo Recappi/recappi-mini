@@ -794,6 +794,11 @@ function buildProgram({ onHelpOutput, onSelect }: BuildProgramOptions): Command 
     .addHelpText(
       "after",
       `
+Transcribe:
+  Local audio file          recappi upload <file> --transcribe --wait
+  Existing cloud recording  recappi recordings retranscribe <recordingId> --wait
+  (the "transcript" command only fetches an existing transcript by id.)
+
 Agent mode:
   Non-TTY stdout defaults to JSON. Progress and human diagnostics go to stderr.
   Use --json for a single envelope or --jsonl for a terminal event stream.
@@ -1062,7 +1067,17 @@ Agent mode:
     },
   );
 
-  const transcript = program.command("transcript").description("Transcript commands");
+  const transcript = program
+    .command("transcript")
+    .description("Read transcripts (to create one, see below)")
+    .addHelpText(
+      "after",
+      `
+To create a transcript (not here):
+  Local audio file          recappi upload <file> --transcribe --wait
+  Existing cloud recording  recappi recordings retranscribe <recordingId> --wait
+`,
+    );
   addCommonOptions(transcript);
   const transcriptGet = transcript
     .command("get <transcriptId>")
