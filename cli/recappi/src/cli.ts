@@ -892,7 +892,7 @@ Agent mode:
 
   const upload = program
     .command("upload <file-or-dir>")
-    .description("Upload a local audio file or directory (optionally transcribe)")
+    .description("Upload a local audio file, or batch-upload a directory (optionally transcribe)")
     .option("--title <title>", "recording title", parseStringOption("--title"))
     .option("--transcribe", "start transcription after upload")
     .option("--wait", "wait for the transcription job to reach a terminal state")

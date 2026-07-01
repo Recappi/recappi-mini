@@ -65,7 +65,8 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
   },
   upload: {
     capabilities: [
-      "Upload a local audio file or directory",
+      "Upload a local audio file",
+      "Batch-upload every supported audio file in a directory (recursive)",
       "Transcribe uploaded audio",
       "Wait for transcription to finish",
     ],
@@ -75,7 +76,7 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
         command: "recappi upload talk.m4a --transcribe --wait",
       },
       {
-        description: "Upload and transcribe a directory of audio files",
+        description: "Recursively upload + transcribe every audio file in a folder",
         command: "recappi upload ./recordings --transcribe",
       },
       {
