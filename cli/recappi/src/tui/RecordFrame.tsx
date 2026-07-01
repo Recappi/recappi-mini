@@ -263,9 +263,15 @@ export function RecordFrame({
         </Box>
       </Box>
 
-      {/* Footer */}
+      {/* Footer — recording-aware: while REC we do NOT advertise global tab
+          navigation (leaving an active recording is the trap peng hit; AppShell
+          also gates those keys). Once stopped, the nav keys come back. */}
       <Text dimColor>{"─".repeat(innerWidth)}</Text>
-      <Text dimColor>{`q stop & save · c captions (${captionMode}) · ↑↓ scroll · G live · T re-transcribe · 1 overview 2 jobs 3 account`}</Text>
+      <Text dimColor>
+        {recording
+          ? `q stop & save · c captions (${captionMode}) · ↑↓ scroll · G live`
+          : `⏎ open · T re-transcribe · c captions (${captionMode}) · ↑↓ scroll · 1 overview 2 jobs 3 account`}
+      </Text>
     </Box>
   );
 }
