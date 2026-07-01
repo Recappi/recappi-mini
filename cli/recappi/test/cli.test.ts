@@ -1603,6 +1603,16 @@ describe("recappi CLI contract", () => {
     }
   });
 
+  it("prints per-file upload failure details in human output", async () => {
+    const missing = path.join(tmpdir(), "recappi-missing-upload.m4a");
+    const result = await run(["upload", missing, "--human"], { fetchImpl: uploadFetch() });
+    expect(result.exitCode).toBe(4);
+    expect(result.stderr).toContain("recappi: 1 of 1 upload(s) failed.");
+    expect(result.stderr).toContain("Failures:");
+    expect(result.stderr).toContain("recappi-missing-upload.m4a: Path not found:");
+    expect(result.stderr).toContain("(input.not_found)");
+  });
+
   it("rejects directory inputs instead of recursively uploading hidden files", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
     await writeFile(path.join(dir, "a.wav"), buildWav(1600));

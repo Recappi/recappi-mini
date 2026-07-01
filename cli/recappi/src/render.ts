@@ -90,6 +90,13 @@ export function renderFailure(
   }
   finishHumanProgress(opts);
   opts.stderr(`recappi: ${error.message}\n`);
+  if (command === "upload" && isUploadBatch(data) && data.failures.length > 0) {
+    opts.stderr("Failures:\n");
+    for (const item of data.failures) {
+      const label = humanFileLabel(item.filePath) ?? item.filePath;
+      opts.stderr(`  ${label}: ${item.error.message} (${item.error.code})\n`);
+    }
+  }
   if (error.hint) opts.stderr(`${error.hint}\n`);
 }
 
