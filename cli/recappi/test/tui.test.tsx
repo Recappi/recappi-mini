@@ -21,6 +21,7 @@ import { PermissionPreflightView } from "../src/tui/PermissionPreflightView";
 import { LiveCaptionsScreen } from "../src/tui/LiveCaptionsScreen";
 import { RecordSetupView } from "../src/tui/RecordSetupView";
 import { RecordingHeroScreen } from "../src/tui/RecordingHeroScreen";
+import { RecordFrame } from "../src/tui/RecordFrame";
 import { applyRecordingEventToTelemetry } from "../src/recordingCore";
 import {
   liveCaptionReducer,
@@ -794,6 +795,32 @@ describe("views render", () => {
       />,
     );
     expect(noAnsi(withLevel.lastFrame())).not.toContain("Capturing audio");
+  });
+  it("RecordFrame renders the two-pane frame with a scrollable caption split", () => {
+    let caps = initialLiveCaptionsState();
+    caps = liveCaptionReducer(caps, { kind: "status", status: "live", atMs: 0 });
+    caps = liveCaptionReducer(caps, { kind: "final", line: { id: "1", text: "看着抽下面大哥逆转" } });
+    caps = liveCaptionReducer(caps, { kind: "translationFinal", segmentId: "1", text: "watching the guy below" });
+    const { lastFrame } = render(
+      <RecordFrame
+        telemetry={{ status: "recording", startedAtMs: 0, sourceLabel: "System audio", micEnabled: true, level: { system: 0.6, mic: 0.2 } }}
+        captions={caps}
+        recordings={[rec(), rec({ recordingId: "rec_2", title: "Weekly sync" })]}
+        selectedIndex={0}
+        title="New recording"
+        recordingId="rec_abc"
+        jobId="job_xyz"
+        nowMs={60_000}
+      />,
+    );
+    const f = noAnsi(lastFrame());
+    expect(f).toContain("RECORDINGS"); // left list header
+    expect(f).toContain("rec_abc"); // ids in status header
+    expect(f).toContain("ORIGINAL"); // caption split columns
+    expect(f).toContain("TRANSLATION");
+    expect(f).toContain("看着抽下面大哥逆转"); // source stream
+    expect(f).toContain("watching the guy below"); // translation stream (independent)
+    expect(f).toContain("OUTCOME");
   });
   it("RecordingHeroScreen shows the post-stop upload/transcribe lifecycle with a bar", () => {
     // Uploading: stays "Saved to your Mac" (not yet on cloud) + a progress bar.
