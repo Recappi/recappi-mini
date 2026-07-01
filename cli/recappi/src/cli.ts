@@ -56,7 +56,7 @@ async function uploadRecordedSessionAfterStop(
 
   try {
     const upload = await client.uploadPathBatch({
-      inputPath: artifact.audioPath,
+      inputPaths: [artifact.audioPath],
       transcribe: true,
       wait: false,
       ...(opts.title ? { title: opts.title } : {}),
@@ -227,7 +227,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
             throw cliError("input.not_found", "No local audio file is available to transcribe.");
           }
           const data = await client.uploadPathBatch({
-            inputPath: artifact.audioPath,
+            inputPaths: [artifact.audioPath],
             transcribe: true,
             wait: false,
             onEvent,
@@ -307,7 +307,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
     }
     if (parsed.kind === "upload") {
       const data = await client.uploadPathBatch({
-        inputPath: parsed.path,
+        inputPaths: parsed.paths,
         title: parsed.title,
         transcribe: parsed.transcribe,
         wait: parsed.wait,
@@ -510,7 +510,7 @@ type ParsedCommand =
       kind: "upload";
       options: GlobalOptions;
       commandName: "upload";
-      path: string;
+      paths: string[];
       title?: string;
       transcribe?: boolean;
       wait?: boolean;
@@ -891,8 +891,8 @@ Agent mode:
   });
 
   const upload = program
-    .command("upload <file-or-dir>")
-    .description("Upload a local audio file, or batch-upload a directory (optionally transcribe)")
+    .command("upload <files...>")
+    .description("Upload one or more local audio files (optionally transcribe)")
     .option("--title <title>", "recording title", parseStringOption("--title"))
     .option("--transcribe", "start transcription after upload")
     .option("--wait", "wait for the transcription job to reach a terminal state")
@@ -902,12 +902,12 @@ Agent mode:
     .option("--force", "force upload if a conflict is retryable")
     .addHelpText("after", commandMetadataHelpText("upload"));
   addCommonOptions(upload);
-  upload.action((inputPath: string, opts: UploadCommanderOptions, command: Command) => {
+  upload.action((inputPaths: string[], opts: UploadCommanderOptions, command: Command) => {
     onSelect({
       kind: "upload",
       options: collectGlobalOptions(command),
       commandName: "upload",
-      path: inputPath,
+      paths: inputPaths,
       ...(typeof opts.title === "string" ? { title: opts.title } : {}),
       ...(opts.transcribe === true ? { transcribe: true } : {}),
       ...(opts.wait === true ? { wait: true, transcribe: true } : {}),

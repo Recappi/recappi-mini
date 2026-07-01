@@ -74,6 +74,7 @@ const EXIT_CODE_LEGEND: Record<string, string> = {
 interface CommandArgumentDoc {
   name: string;
   required: boolean;
+  variadic?: boolean;
   description?: string;
 }
 
@@ -173,6 +174,7 @@ function argumentDocs(command: Command): CommandArgumentDoc[] {
   return args.map((arg) => ({
     name: arg.name(),
     required: arg.required === true,
+    ...(arg.variadic === true ? { variadic: true } : {}),
     ...(arg.description ? { description: arg.description } : {}),
   }));
 }
@@ -191,6 +193,7 @@ function isCommonOption(opt: CommandOptionDoc): boolean {
 interface RegisteredArgument {
   name(): string;
   required?: boolean;
+  variadic?: boolean;
   description?: string;
 }
 

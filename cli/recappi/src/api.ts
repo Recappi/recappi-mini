@@ -36,7 +36,7 @@ import {
   transcriptDataSchema,
 } from "../../packages/contracts/src/index";
 import { cliError, describeHttpError, RecappiCliError, toCliError } from "./errors";
-import { type AudioFilePlan, collectAudioFiles, planAudioFile } from "./files";
+import { type AudioFilePlan, planAudioFile } from "./files";
 import { inspectMacOSAppKeychain, requireToken, type AuthContext } from "./auth";
 import { defaultStorePath, openCliStore, requireAccountPartition } from "./store";
 
@@ -48,7 +48,7 @@ export interface RecappiApiClientOptions {
 }
 
 export interface UploadOptions {
-  inputPath: string;
+  inputPaths: string[];
   title?: string;
   transcribe?: boolean;
   wait?: boolean;
@@ -443,13 +443,13 @@ export class RecappiApiClient {
   }
 
   async uploadPathBatch(opts: UploadOptions): Promise<UploadBatchData> {
-    const files = await collectAudioFiles(opts.inputPath);
+    const files = opts.inputPaths;
     if (files.length === 0) {
       throw cliError(
-        "input.unsupported_audio",
-        `No supported audio files found: ${opts.inputPath}`,
+        "usage.invalid_argument",
+        "Missing upload file path.",
         {
-          hint: "Supported extensions: wav, mp3, aiff, aac, m4a, ogg, flac.",
+          hint: "Pass one or more audio files, e.g. recappi upload talk.m4a notes.wav.",
         },
       );
     }

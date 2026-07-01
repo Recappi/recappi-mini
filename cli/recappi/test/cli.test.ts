@@ -1474,13 +1474,26 @@ describe("recappi CLI contract", () => {
     expect(env.data.schemaVersion).toBe("2026-06-25");
     const upload = env.data.commands.find((c: { name: string }) => c.name === "upload");
     expect(upload).toBeTruthy();
-    expect(upload.arguments).toEqual([{ name: "file-or-dir", required: true }]);
+    expect(upload.arguments).toEqual([{ name: "files", required: true, variadic: true }]);
     expect(upload.data.type).toBe("object");
-    expect(upload.capabilities).toEqual(expect.arrayContaining(["Transcribe uploaded audio"]));
+    expect(upload.capabilities).toEqual(
+      expect.arrayContaining([
+        "Upload one or more local audio files",
+        "Transcribe uploaded audio",
+      ]),
+    );
     expect(upload.examples).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           command: "recappi upload talk.m4a --transcribe --wait",
+        }),
+        expect.objectContaining({
+          command: "recappi upload intro.m4a talk.wav qa.m4a --transcribe",
+          description: "Upload several files at once",
+        }),
+        expect.objectContaining({
+          command: "recappi upload ./recordings/*.m4a --transcribe",
+          description: "Upload a whole folder via shell glob",
         }),
       ]),
     );
@@ -1555,18 +1568,22 @@ describe("recappi CLI contract", () => {
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Commands:");
-    expect(result.stdout).toContain("upload — Upload a local audio file");
-    expect(result.stdout).toContain("capabilities: Upload a local audio file");
+    expect(result.stdout).toContain("upload — Upload one or more local audio files");
+    expect(result.stdout).toContain("capabilities: Upload one or more local audio files");
     expect(result.stdout).toContain("example: recappi upload talk.m4a --transcribe --wait");
     expect(result.stdout).toContain("recappi schema --json");
   });
 
-  it("reports a partial directory upload as input.partial_failure with per-file errors intact", async () => {
+  it("reports a partial multi-file upload as input.partial_failure with per-file errors intact", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
-    await writeFile(path.join(dir, "a.wav"), buildWav(1600));
-    await writeFile(path.join(dir, "b.wav"), buildWav(1600));
+    const first = path.join(dir, "a.wav");
+    const second = path.join(dir, "b.wav");
+    await writeFile(first, buildWav(1600));
+    await writeFile(second, buildWav(1600));
     try {
-      const result = await run(["upload", dir, "--json"], { fetchImpl: partialUploadFetch() });
+      const result = await run(["upload", first, second, "--json"], {
+        fetchImpl: partialUploadFetch(),
+      });
       const env = JSON.parse(result.stdout);
       // Top-level code is the aggregate (NOT one file's category); the real
       // per-file codes stay in data.failures so an agent can retry selectively.
@@ -1581,6 +1598,35 @@ describe("recappi CLI contract", () => {
       // Aggregate exit code == worst per-file exit code == process exit code.
       expect(env.error.exitCode).toBe(env.data.failures[0].error.exitCode);
       expect(result.exitCode).toBe(env.error.exitCode);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects directory inputs instead of recursively uploading hidden files", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
+    await writeFile(path.join(dir, "a.wav"), buildWav(1600));
+    try {
+      const result = await run(["upload", dir, "--json"], { fetchImpl: uploadFetch() });
+      const env = JSON.parse(result.stdout);
+      expect(result.exitCode).toBe(4);
+      expect(env).toMatchObject({
+        ok: false,
+        command: "upload",
+        error: {
+          code: "input.partial_failure",
+          retryable: false,
+        },
+        data: {
+          attemptedCount: 1,
+          totalCount: 1,
+          successes: [],
+        },
+      });
+      expect(env.data.failures[0].error).toMatchObject({
+        code: "input.not_file",
+        hint: expect.stringContaining("recappi upload ./recordings/*.m4a"),
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

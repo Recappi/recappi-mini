@@ -28,49 +28,26 @@ export function contentTypeForPath(filePath: string): SupportedAudioType | null 
   return fromExtension ? normalizeAudioType(fromExtension) : null;
 }
 
-export async function collectAudioFiles(inputPath: string): Promise<string[]> {
-  let stat;
-  try {
-    stat = await fs.stat(inputPath);
-  } catch {
-    throw cliError("input.not_found", `Path not found: ${inputPath}`);
-  }
-  if (stat.isFile()) return [inputPath];
-  if (!stat.isDirectory()) {
-    throw cliError("input.not_file", `Path is not a file or directory: ${inputPath}`);
-  }
-  const found: string[] = [];
-  await walk(inputPath, found);
-  found.sort((a, b) => a.localeCompare(b));
-  return found;
-}
-
-async function walk(dir: string, found: string[]): Promise<void> {
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await walk(fullPath, found);
-    } else if (entry.isFile() && contentTypeForPath(fullPath)) {
-      found.push(fullPath);
-    }
-  }
-}
-
 export async function planAudioFile(
   filePath: string,
   titleOverride?: string,
 ): Promise<AudioFilePlan> {
+  let stat;
+  try {
+    stat = await fs.stat(filePath);
+  } catch {
+    throw cliError("input.not_found", `Path not found: ${filePath}`);
+  }
+  if (!stat.isFile()) {
+    throw cliError("input.not_file", `Path is not a file: ${filePath}`, {
+      hint: "Pass one or more audio files explicitly. For a folder, expand a shell glob such as recappi upload ./recordings/*.m4a.",
+    });
+  }
   const contentType = contentTypeForPath(filePath);
   if (!contentType) {
     throw cliError("input.unsupported_audio", `Unsupported audio file: ${filePath}`, {
       hint: "Supported extensions: wav, mp3, aiff, aac, m4a, ogg, flac.",
     });
-  }
-  const stat = await fs.stat(filePath);
-  if (!stat.isFile()) {
-    throw cliError("input.not_file", `Path is not a file: ${filePath}`);
   }
   const title = titleOverride ?? path.basename(filePath, path.extname(filePath));
   const durationMs = await readDurationMs(filePath, contentType);
