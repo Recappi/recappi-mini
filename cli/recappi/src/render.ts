@@ -108,7 +108,10 @@ export function renderEvent(event: OperationEvent, opts: RenderOptions): void {
   }
   if ((event.type === "started" || event.type === "progress") && opts.mode === "human") {
     const line = formatHumanProgress(event, opts);
-    if (line) writeHumanProgress(line, opts);
+    if (line) {
+      if (isPersistentProgressEvent(event)) writePersistentHumanProgress(line, opts);
+      else writeHumanProgress(line, opts);
+    }
   }
 }
 
@@ -235,10 +238,11 @@ function renderHumanSuccess(command: string, data: unknown, opts: RenderOptions)
   }
   if (command === "upload" && isUploadBatch(data)) {
     if (data.successes.length > 0) {
-      opts.stdout(data.successes.length === 1 ? "Upload complete\n" : "Uploads complete\n");
+      opts.stdout(uploadSuccessHeading(data.successes));
     }
     for (const item of data.successes) {
       opts.stdout(`  recordingId: ${item.recordingId}\n`);
+      opts.stdout(`  recordingUrl: ${uploadRecordingUrl(item)}\n`);
       if (item.jobId) opts.stdout(`  jobId: ${item.jobId}\n`);
       if (item.transcriptId) {
         opts.stdout(`  transcriptId: ${item.transcriptId}\n`);
@@ -304,7 +308,10 @@ function renderHumanSuccess(command: string, data: unknown, opts: RenderOptions)
   }
   if ((command === "jobs wait" || command === "upload") && isRecord(data)) {
     if (typeof data.transcriptId === "string") {
-      opts.stdout("Transcription ready\n");
+      opts.stdout("Transcript ready\n");
+      if (typeof data.recordingId === "string" && typeof data.origin === "string") {
+        opts.stdout(`  recordingUrl: ${jobRecordingUrl(data.origin, data.recordingId, data.jobId)}\n`);
+      }
       opts.stdout(`  transcriptId: ${data.transcriptId}\n`);
       opts.stdout(`\nNext:\n  recappi transcript get ${data.transcriptId}\n`);
       return;
@@ -379,6 +386,9 @@ function formatUploadProgress(
   }
 
   if (event.status === "finishing_upload") return "Finalizing upload";
+  if (event.status === "uploaded") {
+    return event.message ?? uploadedLine(event.origin, event.recordingId);
+  }
   if (event.status === "starting_transcription") return "Starting transcription";
   return formatJobProgress(event);
 }
@@ -386,11 +396,15 @@ function formatUploadProgress(
 function formatJobProgress(event: OperationEvent): string | undefined {
   switch (event.status) {
     case "queued":
-      return "Waiting for transcription";
+      return event.jobId
+        ? `Waiting for transcription (job ${event.jobId})`
+        : "Waiting for transcription";
     case "running":
-      return "Transcribing";
+      return typeof event.percent === "number"
+        ? `Transcribing: ${event.percent}%`
+        : "Transcribing…";
     case "succeeded":
-      return "Transcription ready";
+      return "✓ Transcript ready";
     case "failed":
       return "Transcription failed";
     default:
@@ -410,6 +424,11 @@ function writeHumanProgress(line: string, opts: RenderOptions): void {
   state.activeLineLength = line.length;
 }
 
+function writePersistentHumanProgress(line: string, opts: RenderOptions): void {
+  finishHumanProgress(opts);
+  opts.stderr(`${line}\n`);
+}
+
 function finishHumanProgress(opts: RenderOptions): void {
   const state = opts.progress;
   if (!state?.interactive || state.activeLineLength === 0) return;
@@ -421,10 +440,37 @@ function progressScope(event: OperationEvent): string {
   return [event.command, event.filePath, event.recordingId, event.jobId].filter(Boolean).join(":");
 }
 
+function isPersistentProgressEvent(event: OperationEvent): boolean {
+  return event.command === "upload" && event.status === "uploaded";
+}
+
 function humanFileLabel(filePath: string | undefined): string | undefined {
   if (!filePath) return undefined;
   const normalized = filePath.replaceAll("\\", "/");
   return normalized.split("/").filter(Boolean).at(-1) ?? filePath;
+}
+
+function uploadRecordingUrl(item: UploadBatchData["successes"][number]): string {
+  return jobRecordingUrl(item.origin, item.recordingId, item.jobId);
+}
+
+function uploadSuccessHeading(successes: UploadBatchData["successes"]): string {
+  const transcriptReady = successes.length > 0 && successes.every((item) => Boolean(item.transcriptId));
+  if (transcriptReady) return successes.length === 1 ? "✓ Transcript ready\n" : "✓ Transcripts ready\n";
+  return successes.length === 1 ? "Upload complete\n" : "Uploads complete\n";
+}
+
+function jobRecordingUrl(origin: string, recordingId: string, jobId: unknown): string {
+  const base = recordingCloudUrl(origin, recordingId);
+  return typeof jobId === "string" ? `${base}?job=${encodeURIComponent(jobId)}` : base;
+}
+
+function uploadedLine(origin: string | undefined, recordingId: string | undefined): string {
+  return origin && recordingId ? `Uploaded · ${recordingCloudUrl(origin, recordingId)}` : "Uploaded";
+}
+
+function recordingCloudUrl(origin: string, recordingId: string): string {
+  return `${origin.replace(/\/+$/, "")}/recordings/${encodeURIComponent(recordingId)}`;
 }
 
 // Human transcript view: timestamped, speaker-attributed lines a person can

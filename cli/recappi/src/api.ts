@@ -483,9 +483,12 @@ export class RecappiApiClient {
       opts.onEvent?.({
         type: "progress",
         command: "jobs wait",
+        origin: this.auth.origin,
         jobId,
+        ...(job.recordingId ? { recordingId: job.recordingId } : {}),
         status: job.status,
         ...(job.transcriptId ? { transcriptId: job.transcriptId } : {}),
+        ...(typeof job.progressPercent === "number" ? { percent: job.progressPercent } : {}),
       });
       if (job.status === "succeeded") return job;
       if (job.status === "failed") {
@@ -525,6 +528,15 @@ export class RecappiApiClient {
       message: "Finishing upload",
     });
     await this.postJson(`/api/recordings/${init.id}/complete`, { parts });
+    opts.onEvent?.({
+      type: "progress",
+      command: "upload",
+      origin: this.auth.origin,
+      filePath: relative,
+      recordingId: init.id,
+      status: "uploaded",
+      message: `Uploaded · ${recordingCloudUrl(this.auth.origin, init.id)}`,
+    });
 
     let jobId: string | undefined;
     let transcriptId: string | undefined;
@@ -533,6 +545,7 @@ export class RecappiApiClient {
       opts.onEvent?.({
         type: "progress",
         command: "upload",
+        origin: this.auth.origin,
         filePath: relative,
         recordingId: init.id,
         status: "starting_transcription",
@@ -550,6 +563,18 @@ export class RecappiApiClient {
       jobId = transcribe.jobId;
       status = transcribe.status;
       if (transcribe.transcriptId) transcriptId = transcribe.transcriptId;
+      opts.onEvent?.({
+        type: "progress",
+        command: "upload",
+        origin: this.auth.origin,
+        filePath: relative,
+        recordingId: init.id,
+        jobId,
+        status,
+        ...(transcriptId ? { transcriptId } : {}),
+        message:
+          status === "succeeded" ? "Transcription already ready" : "Transcription queued",
+      });
       if (opts.wait) {
         const waited = await this.waitForJob(jobId, {
           onEvent: (event) =>
@@ -629,8 +654,19 @@ export class RecappiApiClient {
     if (typeof parsed.id !== "string" || typeof parsed.status !== "string") {
       throw cliError("cloud.invalid_response", "Job response was missing id or status.");
     }
+    const recording = isRecord(parsed.recording) ? parsed.recording : undefined;
+    const processedDurationMs =
+      typeof parsed.processedDurationMs === "number" || parsed.processedDurationMs === null
+        ? parsed.processedDurationMs
+        : undefined;
+    const recordingDurationMs =
+      recording && (typeof recording.durationMs === "number" || recording.durationMs === null)
+        ? recording.durationMs
+        : undefined;
+    const progressPercent = jobProgressPercent(parsed, processedDurationMs, recordingDurationMs);
     return {
       jobId: parsed.id,
+      origin: this.auth.origin,
       ...(typeof parsed.recordingId === "string" ? { recordingId: parsed.recordingId } : {}),
       status: parsed.status as JobData["status"],
       ...(typeof parsed.transcriptId === "string" || parsed.transcriptId === null
@@ -640,6 +676,18 @@ export class RecappiApiClient {
       ...(typeof parsed.model === "string" ? { model: parsed.model } : {}),
       ...(typeof parsed.language === "string" || parsed.language === null
         ? { language: parsed.language }
+        : {}),
+      ...(progressPercent !== undefined ? { progressPercent } : {}),
+      ...(processedDurationMs !== undefined ? { processedDurationMs } : {}),
+      ...(recording
+        ? {
+            recording: {
+              ...(typeof recording.title === "string" || recording.title === null
+                ? { title: recording.title }
+                : {}),
+              ...(recordingDurationMs !== undefined ? { durationMs: recordingDurationMs } : {}),
+            },
+          }
         : {}),
     };
   }
@@ -1061,6 +1109,32 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function recordingCloudUrl(origin: string, recordingId: string): string {
+  return `${origin.replace(/\/+$/, "")}/recordings/${encodeURIComponent(recordingId)}`;
+}
+
+function jobProgressPercent(
+  row: Record<string, unknown>,
+  processedDurationMs: number | null | undefined,
+  recordingDurationMs: number | null | undefined,
+): number | undefined {
+  const chunkProgress = isRecord(row.chunkProgress) ? row.chunkProgress : undefined;
+  const chunkPercent = numberValue(chunkProgress?.percent);
+  if (chunkPercent !== undefined) return clampPercent(chunkPercent);
+  if (
+    typeof processedDurationMs === "number" &&
+    typeof recordingDurationMs === "number" &&
+    recordingDurationMs > 0
+  ) {
+    return clampPercent((processedDurationMs / recordingDurationMs) * 100);
+  }
+  return undefined;
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function nullableCap(value: unknown): number | null {

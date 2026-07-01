@@ -1384,12 +1384,17 @@ describe("recappi CLI contract", () => {
       expect(result.stderr).toContain("Preparing");
       expect(result.stderr).toContain("Uploading");
       expect(result.stderr).toContain("Finalizing upload");
+      expect(result.stderr).toContain("Uploaded · https://recordmeet.ing/recordings/rec_123");
       expect(result.stderr).toContain("Starting transcription");
       expect(result.stderr).toContain("Waiting for transcription");
-      expect(result.stderr).toContain("Transcribing");
+      expect(result.stderr).toContain("Transcribing: 50%");
+      expect(result.stderr).toContain("✓ Transcript ready");
       expect(result.stderr).not.toMatch(/\bqueued\b|\brunning\b/);
-      expect(result.stdout).toContain("Upload complete");
+      expect(result.stdout).toContain("✓ Transcript ready");
       expect(result.stdout).toContain("recordingId: rec_123");
+      expect(result.stdout).toContain(
+        "recordingUrl: https://recordmeet.ing/recordings/rec_123?job=job_123",
+      );
       expect(result.stdout).toContain("jobId: job_123");
       expect(result.stdout).toContain("transcriptId: tr_123");
       expect(result.stdout).toContain("recappi transcript get tr_123");
@@ -1938,6 +1943,8 @@ function uploadFetch(): typeof fetch {
         recordingId: "rec_123",
         status: jobPolls === 1 ? "queued" : jobPolls === 2 ? "running" : "succeeded",
         transcriptId: jobPolls < 3 ? null : "tr_123",
+        processedDurationMs: jobPolls === 2 ? 60_000 : null,
+        recording: { durationMs: 120_000 },
       });
     }
     if (url.pathname === "/api/auth/get-session") {

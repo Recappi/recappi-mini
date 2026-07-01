@@ -589,12 +589,21 @@ export type RecordingTranscribeData = z.infer<typeof recordingTranscribeDataSche
 
 export const jobDataSchema = z.object({
   jobId: z.string(),
+  origin: z.string().optional(),
   recordingId: z.string().optional(),
   transcriptId: z.string().nullable().optional(),
   status: transcriptionJobStatusSchema,
   provider: z.string().optional(),
   model: z.string().optional(),
   language: z.string().nullable().optional(),
+  progressPercent: z.number().min(0).max(100).nullable().optional(),
+  processedDurationMs: z.number().int().nonnegative().nullable().optional(),
+  recording: z
+    .object({
+      title: z.string().nullable().optional(),
+      durationMs: z.number().int().nonnegative().nullable().optional(),
+    })
+    .optional(),
 });
 export type JobData = z.infer<typeof jobDataSchema>;
 
@@ -806,6 +815,7 @@ export type OperationEventType = z.infer<typeof operationEventTypeSchema>;
 export const operationEventSchema = z.object({
   type: operationEventTypeSchema,
   command: z.string(),
+  origin: z.string().optional(),
   filePath: z.string().optional(),
   recordingId: z.string().optional(),
   jobId: z.string().optional(),
