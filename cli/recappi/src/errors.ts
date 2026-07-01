@@ -10,6 +10,7 @@ const DEFAULT_EXIT_CODES: Record<CliErrorCode, number> = {
   "auth.not_logged_in": 3,
   "auth.unauthorized": 3,
   "input.not_found": 4,
+  "input.permission_denied": 4,
   "input.not_file": 4,
   "input.unsupported_audio": 4,
   "input.duration_unavailable": 4,

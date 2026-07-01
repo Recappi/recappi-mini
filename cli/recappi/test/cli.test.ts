@@ -1550,6 +1550,7 @@ describe("recappi CLI contract", () => {
     const errorCodes = env.data.errorCodes.map((c: { code: string }) => c.code);
     expect(errorCodes).toEqual(
       expect.arrayContaining([
+        "input.permission_denied",
         "record.helper_unavailable",
         "record.unsupported_platform",
         "record.capture_unavailable",
@@ -1611,6 +1612,36 @@ describe("recappi CLI contract", () => {
     expect(result.stderr).toContain("Failures:");
     expect(result.stderr).toContain("recappi-missing-upload.m4a: Path not found:");
     expect(result.stderr).toContain("(input.not_found)");
+  });
+
+  it("reports unreadable upload paths as permission_denied", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
+    const blockedDir = path.join(dir, "blocked");
+    const filePath = path.join(blockedDir, "secret.wav");
+    await mkdir(blockedDir);
+    await writeFile(filePath, buildWav(1600));
+    await chmod(blockedDir, 0o000);
+    try {
+      const result = await run(["upload", filePath, "--json"], { fetchImpl: uploadFetch() });
+      const env = JSON.parse(result.stdout);
+      expect(result.exitCode).toBe(4);
+      expect(env).toMatchObject({
+        ok: false,
+        command: "upload",
+        data: {
+          attemptedCount: 1,
+          totalCount: 1,
+          successes: [],
+        },
+      });
+      expect(env.data.failures[0].error).toMatchObject({
+        code: "input.permission_denied",
+        message: expect.stringContaining("Permission denied reading path:"),
+      });
+    } finally {
+      await chmod(blockedDir, 0o700).catch(() => {});
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("rejects directory inputs instead of recursively uploading hidden files", async () => {

@@ -54,6 +54,7 @@ export const cliErrorCodeSchema = z.enum([
   "auth.not_logged_in",
   "auth.unauthorized",
   "input.not_found",
+  "input.permission_denied",
   "input.not_file",
   "input.unsupported_audio",
   "input.duration_unavailable",

@@ -253,6 +253,8 @@ export function transcribeHandoffErrorCopy(error: unknown): string {
       return "Your Recappi session needs attention. Sign in and retry.";
     case "input.not_found":
       return "The local recording file is no longer available.";
+    case "input.permission_denied":
+      return "Recappi CLI cannot read the saved recording file yet.";
     case "input.not_file":
       return "The saved recording is not a readable audio file.";
     case "input.unsupported_audio":

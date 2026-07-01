@@ -35,8 +35,19 @@ export async function planAudioFile(
   let stat;
   try {
     stat = await fs.stat(filePath);
-  } catch {
-    throw cliError("input.not_found", `Path not found: ${filePath}`);
+  } catch (error) {
+    if (isNodeErrorCode(error, "ENOENT") || isNodeErrorCode(error, "ENOTDIR")) {
+      throw cliError("input.not_found", `Path not found: ${filePath}`);
+    }
+    if (isNodeErrorCode(error, "EACCES") || isNodeErrorCode(error, "EPERM")) {
+      throw cliError("input.permission_denied", `Permission denied reading path: ${filePath}`, {
+        hint: "Grant this terminal/agent access to the file, or copy the audio to a readable location.",
+      });
+    }
+    throw cliError(
+      "internal.unexpected",
+      error instanceof Error ? error.message : `Could not inspect path: ${filePath}`,
+    );
   }
   if (!stat.isFile()) {
     throw cliError("input.not_file", `Path is not a file: ${filePath}`, {
@@ -58,6 +69,10 @@ export async function planAudioFile(
     sizeBytes: stat.size,
     ...(durationMs ? { durationMs } : {}),
   };
+}
+
+function isNodeErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 async function readDurationMs(
