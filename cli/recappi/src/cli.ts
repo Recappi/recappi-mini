@@ -148,12 +148,12 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       renderSuccess("version", { version: CLI_VERSION }, render);
       return 0;
     }
-    const auth = await resolveAuthContext({
+    let auth = await resolveAuthContext({
       origin: parsed.options.origin,
       env: deps.env,
       homeDir: deps.homeDir,
     });
-    const client = new RecappiApiClient(auth, {
+    let client = new RecappiApiClient(auth, {
       fetchImpl: deps.fetchImpl,
       sleep: deps.sleep,
       env: deps.env,
@@ -161,7 +161,31 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
     });
 
     if (parsed.kind === "dashboard") {
-      const status = await client.authStatus();
+      let status = await client.authStatus();
+      if (!status.loggedIn) {
+        await loginWithDeviceCode({
+          origin: auth.origin,
+          homeDir: deps.homeDir,
+          onPrompt: (message) => stderr(message),
+          deps: {
+            fetchImpl: deps.fetchImpl,
+            openUrl: deps.openUrl,
+            sleep: deps.sleep,
+          },
+        });
+        auth = await resolveAuthContext({
+          origin: parsed.options.origin,
+          env: deps.env,
+          homeDir: deps.homeDir,
+        });
+        client = new RecappiApiClient(auth, {
+          fetchImpl: deps.fetchImpl,
+          sleep: deps.sleep,
+          env: deps.env,
+          homeDir: deps.homeDir,
+        });
+        status = await client.authStatus();
+      }
       const account =
         status.loggedIn && status.userId
           ? { backendOrigin: auth.origin, userId: status.userId }

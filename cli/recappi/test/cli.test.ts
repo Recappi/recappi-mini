@@ -128,6 +128,49 @@ describe("recappi CLI contract", () => {
     expect(recordingRequests).toEqual(["limit=50", "limit=50&cursor=cursor_2"]);
   });
 
+  it("starts device-code sign-in before the interactive dashboard when logged out", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "recappi-cli-home-"));
+    try {
+      let dashboardCalls = 0;
+      const openedUrls: string[] = [];
+      const recordingRequests: string[] = [];
+      const authFetch = deviceAuthFetch();
+      const cloudFetch = dashboardFetch(recordingRequests);
+      const result = await run([], {
+        homeDir,
+        env: { RECAPPI_DISABLE_KEYCHAIN_AUTH: "1" },
+        fetchImpl: async (input, init) => {
+          const url = requestUrl(input);
+          if (url.pathname.startsWith("/api/device-auth/")) return authFetch(input, init);
+          return cloudFetch(input, init);
+        },
+        isTTY: true,
+        sleep: async () => {},
+        openUrl: async (url) => {
+          openedUrls.push(url);
+        },
+        runDashboard: async (deps) => {
+          dashboardCalls += 1;
+          const account = await deps.fetchAccountStatus?.();
+          expect(account).toMatchObject({
+            loggedIn: true,
+            email: "agent@example.com",
+            userId: "user_123",
+          });
+        },
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Open https://recordmeet.ing/device");
+      expect(result.stderr).toContain("Enter code: WDJB-MJHT");
+      expect(openedUrls).toEqual(["https://recordmeet.ing/device?user_code=WDJB-MJHT"]);
+      expect(dashboardCalls).toBe(1);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it("exposes a live record session launcher to dashboard deps", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "recappi-cli-home-"));
     const fake = fakeRecordRuntime();
