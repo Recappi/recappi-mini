@@ -460,6 +460,13 @@ export class RecappiApiClient {
     for (const filePath of files) {
       attemptedCount += 1;
       try {
+        opts.onEvent?.({
+          type: "progress",
+          command: "upload",
+          filePath,
+          status: "checking_audio",
+          message: `Checking ${filePath}`,
+        });
         const plan = await planAudioFile(filePath, files.length === 1 ? opts.title : undefined);
         const result = await this.uploadFile(plan, opts);
         successes.push(result);
@@ -507,10 +514,19 @@ export class RecappiApiClient {
   private async uploadFile(plan: AudioFilePlan, opts: UploadOptions): Promise<UploadSuccess> {
     const relative = plan.filePath;
     opts.onEvent?.({
-      type: "started",
+      type: "progress",
       command: "upload",
       filePath: relative,
-      message: `Preparing ${relative}`,
+      status: "starting_upload",
+      message: `Starting upload ${relative}`,
+      data: {
+        file: {
+          title: plan.title,
+          contentType: plan.contentType,
+          sizeBytes: plan.sizeBytes,
+          ...(plan.durationMs ? { durationMs: plan.durationMs } : {}),
+        },
+      },
     });
     const init = await this.postJson<InitUploadResponse>("/api/recordings", {
       title: plan.title,

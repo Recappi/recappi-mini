@@ -1348,6 +1348,35 @@ describe("recappi CLI contract", () => {
         .split("\n")
         .map((line) => JSON.parse(line));
       const terminal = lines.filter((line) => line.type === "result" || line.type === "error");
+      const uploadStatuses = lines
+        .filter((line) => line.command === "upload" && line.type === "progress")
+        .map((line) => line.status);
+      const startingUpload = lines.find(
+        (line) => line.command === "upload" && line.status === "starting_upload",
+      );
+      expect(uploadStatuses).toEqual(
+        expect.arrayContaining([
+          "checking_audio",
+          "starting_upload",
+          "uploading",
+          "finishing_upload",
+          "uploaded",
+          "starting_transcription",
+          "queued",
+          "running",
+          "succeeded",
+        ]),
+      );
+      expect(startingUpload).toMatchObject({
+        data: {
+          file: {
+            title: "sample",
+            contentType: "audio/wav",
+            sizeBytes: 1644,
+            durationMs: 50,
+          },
+        },
+      });
       expect(terminal).toHaveLength(1);
       expect(terminal[0]).toMatchObject({
         type: "result",
@@ -1381,7 +1410,8 @@ describe("recappi CLI contract", () => {
         sleep: async () => {},
       });
       expect(result.exitCode).toBe(0);
-      expect(result.stderr).toContain("Preparing");
+      expect(result.stderr).toContain("Checking");
+      expect(result.stderr).toContain("Starting upload");
       expect(result.stderr).toContain("Uploading");
       expect(result.stderr).toContain("Finalizing upload");
       expect(result.stderr).toContain("Uploaded · https://recordmeet.ing/recordings/rec_123");
@@ -1389,6 +1419,7 @@ describe("recappi CLI contract", () => {
       expect(result.stderr).toContain("Waiting for transcription");
       expect(result.stderr).toContain("Transcribing: 50%");
       expect(result.stderr).toContain("✓ Transcript ready");
+      expect(result.stderr).not.toContain("Preparing");
       expect(result.stderr).not.toMatch(/\bqueued\b|\brunning\b/);
       expect(result.stdout).toContain("✓ Transcript ready");
       expect(result.stdout).toContain("recordingId: rec_123");

@@ -359,8 +359,7 @@ function formatHumanProgress(event: OperationEvent, opts: RenderOptions): string
   const scope = progressScope(event);
   let line: string | undefined;
   if (event.type === "started") {
-    const label = humanFileLabel(event.filePath);
-    line = label ? `Preparing ${label}` : "Preparing upload";
+    line = event.message;
   } else if (event.command === "upload") {
     line = formatUploadProgress(event, opts, scope);
   } else if (event.command === "jobs wait") {
@@ -382,13 +381,21 @@ function formatUploadProgress(
   opts: RenderOptions,
   scope: string,
 ): string | undefined {
+  const label = event.filePath ? humanFileLabel(event.filePath) : undefined;
+  if (event.status === "checking_audio") {
+    return label ? `Checking ${label}` : "Checking audio file";
+  }
+  if (event.status === "starting_upload") {
+    return label ? `Starting upload ${label}` : "Starting upload";
+  }
+
   if (event.status === "uploading" && typeof event.percent === "number") {
     const state = opts.progress;
     const bucket = Math.min(100, Math.max(0, Math.floor(event.percent / 10) * 10));
     const previous = state?.lastUploadBucketByScope.get(scope);
     if (previous !== undefined && bucket <= previous && bucket !== 100) return undefined;
     state?.lastUploadBucketByScope.set(scope, bucket);
-    return `Uploading${event.filePath ? ` ${humanFileLabel(event.filePath)}` : ""}: ${event.percent}%`;
+    return `Uploading${label ? ` ${label}` : ""}: ${event.percent}%`;
   }
 
   if (event.status === "finishing_upload") return "Finalizing upload";
