@@ -1617,6 +1617,9 @@ describe("recappi CLI contract", () => {
     expect(result.stderr).toContain("Failures:");
     expect(result.stderr).toContain("recappi-missing-upload.m4a: Path not found:");
     expect(result.stderr).toContain("(input.not_found)");
+    // Human mode must not leak the agent-oriented top-level hint (it references
+    // a data.failures[] JSON path a terminal user cannot see).
+    expect(result.stderr).not.toContain("Inspect data.failures");
   });
 
   it("reports unreadable upload paths as permission_denied", async () => {

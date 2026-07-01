@@ -95,7 +95,13 @@ export function renderFailure(
     for (const item of data.failures) {
       const label = humanFileLabel(item.filePath) ?? item.filePath;
       opts.stderr(`  ${label}: ${item.error.message} (${item.error.code})\n`);
+      // Per-file, human-actionable hint (e.g. the shell-glob tip). The
+      // top-level error.hint here is agent copy ("Inspect data.failures[]…")
+      // that references a JSON path a terminal user can't see — skip it in
+      // human mode; the per-file lines above already say what went wrong.
+      if (item.error.hint) opts.stderr(`    ${item.error.hint}\n`);
     }
+    return;
   }
   if (error.hint) opts.stderr(`${error.hint}\n`);
 }
