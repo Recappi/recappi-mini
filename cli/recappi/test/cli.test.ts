@@ -1410,25 +1410,19 @@ describe("recappi CLI contract", () => {
         sleep: async () => {},
       });
       expect(result.exitCode).toBe(0);
-      expect(result.stderr).toContain("Checking");
-      expect(result.stderr).toContain("Starting upload");
-      expect(result.stderr).toContain("Uploading");
-      expect(result.stderr).toContain("Finalizing upload");
-      expect(result.stderr).toContain("Uploaded · https://recordmeet.ing/recordings/rec_123");
-      expect(result.stderr).toContain("Starting transcription");
-      expect(result.stderr).toContain("Waiting for transcription");
-      expect(result.stderr).toContain("Transcribing: 50%");
-      expect(result.stderr).toContain("✓ Transcript ready");
+      // Interactive terminals get the productized 4-step stepper on stderr.
+      expect(result.stderr).toContain("Check");
+      expect(result.stderr).toContain("Upload");
+      expect(result.stderr).toContain("Transcribe");
+      expect(result.stderr).toContain("Done");
+      expect(result.stderr).toContain("recordings/rec_123"); // recording URL on the Upload step
+      expect(result.stderr).toContain("50%"); // real transcription progress
+      expect(result.stderr).toContain("recappi transcript get tr_123"); // Done → next command
       expect(result.stderr).not.toContain("Preparing");
-      expect(result.stderr).not.toMatch(/\bqueued\b|\brunning\b/);
-      expect(result.stdout).toContain("✓ Transcript ready");
-      expect(result.stdout).toContain("recordingId: rec_123");
-      expect(result.stdout).toContain(
-        "recordingUrl: https://recordmeet.ing/recordings/rec_123?job=job_123",
-      );
-      expect(result.stdout).toContain("jobId: job_123");
-      expect(result.stdout).toContain("transcriptId: tr_123");
-      expect(result.stdout).toContain("recappi transcript get tr_123");
+      // The stepper already shows the URL + next command, so the verbose id dump
+      // is suppressed on stdout. Piped stdout is non-TTY → no stepper → the
+      // summary still prints (covered by the --json / non-interactive tests).
+      expect(result.stdout).not.toContain("recordingId:");
     } finally {
       await rm(path.dirname(fixture), { recursive: true, force: true });
     }

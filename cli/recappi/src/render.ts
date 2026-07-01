@@ -7,6 +7,15 @@ import {
   type OperationEvent,
   type UploadBatchData,
 } from "../../packages/contracts/src/index";
+import {
+  applyStepperEvent,
+  completeStepperModel,
+  createStepperModel,
+  formatStepperLines,
+  isStepperEvent,
+  markStepperFailed,
+  type StepperModel,
+} from "./progressStepper";
 
 export type OutputMode = "human" | "json" | "jsonl";
 
@@ -15,6 +24,10 @@ export interface HumanProgressState {
   activeLineLength: number;
   lastLineByScope: Map<string, string>;
   lastUploadBucketByScope: Map<string, number>;
+  stepper?: StepperModel;
+  stepperLinesDrawn: number;
+  spinnerFrame: number;
+  stepperShown: boolean;
 }
 
 export interface RenderOptions {
@@ -32,6 +45,9 @@ export function createHumanProgressState(interactive: boolean): HumanProgressSta
     activeLineLength: 0,
     lastLineByScope: new Map(),
     lastUploadBucketByScope: new Map(),
+    stepperLinesDrawn: 0,
+    spinnerFrame: 0,
+    stepperShown: false,
   };
 }
 
@@ -54,6 +70,7 @@ export function renderSuccess(command: string, data: unknown, opts: RenderOption
     renderEnvelope(envelope, opts);
     return;
   }
+  finalizeStepperSuccess(command, filtered, opts);
   finishHumanProgress(opts);
   renderHumanSuccess(command, filtered, opts);
 }
@@ -88,6 +105,10 @@ export function renderFailure(
     renderEnvelope(envelope, opts);
     return;
   }
+  // If the productized stepper was live, mark the current step ✗ with the
+  // real reason and stop — the block already reads as a handled failure, so
+  // don't also dump the "1 of N failed / Failures:" summary beneath it.
+  if (finalizeStepperFailure(command, error, opts, data)) return;
   finishHumanProgress(opts);
   opts.stderr(`recappi: ${error.message}\n`);
   if (command === "upload" && isUploadBatch(data) && data.failures.length > 0) {
@@ -113,12 +134,87 @@ export function renderEvent(event: OperationEvent, opts: RenderOptions): void {
     return;
   }
   if ((event.type === "started" || event.type === "progress") && opts.mode === "human") {
+    // Interactive terminals get the productized multi-line stepper for the
+    // upload/transcribe pipeline; non-TTY (agents, pipes) fall back to the
+    // legacy single-line progress so redraw escapes don't pollute logs.
+    if (opts.progress?.interactive && isStepperEvent(event)) {
+      renderStepperEvent(event, opts);
+      return;
+    }
     const line = formatHumanProgress(event, opts);
     if (line) {
       if (isPersistentProgressEvent(event)) writePersistentHumanProgress(line, opts);
       else writeHumanProgress(line, opts);
     }
   }
+}
+
+function renderStepperEvent(event: OperationEvent, opts: RenderOptions): void {
+  const state = opts.progress;
+  if (!state) return;
+  if (!state.stepper) state.stepper = createStepperModel();
+  state.stepper = applyStepperEvent(state.stepper, event, Date.now());
+  state.spinnerFrame += 1;
+  drawStepperBlock(state, opts);
+}
+
+// Redraw the whole stepper block in place: move the cursor up over the previous
+// block, clear and rewrite each line. Leaves the cursor just below the block so
+// the final summary (stdout) starts on a fresh line.
+function drawStepperBlock(state: HumanProgressState, opts: RenderOptions): void {
+  if (!state.stepper) return;
+  const lines = formatStepperLines(state.stepper, Date.now(), state.spinnerFrame, true);
+  let out = "";
+  if (state.stepperLinesDrawn > 0) out += `\x1b[${state.stepperLinesDrawn}A`;
+  for (const line of lines) out += `\x1b[2K${line}\n`;
+  opts.stderr(out);
+  state.stepperLinesDrawn = lines.length;
+  state.stepperShown = true;
+}
+
+// On success, draw the terminal stepper frame (all steps ✓, Done carries the
+// next command) before the block is released.
+function finalizeStepperSuccess(command: string, data: unknown, opts: RenderOptions): void {
+  const state = opts.progress;
+  if (!state?.stepper || state.stepperLinesDrawn === 0 || command !== "upload") return;
+  const success = firstUploadSuccess(data);
+  state.stepper = completeStepperModel(state.stepper, success);
+  drawStepperBlock(state, opts);
+}
+
+function firstUploadSuccess(
+  data: unknown,
+): { transcriptId?: string; recordingId?: string } | undefined {
+  if (!isUploadBatch(data) || data.successes.length === 0) return undefined;
+  const s = data.successes[0]!;
+  return {
+    ...(s.transcriptId ? { transcriptId: s.transcriptId } : {}),
+    ...(s.recordingId ? { recordingId: s.recordingId } : {}),
+  };
+}
+
+function finalizeStepperFailure(
+  command: string,
+  error: CliErrorDescriptor,
+  opts: RenderOptions,
+  data?: unknown,
+): boolean {
+  const state = opts.progress;
+  if (!state?.stepper || state.stepperLinesDrawn === 0) return false;
+  state.stepper = markStepperFailed(state.stepper, stepperFailureDetail(command, error, data));
+  drawStepperBlock(state, opts);
+  state.stepperLinesDrawn = 0;
+  state.stepper = undefined;
+  return true;
+}
+
+function stepperFailureDetail(command: string, error: CliErrorDescriptor, data?: unknown): string {
+  // Prefer the per-file reason (the real cause) over the aggregate wrapper.
+  if (command === "upload" && isUploadBatch(data) && data.failures.length > 0) {
+    const first = data.failures[0]!.error;
+    return `${first.message} (${first.code})`;
+  }
+  return `${error.message} (${error.code})`;
 }
 
 function renderEnvelope(envelope: CliEnvelope, opts: RenderOptions): void {
@@ -243,6 +339,9 @@ function renderHumanSuccess(command: string, data: unknown, opts: RenderOptions)
     return;
   }
   if (command === "upload" && isUploadBatch(data)) {
+    // The interactive stepper already shows the recording URL and next command
+    // on its Done step — don't repeat the verbose id dump beneath it.
+    if (opts.progress?.stepperShown && data.failures.length === 0) return;
     if (data.successes.length > 0) {
       opts.stdout(uploadSuccessHeading(data.successes));
     }
@@ -444,7 +543,15 @@ function writePersistentHumanProgress(line: string, opts: RenderOptions): void {
 
 function finishHumanProgress(opts: RenderOptions): void {
   const state = opts.progress;
-  if (!state?.interactive || state.activeLineLength === 0) return;
+  if (!state) return;
+  if (state.stepperLinesDrawn > 0) {
+    // The last drawStepperBlock left the cursor below the block with the final
+    // step states already shown; just release it so the summary starts clean.
+    state.stepperLinesDrawn = 0;
+    state.stepper = undefined;
+    return;
+  }
+  if (!state.interactive || state.activeLineLength === 0) return;
   opts.stderr("\n");
   state.activeLineLength = 0;
 }
