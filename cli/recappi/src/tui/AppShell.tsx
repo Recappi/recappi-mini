@@ -29,7 +29,7 @@ import { TranscriptView } from "./TranscriptView";
 import { LiveCaptionsScreen, type LiveCaptionEventSource } from "./LiveCaptionsScreen";
 import { PermissionPreflightView, type PermissionItem } from "./PermissionPreflightView";
 import { RecordSetupView, type RecordSetupModel } from "./RecordSetupView";
-import { RecordingHeroScreen } from "./RecordingHeroScreen";
+import { RecordFrame } from "./RecordFrame";
 import {
   initialLiveCaptionsState,
   liveCaptionReducer,
@@ -60,6 +60,7 @@ import {
   dateBucket,
   transcribeFraction,
 } from "./format";
+import { recordingTitle } from "./RecordingRow";
 import { useTerminalSize } from "./terminal";
 
 const RECORDINGS_PAGE_SIZE = 50;
@@ -317,6 +318,12 @@ function transcriptionStatusFromJob(
   }
 }
 
+function recordFrameTitle(recordings: RecordingData[], recordingId: string | undefined): string {
+  if (!recordingId) return "New recording";
+  const recording = recordings.find((item) => item.recordingId === recordingId);
+  return recording ? recordingTitle(recording) : "New recording";
+}
+
 export function permissionItemsFromRecordError(data: unknown): PermissionItem[] {
   const sidecarError = isRecord(data) ? data : undefined;
   const sidecarData = isRecord(sidecarError?.data) ? sidecarError.data : undefined;
@@ -366,6 +373,7 @@ export function AppShell({
   startLiveRecord,
   startRecordSetupPreview,
   transcribeRecordingArtifact,
+  onRetranscribe,
   initialView = "overview",
   openUrl,
   copyText,
@@ -771,6 +779,75 @@ export function AppShell({
     }
   }, [liveRecord, refresh, transcribeRecordingArtifact]);
 
+  const retranscribeStoppedRecording = useCallback(async () => {
+    const current = liveRecord;
+    if (current?.kind !== "stopped") return;
+    const artifact = current.artifact;
+    if (!artifact?.recordingId) {
+      setNotice("This recording is not in Recappi Cloud yet.");
+      return;
+    }
+    if (!onRetranscribe) {
+      setNotice("Re-transcribe is not available in this CLI session.");
+      return;
+    }
+    setLiveRecord({
+      ...current,
+      artifact: {
+        ...artifact,
+        uploadStatus: "uploaded",
+        uploadProgress: 1,
+        transcriptionStatus: "queued",
+        transcriptionProgress: undefined,
+        error: undefined,
+      },
+    });
+    try {
+      const data = await onRetranscribe(artifact.recordingId);
+      setLiveRecord((latest) => {
+        const base =
+          latest?.kind === "stopped" && latest.artifact?.recordingId === artifact.recordingId
+            ? latest
+            : current;
+        return {
+          ...base,
+          artifact: {
+            ...artifact,
+            ...(base.artifact ?? {}),
+            recordingId: data.recordingId,
+            jobId: data.jobId,
+            ...(data.transcriptId ? { transcriptId: data.transcriptId } : {}),
+            uploadStatus: "uploaded",
+            uploadProgress: 1,
+            transcriptionStatus: transcriptionStatusFromJob(data.status),
+            ...(data.status === "succeeded" ? { transcriptionProgress: 1 } : {}),
+          },
+        };
+      });
+      setNotice(
+        data.status === "succeeded"
+          ? "Re-transcription ready."
+          : data.status === "running"
+            ? "Re-transcription running."
+            : data.status === "failed"
+              ? "Re-transcription failed. Press T to retry."
+              : "Re-transcription queued.",
+      );
+      await refresh({ resetRecordings: true });
+    } catch {
+      setLiveRecord({
+        ...current,
+        artifact: {
+          ...artifact,
+          uploadStatus: "uploaded",
+          transcriptionStatus: "failed",
+          error: "Could not start re-transcription. Please try again.",
+        },
+      });
+      setNotice("Re-transcription failed. Press T to retry.");
+    }
+  }, [liveRecord, onRetranscribe, refresh]);
+
   useEffect(() => {
     if (liveRecord?.kind !== "stopped") return;
     const artifact = liveRecord.artifact;
@@ -978,6 +1055,10 @@ export function AppShell({
         void transcribeStoppedRecording();
         return;
       }
+      if (liveRecord?.kind === "stopped" && input === "T") {
+        void retranscribeStoppedRecording();
+        return;
+      }
       if (liveRecord?.kind === "stopped" && input === "n") {
         void stopLiveRecord();
         return;
@@ -1114,7 +1195,7 @@ export function AppShell({
     ) {
       return (
         <Detail notice={notice}>
-          <RecordingHeroScreen
+          <RecordFrame
             telemetry={liveRecord.telemetry}
             captions={
               liveRecord.kind === "live" || liveRecord.kind === "stopping"
@@ -1122,8 +1203,28 @@ export function AppShell({
                 : undefined
             }
             artifact={liveRecord.kind === "stopped" ? liveRecord.artifact : undefined}
-            canTranscribe={Boolean(transcribeRecordingArtifact)}
-            now={now}
+            recordings={recordings}
+            selectedIndex={
+              liveRecord.kind === "stopped" && liveRecord.artifact?.recordingId
+                ? Math.max(
+                    0,
+                    recordings.findIndex(
+                      (item) => item.recordingId === liveRecord.artifact?.recordingId,
+                    ),
+                  )
+                : 0
+            }
+            title={
+              liveRecord.kind === "stopped" && liveRecord.artifact?.recordingId
+                ? recordFrameTitle(recordings, liveRecord.artifact.recordingId)
+                : "New recording"
+            }
+            recordingId={
+              liveRecord.kind === "stopped" ? liveRecord.artifact?.recordingId : undefined
+            }
+            jobId={liveRecord.kind === "stopped" ? liveRecord.artifact?.jobId : undefined}
+            nowMs={now()}
+            spinnerFrame={spinnerFrame}
           />
         </Detail>
       );

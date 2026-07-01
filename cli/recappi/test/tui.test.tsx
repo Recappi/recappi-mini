@@ -1648,17 +1648,72 @@ describe("AppShell (interactive)", () => {
     stdin.write("q");
     await flush();
     await waitFor(() => {
-      expect(noAnsi(lastFrame())).toContain("Saved to your Mac");
+      expect(noAnsi(lastFrame())).toContain("Cloud handoff failed");
     });
     stdin.write("\r");
     await flush();
     await waitFor(() => {
       const frame = noAnsi(lastFrame());
-      expect(frame).toContain("Transcription failed · ⏎ retry");
-      expect(frame).toContain("Could not start transcription. Please try again.");
+      expect(frame).toContain("Cloud handoff failed");
+      expect(frame).toMatch(/Could not start transcription\.\s+Please try\s+again\./);
       expect(frame).not.toContain("/Users/private");
       expect(frame).not.toContain("uploadPathBatch");
       expect(frame).not.toContain("stack");
+    });
+    unmount();
+  });
+
+  it("wires T in the record frame to recording retranscribe", async () => {
+    const stop = vi.fn().mockResolvedValue({
+      origin: "https://api.recappi.com",
+      userId: "u_1",
+      live: false,
+      sessionId: "session_1",
+      state: "completed",
+      artifacts: [
+        {
+          kind: "recording_session",
+          localPath: "/tmp/recappi/session",
+          metadata: { audioPath: "/tmp/recappi/session/recording.m4a" },
+        },
+      ],
+    });
+    const startLiveRecord = vi.fn().mockResolvedValue({
+      source: { onEvent: () => () => {} },
+      stop,
+    });
+    const transcribeRecordingArtifact = vi.fn().mockResolvedValue({
+      filePath: "/tmp/recappi/session/recording.m4a",
+      recordingId: "rec_new",
+      jobId: "job_new",
+      status: "queued",
+      origin: "https://recordmeet.ing",
+    });
+    const onRetranscribe = vi.fn().mockResolvedValue({
+      origin: "https://recordmeet.ing",
+      recordingId: "rec_new",
+      jobId: "job_retry",
+      status: "queued",
+    });
+    const { lastFrame, stdin, unmount } = setup({
+      startLiveRecord,
+      transcribeRecordingArtifact,
+      onRetranscribe,
+    });
+    await flush();
+    stdin.write("n");
+    await flush();
+    stdin.write("\r");
+    await flush();
+    stdin.write("q");
+    await waitFor(() => {
+      expect(noAnsi(lastFrame())).toContain("Transcription queued");
+    });
+
+    stdin.write("T");
+    await waitFor(() => {
+      expect(onRetranscribe).toHaveBeenCalledWith("rec_new");
+      expect(noAnsi(lastFrame())).toContain("Re-transcription queued");
     });
     unmount();
   });

@@ -80,7 +80,9 @@ function outcomeLine(telemetry: RecordingTelemetry, artifact?: RecordingArtifact
   if (up === "uploading") return `Uploading to Recappi Cloud… ${pct(artifact?.uploadProgress)}`;
   if (tr === "processing") return `Transcribing… ${pct(artifact?.transcriptionProgress)}`;
   if (tr === "ready") return "Transcript ready · ⏎ open · T re-transcribe";
-  if (up === "failed" || tr === "failed") return "Cloud handoff failed · T retry";
+  if (up === "failed" || tr === "failed") {
+    return artifact?.error ? `Cloud handoff failed · ${artifact.error}` : "Cloud handoff failed · T retry";
+  }
   return "Saved · ⏎ open";
 }
 function pct(f?: number): string {
