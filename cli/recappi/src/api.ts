@@ -694,6 +694,15 @@ export class RecappiApiClient {
         ? { language: parsed.language }
         : {}),
       ...(progressPercent !== undefined ? { progressPercent } : {}),
+      ...(typeof parsed.claimExpiresAt === "number" || parsed.claimExpiresAt === null
+        ? { claimExpiresAt: parsed.claimExpiresAt }
+        : {}),
+      ...(typeof parsed.lastHeartbeatAt === "number" || parsed.lastHeartbeatAt === null
+        ? { lastHeartbeatAt: parsed.lastHeartbeatAt }
+        : {}),
+      ...(typeof parsed.heartbeatPhase === "string" || parsed.heartbeatPhase === null
+        ? { heartbeatPhase: parsed.heartbeatPhase }
+        : {}),
       ...(processedDurationMs !== undefined ? { processedDurationMs } : {}),
       ...(recording
         ? {
@@ -1041,6 +1050,12 @@ function mapJobListItem(row: Record<string, unknown>): JobListData["items"][numb
       : {}),
     ...(typeof row.finishedAt === "number" || row.finishedAt === null
       ? { finishedAt: row.finishedAt }
+      : {}),
+    ...(typeof row.claimExpiresAt === "number" || row.claimExpiresAt === null
+      ? { claimExpiresAt: row.claimExpiresAt }
+      : {}),
+    ...(typeof row.lastHeartbeatAt === "number" || row.lastHeartbeatAt === null
+      ? { lastHeartbeatAt: row.lastHeartbeatAt }
       : {}),
     ...(typeof row.processedDurationMs === "number" || row.processedDurationMs === null
       ? { processedDurationMs: row.processedDurationMs }

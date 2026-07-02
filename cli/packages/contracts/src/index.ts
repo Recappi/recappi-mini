@@ -597,6 +597,9 @@ export const jobDataSchema = z.object({
   model: z.string().optional(),
   language: z.string().nullable().optional(),
   progressPercent: z.number().min(0).max(100).nullable().optional(),
+  claimExpiresAt: z.number().int().nullable().optional(),
+  lastHeartbeatAt: z.number().int().nullable().optional(),
+  heartbeatPhase: z.string().nullable().optional(),
   processedDurationMs: z.number().int().nonnegative().nullable().optional(),
   recording: z
     .object({
@@ -629,6 +632,8 @@ export const jobListItemSchema = z.object({
   enqueuedAt: z.number().int().nullable().optional(),
   startedAt: z.number().int().nullable().optional(),
   finishedAt: z.number().int().nullable().optional(),
+  claimExpiresAt: z.number().int().nullable().optional(),
+  lastHeartbeatAt: z.number().int().nullable().optional(),
   processedDurationMs: z.number().int().nonnegative().nullable().optional(),
   heartbeatPhase: z.string().nullable().optional(),
   recording: z.object({

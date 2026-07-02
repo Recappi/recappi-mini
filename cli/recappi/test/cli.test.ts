@@ -1180,6 +1180,9 @@ describe("recappi CLI contract", () => {
             jobId: "job_running",
             recordingId: "rec_running",
             status: "running",
+            claimExpiresAt: 1710000300000,
+            lastHeartbeatAt: 1710000030000,
+            heartbeatPhase: "transcribing",
             recording: { title: "Design review", durationMs: 720000 },
           },
           {
@@ -2090,6 +2093,9 @@ function uploadFetch(): typeof fetch {
         recordingId: "rec_123",
         status: jobPolls === 1 ? "queued" : jobPolls === 2 ? "running" : "succeeded",
         transcriptId: jobPolls < 3 ? null : "tr_123",
+        claimExpiresAt: jobPolls === 2 ? 1710000300000 : null,
+        lastHeartbeatAt: jobPolls === 2 ? 1710000030000 : null,
+        heartbeatPhase: jobPolls === 2 ? "transcribing" : null,
         processedDurationMs: jobPolls === 2 ? 60_000 : null,
         recording: { durationMs: 120_000 },
       });
@@ -2192,6 +2198,8 @@ function jobsFetch(): typeof fetch {
             attempts: 1,
             enqueuedAt: 1710000000000,
             startedAt: 1710000002000,
+            claimExpiresAt: 1710000300000,
+            lastHeartbeatAt: 1710000030000,
             transcriptId: null,
             processedDurationMs: 60000,
             heartbeatPhase: "transcribing",
