@@ -76,7 +76,9 @@ export function OverviewView({
         {stats?.recordings.totalDurationMs != null ? (
           <Text dimColor>{`  ·  ${formatClockMs(stats.recordings.totalDurationMs)} transcribed`}</Text>
         ) : null}
-        {revalidating ? <Text dimColor>{"  ·  syncing"}</Text> : null}
+        {revalidating ? (
+          <Text dimColor>{`  ·  ${"⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[spinnerFrame % 10]} syncing`}</Text>
+        ) : null}
       </Box>
 
       <Box flexDirection="row" alignItems="flex-start">

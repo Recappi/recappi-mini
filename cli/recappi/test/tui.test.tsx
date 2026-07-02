@@ -1407,6 +1407,61 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
+  it("shows cached recordings immediately with a background syncing indicator (SWR)", async () => {
+    // Cache resolves fast; Cloud stays pending → the list shows cached rows
+    // right away (no blocking Loading) plus a low-intrusion syncing hint.
+    const cached: RecordingListData = {
+      items: [rec({ recordingId: "rec_c", title: "Cached row" })],
+      limit: 20,
+      origin: "https://recordmeet.ing",
+    };
+    const fetchCachedRecordings = vi.fn().mockResolvedValue(cached);
+    let resolveCloud: (v: RecordingListData) => void = () => {};
+    const fetchRecordings = vi.fn().mockReturnValue(
+      new Promise<RecordingListData>((res) => {
+        resolveCloud = res;
+      }),
+    );
+    const { lastFrame, unmount } = setup({ fetchCachedRecordings, fetchRecordings });
+    await flush();
+    let frame = noAnsi(lastFrame());
+    expect(frame).toContain("Cached row"); // cached shown without waiting on Cloud
+    expect(frame).toContain("syncing"); // background revalidation indicator
+    resolveCloud(recData);
+    await flush();
+    frame = noAnsi(lastFrame());
+    expect(frame).not.toContain("syncing"); // indicator clears when fresh lands
+    unmount();
+  });
+
+  it("keeps the selection on the same recording across the SWR stale→fresh swap", async () => {
+    const A = rec({ recordingId: "rec_a", title: "Alpha", activeTranscriptId: "tr_1" });
+    const B = rec({ recordingId: "rec_b", title: "Bravo", activeTranscriptId: "tr_1" });
+    const C = rec({ recordingId: "rec_c", title: "Charlie", activeTranscriptId: "tr_1" });
+    const cached: RecordingListData = { items: [A, B, C], limit: 20, origin: "https://recordmeet.ing" };
+    // Fresh Cloud list prepends a new recording → every index shifts by one.
+    const Z = rec({ recordingId: "rec_z", title: "Zeta", activeTranscriptId: "tr_1" });
+    const fresh: RecordingListData = { items: [Z, A, B, C], limit: 20, origin: "https://recordmeet.ing" };
+    const fetchCachedRecordings = vi.fn().mockResolvedValue(cached);
+    let resolveCloud: (v: RecordingListData) => void = () => {};
+    const fetchRecordings = vi.fn().mockReturnValue(
+      new Promise<RecordingListData>((res) => {
+        resolveCloud = res;
+      }),
+    );
+    const { lastFrame, stdin, unmount } = setup({ fetchCachedRecordings, fetchRecordings });
+    await flush();
+    stdin.write(DOWN); // select Bravo (index 1 in the cached list)
+    await flush();
+    resolveCloud(fresh); // fresh list arrives, shifting Bravo to index 2
+    await flush();
+    stdin.write(ENTER); // open the selected recording's detail
+    await flush();
+    // Selection followed the recordingId, not the old index (index 1 in fresh = Alpha).
+    expect(noAnsi(lastFrame())).toContain("Bravo");
+    unmount();
+  });
+
   it("shows a loading state until the first dashboard fetch resolves", async () => {
     // fetchJobs never resolves → the initial load never completes → the list
     // must show Loading… rather than an empty/frozen frame.

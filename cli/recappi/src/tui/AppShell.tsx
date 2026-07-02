@@ -462,6 +462,15 @@ export function AppShell({
 
   const screen = stack[stack.length - 1]!;
 
+  // Latest-value refs so the async refresh() can preserve the highlighted
+  // recording across the stale→fresh (SWR) swap without re-creating the callback.
+  const recordingsRef = useRef(recordings);
+  recordingsRef.current = recordings;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+
   useEffect(() => {
     if (screen.kind !== "recordSetup" || !startRecordSetupPreview) return;
 
@@ -711,9 +720,22 @@ export function AppShell({
       setLoadError(jobsR.reason instanceof Error ? jobsR.reason.message : String(jobsR.reason));
     }
     if (recR.status === "fulfilled" && recR.value) {
-      setRecordings(recR.value.items);
+      // Preserve the highlighted recording across the stale→fresh (SWR) swap:
+      // remap the selection by recordingId so it doesn't jump to whatever row
+      // now sits at the old index. Only while the overview list owns `selected`
+      // (it's shared with the jobs list on the Jobs tab).
+      const prevSelectedId =
+        screenRef.current.kind === "overview"
+          ? recordingsRef.current[selectedRef.current]?.recordingId
+          : undefined;
+      const freshItems = recR.value.items;
+      setRecordings(freshItems);
       setRecordingsNextCursor(recR.value.nextCursor ?? null);
       setRecordingsTotalCount(recR.value.totalCount);
+      if (prevSelectedId) {
+        const idx = freshItems.findIndex((r) => r.recordingId === prevSelectedId);
+        setSelected((s) => (idx >= 0 ? idx : Math.min(s, Math.max(0, freshItems.length - 1))));
+      }
     }
     if (statsR.status === "fulfilled" && statsR.value) setStats(statsR.value);
     if (accountR.status === "fulfilled") {
