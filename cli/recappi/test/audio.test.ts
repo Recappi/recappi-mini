@@ -101,25 +101,22 @@ describe("recording audio runtime", () => {
     }
   });
 
-  it("honors an explicit output directory instead of reusing a cached download", async () => {
+  it("materializes a cached download into an explicit output directory", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "recappi-audio-cache-"));
     const outDir = path.join(dir, "export");
     const store = openCliStore({ dbPath: path.join(dir, "state.sqlite") });
     try {
       const cachedPath = path.join(dir, "cached.wav");
-      const exportedPath = path.join(outDir, "fresh.wav");
+      const exportedPath = path.join(outDir, "recording.wav");
       await writeFile(cachedPath, Buffer.from([4, 5, 6]));
       store.upsertLocalArtifact({
         kind: "download",
         account: { backendOrigin: "https://recordmeet.ing", userId: "user_123" },
         remoteId: "rec_1",
         localPath: cachedPath,
+        metadata: { contentType: "audio/wav", contentLength: 3, origin: "https://recordmeet.ing" },
       });
-      const downloadRecordingAudio = vi.fn().mockResolvedValue({
-        recordingId: "rec_1",
-        localPath: exportedPath,
-        contentType: "audio/wav",
-      });
+      const downloadRecordingAudio = vi.fn().mockRejectedValue(new Error("must not download"));
       const client = { downloadRecordingAudio } as unknown as RecappiApiClient;
       const runtime = createRecordingAudioRuntime(client, {
         account: { backendOrigin: "https://recordmeet.ing", userId: "user_123" },
@@ -127,12 +124,19 @@ describe("recording audio runtime", () => {
       });
 
       await expect(
-        runtime.downloadRecordingAudioFile("rec_1", { directory: outDir }),
+        runtime.downloadRecordingAudioFile("rec_1", { directory: outDir, filenameStem: "recording" }),
       ).resolves.toMatchObject({
         localPath: exportedPath,
-        reused: false,
+        reused: true,
       });
-      expect(downloadRecordingAudio).toHaveBeenCalledWith("rec_1", { directory: outDir });
+      await expect(readFile(exportedPath)).resolves.toEqual(Buffer.from([4, 5, 6]));
+      expect(downloadRecordingAudio).not.toHaveBeenCalled();
+      expect(
+        store.findLocalArtifactForAccount(
+          { backendOrigin: "https://recordmeet.ing", userId: "user_123" },
+          { kind: "download", remoteId: "rec_1" },
+        ),
+      ).toMatchObject({ localPath: exportedPath });
     } finally {
       store.close();
       await rm(dir, { recursive: true, force: true });

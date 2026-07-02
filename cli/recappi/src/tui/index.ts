@@ -41,6 +41,7 @@ export type { TerminalSize } from "./terminal";
 export interface RunDashboardDeps {
   fetchJobs: () => Promise<JobListData>;
   fetchRecordings?: (options?: DashboardRecordingsPageOptions) => Promise<RecordingListData>;
+  fetchCachedRecordings?: (options?: DashboardRecordingsPageOptions) => Promise<RecordingListData>;
   fetchDashboardStats?: () => Promise<DashboardStatsData>;
   fetchAccountStatus?: () => Promise<AccountStatusData>;
   fetchTranscript: (transcriptId: string) => Promise<TranscriptData>;
@@ -130,6 +131,7 @@ export async function runDashboard(deps: RunDashboardDeps): Promise<void> {
       fetchJobs: deps.fetchJobs,
       fetchTranscript: deps.fetchTranscript,
       fetchRecordings: deps.fetchRecordings,
+      fetchCachedRecordings: deps.fetchCachedRecordings,
       fetchDashboardStats: deps.fetchDashboardStats,
       fetchAccountStatus: deps.fetchAccountStatus,
       recordingAudio: deps.recordingAudio,

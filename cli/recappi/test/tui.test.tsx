@@ -1416,6 +1416,25 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
+  it("shows cached recordings while the Cloud list revalidates", async () => {
+    const fetchCachedRecordings = vi.fn().mockResolvedValue({
+      items: [rec({ recordingId: "rec_cached", title: "Cached planning call" })],
+      limit: 50,
+      totalCount: 1,
+      origin: "https://recordmeet.ing",
+    } satisfies RecordingListData);
+    const fetchRecordings = vi.fn(() => new Promise<RecordingListData>(() => {}));
+    const { lastFrame, unmount } = setup({ fetchCachedRecordings, fetchRecordings });
+    await flush();
+    const frame = noAnsi(lastFrame());
+    expect(fetchCachedRecordings).toHaveBeenCalledWith({ limit: 50 });
+    expect(fetchRecordings).toHaveBeenCalledWith({ limit: 50 });
+    expect(frame).toContain("Cached planning call");
+    expect(frame).toContain("syncing");
+    expect(frame).not.toContain("Loading…");
+    unmount();
+  });
+
   it("shows a stalled state for a running job whose lease has expired", async () => {
     // now() is 1000; claimExpiresAt 500 is in the past → the worker lease is
     // dead, so the job must read as Stalled, not a live transcribing spinner.

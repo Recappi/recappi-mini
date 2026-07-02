@@ -79,6 +79,7 @@ export interface AppShellProps {
   fetchJobs: () => Promise<JobListData>;
   fetchTranscript: (transcriptId: string) => Promise<TranscriptData>;
   fetchRecordings?: (options?: DashboardRecordingsPageOptions) => Promise<RecordingListData>;
+  fetchCachedRecordings?: (options?: DashboardRecordingsPageOptions) => Promise<RecordingListData>;
   fetchDashboardStats?: () => Promise<DashboardStatsData>;
   fetchAccountStatus?: () => Promise<AccountStatusData>;
   recordingAudio?: RecordingAudioRuntime;
@@ -375,6 +376,7 @@ export function AppShell({
   fetchJobs,
   fetchTranscript,
   fetchRecordings,
+  fetchCachedRecordings,
   fetchDashboardStats,
   fetchAccountStatus,
   recordingAudio,
@@ -408,6 +410,7 @@ export function AppShell({
   const [selected, setSelected] = useState(0);
   const [spinnerFrame, setSpinnerFrame] = useState(0);
   const [loadingMoreRecordings, setLoadingMoreRecordings] = useState(false);
+  const [revalidatingRecordings, setRevalidatingRecordings] = useState(false);
   // False until the first dashboard fetch resolves, so the list/detail can show
   // a "Loading…" state instead of looking empty/frozen on first paint.
   const [loaded, setLoaded] = useState(false);
@@ -676,6 +679,22 @@ export function AppShell({
   const peekSummary = peekTranscriptId ? summaryCache.get(peekTranscriptId) : undefined;
 
   const refresh = useCallback(async ({ resetRecordings = false } = {}) => {
+    let showingCachedRecordings = false;
+    if (resetRecordings && fetchCachedRecordings) {
+      try {
+        const cached = await fetchCachedRecordings({ limit: RECORDINGS_PAGE_SIZE });
+        if (cached.items.length > 0) {
+          showingCachedRecordings = true;
+          setRecordings(cached.items);
+          setRecordingsNextCursor(cached.nextCursor ?? null);
+          setRecordingsTotalCount(cached.totalCount);
+          setLoaded(true);
+          setRevalidatingRecordings(Boolean(fetchRecordings));
+        }
+      } catch {
+        // Cache is opportunistic; Cloud remains the source of truth.
+      }
+    }
     const [jobsR, recR, statsR, accountR] = await Promise.allSettled([
       fetchJobs(),
       resetRecordings && fetchRecordings
@@ -703,7 +722,8 @@ export function AppShell({
       setAccountStatus("error");
     }
     setLoaded(true);
-  }, [fetchJobs, fetchRecordings, fetchDashboardStats, fetchAccountStatus]);
+    if (showingCachedRecordings) setRevalidatingRecordings(false);
+  }, [fetchJobs, fetchRecordings, fetchCachedRecordings, fetchDashboardStats, fetchAccountStatus]);
 
   const transcribeStoppedRecording = useCallback(async () => {
     const current = liveRecord;
@@ -1548,6 +1568,7 @@ export function AppShell({
         peekSummary={peekSummary}
         showPeek={showPeek}
         peekWidth={peekWidth}
+        revalidating={revalidatingRecordings}
       />
     );
   } else if (screen.kind === "account") {

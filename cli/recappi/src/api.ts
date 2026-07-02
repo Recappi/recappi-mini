@@ -868,7 +868,7 @@ function audioExtensionForContentType(contentType: string): string {
   }
 }
 
-function recordingAudioFileName(
+export function recordingAudioFileName(
   recordingId: string,
   title: string | null | undefined,
   contentType: string,

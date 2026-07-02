@@ -10,6 +10,12 @@ import type {
 } from "../../packages/contracts/src/index";
 import { recordingExportDataSchema } from "../../packages/contracts/src/index";
 import type { RecordingAudioRuntime, RecordingAudioRuntimeDownload } from "./audio";
+import {
+  accountFromStatus,
+  findIndexedRecordingSessionDir,
+  rememberRecordingSession,
+} from "./recordingSessionCache";
+import type { CliLocalStore } from "./store";
 
 export interface RecordingExportClient {
   getRecording(recordingId: string): Promise<RecordingData>;
@@ -22,6 +28,7 @@ export interface RecordingExportOptions {
   directory?: string;
   client: RecordingExportClient;
   recordingAudio: Pick<RecordingAudioRuntime, "downloadRecordingAudioFile">;
+  store?: CliLocalStore;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
   now?: () => Date;
@@ -31,6 +38,7 @@ export interface RecordingTextSyncOptions {
   recordingId: string;
   directory?: string;
   client: RecordingExportClient;
+  store?: CliLocalStore;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
   now?: () => Date;
@@ -71,9 +79,15 @@ export async function syncRecordingText(
   opts: RecordingTextSyncOptions,
 ): Promise<RecordingTextSyncData> {
   const context = await loadRecordingBundleContext(opts);
-  const sessionDir = await resolveRecordingSessionDir(context.recording, opts);
+  const account = accountFromStatus(context.subscription);
+  const sessionDir = await resolveRecordingSessionDir(context.recording, opts, account);
   return writeRecordingTextFiles(context, sessionDir, {
     now: opts.now,
+    store: opts.store,
+    env: opts.env,
+    homeDir: opts.homeDir,
+    account,
+    source: "text_sync",
   });
 }
 
@@ -81,23 +95,37 @@ export async function syncRecordingAudio(
   opts: RecordingAudioSyncOptions,
 ): Promise<RecordingAudioSyncData> {
   const context = await loadRecordingBundleContext(opts);
-  const sessionDir = await resolveRecordingSessionDir(context.recording, opts);
+  const account = accountFromStatus(context.subscription);
+  const sessionDir = await resolveRecordingSessionDir(context.recording, opts, account);
   const audio = await downloadRecordingAudioToDir(context.recording, opts.recordingAudio, sessionDir);
   const text = await writeRecordingTextFiles(context, sessionDir, {
     now: opts.now,
     uploadFilename: path.basename(audio.localPath),
+    store: opts.store,
+    env: opts.env,
+    homeDir: opts.homeDir,
+    account,
+    source: "audio_sync",
+    audioPath: audio.localPath,
   });
   return { ...text, audioPath: audio.localPath, audio: audioMetadata(audio) };
 }
 
 export async function exportRecording(opts: RecordingExportOptions): Promise<RecordingExportData> {
   const context = await loadRecordingBundleContext(opts);
-  const exportDir = await resolveRecordingSessionDir(context.recording, opts);
+  const account = accountFromStatus(context.subscription);
+  const exportDir = await resolveRecordingSessionDir(context.recording, opts, account);
 
   const audio = await downloadRecordingAudioToDir(context.recording, opts.recordingAudio, exportDir);
   const textFiles = await writeRecordingTextFiles(context, exportDir, {
     now: opts.now,
     uploadFilename: path.basename(audio.localPath),
+    store: opts.store,
+    env: opts.env,
+    homeDir: opts.homeDir,
+    account,
+    source: "export",
+    audioPath: audio.localPath,
   });
 
   const { recording, subscription, transcript } = context;
@@ -139,6 +167,33 @@ export async function exportRecording(opts: RecordingExportOptions): Promise<Rec
     command: "recordings export",
     data,
   });
+  await rememberRecordingSession(
+    {
+      recording,
+      sessionDir: exportDir,
+      files: {
+        remoteManifestPath: data.remoteManifestPath,
+        sessionMetadataPath: data.sessionMetadataPath,
+        recordingJsonPath: data.recordingJsonPath,
+        ...(data.transcriptPath ? { transcriptPath: data.transcriptPath } : {}),
+        ...(data.transcriptJsonPath ? { transcriptJsonPath: data.transcriptJsonPath } : {}),
+        ...(data.summaryPath ? { summaryPath: data.summaryPath } : {}),
+        ...(data.summaryJsonPath ? { summaryJsonPath: data.summaryJsonPath } : {}),
+        ...(data.actionItemsPath ? { actionItemsPath: data.actionItemsPath } : {}),
+        audioPath: data.audioPath,
+        subscriptionPath: data.subscriptionPath,
+        subscriptionJsonPath: data.subscriptionJsonPath,
+        textPath: data.textPath,
+        manifestPath: data.manifestPath,
+      },
+      ...(data.transcriptId !== undefined ? { transcriptId: data.transcriptId } : {}),
+      ...(data.summaryStatus ? { summaryStatus: data.summaryStatus } : {}),
+      uploadFilename: path.basename(audio.localPath),
+      source: "export",
+      now: opts.now,
+    },
+    { account, store: opts.store, env: opts.env, homeDir: opts.homeDir },
+  );
   return data;
 }
 
@@ -173,7 +228,16 @@ async function downloadRecordingAudioToDir(
 async function writeRecordingTextFiles(
   context: RecordingBundleContext,
   sessionDir: string,
-  opts: { uploadFilename?: string; now?: () => Date },
+  opts: {
+    uploadFilename?: string;
+    now?: () => Date;
+    store?: CliLocalStore;
+    env?: NodeJS.ProcessEnv;
+    homeDir?: string;
+    account?: ReturnType<typeof accountFromStatus>;
+    source: "text_sync" | "audio_sync" | "export";
+    audioPath?: string;
+  },
 ): Promise<RecordingTextSyncData> {
   const { recording, transcript, subscription } = context;
   await fs.mkdir(sessionDir, { recursive: true });
@@ -203,18 +267,22 @@ async function writeRecordingTextFiles(
   if (transcript) {
     transcriptPath = path.join(sessionDir, "transcript.md");
     transcriptJsonPath = path.join(sessionDir, "transcript.json");
-    summaryPath = path.join(sessionDir, "summary.md");
     summaryJsonPath = path.join(sessionDir, "summary.json");
-    actionItemsPath = path.join(sessionDir, "action-items.md");
     summaryStatus = transcript.summary.status;
     await fs.writeFile(transcriptPath, renderTranscriptMarkdown(transcript), "utf8");
     await writeJson(transcriptJsonPath, transcript);
     await writeJson(summaryJsonPath, transcript.summary);
-    await fs.writeFile(summaryPath, renderSummaryMarkdown(recording, transcript), "utf8");
-    await writeOptionalText(actionItemsPath, renderActionItemsMarkdown(transcript.summary));
+    const summaryFilePath = path.join(sessionDir, "summary.md");
+    const summaryMarkdown = renderSummaryMarkdown(transcript);
+    await writeOptionalText(summaryFilePath, summaryMarkdown);
+    if (summaryMarkdown) summaryPath = summaryFilePath;
+    const actionItemsFilePath = path.join(sessionDir, "action-items.md");
+    const actionItemsMarkdown = renderActionItemsMarkdown(transcript.summary);
+    await writeOptionalText(actionItemsFilePath, actionItemsMarkdown);
+    if (actionItemsMarkdown) actionItemsPath = actionItemsFilePath;
   }
 
-  return {
+  const data = {
     recordingId: recording.recordingId,
     sessionDir,
     remoteManifestPath,
@@ -228,14 +296,61 @@ async function writeRecordingTextFiles(
     ...(actionItemsPath ? { actionItemsPath } : {}),
     ...(summaryStatus ? { summaryStatus } : {}),
   };
+  await rememberRecordingSession(
+    {
+      recording,
+      sessionDir,
+      files: {
+        remoteManifestPath,
+        sessionMetadataPath,
+        recordingJsonPath,
+        ...(transcriptPath ? { transcriptPath } : {}),
+        ...(transcriptJsonPath ? { transcriptJsonPath } : {}),
+        ...(summaryPath ? { summaryPath } : {}),
+        ...(summaryJsonPath ? { summaryJsonPath } : {}),
+        ...(actionItemsPath ? { actionItemsPath } : {}),
+        ...(opts.audioPath ? { audioPath: opts.audioPath } : {}),
+      },
+      ...(context.transcriptId !== undefined ? { transcriptId: context.transcriptId } : {}),
+      ...(summaryStatus ? { summaryStatus } : {}),
+      ...(uploadFilename ? { uploadFilename } : {}),
+      source: opts.source,
+      now: opts.now,
+    },
+    { account: opts.account ?? null, store: opts.store, env: opts.env, homeDir: opts.homeDir },
+  );
+  return data;
 }
 
 async function resolveRecordingSessionDir(
   recording: RecordingData,
-  opts: Pick<RecordingTextSyncOptions, "directory" | "homeDir" | "env">,
+  opts: Pick<RecordingTextSyncOptions, "directory" | "homeDir" | "env" | "store">,
+  account: ReturnType<typeof accountFromStatus>,
 ): Promise<string> {
   if (opts.directory) return path.resolve(opts.directory);
+  const indexed = await findIndexedRecordingSessionDir(recording.recordingId, {
+    account,
+    store: opts.store,
+    homeDir: opts.homeDir,
+    env: opts.env,
+  });
+  if (indexed) return indexed;
   const existing = await findExistingRecordingSessionDir(recording.recordingId, opts.homeDir, opts.env);
+  if (existing) {
+    await rememberRecordingSession(
+      {
+        recording,
+        sessionDir: existing,
+        files: {
+          remoteManifestPath: path.join(existing, "remote-session.json"),
+          sessionMetadataPath: path.join(existing, "session-metadata.json"),
+          recordingJsonPath: path.join(existing, "recording.json"),
+        },
+        source: "manifest_scan",
+      },
+      { account, store: opts.store, env: opts.env, homeDir: opts.homeDir },
+    );
+  }
   if (existing) return existing;
   return createRecordingSessionDir(recording, opts.homeDir, opts.env);
 }
@@ -373,9 +488,12 @@ function renderHandoffMarkdown(
   lines.push("");
 
   if (transcript) {
-    lines.push(renderSummaryMarkdown(recording, transcript).trimEnd());
-    lines.push("");
-    lines.push(renderTranscriptMarkdown(transcript).trimEnd());
+    const summaryMarkdown = renderSummaryMarkdown(transcript);
+    if (summaryMarkdown) {
+      lines.push(summaryMarkdown.trimEnd());
+      lines.push("");
+    }
+    lines.push(renderTimestampedTranscriptMarkdown(transcript).trimEnd());
     lines.push("");
   }
 
@@ -447,6 +565,10 @@ function appendSubscriptionLines(lines: string[], subscription: AccountStatusDat
 }
 
 function renderTranscriptMarkdown(transcript: TranscriptData): string {
+  return `# Transcript\n\n${transcript.text}\n`;
+}
+
+function renderTimestampedTranscriptMarkdown(transcript: TranscriptData): string {
   return `# Transcript\n\n${renderTranscriptLines(transcript)}\n`;
 }
 
@@ -459,15 +581,10 @@ function renderTranscriptLines(transcript: TranscriptData): string {
   return transcript.text;
 }
 
-function renderSummaryMarkdown(recording: RecordingData, transcript: TranscriptData): string {
+function renderSummaryMarkdown(transcript: TranscriptData): string | null {
   const summary = transcript.summary;
   const lines: string[] = [];
-  lines.push(`# ${summary.title ?? recording.title ?? recording.summaryTitle ?? "Summary"}`);
-  lines.push("");
-  lines.push(`- recordingId: ${recording.recordingId}`);
-  lines.push(`- transcriptId: ${transcript.transcriptId}`);
-  lines.push(`- summaryStatus: ${summary.status}`);
-  if (summary.error) lines.push(`- error: ${summary.error}`);
+  lines.push("# Summary");
   lines.push("");
 
   if (summary.tldr) {
@@ -478,9 +595,9 @@ function renderSummaryMarkdown(recording: RecordingData, transcript: TranscriptD
   appendStringList(lines, "Topics", summary.topics);
   appendStringList(lines, "Decisions", summary.decisions);
   appendActionItems(lines, summary.actionItems);
-  appendTimeline(lines, summary.timeline);
-  appendQuotes(lines, summary.quotes);
+  appendNotableQuotes(lines, summary.quotes);
 
+  if (lines.length === 2) return null;
   if (lines[lines.length - 1] !== "") lines.push("");
   return lines.join("\n");
 }
@@ -489,7 +606,7 @@ function renderActionItemsMarkdown(summary: TranscriptSummary): string | null {
   if (!summary.actionItems || summary.actionItems.length === 0) return null;
   const lines = ["# Action Items", ""];
   for (const item of summary.actionItems) {
-    lines.push(`- ${item.who ? `${item.who} - ` : ""}${item.what}`);
+    lines.push(actionItemLine(item));
   }
   lines.push("");
   return lines.join("\n");
@@ -509,32 +626,22 @@ function appendActionItems(
   if (!values || values.length === 0) return;
   lines.push("## Action Items", "");
   for (const item of values) {
-    lines.push(`- ${item.who ? `${item.who}: ` : ""}${item.what}`);
+    lines.push(actionItemLine(item));
   }
   lines.push("");
 }
 
-function appendTimeline(
-  lines: string[],
-  values?: NonNullable<TranscriptSummary["timeline"]>,
-): void {
+function appendNotableQuotes(lines: string[], values?: NonNullable<TranscriptSummary["quotes"]>): void {
   if (!values || values.length === 0) return;
-  lines.push("## Timeline", "");
+  lines.push("## Notable Quotes", "");
   for (const item of values) {
-    lines.push(
-      `- ${formatTimestamp(item.startMs)}-${formatTimestamp(item.endMs)}: ${item.title} - ${item.summary}`,
-    );
+    lines.push(`> ${item.speaker ? `${item.speaker}: ` : ""}${item.text}`);
   }
   lines.push("");
 }
 
-function appendQuotes(lines: string[], values?: NonNullable<TranscriptSummary["quotes"]>): void {
-  if (!values || values.length === 0) return;
-  lines.push("## Quotes", "");
-  for (const item of values) {
-    lines.push(`- ${item.speaker ? `${item.speaker}: ` : ""}"${item.text}"`);
-  }
-  lines.push("");
+function actionItemLine(item: NonNullable<TranscriptSummary["actionItems"]>[number]): string {
+  return `- ${item.who ? `${item.who}: ` : ""}${item.what}`;
 }
 
 function audioMetadata(audio: RecordingAudioRuntimeDownload): RecordingExportData["audio"] {

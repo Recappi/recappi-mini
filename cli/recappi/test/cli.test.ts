@@ -1293,7 +1293,6 @@ describe("recappi CLI contract", () => {
           transcriptJsonPath: path.join(dir, "transcript.json"),
           summaryPath: path.join(dir, "summary.md"),
           summaryJsonPath: path.join(dir, "summary.json"),
-          actionItemsPath: path.join(dir, "action-items.md"),
           subscriptionPath: path.join(dir, "subscription.md"),
           subscriptionJsonPath: path.join(dir, "subscription.json"),
           remoteManifestPath: path.join(dir, "remote-session.json"),
@@ -1302,15 +1301,16 @@ describe("recappi CLI contract", () => {
           audio: { contentType: "audio/wav", contentLength: 3, reused: false },
         },
       });
+      expect(env.data.actionItemsPath).toBeUndefined();
       await expect(readFile(env.data.audioPath)).resolves.toEqual(Buffer.from([1, 2, 3]));
       await expect(readFile(env.data.textPath, "utf8")).resolves.toContain(
         "## Files",
       );
-      await expect(readFile(env.data.transcriptPath, "utf8")).resolves.toContain(
-        "# Transcript",
-      );
-      await expect(readFile(env.data.transcriptPath, "utf8")).resolves.toContain(
+      await expect(readFile(env.data.textPath, "utf8")).resolves.toContain(
         "[00:00] Peng: Hello from the transcript",
+      );
+      await expect(readFile(env.data.transcriptPath, "utf8")).resolves.toBe(
+        "# Transcript\n\nHello from the transcript\n",
       );
       await expect(readFile(env.data.summaryPath, "utf8")).resolves.toContain("Short summary");
       await expect(readFile(env.data.subscriptionPath, "utf8")).resolves.toContain("- plan: pro");

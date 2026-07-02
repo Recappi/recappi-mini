@@ -6,6 +6,7 @@ import type {
   RecappiApiClient,
   RecordingAudioDownload,
 } from "./api";
+import { recordingAudioFileName } from "./api";
 import { cliError } from "./errors";
 import {
   defaultStorePath,
@@ -57,8 +58,11 @@ export function createRecordingAudioRuntime(
     recordingId: string,
     opts?: DownloadRecordingAudioOptions,
   ): Promise<RecordingAudioRuntimeDownload> => {
-    const cached = opts?.directory ? null : await findReusableDownload(recordingId, deps);
-    if (cached) return cached;
+    const cached = await findReusableDownload(recordingId, deps);
+    if (cached) {
+      if (!opts?.directory) return cached;
+      return materializeCachedDownload(recordingId, cached, opts, deps);
+    }
 
     const directory =
       opts?.directory ?? (deps.account ? defaultDownloadDirectory(deps) : undefined);
@@ -91,6 +95,44 @@ export function createRecordingAudioRuntime(
           .map((artifact) => artifact.remoteId)
           .filter((remoteId): remoteId is string => Boolean(remoteId)),
       ),
+  };
+}
+
+async function materializeCachedDownload(
+  recordingId: string,
+  cached: RecordingAudioRuntimeDownload,
+  opts: DownloadRecordingAudioOptions,
+  deps: RecordingAudioRuntimeOptions,
+): Promise<RecordingAudioRuntimeDownload> {
+  if (!opts.directory) return cached;
+  await fs.mkdir(opts.directory, { recursive: true });
+  const contentType = cached.contentType ?? contentTypeForAudioPath(cached.localPath);
+  const targetPath = path.join(
+    opts.directory,
+    recordingAudioFileName(recordingId, opts.title, contentType, opts.filenameStem),
+  );
+  if (path.resolve(cached.localPath) !== path.resolve(targetPath)) {
+    await fs.copyFile(cached.localPath, targetPath);
+  }
+  const contentLength = cached.contentLength ?? (await fs.stat(targetPath)).size;
+  const artifact = await rememberDownload(
+    {
+      recordingId,
+      localPath: targetPath,
+      contentType,
+      contentLength,
+      origin: cached.origin ?? "",
+    },
+    deps,
+  );
+  return {
+    recordingId,
+    localPath: targetPath,
+    reused: true,
+    ...(artifact ? { artifactId: artifact.id } : {}),
+    contentType,
+    contentLength,
+    ...(cached.origin ? { origin: cached.origin } : {}),
   };
 }
 
@@ -139,7 +181,7 @@ async function rememberDownload(
         resource: "recording_audio",
         contentType: download.contentType,
         ...(download.contentLength !== undefined ? { contentLength: download.contentLength } : {}),
-        origin: download.origin,
+        ...(download.origin ? { origin: download.origin } : {}),
       },
     });
     return store.markLocalArtifactOpened(artifact.id);
@@ -171,6 +213,28 @@ async function withStore<T>(
 
 function defaultDownloadDirectory(deps: RecordingAudioRuntimeOptions): string {
   return path.join(path.dirname(defaultStorePath(deps.homeDir, deps.env)), "downloads");
+}
+
+function contentTypeForAudioPath(localPath: string): string {
+  switch (path.extname(localPath).toLowerCase()) {
+    case ".mp3":
+      return "audio/mpeg";
+    case ".m4a":
+    case ".mp4":
+      return "audio/m4a";
+    case ".ogg":
+      return "audio/ogg";
+    case ".flac":
+      return "audio/flac";
+    case ".webm":
+      return "audio/webm";
+    case ".aiff":
+    case ".aif":
+      return "audio/aiff";
+    case ".wav":
+    default:
+      return "audio/wav";
+  }
 }
 
 async function isReadableFile(localPath: string): Promise<boolean> {

@@ -26,6 +26,7 @@ export function OverviewView({
   peekSummary,
   showPeek = false,
   peekWidth = 0,
+  revalidating = false,
 }: {
   recordings: RecordingData[];
   jobs: JobListItem[];
@@ -40,6 +41,7 @@ export function OverviewView({
   peekSummary?: PeekSummary;
   showPeek?: boolean;
   peekWidth?: number;
+  revalidating?: boolean;
 }): React.ReactElement {
   const jobCounts = countJobs(jobs);
   const running = stats?.jobs.running ?? jobCounts.running;
@@ -74,6 +76,7 @@ export function OverviewView({
         {stats?.recordings.totalDurationMs != null ? (
           <Text dimColor>{`  ·  ${formatClockMs(stats.recordings.totalDurationMs)} transcribed`}</Text>
         ) : null}
+        {revalidating ? <Text dimColor>{"  ·  syncing"}</Text> : null}
       </Box>
 
       <Box flexDirection="row" alignItems="flex-start">

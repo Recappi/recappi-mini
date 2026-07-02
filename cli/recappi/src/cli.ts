@@ -19,6 +19,7 @@ import { RecappiApiClient } from "./api";
 import { createRecordingAudioRuntime } from "./audio";
 import { commandMetadataHelpText, commonTasksHelpText } from "./commandMetadata";
 import { exportRecording, syncRecordingAudio, syncRecordingText } from "./export";
+import { listCachedRecordingSessions } from "./recordingSessionCache";
 import {
   createHumanProgressState,
   renderEvent,
@@ -201,6 +202,16 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         fetchJobs: () => client.listJobs({ status: "active", limit: 20 }),
         fetchRecordings: ({ cursor, limit = DASHBOARD_RECORDINGS_PAGE_SIZE } = {}) =>
           client.listRecordings({ limit, cursor }),
+        fetchCachedRecordings: account
+          ? ({ limit = DASHBOARD_RECORDINGS_PAGE_SIZE } = {}) =>
+              listCachedRecordingSessions({
+                account,
+                origin: auth.origin,
+                limit,
+                env: deps.env,
+                homeDir: deps.homeDir,
+              })
+          : undefined,
         fetchDashboardStats: () => client.dashboardStats(),
         fetchAccountStatus: () => client.accountStatus(),
         fetchTranscript: (transcriptId) => client.getTranscript(transcriptId),
