@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { JobListItem } from "../../../packages/contracts/src/index";
 import {
+  effectiveJobStatus,
   formatAge,
   formatClockMs,
   progressBar,
@@ -24,7 +25,8 @@ export function JobDetailView({
   spinnerFrame: number;
   nowMs: number;
 }): React.ReactElement {
-  const style = statusStyle(item.status);
+  const status = effectiveJobStatus(item, nowMs);
+  const style = statusStyle(status);
   const links = resolveJobLinks(item, origin);
   const title = item.recording?.title ?? item.recordingId;
 
@@ -62,15 +64,17 @@ export function JobDetailView({
         />
         <TimelineRow
           label={
-            item.status === "failed"
+            status === "failed"
               ? "Failed"
-              : item.status === "running"
-                ? "Transcribing"
-                : "Finished"
+              : status === "stalled"
+                ? "Stalled — worker lost"
+                : status === "running"
+                  ? "Transcribing"
+                  : "Finished"
           }
           done={item.finishedAt != null}
           failed={item.status === "failed"}
-          running={item.status === "running"}
+          running={status === "running"}
           at={item.finishedAt}
           nowMs={nowMs}
         />

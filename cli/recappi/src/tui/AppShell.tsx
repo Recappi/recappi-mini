@@ -59,6 +59,7 @@ import {
   groupedListWindow,
   dateBucket,
   transcribeFraction,
+  effectiveJobStatus,
 } from "./format";
 import { recordingTitle } from "./RecordingRow";
 import { useTerminalSize } from "./terminal";
@@ -931,12 +932,25 @@ export function AppShell({
   // rows can show a real processing state (transcribing / queued), not just
   // whether a transcript exists.
   const jobRank = (s: string) =>
-    s === "running" ? 4 : s === "queued" ? 3 : s === "failed" ? 2 : s === "succeeded" ? 1 : 0;
+    s === "running"
+      ? 5
+      : s === "stalled"
+        ? 4
+        : s === "queued"
+          ? 3
+          : s === "failed"
+            ? 2
+            : s === "succeeded"
+              ? 1
+              : 0;
   const jobStatusByRecording = new Map<string, string>();
   for (const job of jobs) {
+    // Collapse a running-but-lease-expired job to "stalled" so the recording row
+    // shows a stalled marker instead of spinning forever.
+    const status = effectiveJobStatus(job, now());
     const prev = jobStatusByRecording.get(job.recordingId);
-    if (!prev || jobRank(job.status) > jobRank(prev)) {
-      jobStatusByRecording.set(job.recordingId, job.status);
+    if (!prev || jobRank(status) > jobRank(prev)) {
+      jobStatusByRecording.set(job.recordingId, status);
     }
   }
   useEffect(() => {
@@ -1374,6 +1388,7 @@ export function AppShell({
         items={jobs.slice(win.start, win.end)}
         selectedIndex={selected - win.start}
         spinnerFrame={spinnerFrame}
+        nowMs={now()}
       />
     );
   }

@@ -31,6 +31,21 @@ export function transcribeFraction(item: JobListItem): number | null {
   return Math.max(0, Math.min(1, done / total));
 }
 
+// A running job whose worker lease has expired is dead, not progressing — its
+// heartbeat stopped. We surface that as "stalled" so the UI stops implying live
+// progress (an endless spinner) and points the user at a retry.
+export function isJobStalled(item: JobListItem, nowMs: number): boolean {
+  return (
+    item.status === "running" &&
+    typeof item.claimExpiresAt === "number" &&
+    item.claimExpiresAt < nowMs
+  );
+}
+
+export function effectiveJobStatus(item: JobListItem, nowMs: number): string {
+  return isJobStalled(item, nowMs) ? "stalled" : item.status;
+}
+
 export interface StatusStyle {
   label: string;
   color: string;
@@ -46,6 +61,8 @@ export function statusStyle(status: string): StatusStyle {
       return { label: "Ready", color: "green" };
     case "failed":
       return { label: "Failed", color: "red" };
+    case "stalled":
+      return { label: "Stalled", color: "yellow" };
     default:
       return { label: status, color: "gray" };
   }
@@ -86,14 +103,19 @@ export function statusGlyph(status: string, spinnerFrame: number): string {
       return "✓";
     case "failed":
       return "✗";
+    case "stalled":
+      // Single-width, non-emoji so the status column stays aligned.
+      return "!";
     default:
       return "•";
   }
 }
 
 // The right-hand detail column: a real progress bar for running jobs (when we
-// have a duration), otherwise a short status word.
-export function jobDetail(item: JobListItem): string {
+// have a duration), otherwise a short status word. Pass nowMs so a running job
+// whose lease expired reads as stalled (retryable) instead of "transcribing…".
+export function jobDetail(item: JobListItem, nowMs?: number): string {
+  if (nowMs != null && isJobStalled(item, nowMs)) return "stalled — worker lost · T retry";
   if (item.status === "running") {
     const fraction = transcribeFraction(item);
     if (fraction != null) {

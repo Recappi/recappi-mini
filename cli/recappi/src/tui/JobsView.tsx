@@ -8,10 +8,12 @@ export function JobsView({
   items,
   selectedIndex,
   spinnerFrame,
+  nowMs,
 }: {
   items: JobListItem[];
   selectedIndex: number;
   spinnerFrame: number;
+  nowMs?: number;
 }): React.ReactElement {
   if (items.length === 0) {
     return (
@@ -30,6 +32,7 @@ export function JobsView({
           item={item}
           selected={index === selectedIndex}
           spinnerFrame={spinnerFrame}
+          nowMs={nowMs}
         />
       ))}
     </Box>

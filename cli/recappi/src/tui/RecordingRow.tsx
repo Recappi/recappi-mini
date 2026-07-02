@@ -22,6 +22,7 @@ export function recordingProcessingState(
 ): { glyph: string; color: string } {
   if (item.status === "uploading") return { glyph: "↑", color: "cyan" };
   if (item.status === "failed" || jobStatus === "failed") return { glyph: "✗", color: "red" };
+  if (jobStatus === "stalled") return { glyph: "!", color: "yellow" };
   if (jobStatus === "running") return { glyph: spinnerChar(spinnerFrame), color: "cyan" };
   if (jobStatus === "queued") return { glyph: "○", color: "yellow" };
   if (item.status === "aborted") return { glyph: "•", color: "gray" };

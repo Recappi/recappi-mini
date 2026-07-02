@@ -13,7 +13,10 @@ import {
   progressBar,
   resolveJobLinks,
   statusGlyph,
+  statusStyle,
   transcribeFraction,
+  isJobStalled,
+  effectiveJobStatus,
 } from "../src/tui/format";
 import { TranscriptView } from "../src/tui/TranscriptView";
 import { LiveCaptionsView } from "../src/tui/LiveCaptionsView";
@@ -1326,6 +1329,34 @@ describe("AppShell (interactive)", () => {
     await flush();
     expect(noAnsi(lastFrame())).toContain("Loading");
     unmount();
+  });
+
+  it("shows a stalled state for a running job whose lease has expired", async () => {
+    // now() is 1000; claimExpiresAt 500 is in the past → the worker lease is
+    // dead, so the job must read as Stalled, not a live transcribing spinner.
+    const fetchJobs = vi.fn().mockResolvedValue({
+      items: [running({ claimExpiresAt: 500 })],
+      status: "active",
+      limit: 20,
+      origin: "https://recordmeet.ing",
+    });
+    const { lastFrame, stdin, unmount } = setup({ fetchJobs });
+    await flush();
+    stdin.write("2"); // Jobs tab
+    await flush();
+    const frame = noAnsi(lastFrame());
+    expect(frame).toContain("Stalled");
+    expect(frame).not.toContain("Transcribing");
+    unmount();
+  });
+
+  it("keeps a healthy running job as transcribing (lease not expired)", () => {
+    expect(isJobStalled(running({ claimExpiresAt: 5 }), 10)).toBe(true);
+    expect(isJobStalled(running({ claimExpiresAt: 20 }), 10)).toBe(false);
+    expect(isJobStalled(running(), 10)).toBe(false); // no lease info → not stalled
+    expect(effectiveJobStatus(running({ claimExpiresAt: 5 }), 10)).toBe("stalled");
+    expect(statusStyle("stalled").label).toBe("Stalled");
+    expect(statusGlyph("stalled", 0)).toBe("!");
   });
 
   it("jumps to the first and last rows with g/G in Overview and Jobs", async () => {
