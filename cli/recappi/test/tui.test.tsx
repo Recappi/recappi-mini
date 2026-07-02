@@ -1319,6 +1319,15 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
+  it("shows a loading state until the first dashboard fetch resolves", async () => {
+    // fetchJobs never resolves → the initial load never completes → the list
+    // must show Loading… rather than an empty/frozen frame.
+    const { lastFrame, unmount } = setup({ fetchJobs: () => new Promise<never>(() => {}) });
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Loading");
+    unmount();
+  });
+
   it("jumps to the first and last rows with g/G in Overview and Jobs", async () => {
     const { lastFrame, stdin, unmount } = setup();
     await flush();

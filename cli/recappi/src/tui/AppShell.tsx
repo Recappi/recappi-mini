@@ -396,6 +396,9 @@ export function AppShell({
   const [selected, setSelected] = useState(0);
   const [spinnerFrame, setSpinnerFrame] = useState(0);
   const [loadingMoreRecordings, setLoadingMoreRecordings] = useState(false);
+  // False until the first dashboard fetch resolves, so the list/detail can show
+  // a "Loading…" state instead of looking empty/frozen on first paint.
+  const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const [summaryCache, setSummaryCache] = useState<Map<string, PeekSummary>>(() => new Map());
@@ -683,6 +686,7 @@ export function AppShell({
     } else {
       setAccountStatus("error");
     }
+    setLoaded(true);
   }, [fetchJobs, fetchRecordings, fetchDashboardStats, fetchAccountStatus]);
 
   const transcribeStoppedRecording = useCallback(async () => {
@@ -916,10 +920,12 @@ export function AppShell({
 
   const hasRunning = jobs.some((item) => item.status === "running");
   useEffect(() => {
-    if (!hasRunning) return;
+    // Animate while a job is running, and during the initial load so the
+    // Loading… spinner actually spins on first paint.
+    if (!hasRunning && loaded) return;
     const id = setInterval(() => setSpinnerFrame((f) => f + 1), spinnerMs);
     return () => clearInterval(id);
-  }, [hasRunning, spinnerMs]);
+  }, [hasRunning, loaded, spinnerMs]);
 
   // Map each recording to its most relevant job status (running > queued > …) so
   // rows can show a real processing state (transcribing / queued), not just
@@ -1192,7 +1198,7 @@ export function AppShell({
   }
   if (screen.kind === "jobDetail") {
     const job = jobs.find((j) => j.jobId === screen.jobId);
-    if (!job) return <Missing label="Job" />;
+    if (!job) return !loaded ? <Loading label="job" /> : <Missing label="Job" />;
     return (
       <Detail notice={notice}>
         <JobDetailView item={job} origin={origin} spinnerFrame={spinnerFrame} nowMs={now()} />
@@ -1201,7 +1207,7 @@ export function AppShell({
   }
   if (screen.kind === "recordingDetail") {
     const rec = recordings.find((r) => r.recordingId === screen.recordingId);
-    if (!rec) return <Missing label="Recording" />;
+    if (!rec) return !loaded ? <Loading label="recording" /> : <Missing label="Recording" />;
     const detailTranscript = rec.activeTranscriptId
       ? transcriptCache.get(rec.activeTranscriptId)
       : undefined;
@@ -1309,7 +1315,17 @@ export function AppShell({
 
   let body: React.ReactElement;
   let position = "";
-  if (screen.kind === "overview") {
+  if (!loaded) {
+    // First paint before any dashboard data has arrived: show an explicit
+    // loading state instead of an empty list that looks frozen.
+    position = "";
+    const spin = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[spinnerFrame % 10];
+    body = (
+      <Box marginTop={1}>
+        <Text color="cyan">{spin} Loading…</Text>
+      </Box>
+    );
+  } else if (screen.kind === "overview") {
     // Budget the list body for chrome (tabs + stats bar + column header +
     // footer) and let the window account for date-group headers so the frame
     // never overflows the screen.
@@ -1409,6 +1425,14 @@ function Missing({ label }: { label: string }): React.ReactElement {
     <Box flexDirection="column" paddingX={1}>
       <Text dimColor>{label} no longer in the list.</Text>
       <Text dimColor>esc back · q quit</Text>
+    </Box>
+  );
+}
+
+function Loading({ label }: { label: string }): React.ReactElement {
+  return (
+    <Box paddingX={1}>
+      <Text color="cyan">Loading {label}…</Text>
     </Box>
   );
 }
