@@ -1217,7 +1217,7 @@ export function AppShell({
       const rec = recordings.find((r) => r.recordingId === screen.recordingId);
       const links = rec ? resolveRecordingLinks(rec.recordingId, rec.origin) : {};
       if (input === "T" && rec) void retranscribeExistingRecording(rec.recordingId);
-      else if (input === "S" && rec) void resummarizeExistingRecording(rec.recordingId);
+      else if ((input === "s" || input === "S") && rec) void resummarizeExistingRecording(rec.recordingId);
       else if (input === "t" && rec?.activeTranscriptId) void openTranscript(rec.activeTranscriptId);
       else if (input === "o" && rec) void runAudio(rec.recordingId, "open");
       else if (input === "d" && rec) void runAudio(rec.recordingId, "download");

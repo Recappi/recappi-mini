@@ -1333,8 +1333,8 @@ describe("AppShell (interactive)", () => {
     await flush();
     stdin.write(ENTER); // open the first recording (rec_1) detail
     await flush();
-    expect(noAnsi(lastFrame())).toContain("S re-summarize"); // footer entry is discoverable
-    stdin.write("S"); // re-summarize the viewed recording
+    expect(noAnsi(lastFrame())).toContain("s re-summarize"); // footer entry is discoverable
+    stdin.write("s"); // re-summarize the viewed recording
     await flush();
     expect(onResummarize).toHaveBeenCalledWith("rec_1");
     unmount();
