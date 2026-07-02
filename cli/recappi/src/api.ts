@@ -100,6 +100,7 @@ export interface RecordingAudioDownload {
 export interface DownloadRecordingAudioOptions {
   directory?: string;
   title?: string | null;
+  filenameStem?: string | null;
 }
 
 interface InitUploadResponse {
@@ -405,7 +406,10 @@ export class RecappiApiClient {
     const contentLength = numberHeader(response.headers.get("content-length"));
     const dir = opts.directory ?? (await fs.mkdtemp(path.join(os.tmpdir(), "recappi-cli-audio-")));
     if (opts.directory) await fs.mkdir(dir, { recursive: true });
-    const filePath = path.join(dir, recordingAudioFileName(recordingId, opts.title, contentType));
+    const filePath = path.join(
+      dir,
+      recordingAudioFileName(recordingId, opts.title, contentType, opts.filenameStem),
+    );
     try {
       await pipeline(
         Readable.fromWeb(response.body as unknown as NodeReadableStream),
@@ -868,7 +872,11 @@ function recordingAudioFileName(
   recordingId: string,
   title: string | null | undefined,
   contentType: string,
+  filenameStem?: string | null,
 ): string {
+  if (filenameStem && filenameStem.trim()) {
+    return `${truncateFileStem(safeFileStem(filenameStem), 96)}.${audioExtensionForContentType(contentType)}`;
+  }
   const idStem = truncateFileStem(safeFileStem(recordingId), 48);
   const titleStem = title ? truncateFileStem(safeFileStem(title), 80) : "";
   const stem = titleStem ? `${titleStem}-${idStem}` : idStem;

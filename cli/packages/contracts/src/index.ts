@@ -786,6 +786,35 @@ export const transcriptDataSchema = z.object({
 });
 export type TranscriptData = z.infer<typeof transcriptDataSchema>;
 
+export const recordingExportDataSchema = z.object({
+  origin: z.string(),
+  recordingId: z.string(),
+  exportDir: z.string(),
+  textPath: z.string(),
+  manifestPath: z.string(),
+  remoteManifestPath: z.string(),
+  sessionMetadataPath: z.string(),
+  recordingJsonPath: z.string(),
+  subscriptionPath: z.string(),
+  subscriptionJsonPath: z.string(),
+  audioPath: z.string(),
+  transcriptId: z.string().nullable().optional(),
+  transcriptPath: z.string().optional(),
+  transcriptJsonPath: z.string().optional(),
+  summaryPath: z.string().optional(),
+  summaryJsonPath: z.string().optional(),
+  actionItemsPath: z.string().optional(),
+  summaryStatus: summaryStatusSchema.optional(),
+  audio: z
+    .object({
+      contentType: z.string().optional(),
+      contentLength: z.number().int().nonnegative().optional(),
+      reused: z.boolean().optional(),
+    })
+    .optional(),
+});
+export type RecordingExportData = z.infer<typeof recordingExportDataSchema>;
+
 export const doctorCheckStatusSchema = z.enum(["ok", "warn", "error"]);
 export type DoctorCheckStatus = z.infer<typeof doctorCheckStatusSchema>;
 

@@ -1269,6 +1269,66 @@ describe("recappi CLI contract", () => {
     });
   });
 
+  it("exports a recording bundle with plain-text agent handoff files", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "recappi-export-test-"));
+    const fetch = recordingExportFetch();
+    try {
+      const result = await run(["recordings", "export", "rec_done", "--dir", dir, "--json"], {
+        fetchImpl: fetch,
+      });
+
+      expect(result.exitCode).toBe(0);
+      const env = JSON.parse(result.stdout);
+      expect(env).toMatchObject({
+        ok: true,
+        command: "recordings export",
+        data: {
+          origin: "https://recordmeet.ing",
+          recordingId: "rec_done",
+          exportDir: dir,
+          textPath: path.join(dir, "handoff.md"),
+          audioPath: path.join(dir, "recording.wav"),
+          transcriptId: "tr_done",
+          transcriptPath: path.join(dir, "transcript.md"),
+          transcriptJsonPath: path.join(dir, "transcript.json"),
+          summaryPath: path.join(dir, "summary.md"),
+          summaryJsonPath: path.join(dir, "summary.json"),
+          actionItemsPath: path.join(dir, "action-items.md"),
+          subscriptionPath: path.join(dir, "subscription.md"),
+          subscriptionJsonPath: path.join(dir, "subscription.json"),
+          remoteManifestPath: path.join(dir, "remote-session.json"),
+          sessionMetadataPath: path.join(dir, "session-metadata.json"),
+          manifestPath: path.join(dir, "manifest.json"),
+          audio: { contentType: "audio/wav", contentLength: 3, reused: false },
+        },
+      });
+      await expect(readFile(env.data.audioPath)).resolves.toEqual(Buffer.from([1, 2, 3]));
+      await expect(readFile(env.data.textPath, "utf8")).resolves.toContain(
+        "## Files",
+      );
+      await expect(readFile(env.data.transcriptPath, "utf8")).resolves.toContain(
+        "# Transcript",
+      );
+      await expect(readFile(env.data.transcriptPath, "utf8")).resolves.toContain(
+        "[00:00] Peng: Hello from the transcript",
+      );
+      await expect(readFile(env.data.summaryPath, "utf8")).resolves.toContain("Short summary");
+      await expect(readFile(env.data.subscriptionPath, "utf8")).resolves.toContain("- plan: pro");
+      await expect(readFile(env.data.subscriptionJsonPath, "utf8")).resolves.toContain('"tier": "pro"');
+      await expect(readFile(env.data.remoteManifestPath, "utf8")).resolves.toContain(
+        '"uploadFilename": "recording.wav"',
+      );
+      await expect(readFile(env.data.sessionMetadataPath, "utf8")).resolves.toContain(
+        '"sourceTitle": "Weekly sync"',
+      );
+      await expect(readFile(env.data.manifestPath, "utf8")).resolves.toContain(
+        '"command": "recordings export"',
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("starts a fresh retranscription for an existing recording", async () => {
     const requests: unknown[] = [];
     const result = await run(
@@ -1648,6 +1708,13 @@ describe("recappi CLI contract", () => {
       (c: { name: string }) => c.name === "recordings list",
     );
     expect(recordingsList.data.properties.items.type).toBe("array");
+    const recordingsExport = env.data.commands.find(
+      (c: { name: string }) => c.name === "recordings export",
+    );
+    expect(recordingsExport.data.properties.textPath.type).toBe("string");
+    expect(recordingsExport.data.properties.audioPath.type).toBe("string");
+    expect(recordingsExport.data.properties.subscriptionPath.type).toBe("string");
+    expect(recordingsExport.capabilities).toContain("Write a plain-text Markdown handoff file for agents");
     const recordingsRetranscribe = env.data.commands.find(
       (c: { name: string }) => c.name === "recordings retranscribe",
     );
@@ -2210,7 +2277,11 @@ function transcriptFetch(): typeof fetch {
           { start: 0, end: 1.25, speaker: "Peng", text: "Hello from the transcript" },
         ]),
         summaryStatus: "succeeded",
-        summaryJson: JSON.stringify({ title: "Short title", tldr: "Short summary" }),
+        summaryJson: JSON.stringify({
+          title: "Short title",
+          tldr: "Short summary",
+          actionItems: [{ who: "Mini", what: "Share the text handoff." }],
+        }),
       });
     }
     if (url.pathname === "/api/transcripts/tr_ms") {
@@ -2415,6 +2486,60 @@ function recordingsFetch(): typeof fetch {
     }
     if (url.pathname === "/api/auth/get-session") {
       return jsonResponse({ user: { id: "user_123", email: "agent@example.com" } });
+    }
+    return jsonResponse({ message: `unexpected ${url.pathname}` }, { status: 404 });
+  };
+}
+
+function recordingExportFetch(): typeof fetch {
+  return async (input) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/auth/get-session") {
+      return jsonResponse({ user: { id: "user_123", email: "agent@example.com" } });
+    }
+    if (url.pathname === "/api/recordings/rec_done") {
+      return jsonResponse(recordingRows()[0]);
+    }
+    if (url.pathname === "/api/billing/status") {
+      return jsonResponse({
+        tier: "pro",
+        periodStart: 1710000000000,
+        periodEnd: 1712592000000,
+        storageBytes: 1234,
+        storageCapBytes: 5000000,
+        minutesUsed: 42.5,
+        batchMinutesUsed: 40,
+        realtimeMinutesUsed: 2.5,
+        minutesCap: 120,
+        isOverStorage: false,
+        isOverMinutes: false,
+      });
+    }
+    if (url.pathname === "/api/recordings/rec_done/audio") {
+      return new Response(new Uint8Array([1, 2, 3]), {
+        headers: {
+          "content-type": "audio/wav",
+          "content-length": "3",
+        },
+      });
+    }
+    if (url.pathname === "/api/transcripts/tr_done") {
+      return jsonResponse({
+        id: "tr_done",
+        recordingId: "rec_done",
+        jobId: "job_done",
+        provider: "gemini",
+        model: "gemini-2.5-pro",
+        language: "en",
+        durationMs: 1250,
+        createdAt: 1710000000000,
+        text: "Hello from the transcript",
+        segmentsJson: JSON.stringify([
+          { start: 0, end: 1.25, speaker: "Peng", text: "Hello from the transcript" },
+        ]),
+        summaryStatus: "succeeded",
+        summaryJson: JSON.stringify({ title: "Short title", tldr: "Short summary" }),
+      });
     }
     return jsonResponse({ message: `unexpected ${url.pathname}` }, { status: 404 });
   };

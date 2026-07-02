@@ -19,6 +19,7 @@ export const COMMON_TASKS: CommonTaskDoc[] = [
   { label: "Transcribe a local file", command: "recappi upload <file> --transcribe --wait" },
   { label: "Re-transcribe a recording", command: "recappi recordings retranscribe <recordingId> --wait" },
   { label: "Re-summarize a recording", command: "recappi recordings resummarize <recordingId>" },
+  { label: "Export recording bundle", command: "recappi recordings export <recordingId> --dir ./bundle" },
   { label: "List / find recordings", command: "recappi recordings list" },
   { label: "Read a transcript", command: "recappi transcript get <transcriptId>" },
   { label: "Download / open audio", command: "recappi audio <recordingId> --open" },
@@ -126,7 +127,24 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
   "recordings get": {
     capabilities: ["Fetch one recording's metadata and status by id"],
     examples: [{ description: "Fetch one recording", command: "recappi recordings get <recordingId>" }],
-    relatedCommands: ["recordings list", "transcript get", "audio"],
+    relatedCommands: ["recordings list", "recordings export", "transcript get", "audio"],
+  },
+  "recordings export": {
+    capabilities: [
+      "Write a plain-text Markdown handoff file for agents",
+      "Export raw audio, transcript, summary, action items, subscription/account data, and JSON sidecars",
+    ],
+    examples: [
+      {
+        description: "Export a recording bundle into a chosen directory",
+        command: "recappi recordings export <recordingId> --dir ./recappi-export",
+      },
+      {
+        description: "Export and return machine-readable paths",
+        command: "recappi recordings export <recordingId> --json --compact",
+      },
+    ],
+    relatedCommands: ["recordings get", "transcript get", "audio", "account status"],
   },
   "recordings list": {
     capabilities: ["List recent recordings", "Search recordings and transcripts", "Find a recordingId"],
@@ -134,7 +152,7 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
       { description: "List recent recordings", command: "recappi recordings list" },
       { description: "Search recordings and transcripts", command: "recappi recordings list --search <query>" },
     ],
-    relatedCommands: ["recordings get", "audio", "transcript get"],
+    relatedCommands: ["recordings get", "recordings export", "audio", "transcript get"],
   },
   "recordings retranscribe": {
     capabilities: ["Re-transcribe an existing recording", "Re-transcribe with new language/prompt/scene/model"],

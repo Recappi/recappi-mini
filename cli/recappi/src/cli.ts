@@ -18,6 +18,7 @@ import { loginWithDeviceCode } from "./auth-login";
 import { RecappiApiClient } from "./api";
 import { createRecordingAudioRuntime } from "./audio";
 import { commandMetadataHelpText, commonTasksHelpText } from "./commandMetadata";
+import { exportRecording } from "./export";
 import {
   createHumanProgressState,
   renderEvent,
@@ -272,6 +273,14 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         retranscribeRecording: (recordingId, options = {}) =>
           client.transcribeRecording({ recordingId, ...options }),
         resummarizeRecording: (recordingId) => client.summarizeRecording({ recordingId }),
+        exportRecording: (recordingId) =>
+          exportRecording({
+            recordingId,
+            client,
+            recordingAudio,
+            env: deps.env,
+            homeDir: deps.homeDir,
+          }),
         initialView: parsed.initialView,
       });
       return 0;
@@ -471,6 +480,29 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       renderSuccess("recordings get", data, render);
       return 0;
     }
+    if (parsed.kind === "recordings-export") {
+      const status = await client.authStatus();
+      if (!status.loggedIn || !status.userId) {
+        throw cliError("auth.not_logged_in", "Sign in before exporting a recording bundle.", {
+          hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
+        });
+      }
+      const recordingAudio = createRecordingAudioRuntime(client, {
+        account: { backendOrigin: auth.origin, userId: status.userId },
+        env: deps.env,
+        homeDir: deps.homeDir,
+      });
+      const data = await exportRecording({
+        recordingId: parsed.recordingId,
+        ...(parsed.directory ? { directory: parsed.directory } : {}),
+        client,
+        recordingAudio,
+        env: deps.env,
+        homeDir: deps.homeDir,
+      });
+      renderSuccess("recordings export", data, render);
+      return 0;
+    }
     if (parsed.kind === "recordings-retranscribe") {
       const eventMode: OutputMode = parsed.options.mode === "jsonl" ? "jsonl" : "human";
       const data = await client.transcribeRecording({
@@ -594,6 +626,13 @@ type ParsedCommand =
       options: GlobalOptions;
       commandName: "recordings get";
       recordingId: string;
+    }
+  | {
+      kind: "recordings-export";
+      options: GlobalOptions;
+      commandName: "recordings export";
+      recordingId: string;
+      directory?: string;
     }
   | {
       kind: "recordings-retranscribe";
@@ -810,6 +849,10 @@ interface RecordingsListCommanderOptions extends CommanderCommonOptions {
   limit?: number;
   cursor?: string;
   search?: string;
+}
+
+interface RecordingsExportCommanderOptions extends CommanderCommonOptions {
+  dir?: string;
 }
 
 interface RecordingsRetranscribeCommanderOptions extends CommanderCommonOptions {
@@ -1107,6 +1150,25 @@ Agent mode:
     },
   );
 
+  const recordingsExport = recordings
+    .command("export <recordingId>")
+    .description("Export audio, transcript, summary, and subscription/account files for agents")
+    .option("--dir <dir>", "directory for exported files", parseStringOption("--dir"))
+    .addHelpText("after", commandMetadataHelpText("recordings export"));
+  addCommonOptions(recordingsExport);
+  recordingsExport.action(
+    (recordingId: string, _options: RecordingsExportCommanderOptions, command: Command) => {
+      const opts = command.opts<RecordingsExportCommanderOptions>();
+      onSelect({
+        kind: "recordings-export",
+        options: collectGlobalOptions(command),
+        commandName: "recordings export",
+        recordingId,
+        ...(typeof opts.dir === "string" ? { directory: opts.dir } : {}),
+      });
+    },
+  );
+
   const recordingsRetranscribe = recordings
     .command("retranscribe <recordingId>")
     .description("Start a fresh transcription job for an existing recording")
@@ -1333,6 +1395,7 @@ const VALUE_OPTIONS = new Set([
   "--limit",
   "--cursor",
   "--search",
+  "--dir",
 ]);
 
 function hasCommandToken(argv: string[]): boolean {

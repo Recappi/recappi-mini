@@ -314,6 +314,28 @@ function renderHumanSuccess(command: string, data: unknown, opts: RenderOptions)
     }
     return;
   }
+  if (command === "recordings export" && isRecord(data)) {
+    opts.stdout("Recording export ready\n");
+    printStringField(opts, data, "recordingId");
+    printStringField(opts, data, "exportDir");
+    printStringField(opts, data, "textPath");
+    printStringField(opts, data, "audioPath");
+    printStringField(opts, data, "transcriptPath");
+    printStringField(opts, data, "summaryPath");
+    printStringField(opts, data, "actionItemsPath");
+    printStringField(opts, data, "subscriptionPath");
+    printStringField(opts, data, "transcriptJsonPath");
+    printStringField(opts, data, "summaryJsonPath");
+    printStringField(opts, data, "subscriptionJsonPath");
+    printStringField(opts, data, "recordingJsonPath");
+    printStringField(opts, data, "remoteManifestPath");
+    printStringField(opts, data, "sessionMetadataPath");
+    printStringField(opts, data, "manifestPath");
+    if (typeof data.transcriptPath !== "string") {
+      opts.stdout("  transcript: no active transcript\n");
+    }
+    return;
+  }
   if (command === "recordings retranscribe" && isRecord(data)) {
     opts.stdout("Transcription started\n");
     if (typeof data.recordingId === "string") opts.stdout(`  recordingId: ${data.recordingId}\n`);
@@ -665,6 +687,10 @@ function recordingTitle(item: Record<string, unknown>): string {
 
 function numberText(value: unknown): string {
   return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("en-US") : "0";
+}
+
+function printStringField(opts: RenderOptions, data: Record<string, unknown>, field: string): void {
+  if (typeof data[field] === "string") opts.stdout(`  ${field}: ${data[field]}\n`);
 }
 
 function formatDurationMs(ms: number): string {

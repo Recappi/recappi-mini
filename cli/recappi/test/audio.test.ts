@@ -101,6 +101,44 @@ describe("recording audio runtime", () => {
     }
   });
 
+  it("honors an explicit output directory instead of reusing a cached download", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "recappi-audio-cache-"));
+    const outDir = path.join(dir, "export");
+    const store = openCliStore({ dbPath: path.join(dir, "state.sqlite") });
+    try {
+      const cachedPath = path.join(dir, "cached.wav");
+      const exportedPath = path.join(outDir, "fresh.wav");
+      await writeFile(cachedPath, Buffer.from([4, 5, 6]));
+      store.upsertLocalArtifact({
+        kind: "download",
+        account: { backendOrigin: "https://recordmeet.ing", userId: "user_123" },
+        remoteId: "rec_1",
+        localPath: cachedPath,
+      });
+      const downloadRecordingAudio = vi.fn().mockResolvedValue({
+        recordingId: "rec_1",
+        localPath: exportedPath,
+        contentType: "audio/wav",
+      });
+      const client = { downloadRecordingAudio } as unknown as RecappiApiClient;
+      const runtime = createRecordingAudioRuntime(client, {
+        account: { backendOrigin: "https://recordmeet.ing", userId: "user_123" },
+        store,
+      });
+
+      await expect(
+        runtime.downloadRecordingAudioFile("rec_1", { directory: outDir }),
+      ).resolves.toMatchObject({
+        localPath: exportedPath,
+        reused: false,
+      });
+      expect(downloadRecordingAudio).toHaveBeenCalledWith("rec_1", { directory: outDir });
+    } finally {
+      store.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("opens and reveals local files through macOS open", async () => {
     const spawnProcess = vi.fn((_cmd, _args, _opts) => {
       const child = new EventEmitter() as ChildProcess;

@@ -8,6 +8,7 @@ import type {
   JobListItem,
   RecordCommandData,
   RecordingData,
+  RecordingExportData,
   RecordingListData,
   OperationEvent,
   SidecarEvent,
@@ -99,6 +100,7 @@ export interface AppShellProps {
     options?: DashboardRetranscribeOptions,
   ) => Promise<RecordingTranscribeData>;
   onResummarize?: (recordingId: string) => Promise<RecordingSummarizeData>;
+  onExportRecording?: (recordingId: string) => Promise<RecordingExportData>;
   initialView?: TabKey;
   // Side effects, injected so tests stay pure and the component has no Node deps.
   openUrl?: (url: string) => void;

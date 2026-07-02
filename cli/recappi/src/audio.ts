@@ -57,7 +57,7 @@ export function createRecordingAudioRuntime(
     recordingId: string,
     opts?: DownloadRecordingAudioOptions,
   ): Promise<RecordingAudioRuntimeDownload> => {
-    const cached = await findReusableDownload(recordingId, deps);
+    const cached = opts?.directory ? null : await findReusableDownload(recordingId, deps);
     if (cached) return cached;
 
     const directory =
