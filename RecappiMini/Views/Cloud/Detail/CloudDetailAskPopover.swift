@@ -25,8 +25,8 @@ struct CloudDetailAskPopoverContainer: View {
 
 /// The "Ask this recording" conversation popover (the "B" Recording Assistant).
 /// A persistent multi-turn chat: user bubbles on the right, assistant answers
-/// with citation chips that jump into the transcript, plus follow-up
-/// suggestions and a composer with a Web toggle.
+/// with low-noise inline citations that jump into the transcript, plus
+/// follow-up suggestions and a composer with a Web toggle.
 struct CloudDetailAskPopover: View {
     @ObservedObject var viewModel: AskConversationViewModel
     /// Jump into the transcript at the cited segment.
@@ -192,7 +192,7 @@ struct CloudDetailAskPopover: View {
                         .foregroundStyle(Color.dtLabelSecondary)
                 }
             } else {
-                answerBody(message.content)
+                answerBody(message)
             }
 
             if case .failed(let reason) = message.status {
@@ -201,8 +201,7 @@ struct CloudDetailAskPopover: View {
                     .foregroundStyle(Color.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            // SOURCES citations removed per product decision — the bare
-            // time-range chips weren't useful.
+            citationsDisclosure(message)
         }
     }
 
@@ -210,8 +209,8 @@ struct CloudDetailAskPopover: View {
     /// paragraph spacing, and inline emphasis (bold/italic). Deliberately no
     /// tables / code blocks — keep it simple and cross-platform.
     @ViewBuilder
-    private func answerBody(_ content: String) -> some View {
-        let lines = content
+    private func answerBody(_ message: AskConversationMessage) -> some View {
+        let lines = message.content
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
         VStack(alignment: .leading, spacing: 5) {
@@ -222,33 +221,41 @@ struct CloudDetailAskPopover: View {
                 } else if let bullet = bulletContent(trimmed) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("•").font(.system(size: 13)).foregroundStyle(Color.dtLabelSecondary)
-                        inlineText(bullet)
+                        inlineText(bullet, citations: message.citations)
                     }
                 } else if let numbered = numberedContent(trimmed) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("\(numbered.0).").font(.system(size: 13))
                             .foregroundStyle(Color.dtLabelSecondary).monospacedDigit()
-                        inlineText(numbered.1)
+                        inlineText(numbered.1, citations: message.citations)
                     }
                 } else {
-                    inlineText(trimmed)
+                    inlineText(trimmed, citations: message.citations)
                 }
             }
         }
         .textSelection(.enabled)
     }
 
-    private func inlineText(_ string: String) -> some View {
-        let attributed = (try? AttributedString(
-            markdown: string,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )) ?? AttributedString(string)
+    private func inlineText(_ string: String, citations: [AskCitation] = []) -> some View {
+        let attributed = AskInlineAnswer.attributedString(content: string, citations: citations)
         return Text(attributed)
             .font(.system(size: 13))
             .foregroundStyle(Color.dtLabel)
+            .tint(DT.appAccent.opacity(0.72))
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .environment(\.openURL, OpenURLAction { url in
+                guard
+                    let citationId = AskInlineAnswer.citationId(from: url),
+                    let citation = citations.first(where: { $0.id == citationId })
+                else {
+                    return .systemAction
+                }
+                onCitationTap(citation)
+                return .handled
+            })
     }
 
     private func bulletContent(_ line: String) -> String? {
@@ -283,7 +290,29 @@ struct CloudDetailAskPopover: View {
                 )
         }
         .buttonStyle(.plain)
-        .help(citation.snippet ?? citation.chipText)
+        .help(citation.helpText)
+    }
+
+    @ViewBuilder
+    private func citationsDisclosure(_ message: AskConversationMessage) -> some View {
+        if !message.citations.isEmpty {
+            let label = AskInlineAnswer.hasCitationMarkers(message.content)
+                ? "All citations"
+                : "Citations"
+            DisclosureGroup {
+                FlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                    ForEach(message.citations) { citation in
+                        citationChip(citation)
+                    }
+                }
+                .padding(.top, 4)
+            } label: {
+                Text("\(label) (\(message.citations.count))")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.dtLabelSecondary)
+            }
+            .tint(DT.appAccent.opacity(0.72))
+        }
     }
 
     // MARK: - Follow-ups

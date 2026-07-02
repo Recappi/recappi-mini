@@ -168,7 +168,11 @@ final class AskConversationViewModel: ObservableObject {
                             citations.append(citation)
                         }
                         self?.applyCitations(id: assistantId, citations: citations)
-                    case .done(let doneCitations):
+                    case .done(let content, let doneCitations):
+                        if let content {
+                            accumulated = content
+                            self?.applyStreaming(id: assistantId, text: accumulated)
+                        }
                         if !doneCitations.isEmpty {
                             citations = doneCitations
                         }
@@ -195,24 +199,17 @@ final class AskConversationViewModel: ObservableObject {
 
     // MARK: - Mutations
 
-    /// Strip inline citation markers like `[[seg-18]]` (and stray `[seg-18]`)
-    /// from displayed answer text. The streaming `answer_delta` deltas carry
-    /// these markers (only the backend's final persisted content is clean); the
-    /// sources are surfaced separately as citation chips, so we hide the markers.
+    /// Backward-compatible helper for callers/tests that still need plain text.
+    /// The message model itself keeps raw markers so the view can render
+    /// sentence-level inline citations.
     static func strippedDisplay(_ text: String) -> String {
-        var out = text.replacingOccurrences(
-            of: #"\[\[seg-[^\]]*\]\]"#, with: "", options: .regularExpression
-        )
-        out = out.replacingOccurrences(
-            of: #"\[seg-[^\]]*\]"#, with: "", options: .regularExpression
-        )
-        return out
+        AskInlineAnswer.strippedDisplay(text)
     }
 
     private func applyStreaming(id: String, text: String) {
         streamingText = text
         guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
-        messages[index].content = Self.strippedDisplay(text)
+        messages[index].content = text
     }
 
     private func applyCitations(id: String, citations: [AskCitation]) {
@@ -222,7 +219,7 @@ final class AskConversationViewModel: ObservableObject {
 
     private func finalize(id: String, text: String, citations: [AskCitation]) {
         if let index = messages.firstIndex(where: { $0.id == id }) {
-            messages[index].content = Self.strippedDisplay(text)
+            messages[index].content = text
             messages[index].citations = citations
             messages[index].status = .complete
         }

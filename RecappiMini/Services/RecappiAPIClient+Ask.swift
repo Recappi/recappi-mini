@@ -26,8 +26,9 @@ struct AskThreadCitation: Decodable, Sendable, Equatable {
     }
 }
 
-/// One persisted message in the Ask thread. `content` is already clean plain
-/// text (no `[[seg-N]]` markers); citations carry the source ranges.
+/// One persisted message in the Ask thread. Assistant `content` may include
+/// `[[seg-N]]` markers so clients can render citations inline; citations carry
+/// the source ranges for those markers.
 struct AskThreadMessage: Decodable, Sendable, Identifiable, Equatable {
     enum Role: String, Decodable, Sendable, Equatable {
         case user
@@ -109,6 +110,7 @@ private struct AskCitationPayload: Decodable {
 }
 
 private struct AskDonePayload: Decodable {
+    let content: String?
     let citations: [AskThreadCitation]?
 }
 
@@ -274,7 +276,7 @@ extension RecappiAPIClient {
         case "done":
             let payload = try? JSONDecoder().decode(AskDonePayload.self, from: bytes)
             let citations = (payload?.citations ?? []).map(\.asCitation)
-            return .done(citations: citations)
+            return .done(content: payload?.content, citations: citations)
         case "error":
             let payload = try? JSONDecoder().decode(AskErrorPayload.self, from: bytes)
             let message = payload?.message ?? payload?.error ?? "The assistant ran into an error."
