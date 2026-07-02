@@ -1304,6 +1304,21 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
+  it("re-transcribes the viewed recording with T in the detail view", async () => {
+    const onRetranscribe = vi
+      .fn()
+      .mockResolvedValue({ recordingId: "rec_1", jobId: "job_new", status: "queued" });
+    const { stdin, lastFrame, unmount } = setup({ onRetranscribe });
+    await flush();
+    stdin.write(ENTER); // open the first recording (rec_1) detail
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("T re-transcribe"); // footer entry is discoverable
+    stdin.write("T"); // re-transcribe the viewed recording
+    await flush();
+    expect(onRetranscribe).toHaveBeenCalledWith("rec_1");
+    unmount();
+  });
+
   it("jumps to the first and last rows with g/G in Overview and Jobs", async () => {
     const { lastFrame, stdin, unmount } = setup();
     await flush();
