@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import type { RecordingAudioRuntime } from "../audio";
+import type { RecordingAudioSyncData, RecordingTextSyncData } from "../export";
 import type {
   AccountStatusData,
   DashboardStatsData,
@@ -100,6 +101,8 @@ export interface AppShellProps {
     options?: DashboardRetranscribeOptions,
   ) => Promise<RecordingTranscribeData>;
   onResummarize?: (recordingId: string) => Promise<RecordingSummarizeData>;
+  onSyncRecordingText?: (recordingId: string) => Promise<RecordingTextSyncData>;
+  onSyncRecordingAudio?: (recordingId: string) => Promise<RecordingAudioSyncData>;
   onExportRecording?: (recordingId: string) => Promise<RecordingExportData>;
   initialView?: TabKey;
   // Side effects, injected so tests stay pure and the component has no Node deps.

@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type {
   AccountStatusData,
@@ -9,7 +10,6 @@ import type {
 } from "../../packages/contracts/src/index";
 import { recordingExportDataSchema } from "../../packages/contracts/src/index";
 import type { RecordingAudioRuntime, RecordingAudioRuntimeDownload } from "./audio";
-import { defaultStorePath } from "./store";
 
 export interface RecordingExportClient {
   getRecording(recordingId: string): Promise<RecordingData>;
@@ -27,60 +27,84 @@ export interface RecordingExportOptions {
   now?: () => Date;
 }
 
+export interface RecordingTextSyncOptions {
+  recordingId: string;
+  directory?: string;
+  client: RecordingExportClient;
+  env?: NodeJS.ProcessEnv;
+  homeDir?: string;
+  now?: () => Date;
+}
+
+export interface RecordingTextSyncData {
+  recordingId: string;
+  sessionDir: string;
+  remoteManifestPath: string;
+  sessionMetadataPath: string;
+  recordingJsonPath: string;
+  transcriptId?: string | null;
+  transcriptPath?: string;
+  transcriptJsonPath?: string;
+  summaryPath?: string;
+  summaryJsonPath?: string;
+  actionItemsPath?: string;
+  summaryStatus?: RecordingExportData["summaryStatus"];
+}
+
+export interface RecordingAudioSyncOptions extends RecordingTextSyncOptions {
+  recordingAudio: Pick<RecordingAudioRuntime, "downloadRecordingAudioFile">;
+}
+
+export interface RecordingAudioSyncData extends RecordingTextSyncData {
+  audioPath: string;
+  audio: RecordingExportData["audio"];
+}
+
+interface RecordingBundleContext {
+  recording: RecordingData;
+  subscription: AccountStatusData;
+  transcript?: TranscriptData;
+  transcriptId?: string | null;
+}
+
+export async function syncRecordingText(
+  opts: RecordingTextSyncOptions,
+): Promise<RecordingTextSyncData> {
+  const context = await loadRecordingBundleContext(opts);
+  const sessionDir = await resolveRecordingSessionDir(context.recording, opts);
+  return writeRecordingTextFiles(context, sessionDir, {
+    now: opts.now,
+  });
+}
+
+export async function syncRecordingAudio(
+  opts: RecordingAudioSyncOptions,
+): Promise<RecordingAudioSyncData> {
+  const context = await loadRecordingBundleContext(opts);
+  const sessionDir = await resolveRecordingSessionDir(context.recording, opts);
+  const audio = await downloadRecordingAudioToDir(context.recording, opts.recordingAudio, sessionDir);
+  const text = await writeRecordingTextFiles(context, sessionDir, {
+    now: opts.now,
+    uploadFilename: path.basename(audio.localPath),
+  });
+  return { ...text, audioPath: audio.localPath, audio: audioMetadata(audio) };
+}
+
 export async function exportRecording(opts: RecordingExportOptions): Promise<RecordingExportData> {
-  const recording = await opts.client.getRecording(opts.recordingId);
-  const exportDir = path.resolve(
-    opts.directory ?? defaultExportDirectory(recording, opts.homeDir, opts.env),
-  );
-  await fs.mkdir(exportDir, { recursive: true });
+  const context = await loadRecordingBundleContext(opts);
+  const exportDir = await resolveRecordingSessionDir(context.recording, opts);
 
-  const recordingJsonPath = path.join(exportDir, "recording.json");
-  const sessionMetadataPath = path.join(exportDir, "session-metadata.json");
-  const remoteManifestPath = path.join(exportDir, "remote-session.json");
-  await writeJson(recordingJsonPath, recording);
+  const audio = await downloadRecordingAudioToDir(context.recording, opts.recordingAudio, exportDir);
+  const textFiles = await writeRecordingTextFiles(context, exportDir, {
+    now: opts.now,
+    uploadFilename: path.basename(audio.localPath),
+  });
 
-  const subscription = await opts.client.accountStatus();
+  const { recording, subscription, transcript } = context;
   const subscriptionPath = path.join(exportDir, "subscription.md");
   const subscriptionJsonPath = path.join(exportDir, "subscription.json");
   await fs.writeFile(subscriptionPath, renderSubscriptionMarkdown(subscription), "utf8");
   await writeJson(subscriptionJsonPath, subscription);
-
-  const audio = await opts.recordingAudio.downloadRecordingAudioFile(recording.recordingId, {
-    directory: exportDir,
-    filenameStem: "recording",
-    title: recording.title ?? recording.summaryTitle ?? recording.recordingId,
-  });
-
-  let transcriptId: string | null | undefined = recording.activeTranscriptId ?? undefined;
-  let transcriptPath: string | undefined;
-  let transcriptJsonPath: string | undefined;
-  let summaryPath: string | undefined;
-  let summaryJsonPath: string | undefined;
-  let actionItemsPath: string | undefined;
-  let summaryStatus: RecordingExportData["summaryStatus"] | undefined;
-  let transcript: TranscriptData | undefined;
-
-  if (recording.activeTranscriptId) {
-    transcript = await opts.client.getTranscript(recording.activeTranscriptId);
-    transcriptId = transcript.transcriptId;
-    transcriptPath = path.join(exportDir, "transcript.md");
-    transcriptJsonPath = path.join(exportDir, "transcript.json");
-    summaryPath = path.join(exportDir, "summary.md");
-    summaryJsonPath = path.join(exportDir, "summary.json");
-    actionItemsPath = path.join(exportDir, "action-items.md");
-    summaryStatus = transcript.summary.status;
-    await fs.writeFile(transcriptPath, renderTranscriptMarkdown(transcript), "utf8");
-    await writeJson(transcriptJsonPath, transcript);
-    await writeJson(summaryJsonPath, transcript.summary);
-    await fs.writeFile(summaryPath, renderSummaryMarkdown(recording, transcript), "utf8");
-    await writeOptionalText(actionItemsPath, renderActionItemsMarkdown(transcript.summary));
-  }
-
-  await writeJson(sessionMetadataPath, renderSessionMetadata(recording));
-  await writeJson(
-    remoteManifestPath,
-    renderRemoteSessionManifest(recording, audio, transcript, subscription, opts.now),
-  );
 
   const textPath = path.join(exportDir, "handoff.md");
   const manifestPath = path.join(exportDir, "manifest.json");
@@ -90,19 +114,19 @@ export async function exportRecording(opts: RecordingExportOptions): Promise<Rec
     exportDir,
     textPath,
     manifestPath,
-    remoteManifestPath,
-    sessionMetadataPath,
-    recordingJsonPath,
+    remoteManifestPath: textFiles.remoteManifestPath,
+    sessionMetadataPath: textFiles.sessionMetadataPath,
+    recordingJsonPath: textFiles.recordingJsonPath,
     subscriptionPath,
     subscriptionJsonPath,
     audioPath: audio.localPath,
-    ...(transcriptId !== undefined ? { transcriptId } : {}),
-    ...(transcriptPath ? { transcriptPath } : {}),
-    ...(transcriptJsonPath ? { transcriptJsonPath } : {}),
-    ...(summaryPath ? { summaryPath } : {}),
-    ...(summaryJsonPath ? { summaryJsonPath } : {}),
-    ...(actionItemsPath ? { actionItemsPath } : {}),
-    ...(summaryStatus ? { summaryStatus } : {}),
+    ...(textFiles.transcriptId !== undefined ? { transcriptId: textFiles.transcriptId } : {}),
+    ...(textFiles.transcriptPath ? { transcriptPath: textFiles.transcriptPath } : {}),
+    ...(textFiles.transcriptJsonPath ? { transcriptJsonPath: textFiles.transcriptJsonPath } : {}),
+    ...(textFiles.summaryPath ? { summaryPath: textFiles.summaryPath } : {}),
+    ...(textFiles.summaryJsonPath ? { summaryJsonPath: textFiles.summaryJsonPath } : {}),
+    ...(textFiles.actionItemsPath ? { actionItemsPath: textFiles.actionItemsPath } : {}),
+    ...(textFiles.summaryStatus ? { summaryStatus: textFiles.summaryStatus } : {}),
     audio: audioMetadata(audio),
   });
   await fs.writeFile(
@@ -118,14 +142,180 @@ export async function exportRecording(opts: RecordingExportOptions): Promise<Rec
   return data;
 }
 
-function defaultExportDirectory(
+async function loadRecordingBundleContext(
+  opts: Pick<RecordingTextSyncOptions, "recordingId" | "client">,
+): Promise<RecordingBundleContext> {
+  const recording = await opts.client.getRecording(opts.recordingId);
+  const subscription = await opts.client.accountStatus();
+  const transcript = recording.activeTranscriptId
+    ? await opts.client.getTranscript(recording.activeTranscriptId)
+    : undefined;
+  return {
+    recording,
+    subscription,
+    ...(transcript ? { transcript } : {}),
+    transcriptId: transcript?.transcriptId ?? recording.activeTranscriptId ?? undefined,
+  };
+}
+
+async function downloadRecordingAudioToDir(
+  recording: RecordingData,
+  recordingAudio: Pick<RecordingAudioRuntime, "downloadRecordingAudioFile">,
+  directory: string,
+): Promise<RecordingAudioRuntimeDownload> {
+  return recordingAudio.downloadRecordingAudioFile(recording.recordingId, {
+    directory,
+    filenameStem: "recording",
+    title: recording.title ?? recording.summaryTitle ?? recording.recordingId,
+  });
+}
+
+async function writeRecordingTextFiles(
+  context: RecordingBundleContext,
+  sessionDir: string,
+  opts: { uploadFilename?: string; now?: () => Date },
+): Promise<RecordingTextSyncData> {
+  const { recording, transcript, subscription } = context;
+  await fs.mkdir(sessionDir, { recursive: true });
+  const recordingJsonPath = path.join(sessionDir, "recording.json");
+  const sessionMetadataPath = path.join(sessionDir, "session-metadata.json");
+  const remoteManifestPath = path.join(sessionDir, "remote-session.json");
+  const existingManifest = await readJsonRecord(remoteManifestPath);
+  const uploadFilename =
+    opts.uploadFilename ??
+    (typeof existingManifest?.uploadFilename === "string"
+      ? existingManifest.uploadFilename
+      : undefined);
+  await writeJson(recordingJsonPath, recording);
+  await writeJson(sessionMetadataPath, renderSessionMetadata(recording));
+  await writeJson(
+    remoteManifestPath,
+    renderRemoteSessionManifest(recording, uploadFilename, transcript, subscription, opts.now),
+  );
+
+  let transcriptPath: string | undefined;
+  let transcriptJsonPath: string | undefined;
+  let summaryPath: string | undefined;
+  let summaryJsonPath: string | undefined;
+  let actionItemsPath: string | undefined;
+  let summaryStatus: RecordingExportData["summaryStatus"] | undefined;
+
+  if (transcript) {
+    transcriptPath = path.join(sessionDir, "transcript.md");
+    transcriptJsonPath = path.join(sessionDir, "transcript.json");
+    summaryPath = path.join(sessionDir, "summary.md");
+    summaryJsonPath = path.join(sessionDir, "summary.json");
+    actionItemsPath = path.join(sessionDir, "action-items.md");
+    summaryStatus = transcript.summary.status;
+    await fs.writeFile(transcriptPath, renderTranscriptMarkdown(transcript), "utf8");
+    await writeJson(transcriptJsonPath, transcript);
+    await writeJson(summaryJsonPath, transcript.summary);
+    await fs.writeFile(summaryPath, renderSummaryMarkdown(recording, transcript), "utf8");
+    await writeOptionalText(actionItemsPath, renderActionItemsMarkdown(transcript.summary));
+  }
+
+  return {
+    recordingId: recording.recordingId,
+    sessionDir,
+    remoteManifestPath,
+    sessionMetadataPath,
+    recordingJsonPath,
+    ...(context.transcriptId !== undefined ? { transcriptId: context.transcriptId } : {}),
+    ...(transcriptPath ? { transcriptPath } : {}),
+    ...(transcriptJsonPath ? { transcriptJsonPath } : {}),
+    ...(summaryPath ? { summaryPath } : {}),
+    ...(summaryJsonPath ? { summaryJsonPath } : {}),
+    ...(actionItemsPath ? { actionItemsPath } : {}),
+    ...(summaryStatus ? { summaryStatus } : {}),
+  };
+}
+
+async function resolveRecordingSessionDir(
+  recording: RecordingData,
+  opts: Pick<RecordingTextSyncOptions, "directory" | "homeDir" | "env">,
+): Promise<string> {
+  if (opts.directory) return path.resolve(opts.directory);
+  const existing = await findExistingRecordingSessionDir(recording.recordingId, opts.homeDir, opts.env);
+  if (existing) return existing;
+  return createRecordingSessionDir(recording, opts.homeDir, opts.env);
+}
+
+async function findExistingRecordingSessionDir(
+  recordingId: string,
+  homeDir?: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  const base = recordingSessionBaseDirectory(homeDir, env);
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fs.readdir(base, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(base, entry.name);
+    const manifest = await readJsonRecord(path.join(dir, "remote-session.json"));
+    if (manifest?.recordingId === recordingId) return dir;
+  }
+  return undefined;
+}
+
+async function createRecordingSessionDir(
   recording: RecordingData,
   homeDir?: string,
   env?: NodeJS.ProcessEnv,
+): Promise<string> {
+  const base = recordingSessionBaseDirectory(homeDir, env);
+  await fs.mkdir(base, { recursive: true });
+  const stem = formatSessionDirectoryDate(new Date(recording.createdAt));
+  let candidate = path.join(base, stem);
+  let suffix = 2;
+  while (await pathExists(candidate)) {
+    candidate = path.join(base, `${stem}-cloud-${suffix}`);
+    suffix += 1;
+  }
+  await fs.mkdir(candidate, { recursive: true });
+  return candidate;
+}
+
+function recordingSessionBaseDirectory(
+  homeDir = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const base = path.join(path.dirname(defaultStorePath(homeDir, env)), "exports");
-  const label = recording.title ?? recording.summaryTitle ?? "recording";
-  return path.join(base, `${truncateFileStem(safeFileStem(label), 80)}-${recording.recordingId}`);
+  const explicit = env.RECAPPI_LOCAL_SESSIONS_DIR?.trim();
+  if (explicit) return explicit;
+  return path.join(homeDir, "Documents", "Recappi Mini");
+}
+
+async function readJsonRecord(filePath: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(filePath, "utf8"));
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formatSessionDirectoryDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  const second = String(date.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day}_${hour}${minute}${second}`;
 }
 
 async function writeJson(filePath: string, value: unknown): Promise<void> {
@@ -214,7 +404,7 @@ function renderSessionMetadata(recording: RecordingData): Record<string, unknown
 
 function renderRemoteSessionManifest(
   recording: RecordingData,
-  audio: RecordingAudioRuntimeDownload,
+  uploadFilename: string | undefined,
   transcript: TranscriptData | undefined,
   subscription: AccountStatusData,
   now?: () => Date,
@@ -225,7 +415,7 @@ function renderRemoteSessionManifest(
     transcriptId: transcript?.transcriptId ?? recording.activeTranscriptId ?? undefined,
     stage: transcript ? "done" : "synced",
     errorMessage: undefined,
-    uploadFilename: path.basename(audio.localPath),
+    uploadFilename,
     provider: transcript?.provider,
     model: transcript?.model,
     updatedAt: (now ?? (() => new Date()))().toISOString(),
@@ -363,16 +553,4 @@ function formatTimestamp(ms: number): string {
   const mm = String(minutes).padStart(2, "0");
   const ss = String(seconds).padStart(2, "0");
   return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
-function truncateFileStem(value: string, maxLength: number): string {
-  return [...value].slice(0, maxLength).join("");
-}
-
-function safeFileStem(value: string): string {
-  const safe = value
-    .normalize("NFKC")
-    .replace(/[^\p{L}\p{N}._-]+/gu, "-")
-    .replace(/^-+|-+$/g, "");
-  return safe || "recording";
 }

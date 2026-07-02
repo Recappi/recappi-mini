@@ -22,6 +22,7 @@ import {
   type DashboardRetranscribeOptions,
 } from "./AppShell";
 import type { LiveCaptionEventSource } from "./LiveCaptionsScreen";
+import type { RecordingAudioSyncData, RecordingTextSyncData } from "../export";
 import type {
   RecordingArtifact,
   RecordingInputSelection,
@@ -64,6 +65,8 @@ export interface RunDashboardDeps {
     options?: DashboardRetranscribeOptions,
   ) => Promise<RecordingTranscribeData>;
   resummarizeRecording?: (recordingId: string) => Promise<RecordingSummarizeData>;
+  syncRecordingText?: (recordingId: string) => Promise<RecordingTextSyncData>;
+  syncRecordingAudio?: (recordingId: string) => Promise<RecordingAudioSyncData>;
   exportRecording?: (recordingId: string) => Promise<RecordingExportData>;
   initialView?: TabKey;
   renderApp?: DashboardRenderer;
@@ -137,6 +140,8 @@ export async function runDashboard(deps: RunDashboardDeps): Promise<void> {
       transcribeRecordingArtifact: deps.transcribeRecordingArtifact,
       onRetranscribe: deps.retranscribeRecording,
       onResummarize: deps.resummarizeRecording,
+      onSyncRecordingText: deps.syncRecordingText,
+      onSyncRecordingAudio: deps.syncRecordingAudio,
       onExportRecording: deps.exportRecording,
       initialView: deps.initialView ?? "overview",
       openUrl,

@@ -18,7 +18,7 @@ import { loginWithDeviceCode } from "./auth-login";
 import { RecappiApiClient } from "./api";
 import { createRecordingAudioRuntime } from "./audio";
 import { commandMetadataHelpText, commonTasksHelpText } from "./commandMetadata";
-import { exportRecording } from "./export";
+import { exportRecording, syncRecordingAudio, syncRecordingText } from "./export";
 import {
   createHumanProgressState,
   renderEvent,
@@ -273,6 +273,21 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         retranscribeRecording: (recordingId, options = {}) =>
           client.transcribeRecording({ recordingId, ...options }),
         resummarizeRecording: (recordingId) => client.summarizeRecording({ recordingId }),
+        syncRecordingText: (recordingId) =>
+          syncRecordingText({
+            recordingId,
+            client,
+            env: deps.env,
+            homeDir: deps.homeDir,
+          }),
+        syncRecordingAudio: (recordingId) =>
+          syncRecordingAudio({
+            recordingId,
+            client,
+            recordingAudio,
+            env: deps.env,
+            homeDir: deps.homeDir,
+          }),
         exportRecording: (recordingId) =>
           exportRecording({
             recordingId,
