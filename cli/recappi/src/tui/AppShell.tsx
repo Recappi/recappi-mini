@@ -385,6 +385,9 @@ export function AppShell({
   transcribeRecordingArtifact,
   onRetranscribe,
   onResummarize,
+  onSyncRecordingText,
+  onSyncRecordingAudio,
+  onExportRecording,
   initialView = "overview",
   openUrl,
   copyText,
@@ -935,6 +938,64 @@ export function AppShell({
     [onResummarize, refresh, recordings, now, refetchTranscript],
   );
 
+  // Mirror the macOS app's local session dir: opening a recording auto-syncs its
+  // text (transcript/summary/action-items/metadata) to disk. Quiet + once per
+  // recording per session; `r` forces a re-sync.
+  const syncedTextRef = useRef<Set<string>>(new Set());
+  const syncRecordingText = useCallback(
+    async (recordingId: string, opts: { manual?: boolean } = {}) => {
+      if (!onSyncRecordingText) return;
+      if (opts.manual) setNotice("Syncing text locally…");
+      try {
+        const data = await onSyncRecordingText(recordingId);
+        syncedTextRef.current.add(recordingId);
+        if (opts.manual) setNotice(`Text synced · ${data.sessionDir}`);
+      } catch (error) {
+        if (opts.manual) setNotice(transcribeHandoffErrorCopy(error));
+      }
+    },
+    [onSyncRecordingText],
+  );
+
+  // Manual audio sync (`d`): audio is large, so it's fetched on demand into the
+  // same session dir — matching the app's download-audio button.
+  const syncRecordingAudio = useCallback(
+    async (recordingId: string) => {
+      if (!onSyncRecordingAudio) {
+        setNotice("Audio sync is not available in this CLI session.");
+        return;
+      }
+      setNotice("Downloading audio…");
+      try {
+        const data = await onSyncRecordingAudio(recordingId);
+        setNotice(`Audio saved · ${data.audioPath}`);
+      } catch (error) {
+        setNotice(transcribeHandoffErrorCopy(error));
+      }
+    },
+    [onSyncRecordingAudio],
+  );
+
+  // Export/handoff (`e`): ensure the full app-like session is written + generate
+  // the code-agent handoff.md; surface + copy the main text path.
+  const exportRecordingForAgent = useCallback(
+    async (recordingId: string) => {
+      if (!onExportRecording) {
+        setNotice("Export is not available in this CLI session.");
+        return;
+      }
+      setNotice("Exporting…");
+      try {
+        const data = await onExportRecording(recordingId);
+        copyText?.(data.textPath);
+        setNotice(`Exported · ${data.textPath} (path copied)`);
+      } catch (error) {
+        setNotice(transcribeHandoffErrorCopy(error));
+      }
+    },
+    [onExportRecording, copyText],
+  );
+
   useEffect(() => {
     if (liveRecord?.kind !== "stopped") return;
     const artifact = liveRecord.artifact;
@@ -1126,6 +1187,14 @@ export function AppShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailTranscriptId, fetchTranscript]);
 
+  // Opening a recording detail auto-syncs its text to the local session dir
+  // (quiet, once per recording per session) — mirrors the app's always-local text.
+  const detailRecordingId = screen.kind === "recordingDetail" ? screen.recordingId : undefined;
+  useEffect(() => {
+    if (!detailRecordingId || syncedTextRef.current.has(detailRecordingId)) return;
+    void syncRecordingText(detailRecordingId);
+  }, [detailRecordingId, syncRecordingText]);
+
   // Download / open / reveal the recording audio, tracking per-recording state.
   const setAudio = (recordingId: string, action: AudioAction) =>
     setAudioCache((m) => new Map(m).set(recordingId, action));
@@ -1247,6 +1316,8 @@ export function AppShell({
       if (screen.kind === "recordingDetail") {
         const detailRec = recordings.find((r) => r.recordingId === screen.recordingId);
         if (detailRec?.activeTranscriptId) refetchTranscript(detailRec.activeTranscriptId);
+        // Also re-sync the local text files (transcript/summary/etc.).
+        void syncRecordingText(screen.recordingId, { manual: true });
       }
       return;
     }
@@ -1290,10 +1361,15 @@ export function AppShell({
       const links = rec ? resolveRecordingLinks(rec.recordingId, rec.origin) : {};
       if (input === "T" && rec) void retranscribeExistingRecording(rec.recordingId);
       else if ((input === "s" || input === "S") && rec) void resummarizeExistingRecording(rec.recordingId);
+      else if (input === "e" && rec) void exportRecordingForAgent(rec.recordingId);
       else if (input === "t" && rec?.activeTranscriptId) void openTranscript(rec.activeTranscriptId);
       else if (input === "o" && rec) void runAudio(rec.recordingId, "open");
-      else if (input === "d" && rec) void runAudio(rec.recordingId, "download");
-      else if (input === "f" && rec) void runAudio(rec.recordingId, "finder");
+      else if (input === "d" && rec) {
+        // Sync audio into the app-like session dir when available; otherwise the
+        // legacy download-to-cache path.
+        if (onSyncRecordingAudio) void syncRecordingAudio(rec.recordingId);
+        else void runAudio(rec.recordingId, "download");
+      } else if (input === "f" && rec) void runAudio(rec.recordingId, "finder");
       else if (input === "w" && links.webUrl) openUrl?.(links.webUrl);
       else if (input === "c" && links.webUrl) {
         copyText?.(links.webUrl);

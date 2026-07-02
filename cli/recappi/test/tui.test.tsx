@@ -1361,6 +1361,52 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
+  it("auto-syncs the transcript text when a recording detail opens", async () => {
+    const onSyncRecordingText = vi
+      .fn()
+      .mockResolvedValue({ recordingId: "rec_1", sessionDir: "/tmp/Recappi Mini/rec_1" });
+    const { stdin, unmount } = setup({ onSyncRecordingText });
+    await flush();
+    stdin.write(ENTER); // open rec_1 detail → mirrors the app's auto text persist
+    await flush();
+    expect(onSyncRecordingText).toHaveBeenCalledWith("rec_1");
+    unmount();
+  });
+
+  it("syncs the audio to the session dir with d in the detail view", async () => {
+    const onSyncRecordingAudio = vi.fn().mockResolvedValue({
+      recordingId: "rec_1",
+      sessionDir: "/tmp/Recappi Mini/rec_1",
+      audioPath: "/tmp/Recappi Mini/rec_1/recording.m4a",
+    });
+    const { stdin, unmount } = setup({ onSyncRecordingAudio });
+    await flush();
+    stdin.write(ENTER); // open rec_1 detail
+    await flush();
+    stdin.write("d"); // manual audio sync (app parity: audio is opt-in)
+    await flush();
+    expect(onSyncRecordingAudio).toHaveBeenCalledWith("rec_1");
+    unmount();
+  });
+
+  it("exports the recording for a code agent with e (copies the text path)", async () => {
+    const onExportRecording = vi.fn().mockResolvedValue({
+      recordingId: "rec_1",
+      sessionDir: "/tmp/Recappi Mini/rec_1",
+      textPath: "/tmp/Recappi Mini/rec_1/transcript.md",
+    });
+    const { stdin, lastFrame, copyText, unmount } = setup({ onExportRecording });
+    await flush();
+    stdin.write(ENTER); // open rec_1 detail
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("e export"); // footer entry is discoverable
+    stdin.write("e"); // export / handoff to a code agent
+    await flush();
+    expect(onExportRecording).toHaveBeenCalledWith("rec_1");
+    expect(copyText).toHaveBeenCalledWith("/tmp/Recappi Mini/rec_1/transcript.md");
+    unmount();
+  });
+
   it("shows a loading state until the first dashboard fetch resolves", async () => {
     // fetchJobs never resolves → the initial load never completes → the list
     // must show Loading… rather than an empty/frozen frame.
