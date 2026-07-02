@@ -8,7 +8,7 @@ import type {
 import { recordingDataSchema, recordingListDataSchema } from "../../packages/contracts/src/index";
 import {
   normalizeAccountStamp,
-  openCliStore,
+  tryOpenCliStore,
   type AccountPartition,
   type CliLocalStore,
   type LocalArtifact,
@@ -68,7 +68,7 @@ export async function findIndexedRecordingSessionDir(
     const manifest = await readJsonRecord(path.join(artifact.localPath, "remote-session.json"));
     if (manifest?.recordingId && manifest.recordingId !== recordingId) return undefined;
     return artifact.localPath;
-  });
+  }, undefined);
 }
 
 export async function rememberRecordingSession(
@@ -95,7 +95,7 @@ export async function rememberRecordingSession(
         indexedAt: (input.now ?? (() => new Date()))().toISOString(),
       }),
     });
-  });
+  }, null);
 }
 
 export async function listCachedRecordingSessions(
@@ -116,7 +116,7 @@ export async function listCachedRecordingSessions(
       recordings.push(recording);
     }
     return recordings.sort((a, b) => b.createdAt - a.createdAt || b.updatedAt - a.updatedAt);
-  });
+  }, [] as RecordingData[]);
   return recordingListDataSchema.parse({
     items,
     limit,
@@ -138,8 +138,13 @@ async function recordingFromArtifact(artifact: LocalArtifact): Promise<Recording
 async function withSessionStore<T>(
   deps: RecordingSessionCacheDeps,
   run: (store: CliLocalStore, account: AccountPartition | null) => T | Promise<T>,
+  fallback: T,
 ): Promise<T> {
-  const store = deps.store ?? openCliStore({ homeDir: deps.homeDir, env: deps.env });
+  // On runtimes without node:sqlite the session index is unavailable; degrade to
+  // the fallback (cache miss / no-op write) so cloud commands still run and the
+  // dashboard falls back to Cloud as the source of truth.
+  const store = deps.store ?? tryOpenCliStore({ homeDir: deps.homeDir, env: deps.env });
+  if (!store) return fallback;
   try {
     return await run(store, deps.account ?? null);
   } finally {

@@ -40,7 +40,7 @@ import {
 import { cliError, describeHttpError, RecappiCliError, toCliError } from "./errors";
 import { type AudioFilePlan, planAudioFile } from "./files";
 import { inspectMacOSAppKeychain, requireToken, type AuthContext } from "./auth";
-import { defaultStorePath, openCliStore, requireAccountPartition } from "./store";
+import { defaultStorePath, tryOpenCliStore, requireAccountPartition } from "./store";
 
 export interface RecappiApiClientOptions {
   fetchImpl?: typeof fetch;
@@ -444,21 +444,26 @@ export class RecappiApiClient {
     let accountScopedArtifacts = 0;
     let unattributedArtifacts = 0;
     if (status.loggedIn && status.userId) {
-      const store = openCliStore({
+      // Degrade gracefully on runtimes without node:sqlite: report zero local
+      // artifacts (a one-time stderr warning explains why) rather than failing
+      // the cloud account command.
+      const store = tryOpenCliStore({
         dbPath: storePath,
         env: this.env,
         homeDir: this.homeDir,
       });
-      try {
-        const account = requireAccountPartition({
-          backendOrigin: this.auth.origin,
-          userId: status.userId,
-        });
-        store.recordAccountSeen(account, status.email);
-        accountScopedArtifacts = store.listLocalArtifactsForAccount(account).length;
-        unattributedArtifacts = store.listUnattributedLocalArtifacts().length;
-      } finally {
-        store.close();
+      if (store) {
+        try {
+          const account = requireAccountPartition({
+            backendOrigin: this.auth.origin,
+            userId: status.userId,
+          });
+          store.recordAccountSeen(account, status.email);
+          accountScopedArtifacts = store.listLocalArtifactsForAccount(account).length;
+          unattributedArtifacts = store.listUnattributedLocalArtifacts().length;
+        } finally {
+          store.close();
+        }
       }
     }
     const billing = status.loggedIn ? await this.billingStatus() : undefined;

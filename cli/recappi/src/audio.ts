@@ -10,7 +10,7 @@ import { recordingAudioFileName } from "./api";
 import { cliError } from "./errors";
 import {
   defaultStorePath,
-  openCliStore,
+  tryOpenCliStore,
   type AccountPartition,
   type CliLocalStore,
   type LocalArtifact,
@@ -163,7 +163,7 @@ async function findReusableDownload(
     if (!artifact || !(await isReadableFile(artifact.localPath))) return null;
     const opened = store.markLocalArtifactOpened(artifact.id);
     return artifactToDownload(opened, recordingId);
-  });
+  }, null);
 }
 
 async function rememberDownload(
@@ -185,12 +185,15 @@ async function rememberDownload(
       },
     });
     return store.markLocalArtifactOpened(artifact.id);
-  });
+  }, null);
 }
 
 async function listExistingDownloads(deps: RecordingAudioRuntimeOptions): Promise<LocalArtifact[]> {
-  const artifacts = await withStore(deps, (store, account) =>
-    account ? store.listLocalArtifactsForAccount(account, { kind: "download" }) : [],
+  const artifacts = await withStore(
+    deps,
+    (store, account) =>
+      account ? store.listLocalArtifactsForAccount(account, { kind: "download" }) : [],
+    [] as LocalArtifact[],
   );
   const existing: LocalArtifact[] = [];
   for (const artifact of artifacts) {
@@ -202,8 +205,12 @@ async function listExistingDownloads(deps: RecordingAudioRuntimeOptions): Promis
 async function withStore<T>(
   deps: RecordingAudioRuntimeOptions,
   run: (store: CliLocalStore, account: AccountPartition | null) => T | Promise<T>,
+  fallback: T,
 ): Promise<T> {
-  const store = deps.store ?? openCliStore({ homeDir: deps.homeDir, env: deps.env });
+  // On runtimes without node:sqlite the download cache is unavailable; degrade to
+  // the fallback (no dedup / no artifact) so the cloud download itself still runs.
+  const store = deps.store ?? tryOpenCliStore({ homeDir: deps.homeDir, env: deps.env });
+  if (!store) return fallback;
   try {
     return await run(store, deps.account ?? null);
   } finally {

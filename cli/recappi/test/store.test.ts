@@ -3,10 +3,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  isLocalStoreUnavailableError,
   normalizeAccountStamp,
   normalizeManifestAccountStamp,
   openCliStore,
   requireAccountPartition,
+  resetLocalStoreUnavailableWarning,
+  tryOpenCliStore,
   type AccountPartition,
 } from "../src/store";
 
@@ -19,6 +22,55 @@ const accountB: AccountPartition = {
   backendOrigin: "https://staging.recordmeet.ing",
   userId: "user_a",
 };
+
+describe("local store graceful degradation (G9)", () => {
+  const throwUnavailable = () => {
+    const err = new Error("node:sqlite missing") as Error & { localStoreUnavailable?: boolean };
+    err.localStoreUnavailable = true;
+    throw err;
+  };
+
+  it("detects the local-store-unavailable marker, not other errors", () => {
+    const tagged = new Error("x") as Error & { localStoreUnavailable?: boolean };
+    tagged.localStoreUnavailable = true;
+    expect(isLocalStoreUnavailableError(tagged)).toBe(true);
+    expect(isLocalStoreUnavailableError(new Error("real failure"))).toBe(false);
+    expect(isLocalStoreUnavailableError(null)).toBe(false);
+  });
+
+  it("returns null and warns once when the runtime lacks node:sqlite", () => {
+    resetLocalStoreUnavailableWarning();
+    let warned = 0;
+    const onUnavailable = () => {
+      warned += 1;
+    };
+    expect(tryOpenCliStore({ open: throwUnavailable, onUnavailable })).toBeNull();
+    expect(tryOpenCliStore({ open: throwUnavailable, onUnavailable })).toBeNull();
+    expect(warned).toBe(1); // once per process, not once per command
+  });
+
+  it("rethrows real store failures instead of swallowing them", () => {
+    resetLocalStoreUnavailableWarning();
+    expect(() =>
+      tryOpenCliStore({
+        open: () => {
+          throw new Error("disk full");
+        },
+      }),
+    ).toThrow("disk full");
+  });
+
+  it("opens a usable store on a supported runtime", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-store-"));
+    try {
+      const store = tryOpenCliStore({ dbPath: path.join(dir, "state.sqlite") });
+      expect(store).not.toBeNull();
+      store?.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("CLI local SQLite store", () => {
   it("isolates artifacts by normalized backend origin and user id", async () => {

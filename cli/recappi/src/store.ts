@@ -135,6 +135,54 @@ export function openCliStore(opts: OpenCliStoreOptions = {}): CliLocalStore {
   return new CliLocalStore(opts);
 }
 
+// True when the error means "this runtime can't open the local SQLite store"
+// (Node.js < 22 / node:sqlite missing), as opposed to a real store failure.
+export function isLocalStoreUnavailableError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { localStoreUnavailable?: boolean }).localStoreUnavailable === true
+  );
+}
+
+let warnedLocalStoreUnavailable = false;
+
+// Reset the once-per-process "local cache unavailable" warning latch (tests).
+export function resetLocalStoreUnavailableWarning(): void {
+  warnedLocalStoreUnavailable = false;
+}
+
+// Open the local store, or return null on runtimes without node:sqlite (warning
+// once to stderr). Real store errors still throw. Optional/local call sites use
+// this so cloud-only commands keep working when the local cache is unavailable.
+export function tryOpenCliStore(
+  opts: OpenCliStoreOptions & {
+    onUnavailable?: () => void;
+    // Test seam: override how the store is opened.
+    open?: (storeOpts: OpenCliStoreOptions) => CliLocalStore;
+  } = {},
+): CliLocalStore | null {
+  const { onUnavailable, open = openCliStore, ...storeOpts } = opts;
+  try {
+    return open(storeOpts);
+  } catch (error) {
+    if (isLocalStoreUnavailableError(error)) {
+      if (!warnedLocalStoreUnavailable) {
+        warnedLocalStoreUnavailable = true;
+        (onUnavailable ?? defaultWarnLocalStoreUnavailable)();
+      }
+      return null;
+    }
+    throw error;
+  }
+}
+
+function defaultWarnLocalStoreUnavailable(): void {
+  process.stderr.write(
+    "Local cache unavailable (needs Node.js 22+ for node:sqlite). Cloud commands work normally.\n",
+  );
+}
+
 export class CliLocalStore {
   private readonly db: SqliteDatabase;
   private readonly now: () => number;
@@ -489,9 +537,13 @@ function suppressNodeSqliteWarning<T>(run: () => T): T {
     return run();
   } catch (error) {
     if (isMissingNodeSqlite(error)) {
-      throw cliError("internal.unexpected", "Local SQLite store requires Node.js 22 or newer.", {
+      const err = cliError("internal.unexpected", "Local SQLite store requires Node.js 22 or newer.", {
         hint: "Upgrade Node.js, then retry. Cloud-only commands that do not touch local state can still run.",
       });
+      // Tag it so optional/local call sites can degrade (tryOpenCliStore) instead
+      // of crashing cloud-only commands on runtimes without node:sqlite.
+      (err as { localStoreUnavailable?: boolean }).localStoreUnavailable = true;
+      throw err;
     }
     throw error;
   } finally {
