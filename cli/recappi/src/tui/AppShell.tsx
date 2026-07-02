@@ -850,6 +850,26 @@ export function AppShell({
     }
   }, [liveRecord, onRetranscribe, refresh]);
 
+  // Re-transcribe an existing recording from its detail view (browsing, not the
+  // just-stopped record flow). Kicks off a fresh job; it shows up under Jobs.
+  const retranscribeExistingRecording = useCallback(
+    async (recordingId: string) => {
+      if (!onRetranscribe) {
+        setNotice("Re-transcribe is not available in this CLI session.");
+        return;
+      }
+      setNotice("Re-transcribe started…");
+      try {
+        await onRetranscribe(recordingId);
+        setNotice("Re-transcribe started — track it in Jobs.");
+        await refresh({ resetRecordings: true });
+      } catch (error) {
+        setNotice(transcribeHandoffErrorCopy(error));
+      }
+    },
+    [onRetranscribe, refresh],
+  );
+
   useEffect(() => {
     if (liveRecord?.kind !== "stopped") return;
     const artifact = liveRecord.artifact;
@@ -1152,7 +1172,8 @@ export function AppShell({
     if (screen.kind === "recordingDetail") {
       const rec = recordings.find((r) => r.recordingId === screen.recordingId);
       const links = rec ? resolveRecordingLinks(rec.recordingId, rec.origin) : {};
-      if (input === "t" && rec?.activeTranscriptId) void openTranscript(rec.activeTranscriptId);
+      if (input === "T" && rec) void retranscribeExistingRecording(rec.recordingId);
+      else if (input === "t" && rec?.activeTranscriptId) void openTranscript(rec.activeTranscriptId);
       else if (input === "o" && rec) void runAudio(rec.recordingId, "open");
       else if (input === "d" && rec) void runAudio(rec.recordingId, "download");
       else if (input === "f" && rec) void runAudio(rec.recordingId, "finder");

@@ -177,6 +177,7 @@ export function RecordingDetailView({
           {scrollable ? " · ↑↓ scroll" : ""}
           {ready ? " · " : ""}
           {`o open · d download · f finder`}
+          {" · T re-transcribe"}
           {item.activeTranscriptId ? " · t full" : ""}
           {links.webUrl ? " · w web" : ""}
           {" · esc back"}
