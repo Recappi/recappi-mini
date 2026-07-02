@@ -10,6 +10,7 @@ import type {
   OperationEvent,
   RecordCommandData,
   RecordingListData,
+  RecordingSummarizeData,
   RecordingTranscribeData,
   TranscriptData,
   UploadSuccess,
@@ -61,6 +62,7 @@ export interface RunDashboardDeps {
     recordingId: string,
     options?: DashboardRetranscribeOptions,
   ) => Promise<RecordingTranscribeData>;
+  resummarizeRecording?: (recordingId: string) => Promise<RecordingSummarizeData>;
   initialView?: TabKey;
   renderApp?: DashboardRenderer;
 }
@@ -132,6 +134,7 @@ export async function runDashboard(deps: RunDashboardDeps): Promise<void> {
       startRecordSetupPreview: deps.startRecordSetupPreview,
       transcribeRecordingArtifact: deps.transcribeRecordingArtifact,
       onRetranscribe: deps.retranscribeRecording,
+      onResummarize: deps.resummarizeRecording,
       initialView: deps.initialView ?? "overview",
       openUrl,
       copyText,

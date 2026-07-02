@@ -724,6 +724,14 @@ export const summaryStatusSchema = z.enum([
 ]);
 export type SummaryStatus = z.infer<typeof summaryStatusSchema>;
 
+export const recordingSummarizeDataSchema = z.object({
+  origin: z.string(),
+  recordingId: z.string(),
+  transcriptId: z.string(),
+  summaryStatus: summaryStatusSchema,
+});
+export type RecordingSummarizeData = z.infer<typeof recordingSummarizeDataSchema>;
+
 export const summaryActionItemSchema = z.object({
   who: z.string().optional(),
   what: z.string(),

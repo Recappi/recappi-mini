@@ -271,6 +271,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         },
         retranscribeRecording: (recordingId, options = {}) =>
           client.transcribeRecording({ recordingId, ...options }),
+        resummarizeRecording: (recordingId) => client.summarizeRecording({ recordingId }),
         initialView: parsed.initialView,
       });
       return 0;
@@ -492,6 +493,15 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       renderSuccess("recordings retranscribe", data, render);
       return 0;
     }
+    if (parsed.kind === "recordings-resummarize") {
+      const data = await client.summarizeRecording({
+        recordingId: parsed.recordingId,
+        prompt: parsed.prompt,
+        model: parsed.model,
+      });
+      renderSuccess("recordings resummarize", data, render);
+      return 0;
+    }
     if (parsed.kind === "dashboard-stats") {
       const data = await client.dashboardStats();
       renderSuccess("dashboard stats", data, render);
@@ -596,6 +606,14 @@ type ParsedCommand =
       prompt?: string;
       scene?: string;
       wait?: boolean;
+    }
+  | {
+      kind: "recordings-resummarize";
+      options: GlobalOptions;
+      commandName: "recordings resummarize";
+      recordingId: string;
+      model?: string;
+      prompt?: string;
     }
   | { kind: "dashboard-stats"; options: GlobalOptions; commandName: "dashboard stats" }
   | {
@@ -801,6 +819,11 @@ interface RecordingsRetranscribeCommanderOptions extends CommanderCommonOptions 
   prompt?: string;
   scene?: string;
   wait?: boolean;
+}
+
+interface RecordingsResummarizeCommanderOptions extends CommanderCommonOptions {
+  model?: string;
+  prompt?: string;
 }
 
 function buildProgram({ onHelpOutput, onSelect }: BuildProgramOptions): Command {
@@ -1044,7 +1067,9 @@ Agent mode:
     });
   });
 
-  const recordings = program.command("recordings").description("List, fetch, and re-transcribe recordings");
+  const recordings = program
+    .command("recordings")
+    .description("List, fetch, re-transcribe, and re-summarize recordings");
   addCommonOptions(recordings);
   const recordingsList = recordings
     .command("list")
@@ -1107,6 +1132,27 @@ Agent mode:
         ...(typeof opts.prompt === "string" ? { prompt: opts.prompt } : {}),
         ...(typeof opts.scene === "string" ? { scene: opts.scene } : {}),
         ...(opts.wait === true ? { wait: true } : {}),
+      });
+    },
+  );
+
+  const recordingsResummarize = recordings
+    .command("resummarize <recordingId>")
+    .description("Retry or regenerate the summary for an existing recording")
+    .option("--model <name>", "summary model", parseStringOption("--model"))
+    .option("--prompt <text>", "custom summary prompt/context", parseStringOption("--prompt"))
+    .addHelpText("after", commandMetadataHelpText("recordings resummarize"));
+  addCommonOptions(recordingsResummarize);
+  recordingsResummarize.action(
+    (recordingId: string, _options: RecordingsResummarizeCommanderOptions, command: Command) => {
+      const opts = command.opts<RecordingsResummarizeCommanderOptions>();
+      onSelect({
+        kind: "recordings-resummarize",
+        options: collectGlobalOptions(command),
+        commandName: "recordings resummarize",
+        recordingId,
+        ...(typeof opts.model === "string" ? { model: opts.model } : {}),
+        ...(typeof opts.prompt === "string" ? { prompt: opts.prompt } : {}),
       });
     },
   );

@@ -18,6 +18,7 @@ export const COMMON_TASKS: CommonTaskDoc[] = [
   { label: "Record audio + live captions", command: "recappi record --live" },
   { label: "Transcribe a local file", command: "recappi upload <file> --transcribe --wait" },
   { label: "Re-transcribe a recording", command: "recappi recordings retranscribe <recordingId> --wait" },
+  { label: "Re-summarize a recording", command: "recappi recordings resummarize <recordingId>" },
   { label: "List / find recordings", command: "recappi recordings list" },
   { label: "Read a transcript", command: "recappi transcript get <transcriptId>" },
   { label: "Download / open audio", command: "recappi audio <recordingId> --open" },
@@ -148,6 +149,20 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
       },
     ],
     relatedCommands: ["jobs wait", "transcript get"],
+  },
+  "recordings resummarize": {
+    capabilities: ["Retry or regenerate the summary for an existing recording", "Re-summarize with a custom prompt/model"],
+    examples: [
+      {
+        description: "Retry summary generation for the active transcript",
+        command: "recappi recordings resummarize <recordingId>",
+      },
+      {
+        description: "Re-summarize with custom context",
+        command: 'recappi recordings resummarize <recordingId> --prompt "focus on action items"',
+      },
+    ],
+    relatedCommands: ["recordings get", "transcript get"],
   },
   "transcript get": {
     capabilities: ["Fetch a finished transcript by id"],

@@ -327,6 +327,18 @@ function renderHumanSuccess(command: string, data: unknown, opts: RenderOptions)
     }
     return;
   }
+  if (command === "recordings resummarize" && isRecord(data)) {
+    opts.stdout("Summary queued\n");
+    if (typeof data.recordingId === "string") opts.stdout(`  recordingId: ${data.recordingId}\n`);
+    if (typeof data.transcriptId === "string") opts.stdout(`  transcriptId: ${data.transcriptId}\n`);
+    if (typeof data.summaryStatus === "string") {
+      opts.stdout(`  summaryStatus: ${data.summaryStatus}\n`);
+    }
+    if (typeof data.transcriptId === "string") {
+      opts.stdout(`\nNext:\n  recappi transcript get ${data.transcriptId}\n`);
+    }
+    return;
+  }
   if (command === "dashboard stats" && isRecord(data)) {
     const recordings = isRecord(data.recordings) ? data.recordings : {};
     const jobs = isRecord(data.jobs) ? data.jobs : {};

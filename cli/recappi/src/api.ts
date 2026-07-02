@@ -17,6 +17,7 @@ import type {
   OperationEvent,
   RecordingData,
   RecordingListData,
+  RecordingSummarizeData,
   RecordingTranscribeData,
   SummaryStatus,
   TranscriptData,
@@ -32,6 +33,7 @@ import {
   jobListDataSchema,
   recordingDataSchema,
   recordingListDataSchema,
+  recordingSummarizeDataSchema,
   recordingTranscribeDataSchema,
   transcriptDataSchema,
 } from "../../packages/contracts/src/index";
@@ -81,6 +83,12 @@ export interface TranscribeRecordingOptions {
   onEvent?: (event: OperationEvent) => void;
 }
 
+export interface SummarizeRecordingOptions {
+  recordingId: string;
+  prompt?: string;
+  model?: string;
+}
+
 export interface RecordingAudioDownload {
   recordingId: string;
   localPath: string;
@@ -108,6 +116,11 @@ interface TranscribeResponse {
   jobId: string;
   status: string;
   transcriptId?: string | null;
+}
+
+interface SummarizeResponse {
+  transcriptId: string;
+  summaryStatus: string;
 }
 
 export class RecappiApiClient {
@@ -358,6 +371,23 @@ export class RecappiApiClient {
       });
     }
     return result;
+  }
+
+  async summarizeRecording(opts: SummarizeRecordingOptions): Promise<RecordingSummarizeData> {
+    const hasPrompt = Boolean(opts.prompt?.trim());
+    const parsed = await this.postJson<SummarizeResponse>(
+      `/api/recordings/${encodeURIComponent(opts.recordingId)}/summarize`,
+      {
+        ...(hasPrompt ? { prompt: opts.prompt } : {}),
+        ...(opts.model ? { model: opts.model } : {}),
+      },
+    );
+    return recordingSummarizeDataSchema.parse({
+      origin: this.auth.origin,
+      recordingId: opts.recordingId,
+      transcriptId: parsed.transcriptId,
+      summaryStatus: parsed.summaryStatus,
+    });
   }
 
   async downloadRecordingAudio(

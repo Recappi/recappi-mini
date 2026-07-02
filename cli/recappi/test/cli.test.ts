@@ -304,6 +304,28 @@ describe("recappi CLI contract", () => {
     expect(transcribeRequests).toEqual([{ prompt: "Use names" }]);
   });
 
+  it("exposes a recording resummarize launcher to dashboard deps", async () => {
+    let dashboardCalls = 0;
+    const summarizeRequests: unknown[] = [];
+    const result = await run([], {
+      fetchImpl: dashboardFetch([], [], summarizeRequests),
+      isTTY: true,
+      runDashboard: async (deps) => {
+        dashboardCalls += 1;
+        const data = await deps.resummarizeRecording?.("rec_page_1");
+        expect(data).toMatchObject({
+          recordingId: "rec_page_1",
+          transcriptId: "tr_resummarize",
+          summaryStatus: "queued",
+        });
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(dashboardCalls).toBe(1);
+    expect(summarizeRequests).toEqual([{}]);
+  });
+
   it("opens the dashboard for `recappi jobs` in an interactive terminal", async () => {
     let dashboardCalls = 0;
     const result = await run(["jobs"], {
@@ -1297,6 +1319,36 @@ describe("recappi CLI contract", () => {
     expect(requests).toEqual([{ prompt: "Names are Alice and Bob" }]);
   });
 
+  it("resummarizes an existing recording", async () => {
+    const requests: unknown[] = [];
+    const result = await run(
+      [
+        "recordings",
+        "resummarize",
+        "rec_done",
+        "--prompt",
+        "Focus on decisions",
+        "--model",
+        "gpt-4.1-mini",
+        "--json",
+      ],
+      { fetchImpl: recordingSummarizeFetch(requests) },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(requests).toEqual([{ prompt: "Focus on decisions", model: "gpt-4.1-mini" }]);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: "recordings resummarize",
+      data: {
+        origin: "https://recordmeet.ing",
+        recordingId: "rec_done",
+        transcriptId: "tr_resummarize",
+        summaryStatus: "queued",
+      },
+    });
+  });
+
   it("rejects unknown retranscription scenes before hitting the network", async () => {
     const result = await run(
       ["recordings", "retranscribe", "rec_done", "--scene", "meeting", "--json"],
@@ -1602,6 +1654,13 @@ describe("recappi CLI contract", () => {
     expect(recordingsRetranscribe.data.properties.status.enum).toContain("queued");
     expect(recordingsRetranscribe.capabilities).toContain(
       "Re-transcribe an existing recording",
+    );
+    const recordingsResummarize = env.data.commands.find(
+      (c: { name: string }) => c.name === "recordings resummarize",
+    );
+    expect(recordingsResummarize.data.properties.summaryStatus.enum).toContain("queued");
+    expect(recordingsResummarize.capabilities).toContain(
+      "Retry or regenerate the summary for an existing recording",
     );
     const dashboardStats = env.data.commands.find(
       (c: { name: string }) => c.name === "dashboard stats",
@@ -2239,7 +2298,11 @@ function jobsFetch(): typeof fetch {
   };
 }
 
-function dashboardFetch(recordingRequests: string[], transcribeRequests: unknown[] = []): typeof fetch {
+function dashboardFetch(
+  recordingRequests: string[],
+  transcribeRequests: unknown[] = [],
+  summarizeRequests: unknown[] = [],
+): typeof fetch {
   const base = jobsFetch();
   return async (input, init) => {
     const url = requestUrl(input);
@@ -2280,6 +2343,10 @@ function dashboardFetch(recordingRequests: string[], transcribeRequests: unknown
       transcribeRequests.push(parseJsonBody(init.body));
       return jsonResponse({ jobId: "job_retranscribe", status: "queued" });
     }
+    if (url.pathname === "/api/recordings/rec_page_1/summarize" && init?.method === "POST") {
+      summarizeRequests.push(parseJsonBody(init.body));
+      return jsonResponse({ transcriptId: "tr_resummarize", summaryStatus: "queued" });
+    }
     return base(input, init);
   };
 }
@@ -2290,6 +2357,20 @@ function recordingTranscribeFetch(requests: unknown[]): typeof fetch {
     if (url.pathname === "/api/recordings/rec_done/transcribe" && init?.method === "POST") {
       requests.push(parseJsonBody(init.body));
       return jsonResponse({ jobId: "job_retranscribe", status: "queued" });
+    }
+    if (url.pathname === "/api/auth/get-session") {
+      return jsonResponse({ user: { id: "user_123", email: "agent@example.com" } });
+    }
+    return jsonResponse({ message: `unexpected ${url.pathname}` }, { status: 404 });
+  };
+}
+
+function recordingSummarizeFetch(requests: unknown[]): typeof fetch {
+  return async (input, init) => {
+    const url = requestUrl(input);
+    if (url.pathname === "/api/recordings/rec_done/summarize" && init?.method === "POST") {
+      requests.push(parseJsonBody(init.body));
+      return jsonResponse({ transcriptId: "tr_resummarize", summaryStatus: "queued" });
     }
     if (url.pathname === "/api/auth/get-session") {
       return jsonResponse({ user: { id: "user_123", email: "agent@example.com" } });

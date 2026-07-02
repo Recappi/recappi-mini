@@ -14,6 +14,7 @@ import type {
   TranscriptData,
   TranscriptSummary,
   UploadSuccess,
+  RecordingSummarizeData,
   RecordingTranscribeData,
 } from "../../../packages/contracts/src/index";
 
@@ -97,6 +98,7 @@ export interface AppShellProps {
     recordingId: string,
     options?: DashboardRetranscribeOptions,
   ) => Promise<RecordingTranscribeData>;
+  onResummarize?: (recordingId: string) => Promise<RecordingSummarizeData>;
   initialView?: TabKey;
   // Side effects, injected so tests stay pure and the component has no Node deps.
   openUrl?: (url: string) => void;
