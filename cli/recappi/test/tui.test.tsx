@@ -1340,6 +1340,27 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
+  it("opens the recording detail with the right arrow from the list", async () => {
+    const { lastFrame, stdin, unmount } = setup();
+    await flush();
+    stdin.write(`${ESC}[C`); // right arrow → open detail (mirrors ⏎)
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("re-transcribe"); // detail footer, not the list
+    unmount();
+  });
+
+  it("re-fetches the transcript with r in the detail view", async () => {
+    const { stdin, fetchTranscript, unmount } = setup();
+    await flush();
+    stdin.write(ENTER); // open rec_1 detail → fetches its transcript
+    await flush();
+    const before = fetchTranscript.mock.calls.length;
+    stdin.write("r"); // refresh → bust + re-fetch the transcript so summary updates
+    await flush();
+    expect(fetchTranscript.mock.calls.length).toBeGreaterThan(before);
+    unmount();
+  });
+
   it("shows a loading state until the first dashboard fetch resolves", async () => {
     // fetchJobs never resolves → the initial load never completes → the list
     // must show Loading… rather than an empty/frozen frame.

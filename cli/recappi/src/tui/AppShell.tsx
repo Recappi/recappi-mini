@@ -411,6 +411,10 @@ export function AppShell({
   );
   const [audioCache, setAudioCache] = useState<Map<string, AudioAction>>(() => new Map());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(() => new Set());
+  // After a re-summarize, keep re-fetching this transcript for a bounded window
+  // so the detail summary updates in place (queued → ready/failed) without the
+  // user leaving and reopening. Cleared on terminal status or when it lapses.
+  const summaryRefreshRef = useRef<{ transcriptId: string; until: number } | null>(null);
   const [liveRecord, setLiveRecord] = useState<LiveRecordState | undefined>(undefined);
   const [recordSetupInputs, setRecordSetupInputs] = useState<DashboardRecordSetupModel>({
     sources: DEFAULT_RECORDING_SOURCES,
@@ -878,6 +882,24 @@ export function AppShell({
     [onRetranscribe, refresh],
   );
 
+  // Force a re-fetch of a transcript (busts the cache), so the detail summary
+  // reflects the latest server state — used by `r` refresh and the bounded
+  // post-resummarize auto-refresh.
+  const refetchTranscript = useCallback(
+    (transcriptId: string) => {
+      setTranscriptCache((m) => new Map(m).set(transcriptId, "loading"));
+      setSummaryCache((m) => {
+        const next = new Map(m);
+        next.delete(transcriptId);
+        return next;
+      });
+      fetchTranscript(transcriptId)
+        .then((tr) => setTranscriptCache((m) => new Map(m).set(transcriptId, tr)))
+        .catch(() => setTranscriptCache((m) => new Map(m).set(transcriptId, "error")));
+    },
+    [fetchTranscript],
+  );
+
   // Re-summarize an existing recording from its detail view: retry/regenerate
   // the summary for the current transcript (e.g. after an upstream 429 left it
   // failed). No re-transcription — reuses the existing transcript.
@@ -889,14 +911,23 @@ export function AppShell({
       }
       setNotice("Re-summarize started…");
       try {
-        await onResummarize(recordingId);
-        setNotice("Re-summarize started — the summary will refresh shortly.");
+        const data = await onResummarize(recordingId);
+        setNotice("Re-summarize started — the summary updates here as it finishes.");
         await refresh({ resetRecordings: true });
+        // Auto-refresh the detail summary for a bounded window so it moves from
+        // queued → ready/failed in place. `r` also refreshes manually.
+        const transcriptId =
+          data.transcriptId ??
+          recordings.find((r) => r.recordingId === recordingId)?.activeTranscriptId;
+        if (transcriptId) {
+          summaryRefreshRef.current = { transcriptId, until: now() + 120_000 };
+          refetchTranscript(transcriptId);
+        }
       } catch (error) {
         setNotice(transcribeHandoffErrorCopy(error));
       }
     },
-    [onResummarize, refresh],
+    [onResummarize, refresh, recordings, now, refetchTranscript],
   );
 
   useEffect(() => {
@@ -942,6 +973,32 @@ export function AppShell({
     const id = setInterval(() => void refresh(), pollMs);
     return () => clearInterval(id);
   }, [refresh, pollMs]);
+
+  // Fresh mirror of the transcript cache for the auto-refresh interval to read
+  // without re-creating the interval on every cache update.
+  const transcriptCacheRef = useRef(transcriptCache);
+  transcriptCacheRef.current = transcriptCache;
+  // Bounded post-resummarize auto-refresh: re-fetch the transcript until its
+  // summary reaches a terminal 'succeeded' state or the window lapses.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const pending = summaryRefreshRef.current;
+      if (!pending) return;
+      if (now() >= pending.until) {
+        summaryRefreshRef.current = null;
+        return;
+      }
+      const cached = transcriptCacheRef.current.get(pending.transcriptId);
+      const summary =
+        cached && cached !== "loading" && cached !== "error" ? cached.summary : undefined;
+      if (summary?.status === "succeeded") {
+        summaryRefreshRef.current = null;
+        return;
+      }
+      refetchTranscript(pending.transcriptId);
+    }, 3000);
+    return () => clearInterval(id);
+  }, [now, refetchTranscript]);
 
   const hasRunning = jobs.some((item) => item.status === "running");
   useEffect(() => {
@@ -1178,7 +1235,16 @@ export function AppShell({
       }
       return;
     }
-    if (input === "r") return void refresh({ resetRecordings: true });
+    if (input === "r") {
+      void refresh({ resetRecordings: true });
+      // In a recording detail, also re-fetch its transcript so the summary
+      // status updates (the poll refresh alone doesn't bust the transcript cache).
+      if (screen.kind === "recordingDetail") {
+        const detailRec = recordings.find((r) => r.recordingId === screen.recordingId);
+        if (detailRec?.activeTranscriptId) refetchTranscript(detailRec.activeTranscriptId);
+      }
+      return;
+    }
 
     if (screen.kind === "overview") {
       if (input === "g") setSelected(0);
@@ -1186,7 +1252,7 @@ export function AppShell({
       if (key.upArrow || input === "k") setSelected((i) => Math.max(0, i - 1));
       if (key.downArrow || input === "j") setSelected((i) => Math.min(recordings.length - 1, i + 1));
       const rec = recordings[selected];
-      if (key.return && rec)
+      if ((key.return || key.rightArrow) && rec)
         setStack((st) => [...st, { kind: "recordingDetail", recordingId: rec.recordingId }]);
       if (input === "t" && rec?.activeTranscriptId) void openTranscript(rec.activeTranscriptId);
       return;
@@ -1197,7 +1263,8 @@ export function AppShell({
       if (key.upArrow || input === "k") setSelected((i) => Math.max(0, i - 1));
       if (key.downArrow || input === "j") setSelected((i) => Math.min(jobs.length - 1, i + 1));
       const job = jobs[selected];
-      if (key.return && job) setStack((st) => [...st, { kind: "jobDetail", jobId: job.jobId }]);
+      if ((key.return || key.rightArrow) && job)
+        setStack((st) => [...st, { kind: "jobDetail", jobId: job.jobId }]);
       if (input === "t" && job?.transcriptId) void openTranscript(job.transcriptId);
       return;
     }

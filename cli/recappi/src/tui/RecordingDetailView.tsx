@@ -180,7 +180,7 @@ export function RecordingDetailView({
           {" · T re-transcribe · s re-summarize"}
           {item.activeTranscriptId ? " · t full" : ""}
           {links.webUrl ? " · w web" : ""}
-          {" · esc back"}
+          {" · r refresh · esc back"}
         </Text>
       </Box>
     </Box>
