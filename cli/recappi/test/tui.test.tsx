@@ -1322,6 +1322,24 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
+  it("re-summarizes the viewed recording with S in the detail view", async () => {
+    const onResummarize = vi.fn().mockResolvedValue({
+      origin: "https://recordmeet.ing",
+      recordingId: "rec_1",
+      transcriptId: "tr_1",
+      summaryStatus: "queued",
+    });
+    const { stdin, lastFrame, unmount } = setup({ onResummarize });
+    await flush();
+    stdin.write(ENTER); // open the first recording (rec_1) detail
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("S re-summarize"); // footer entry is discoverable
+    stdin.write("S"); // re-summarize the viewed recording
+    await flush();
+    expect(onResummarize).toHaveBeenCalledWith("rec_1");
+    unmount();
+  });
+
   it("shows a loading state until the first dashboard fetch resolves", async () => {
     // fetchJobs never resolves → the initial load never completes → the list
     // must show Loading… rather than an empty/frozen frame.

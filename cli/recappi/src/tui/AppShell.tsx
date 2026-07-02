@@ -379,6 +379,7 @@ export function AppShell({
   startRecordSetupPreview,
   transcribeRecordingArtifact,
   onRetranscribe,
+  onResummarize,
   initialView = "overview",
   openUrl,
   copyText,
@@ -877,6 +878,27 @@ export function AppShell({
     [onRetranscribe, refresh],
   );
 
+  // Re-summarize an existing recording from its detail view: retry/regenerate
+  // the summary for the current transcript (e.g. after an upstream 429 left it
+  // failed). No re-transcription — reuses the existing transcript.
+  const resummarizeExistingRecording = useCallback(
+    async (recordingId: string) => {
+      if (!onResummarize) {
+        setNotice("Re-summarize is not available in this CLI session.");
+        return;
+      }
+      setNotice("Re-summarize started…");
+      try {
+        await onResummarize(recordingId);
+        setNotice("Re-summarize started — the summary will refresh shortly.");
+        await refresh({ resetRecordings: true });
+      } catch (error) {
+        setNotice(transcribeHandoffErrorCopy(error));
+      }
+    },
+    [onResummarize, refresh],
+  );
+
   useEffect(() => {
     if (liveRecord?.kind !== "stopped") return;
     const artifact = liveRecord.artifact;
@@ -1195,6 +1217,7 @@ export function AppShell({
       const rec = recordings.find((r) => r.recordingId === screen.recordingId);
       const links = rec ? resolveRecordingLinks(rec.recordingId, rec.origin) : {};
       if (input === "T" && rec) void retranscribeExistingRecording(rec.recordingId);
+      else if (input === "S" && rec) void resummarizeExistingRecording(rec.recordingId);
       else if (input === "t" && rec?.activeTranscriptId) void openTranscript(rec.activeTranscriptId);
       else if (input === "o" && rec) void runAudio(rec.recordingId, "open");
       else if (input === "d" && rec) void runAudio(rec.recordingId, "download");
