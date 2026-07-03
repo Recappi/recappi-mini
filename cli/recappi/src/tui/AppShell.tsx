@@ -34,6 +34,7 @@ import { JobsView } from "./JobsView";
 import { OverviewView } from "./OverviewView";
 import { JobDetailView } from "./JobDetailView";
 import { RecordingDetailView, type AudioAction, type DetailTranscript } from "./RecordingDetailView";
+import { AskScreen } from "./AskScreen";
 import { TranscriptView } from "./TranscriptView";
 import { LiveCaptionsScreen, type LiveCaptionEventSource } from "./LiveCaptionsScreen";
 import { PermissionPreflightView, type PermissionItem } from "./PermissionPreflightView";
@@ -160,6 +161,7 @@ type Screen =
   | { kind: "record" }
   | { kind: "jobDetail"; jobId: string }
   | { kind: "recordingDetail"; recordingId: string }
+  | { kind: "ask"; recordingId: string }
   | { kind: "transcript"; loading: boolean; data?: TranscriptData; error?: string };
 
 type LiveRecordState =
@@ -402,6 +404,7 @@ export function AppShell({
   onSyncRecordingText,
   onSyncRecordingAudio,
   onExportRecording,
+  askRecording,
   initialView = "overview",
   openUrl,
   copyText,
@@ -1298,6 +1301,8 @@ export function AppShell({
 
   useInput((input, key) => {
     setNotice(undefined);
+    // The Ask screen owns its own input (typing + streaming); stay out of its way.
+    if (screen.kind === "ask") return;
     if (screen.kind === "recordSetup") {
       if (input === "q" || key.leftArrow) back();
       return;
@@ -1415,6 +1420,8 @@ export function AppShell({
       const links = rec ? resolveRecordingLinks(rec.recordingId, rec.origin) : {};
       if (input === "T" && rec) void retranscribeExistingRecording(rec.recordingId);
       else if ((input === "s" || input === "S") && rec) void resummarizeExistingRecording(rec.recordingId);
+      else if (input === "a" && rec && askRecording)
+        setStack((st) => [...st, { kind: "ask", recordingId: rec.recordingId }]);
       else if (input === "e" && rec) void exportRecordingForAgent(rec.recordingId);
       else if (input === "t" && rec?.activeTranscriptId) void openTranscript(rec.activeTranscriptId);
       else if (input === "o" && rec) void runAudio(rec.recordingId, "open");
@@ -1434,6 +1441,20 @@ export function AppShell({
   });
 
   // Full-screen drill-ins.
+  if (screen.kind === "ask" && askRecording) {
+    const rec = recordings.find((r) => r.recordingId === screen.recordingId);
+    const activeTranscriptId = rec?.activeTranscriptId;
+    return (
+      <AskScreen
+        recordingId={screen.recordingId}
+        title={rec ? recordingTitle(rec) : undefined}
+        askRecording={askRecording}
+        spinnerFrame={spinnerFrame}
+        onBack={back}
+        onOpenTranscript={activeTranscriptId ? () => void openTranscript(activeTranscriptId) : undefined}
+      />
+    );
+  }
   if (screen.kind === "transcript") {
     return <TranscriptView loading={screen.loading} data={screen.data} error={screen.error} />;
   }

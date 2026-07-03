@@ -24,6 +24,7 @@ import { PermissionPreflightView } from "../src/tui/PermissionPreflightView";
 import { LiveCaptionsScreen } from "../src/tui/LiveCaptionsScreen";
 import { RecordSetupView } from "../src/tui/RecordSetupView";
 import { RecordingHeroScreen } from "../src/tui/RecordingHeroScreen";
+import type { AskStreamEvent } from "../src/api";
 import { RecordFrame } from "../src/tui/RecordFrame";
 import { applyRecordingEventToTelemetry } from "../src/recordingCore";
 import {
@@ -1404,6 +1405,40 @@ describe("AppShell (interactive)", () => {
     await flush();
     expect(onExportRecording).toHaveBeenCalledWith("rec_1");
     expect(copyText).toHaveBeenCalledWith("/tmp/Recappi Mini/rec_1/transcript.md");
+    unmount();
+  });
+
+  it("opens the Ask screen with a and renders an inline-cited answer", async () => {
+    async function* askStream(): AsyncGenerator<AskStreamEvent> {
+      yield { type: "answer_delta", delta: "They shipped it" };
+      yield { type: "answer_delta", delta: "[[seg-1]]." };
+      yield {
+        type: "citation",
+        citation: { segmentId: "seg-1", startMs: 83_000, speaker: "Peng", snippet: "the sentence" },
+      };
+      yield {
+        type: "done",
+        content: "They shipped it[[seg-1]].",
+        citations: [{ segmentId: "seg-1", startMs: 83_000, speaker: "Peng", snippet: "the sentence" }],
+      };
+    }
+    const askRecording = vi.fn(() => askStream());
+    const { stdin, lastFrame, unmount } = setup({ askRecording });
+    await flush();
+    stdin.write(ENTER); // open rec_1 detail
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("a ask"); // footer entry is discoverable
+    stdin.write("a"); // open the Ask screen
+    await flush();
+    expect(noAnsi(lastFrame())).toContain("Ask");
+    stdin.write("what shipped?"); // type the question
+    await flush();
+    stdin.write(ENTER); // submit
+    await flush();
+    const frame = noAnsi(lastFrame());
+    expect(askRecording).toHaveBeenCalledWith({ recordingId: "rec_1", question: "what shipped?" });
+    expect(frame).toContain("They shipped it ⟨1:23⟩."); // inline citation placed
+    expect(frame).toContain("Sources");
     unmount();
   });
 
