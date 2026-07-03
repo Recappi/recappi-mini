@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import type { RecordingAudioRuntime } from "../audio";
+import type {
+  AskRecordingOptions,
+  AskStreamEvent,
+  AskSuggestionsData,
+  AskThreadData,
+} from "../api";
 import type { RecordingAudioSyncData, RecordingTextSyncData } from "../export";
 import type {
   AccountStatusData,
@@ -105,6 +111,12 @@ export interface AppShellProps {
   onSyncRecordingText?: (recordingId: string) => Promise<RecordingTextSyncData>;
   onSyncRecordingAudio?: (recordingId: string) => Promise<RecordingAudioSyncData>;
   onExportRecording?: (recordingId: string) => Promise<RecordingExportData>;
+  fetchAskThread?: (recordingId: string) => Promise<AskThreadData>;
+  fetchAskSuggestions?: (
+    recordingId: string,
+    options?: { language?: string },
+  ) => Promise<AskSuggestionsData>;
+  askRecording?: (options: AskRecordingOptions) => AsyncIterable<AskStreamEvent>;
   initialView?: TabKey;
   // Side effects, injected so tests stay pure and the component has no Node deps.
   openUrl?: (url: string) => void;

@@ -2,6 +2,12 @@ import React from "react";
 import { render, type Instance, type RenderOptions } from "ink";
 import { spawn } from "node:child_process";
 import type { RecordingAudioRuntime } from "../audio";
+import type {
+  AskRecordingOptions,
+  AskStreamEvent,
+  AskSuggestionsData,
+  AskThreadData,
+} from "../api";
 import type { LocalArtifact } from "../store";
 import type {
   AccountStatusData,
@@ -69,6 +75,12 @@ export interface RunDashboardDeps {
   syncRecordingText?: (recordingId: string) => Promise<RecordingTextSyncData>;
   syncRecordingAudio?: (recordingId: string) => Promise<RecordingAudioSyncData>;
   exportRecording?: (recordingId: string) => Promise<RecordingExportData>;
+  fetchAskThread?: (recordingId: string) => Promise<AskThreadData>;
+  fetchAskSuggestions?: (
+    recordingId: string,
+    options?: { language?: string },
+  ) => Promise<AskSuggestionsData>;
+  askRecording?: (options: AskRecordingOptions) => AsyncIterable<AskStreamEvent>;
   initialView?: TabKey;
   renderApp?: DashboardRenderer;
 }
@@ -145,6 +157,9 @@ export async function runDashboard(deps: RunDashboardDeps): Promise<void> {
       onSyncRecordingText: deps.syncRecordingText,
       onSyncRecordingAudio: deps.syncRecordingAudio,
       onExportRecording: deps.exportRecording,
+      fetchAskThread: deps.fetchAskThread,
+      fetchAskSuggestions: deps.fetchAskSuggestions,
+      askRecording: deps.askRecording,
       initialView: deps.initialView ?? "overview",
       openUrl,
       copyText,

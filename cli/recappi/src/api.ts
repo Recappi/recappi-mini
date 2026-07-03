@@ -89,6 +89,89 @@ export interface SummarizeRecordingOptions {
   model?: string;
 }
 
+export interface AskRecordingOptions {
+  recordingId: string;
+  question: string;
+  webSearch?: boolean;
+  model?: string;
+}
+
+export interface AskCitation {
+  id?: string;
+  segmentId?: string;
+  index?: number;
+  startMs?: number | null;
+  endMs?: number | null;
+  label?: string;
+  speaker?: string;
+  snippet?: string;
+  order?: number;
+}
+
+export interface AskThreadMessage {
+  id: string;
+  role: "user" | "assistant";
+  status?: "streaming" | "completed" | "failed" | string;
+  sequence?: number;
+  content: string;
+  model?: string | null;
+  webSearch?: boolean;
+  errorMessage?: string | null;
+  createdAt?: number;
+  updatedAt?: number;
+  citations: AskCitation[];
+}
+
+export interface AskThreadData {
+  thread: {
+    id: string;
+    recordingId: string;
+    createdAt?: number;
+    updatedAt?: number;
+  } | null;
+  messages: AskThreadMessage[];
+  origin: string;
+}
+
+export interface AskSuggestion {
+  id?: string;
+  question: string;
+  reason?: string;
+}
+
+export interface AskSuggestionsData {
+  suggestions: AskSuggestion[];
+  transcriptId?: string;
+  model?: string;
+  language?: string;
+  cached?: boolean;
+  origin: string;
+}
+
+export type AskStreamEvent =
+  | {
+      type: "metadata";
+      recordingId?: string;
+      transcriptId?: string;
+      threadId?: string;
+      userMessageId?: string;
+      assistantMessageId?: string;
+      model?: string;
+      webSearch?: boolean;
+      segmentCount?: number;
+      citationMarker?: string;
+    }
+  | { type: "answer_delta"; delta: string }
+  | { type: "citation"; citation: AskCitation }
+  | {
+      type: "done";
+      threadId?: string;
+      userMessageId?: string;
+      assistantMessageId?: string;
+      content?: string;
+      citations: AskCitation[];
+    };
+
 export interface RecordingAudioDownload {
   recordingId: string;
   localPath: string;
@@ -389,6 +472,78 @@ export class RecappiApiClient {
       transcriptId: parsed.transcriptId,
       summaryStatus: parsed.summaryStatus,
     });
+  }
+
+  async fetchAskThread(recordingId: string): Promise<AskThreadData> {
+    const parsed = await this.getJson<Record<string, unknown>>(
+      `/api/recordings/${encodeURIComponent(recordingId)}/ask-thread`,
+    );
+    const thread = isRecord(parsed.thread)
+      ? {
+          id: stringValue(parsed.thread.id) ?? "",
+          recordingId: stringValue(parsed.thread.recordingId) ?? recordingId,
+          ...(numberValue(parsed.thread.createdAt) !== undefined
+            ? { createdAt: numberValue(parsed.thread.createdAt) }
+            : {}),
+          ...(numberValue(parsed.thread.updatedAt) !== undefined
+            ? { updatedAt: numberValue(parsed.thread.updatedAt) }
+            : {}),
+        }
+      : null;
+    return {
+      thread: thread && thread.id ? thread : null,
+      messages: Array.isArray(parsed.messages)
+        ? parsed.messages.filter(isRecord).map(mapAskThreadMessage)
+        : [],
+      origin: this.auth.origin,
+    };
+  }
+
+  async fetchAskSuggestions(
+    recordingId: string,
+    opts: { language?: string } = {},
+  ): Promise<AskSuggestionsData> {
+    const params = new URLSearchParams();
+    if (opts.language) params.set("language", opts.language);
+    const suffix = params.size > 0 ? `?${params}` : "";
+    const parsed = await this.getJson<Record<string, unknown>>(
+      `/api/recordings/${encodeURIComponent(recordingId)}/ask-suggestions${suffix}`,
+    );
+    return {
+      suggestions: Array.isArray(parsed.suggestions)
+        ? parsed.suggestions.filter(isRecord).flatMap(mapAskSuggestion)
+        : [],
+      ...(typeof parsed.transcriptId === "string" ? { transcriptId: parsed.transcriptId } : {}),
+      ...(typeof parsed.model === "string" ? { model: parsed.model } : {}),
+      ...(typeof parsed.language === "string" ? { language: parsed.language } : {}),
+      ...(typeof parsed.cached === "boolean" ? { cached: parsed.cached } : {}),
+      origin: this.auth.origin,
+    };
+  }
+
+  async *askRecordingStream(opts: AskRecordingOptions): AsyncGenerator<AskStreamEvent> {
+    const response = await this.request(
+      "POST",
+      `/api/recordings/${encodeURIComponent(opts.recordingId)}/ask-thread/messages`,
+      JSON.stringify({
+        question: opts.question,
+        webSearch: opts.webSearch === true,
+        ...(opts.model ? { model: opts.model } : {}),
+      }),
+      {
+        headers: {
+          accept: "text/event-stream",
+          "content-type": "application/json",
+        },
+      },
+    );
+    if (!response.body) {
+      throw cliError("cloud.invalid_response", "Ask stream response was empty.");
+    }
+    for await (const frame of parseSseFrames(response.body as ReadableStream<Uint8Array>)) {
+      const event = decodeAskStreamEvent(frame.event, frame.data);
+      if (event) yield event;
+    }
   }
 
   async downloadRecordingAudio(
@@ -1201,6 +1356,165 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function mapAskThreadMessage(row: Record<string, unknown>): AskThreadMessage {
+  const id = stringValue(row.id) ?? "";
+  const role = row.role === "user" ? "user" : "assistant";
+  return {
+    id,
+    role,
+    ...(typeof row.status === "string" ? { status: row.status } : {}),
+    ...(numberValue(row.sequence) !== undefined ? { sequence: numberValue(row.sequence) } : {}),
+    content: stringValue(row.content) ?? "",
+    ...(typeof row.model === "string" || row.model === null ? { model: row.model } : {}),
+    ...(typeof row.webSearch === "boolean" ? { webSearch: row.webSearch } : {}),
+    ...(typeof row.errorMessage === "string" || row.errorMessage === null
+      ? { errorMessage: row.errorMessage }
+      : {}),
+    ...(numberValue(row.createdAt) !== undefined ? { createdAt: numberValue(row.createdAt) } : {}),
+    ...(numberValue(row.updatedAt) !== undefined ? { updatedAt: numberValue(row.updatedAt) } : {}),
+    citations: Array.isArray(row.citations)
+      ? row.citations.filter(isRecord).map(mapAskCitation)
+      : [],
+  };
+}
+
+function mapAskSuggestion(row: Record<string, unknown>): AskSuggestion[] {
+  const question = stringValue(row.question)?.trim();
+  if (!question) return [];
+  return [
+    {
+      ...(typeof row.id === "string" ? { id: row.id } : {}),
+      question,
+      ...(typeof row.reason === "string" && row.reason.trim() ? { reason: row.reason } : {}),
+    },
+  ];
+}
+
+function mapAskCitation(row: Record<string, unknown>): AskCitation {
+  return {
+    ...(typeof row.id === "string" ? { id: row.id } : {}),
+    ...(typeof row.segmentId === "string" ? { segmentId: row.segmentId } : {}),
+    ...(numberValue(row.index) !== undefined ? { index: numberValue(row.index) } : {}),
+    ...(typeof row.startMs === "number" || row.startMs === null ? { startMs: row.startMs } : {}),
+    ...(typeof row.endMs === "number" || row.endMs === null ? { endMs: row.endMs } : {}),
+    ...(typeof row.label === "string" ? { label: row.label } : {}),
+    ...(typeof row.speaker === "string" ? { speaker: row.speaker } : {}),
+    ...(typeof row.snippet === "string" ? { snippet: row.snippet } : {}),
+    ...(numberValue(row.order) !== undefined ? { order: numberValue(row.order) } : {}),
+  };
+}
+
+interface SseFrame {
+  event: string;
+  data: string;
+}
+
+async function* parseSseFrames(stream: ReadableStream<Uint8Array>): AsyncGenerator<SseFrame> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let delimiter = findSseDelimiter(buffer);
+      while (delimiter) {
+        const frameText = buffer.slice(0, delimiter.index);
+        buffer = buffer.slice(delimiter.index + delimiter.length);
+        const frame = parseSseFrame(frameText);
+        if (frame) yield frame;
+        delimiter = findSseDelimiter(buffer);
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      const frame = parseSseFrame(buffer);
+      if (frame) yield frame;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function findSseDelimiter(buffer: string): { index: number; length: number } | undefined {
+  const lf = buffer.indexOf("\n\n");
+  const crlf = buffer.indexOf("\r\n\r\n");
+  if (lf === -1 && crlf === -1) return undefined;
+  if (lf === -1) return { index: crlf, length: 4 };
+  if (crlf === -1) return { index: lf, length: 2 };
+  return crlf < lf ? { index: crlf, length: 4 } : { index: lf, length: 2 };
+}
+
+function parseSseFrame(frameText: string): SseFrame | undefined {
+  let event = "message";
+  const data: string[] = [];
+  for (const rawLine of frameText.split(/\r?\n/)) {
+    if (!rawLine || rawLine.startsWith(":")) continue;
+    if (rawLine.startsWith("event:")) {
+      event = rawLine.slice("event:".length).trim() || "message";
+    } else if (rawLine.startsWith("data:")) {
+      const value = rawLine.slice("data:".length);
+      data.push(value.startsWith(" ") ? value.slice(1) : value);
+    }
+  }
+  if (data.length === 0) return undefined;
+  return { event, data: data.join("\n") };
+}
+
+function decodeAskStreamEvent(eventName: string, data: string): AskStreamEvent | undefined {
+  const parsed: unknown = JSON.parse(data);
+  if (!isRecord(parsed)) return undefined;
+  const type = stringValue(parsed.type) ?? eventName;
+  switch (eventName === "message" ? type : eventName) {
+    case "metadata":
+      return {
+        type: "metadata",
+        ...(typeof parsed.recordingId === "string" ? { recordingId: parsed.recordingId } : {}),
+        ...(typeof parsed.transcriptId === "string" ? { transcriptId: parsed.transcriptId } : {}),
+        ...(typeof parsed.threadId === "string" ? { threadId: parsed.threadId } : {}),
+        ...(typeof parsed.userMessageId === "string" ? { userMessageId: parsed.userMessageId } : {}),
+        ...(typeof parsed.assistantMessageId === "string"
+          ? { assistantMessageId: parsed.assistantMessageId }
+          : {}),
+        ...(typeof parsed.model === "string" ? { model: parsed.model } : {}),
+        ...(typeof parsed.webSearch === "boolean" ? { webSearch: parsed.webSearch } : {}),
+        ...(numberValue(parsed.segmentCount) !== undefined
+          ? { segmentCount: numberValue(parsed.segmentCount) }
+          : {}),
+        ...(typeof parsed.citationMarker === "string"
+          ? { citationMarker: parsed.citationMarker }
+          : {}),
+      };
+    case "answer_delta":
+      return { type: "answer_delta", delta: stringValue(parsed.delta) ?? "" };
+    case "citation": {
+      const citation = isRecord(parsed.citation) ? parsed.citation : parsed;
+      return { type: "citation", citation: mapAskCitation(citation) };
+    }
+    case "done":
+      return {
+        type: "done",
+        ...(typeof parsed.threadId === "string" ? { threadId: parsed.threadId } : {}),
+        ...(typeof parsed.userMessageId === "string" ? { userMessageId: parsed.userMessageId } : {}),
+        ...(typeof parsed.assistantMessageId === "string"
+          ? { assistantMessageId: parsed.assistantMessageId }
+          : {}),
+        ...(typeof parsed.content === "string" ? { content: parsed.content } : {}),
+        citations: Array.isArray(parsed.citations)
+          ? parsed.citations.filter(isRecord).map(mapAskCitation)
+          : [],
+      };
+    case "error":
+      throw cliError(
+        "cloud.http_error",
+        stringValue(parsed.message) ?? stringValue(parsed.error) ?? "The assistant ran into an error.",
+      );
+    default:
+      return undefined;
+  }
 }
 
 function recordingCloudUrl(origin: string, recordingId: string): string {

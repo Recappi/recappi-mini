@@ -118,6 +118,9 @@ describe("recappi CLI contract", () => {
           email: "agent@example.com",
           billing: { tier: "pro", minutesUsed: 42.5 },
         });
+        expect(deps.fetchAskThread).toBeTypeOf("function");
+        expect(deps.fetchAskSuggestions).toBeTypeOf("function");
+        expect(deps.askRecording).toBeTypeOf("function");
       },
     });
 

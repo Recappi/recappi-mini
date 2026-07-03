@@ -307,6 +307,10 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
             env: deps.env,
             homeDir: deps.homeDir,
           }),
+        fetchAskThread: (recordingId) => client.fetchAskThread(recordingId),
+        fetchAskSuggestions: (recordingId, options) =>
+          client.fetchAskSuggestions(recordingId, options),
+        askRecording: (options) => client.askRecordingStream(options),
         initialView: parsed.initialView,
       });
       return 0;
