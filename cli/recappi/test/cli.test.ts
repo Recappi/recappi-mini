@@ -329,6 +329,35 @@ describe("recappi CLI contract", () => {
     expect(summarizeRequests).toEqual([{}]);
   });
 
+  it("streams an ask answer with inline citations + Sources list (human)", async () => {
+    const result = await run(["ask", "rec_1", "What shipped?"], {
+      fetchImpl: askStreamFetch(),
+      isTTY: true,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("They shipped it ⟨1:23⟩."); // inline citation placed
+    expect(result.stdout).toContain("Sources:");
+    expect(result.stdout).toContain("⟨1:23⟩ Peng · the relevant sentence");
+    expect(result.stderr).toContain("Asking…");
+  });
+
+  it("emits the raw ask answer + citations for --json", async () => {
+    const captured: { body?: unknown } = {};
+    const result = await run(["ask", "rec_1", "What shipped?", "--json"], {
+      fetchImpl: askStreamFetch(captured),
+    });
+    expect(result.exitCode).toBe(0);
+    const envelope = JSON.parse(result.stdout);
+    expect(envelope).toMatchObject({
+      ok: true,
+      command: "ask",
+      // Raw [[seg-N]] markers preserved so callers place citations themselves.
+      data: { recordingId: "rec_1", answer: "They shipped it[[seg-1]]." },
+    });
+    expect(envelope.data.citations[0]).toMatchObject({ segmentId: "seg-1", startMs: 83_000 });
+    expect(captured.body).toMatchObject({ question: "What shipped?" });
+  });
+
   it("opens the dashboard for `recappi jobs` in an interactive terminal", async () => {
     let dashboardCalls = 0;
     const result = await run(["jobs"], {
@@ -2631,6 +2660,31 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
     ...init,
     headers,
   });
+}
+
+// Mock the Ask SSE stream: metadata → answer deltas (with a [[seg-N]] marker) →
+// citation → done. `captured` records the POST body when provided.
+function askStreamFetch(captured?: { body?: unknown }): typeof fetch {
+  return (async (input, init) => {
+    const url = requestUrl(input);
+    if (url.pathname.endsWith("/ask-thread/messages")) {
+      if (captured) captured.body = parseJsonBody(init?.body ?? null);
+      const citation = {
+        segmentId: "seg-1",
+        startMs: 83_000,
+        speaker: "Peng",
+        snippet: "the relevant sentence",
+      };
+      const sse =
+        `event: metadata\ndata: ${JSON.stringify({ segmentCount: 3 })}\n\n` +
+        `event: answer_delta\ndata: ${JSON.stringify({ delta: "They shipped it" })}\n\n` +
+        `event: answer_delta\ndata: ${JSON.stringify({ delta: "[[seg-1]]." })}\n\n` +
+        `event: citation\ndata: ${JSON.stringify({ citation })}\n\n` +
+        `event: done\ndata: ${JSON.stringify({ content: "They shipped it[[seg-1]].", citations: [citation] })}\n\n`;
+      return new Response(sse, { headers: { "content-type": "text/event-stream" } });
+    }
+    return jsonResponse({ message: `unexpected ${url.pathname}` }, { status: 404 });
+  }) as typeof fetch;
 }
 
 function requestUrl(input: Parameters<typeof fetch>[0]): URL {

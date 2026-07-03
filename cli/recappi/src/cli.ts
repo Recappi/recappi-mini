@@ -15,11 +15,12 @@ import {
   saveAuthConfig,
 } from "./auth";
 import { loginWithDeviceCode } from "./auth-login";
-import { RecappiApiClient } from "./api";
+import { RecappiApiClient, type AskCitation } from "./api";
 import { createRecordingAudioRuntime } from "./audio";
 import { commandMetadataHelpText, commonTasksHelpText } from "./commandMetadata";
 import { exportRecording, syncRecordingAudio, syncRecordingText } from "./export";
 import { listCachedRecordingSessions } from "./recordingSessionCache";
+import { formatAskAnswerPlain } from "./tui/askInline";
 import {
   createHumanProgressState,
   renderEvent,
@@ -564,6 +565,36 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       renderSuccess("recordings resummarize", data, render);
       return 0;
     }
+    if (parsed.kind === "ask") {
+      if (render.mode === "human") render.stderr("Asking…\n");
+      let content = "";
+      let citations: AskCitation[] = [];
+      for await (const event of client.askRecordingStream({
+        recordingId: parsed.recordingId,
+        question: parsed.question,
+        ...(parsed.webSearch ? { webSearch: true } : {}),
+        ...(parsed.model ? { model: parsed.model } : {}),
+      })) {
+        if (event.type === "answer_delta") content += event.delta;
+        else if (event.type === "citation") citations.push(event.citation);
+        else if (event.type === "done") {
+          if (typeof event.content === "string" && event.content) content = event.content;
+          if (event.citations.length) citations = event.citations;
+        }
+      }
+      if (render.mode === "human") {
+        render.stdout(`${formatAskAnswerPlain(content, citations)}\n`);
+      } else {
+        // json / jsonl: keep the raw [[seg-N]] markers so callers can place
+        // citations themselves, matching web/app.
+        renderSuccess(
+          "ask",
+          { recordingId: parsed.recordingId, question: parsed.question, answer: content, citations },
+          render,
+        );
+      }
+      return 0;
+    }
     if (parsed.kind === "dashboard-stats") {
       const data = await client.dashboardStats();
       renderSuccess("dashboard stats", data, render);
@@ -698,6 +729,15 @@ type ParsedCommand =
       options: GlobalOptions;
       commandName: "transcript get";
       transcriptId: string;
+    }
+  | {
+      kind: "ask";
+      options: GlobalOptions;
+      commandName: "ask";
+      recordingId: string;
+      question: string;
+      webSearch?: boolean;
+      model?: string;
     };
 
 function parseArgv(argv: string[], isTTY: boolean): ParsedCommand {
@@ -899,6 +939,11 @@ interface RecordingsResummarizeCommanderOptions extends CommanderCommonOptions {
   prompt?: string;
 }
 
+interface AskCommanderOptions extends CommanderCommonOptions {
+  webSearch?: boolean;
+  model?: string;
+}
+
 function buildProgram({ onHelpOutput, onSelect }: BuildProgramOptions): Command {
   const program = new Command("recappi");
   program
@@ -1035,6 +1080,25 @@ Agent mode:
       ...(typeof opts.provider === "string" ? { provider: opts.provider } : {}),
       ...(typeof opts.prompt === "string" ? { prompt: opts.prompt } : {}),
       ...(opts.force === true ? { force: true } : {}),
+    });
+  });
+
+  const ask = program
+    .command("ask <recordingId> <question>")
+    .description("Ask a question about a recording; streams an answer with inline citations")
+    .option("--web-search", "allow web search for extra context")
+    .option("--model <name>", "Ask model", parseStringOption("--model"))
+    .addHelpText("after", commandMetadataHelpText("ask"));
+  addCommonOptions(ask);
+  ask.action((recordingId: string, question: string, opts: AskCommanderOptions, command: Command) => {
+    onSelect({
+      kind: "ask",
+      options: collectGlobalOptions(command),
+      commandName: "ask",
+      recordingId,
+      question,
+      ...(opts.webSearch === true ? { webSearch: true } : {}),
+      ...(typeof opts.model === "string" ? { model: opts.model } : {}),
     });
   });
 

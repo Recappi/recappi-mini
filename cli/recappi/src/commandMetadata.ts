@@ -22,6 +22,7 @@ export const COMMON_TASKS: CommonTaskDoc[] = [
   { label: "Export recording bundle", command: "recappi recordings export <recordingId> --dir ./bundle" },
   { label: "List / find recordings", command: "recappi recordings list" },
   { label: "Read a transcript", command: "recappi transcript get <transcriptId>" },
+  { label: "Ask about a recording", command: 'recappi ask <recordingId> "<question>"' },
   { label: "Download / open audio", command: "recappi audio <recordingId> --open" },
   { label: "Check a transcription job", command: "recappi jobs wait <jobId>" },
   { label: "Account · quota · usage", command: "recappi account status" },
@@ -201,6 +202,23 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
       { description: "Wait for a transcription job", command: "recappi jobs wait <jobId>" },
     ],
     relatedCommands: ["jobs list", "transcript get"],
+  },
+  ask: {
+    capabilities: [
+      "Ask a question about a recording and stream the answer",
+      "Answers cite the transcript with inline ⟨mm:ss⟩ references",
+    ],
+    examples: [
+      {
+        description: "Ask about a recording",
+        command: 'recappi ask <recordingId> "What were the decisions?"',
+      },
+      {
+        description: "Get the raw answer + citations for an agent",
+        command: 'recappi ask <recordingId> "Summarize the risks" --json',
+      },
+    ],
+    relatedCommands: ["recordings get", "transcript get", "recordings list"],
   },
 };
 
