@@ -1362,15 +1362,19 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
-  it("auto-syncs the transcript text when a recording detail opens", async () => {
+  it("auto-syncs the transcript text and shows where it's stored locally", async () => {
     const onSyncRecordingText = vi
       .fn()
       .mockResolvedValue({ recordingId: "rec_1", sessionDir: "/tmp/Recappi Mini/rec_1" });
-    const { stdin, unmount } = setup({ onSyncRecordingText });
+    const { stdin, lastFrame, unmount } = setup({ onSyncRecordingText });
     await flush();
     stdin.write(ENTER); // open rec_1 detail → mirrors the app's auto text persist
     await flush();
     expect(onSyncRecordingText).toHaveBeenCalledWith("rec_1");
+    const frame = noAnsi(lastFrame());
+    // The local session dir is surfaced persistently, with a folder shortcut.
+    expect(frame).toContain("Local · /tmp/Recappi Mini/rec_1");
+    expect(frame).toContain("l folder");
     unmount();
   });
 

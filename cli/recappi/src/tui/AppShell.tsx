@@ -998,6 +998,16 @@ export function AppShell({
   // Mirror the macOS app's local session dir: opening a recording auto-syncs its
   // text (transcript/summary/action-items/metadata) to disk. Quiet + once per
   // recording per session; `r` forces a re-sync.
+  // Where each recording's content lives locally (the app-like session dir),
+  // learned from a text/audio sync so the detail view can show it persistently.
+  const [sessionDirByRecording, setSessionDirByRecording] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  const rememberSessionDir = useCallback((recordingId: string, dir?: string) => {
+    if (!dir) return;
+    setSessionDirByRecording((m) => (m.get(recordingId) === dir ? m : new Map(m).set(recordingId, dir)));
+  }, []);
+
   const syncedTextRef = useRef<Set<string>>(new Set());
   const syncRecordingText = useCallback(
     async (recordingId: string, opts: { manual?: boolean } = {}) => {
@@ -1006,12 +1016,13 @@ export function AppShell({
       try {
         const data = await onSyncRecordingText(recordingId);
         syncedTextRef.current.add(recordingId);
+        rememberSessionDir(recordingId, data.sessionDir);
         if (opts.manual) setNotice(`Text synced · ${data.sessionDir}`);
       } catch (error) {
         if (opts.manual) setNotice(transcribeHandoffErrorCopy(error));
       }
     },
-    [onSyncRecordingText],
+    [onSyncRecordingText, rememberSessionDir],
   );
 
   // Manual audio sync (`d`): audio is large, so it's fetched on demand into the
@@ -1025,12 +1036,36 @@ export function AppShell({
       setNotice("Downloading audio…");
       try {
         const data = await onSyncRecordingAudio(recordingId);
+        rememberSessionDir(recordingId, data.sessionDir);
         setNotice(`Audio saved · ${data.audioPath}`);
       } catch (error) {
         setNotice(transcribeHandoffErrorCopy(error));
       }
     },
-    [onSyncRecordingAudio],
+    [onSyncRecordingAudio, rememberSessionDir],
+  );
+
+  // Open the local session folder in Finder so the on-disk files (transcript.md,
+  // summary.md, audio, handoff.md) are one keystroke away.
+  const openLocalFolder = useCallback(
+    async (recordingId: string) => {
+      const dir = sessionDirByRecording.get(recordingId);
+      if (!dir) {
+        setNotice("No local copy yet — it syncs when you open the recording.");
+        return;
+      }
+      if (!recordingAudio) {
+        setNotice("Opening the local folder isn't available in this CLI session.");
+        return;
+      }
+      try {
+        await recordingAudio.openPath(dir);
+        setNotice(`Opened ${dir}`);
+      } catch (error) {
+        setNotice(transcribeHandoffErrorCopy(error));
+      }
+    },
+    [sessionDirByRecording, recordingAudio],
   );
 
   // Export/handoff (`e`): ensure the full app-like session is written + generate
@@ -1431,6 +1466,7 @@ export function AppShell({
         if (onSyncRecordingAudio) void syncRecordingAudio(rec.recordingId);
         else void runAudio(rec.recordingId, "download");
       } else if (input === "f" && rec) void runAudio(rec.recordingId, "finder");
+      else if (input === "l" && rec) void openLocalFolder(rec.recordingId);
       else if (input === "w" && links.webUrl) openUrl?.(links.webUrl);
       else if (input === "c" && links.webUrl) {
         copyText?.(links.webUrl);
@@ -1480,6 +1516,7 @@ export function AppShell({
           nowMs={now()}
           transcript={detailTranscript}
           audio={audioCache.get(rec.recordingId)}
+          localDir={sessionDirByRecording.get(rec.recordingId)}
         />
       </Detail>
     );

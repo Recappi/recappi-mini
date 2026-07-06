@@ -47,11 +47,13 @@ export function RecordingDetailView({
   nowMs,
   transcript,
   audio,
+  localDir,
 }: {
   item: RecordingData;
   nowMs: number;
   transcript?: DetailTranscript;
   audio?: AudioAction;
+  localDir?: string;
 }): React.ReactElement {
   const size = useTerminalSize();
   const [tab, setTab] = useState<DetailTab>("summary");
@@ -142,6 +144,15 @@ export function RecordingDetailView({
       {/* Audio download / open */}
       <AudioActionRow item={item} audio={audio} />
 
+      {/* Where this recording's content lives on disk (mirrors the macOS app's
+          session dir). Shown once a text/audio sync has resolved. */}
+      {localDir ? (
+        <Text>
+          <Text dimColor>{"⌂ Local · "}</Text>
+          <Text dimColor wrap="truncate-middle">{localDir}</Text>
+        </Text>
+      ) : null}
+
       {/* Section content */}
       {!item.activeTranscriptId ? (
         <Box marginTop={1}>
@@ -177,6 +188,7 @@ export function RecordingDetailView({
           {scrollable ? " · ↑↓ scroll" : ""}
           {ready ? " · " : ""}
           {`o open · d download · f finder`}
+          {localDir ? " · l folder" : ""}
           {" · T re-transcribe · s re-summarize · a ask · e export"}
           {item.activeTranscriptId ? " · t full" : ""}
           {links.webUrl ? " · w web" : ""}
