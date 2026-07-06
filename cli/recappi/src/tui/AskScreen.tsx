@@ -1,11 +1,9 @@
 import React, { useCallback, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { AskCitation, AskRecordingOptions, AskStreamEvent } from "../api";
-import {
-  askCitationInlineLabel,
-  renderAskInline,
-  strippedAskAnswer,
-} from "./askInline";
+import { formatAskAnswerPlain, strippedAskAnswer } from "./askInline";
+import { displayWidth } from "./format";
+import { useTerminalSize } from "./terminal";
 
 type AskPhase = "input" | "asking" | "done" | "error";
 
@@ -13,8 +11,8 @@ const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 // Interactive "Ask this recording" screen. Owns its own input/streaming state so
 // AppShell's global key handler stays out of the way while it's open. The answer
-// renders with inline ⟨mm:ss⟩ citations (via askInline, mirroring the app) plus a
-// Sources list.
+// renders with inline ⟨mm:ss⟩ citations (via askInline, mirroring the app), keeps
+// whatever streamed so far if the stream errors, and scrolls when it's long.
 export function AskScreen({
   recordingId,
   title,
@@ -30,12 +28,14 @@ export function AskScreen({
   onOpenTranscript?: () => void;
   spinnerFrame: number;
 }): React.ReactElement {
+  const size = useTerminalSize();
   const [phase, setPhase] = useState<AskPhase>("input");
   const [question, setQuestion] = useState("");
   const [asked, setAsked] = useState("");
   const [content, setContent] = useState("");
   const [citations, setCitations] = useState<AskCitation[]>([]);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [scroll, setScroll] = useState(0);
   // Bumped whenever we start/abandon a request so late stream events from a
   // superseded ask are ignored.
   const runIdRef = useRef(0);
@@ -50,6 +50,7 @@ export function AskScreen({
       setContent("");
       setCitations([]);
       setError(undefined);
+      setScroll(0);
       void (async () => {
         try {
           let text = "";
@@ -75,6 +76,8 @@ export function AskScreen({
           }
           if (runIdRef.current === runId) setPhase("done");
         } catch (err) {
+          // Keep whatever streamed so far — the partial answer is still useful;
+          // surface the error beneath it rather than wiping the output.
           if (runIdRef.current === runId) {
             setError(err instanceof Error ? err.message : String(err));
             setPhase("error");
@@ -93,7 +96,29 @@ export function AskScreen({
     setContent("");
     setCitations([]);
     setError(undefined);
+    setScroll(0);
   };
+
+  // The answer text for the current phase. On done we place inline ⟨mm:ss⟩
+  // citations + a Sources list; while streaming/erroring we show the raw text
+  // with markers stripped (citations only resolve at the end).
+  const answerText =
+    phase === "done"
+      ? formatAskAnswerPlain(content, citations)
+      : content
+        ? strippedAskAnswer(content)
+        : "";
+
+  const innerWidth = Math.max(10, size.columns - 2);
+  const lines = answerText ? wrapToLines(answerText, innerWidth) : [];
+  // Rows left for the answer pane after the fixed chrome (header, question,
+  // error line, indicator, footer, margins).
+  const paneBudget = Math.max(3, size.rows - 9);
+  const maxScroll = Math.max(0, lines.length - paneBudget);
+  // Auto-follow the tail while streaming; let the reader control it afterwards.
+  const effectiveScroll = phase === "asking" ? maxScroll : Math.min(scroll, maxScroll);
+  const windowLines = lines.slice(effectiveScroll, effectiveScroll + paneBudget);
+  const page = Math.max(1, paneBudget - 1);
 
   useInput((input, key) => {
     if (key.escape) {
@@ -107,10 +132,15 @@ export function AskScreen({
       if (input && !key.ctrl && !key.meta) setQuestion((q) => q + input);
       return;
     }
-    if (phase === "done" || phase === "error") {
-      if (input === "a") return reset();
-      if (input === "t" && onOpenTranscript) return onOpenTranscript();
-    }
+    // Scroll the answer (done / error / asking).
+    if (key.downArrow || input === "j") setScroll((s) => Math.min(maxScroll, s + 1));
+    else if (key.upArrow || input === "k") setScroll((s) => Math.max(0, s - 1));
+    else if (key.pageDown || input === " ") setScroll((s) => Math.min(maxScroll, s + page));
+    else if (key.pageUp || input === "b") setScroll((s) => Math.max(0, s - page));
+    else if (input === "g") setScroll(0);
+    else if (input === "G") setScroll(maxScroll);
+    else if (input === "a") reset();
+    else if (input === "t" && onOpenTranscript) onOpenTranscript();
   });
 
   return (
@@ -132,13 +162,25 @@ export function AskScreen({
         <Box marginTop={1} flexDirection="column">
           <Text dimColor wrap="truncate-end">{`? ${asked}`}</Text>
           <Box marginTop={1} flexDirection="column">
-            <AnswerBody phase={phase} content={content} citations={citations} error={error} spinnerFrame={spinnerFrame} />
+            {phase === "asking" && !content ? (
+              <Text color="cyan">{`${SPINNER[spinnerFrame % SPINNER.length]} Thinking…`}</Text>
+            ) : (
+              windowLines.map((line, i) => <AnswerLine key={effectiveScroll + i} line={line} />)
+            )}
           </Box>
-          {phase === "done" ? <Sources citations={citations} /> : null}
+          {maxScroll > 0 ? (
+            <Text dimColor>{`  ${Math.min(effectiveScroll + paneBudget, lines.length)} / ${lines.length}${phase === "asking" ? " · streaming" : " · ↑↓ scroll"}`}</Text>
+          ) : null}
+          {phase === "error" ? (
+            <Box marginTop={1}>
+              <Text color="red">{error ? `Ask failed: ${error}` : "Ask failed"}</Text>
+            </Box>
+          ) : null}
           <Box marginTop={1}>
             <Text dimColor>
               {phase === "asking" ? "esc cancel" : "a ask again"}
               {(phase === "done" || phase === "error") && onOpenTranscript ? " · t transcript" : ""}
+              {maxScroll > 0 ? " · ↑↓ scroll" : ""}
               {phase !== "asking" ? " · esc back" : ""}
             </Text>
           </Box>
@@ -148,66 +190,46 @@ export function AskScreen({
   );
 }
 
-function AnswerBody({
-  phase,
-  content,
-  citations,
-  error,
-  spinnerFrame,
-}: {
-  phase: AskPhase;
-  content: string;
-  citations: AskCitation[];
-  error?: string;
-  spinnerFrame: number;
-}): React.ReactElement {
-  if (phase === "error") {
-    return <Text color="red">{error ? `Ask failed: ${error}` : "Ask failed"}</Text>;
-  }
-  if (phase === "asking" && !content) {
-    return <Text color="cyan">{`${SPINNER[spinnerFrame % SPINNER.length]} Thinking…`}</Text>;
-  }
-  if (phase === "asking") {
-    // Live typewriter: strip markers until we can place them on `done`.
-    return <Text>{strippedAskAnswer(content)}</Text>;
-  }
-  // done: inline citations placed next to their sentence.
-  const segments = renderAskInline(content, citations);
+// Render one wrapped line, coloring any inline ⟨mm:ss⟩ citation markers.
+function AnswerLine({ line }: { line: string }): React.ReactElement {
+  if (line === "") return <Text> </Text>;
+  const parts = line.split(/(⟨[^⟩]*⟩)/);
   return (
     <Text>
-      {segments.map((segment, i) =>
-        segment.kind === "text" ? (
-          <Text key={i}>{segment.text}</Text>
+      {parts.map((part, i) =>
+        part.startsWith("⟨") && part.endsWith("⟩") ? (
+          <Text key={i} color="cyan">{part}</Text>
         ) : (
-          <Text key={i} color="cyan">{`⟨${segment.label}⟩`}</Text>
+          <Text key={i}>{part}</Text>
         ),
       )}
     </Text>
   );
 }
 
-function Sources({ citations }: { citations: AskCitation[] }): React.ReactElement | null {
-  const seen = new Set<string>();
-  const unique: AskCitation[] = [];
-  for (const citation of citations) {
-    const key = citation.segmentId ?? askCitationInlineLabel(citation);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(citation);
+// Character-based wrap that respects display width (CJK counts as 2) and keeps
+// explicit newlines, so we can window/scroll the answer by line.
+function wrapToLines(text: string, width: number): string[] {
+  const out: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    if (paragraph === "") {
+      out.push("");
+      continue;
+    }
+    let current = "";
+    let currentWidth = 0;
+    for (const ch of paragraph) {
+      const w = displayWidth(ch);
+      if (current !== "" && currentWidth + w > width) {
+        out.push(current);
+        current = ch;
+        currentWidth = w;
+      } else {
+        current += ch;
+        currentWidth += w;
+      }
+    }
+    out.push(current);
   }
-  if (unique.length === 0) return null;
-  return (
-    <Box marginTop={1} flexDirection="column">
-      <Text dimColor>Sources</Text>
-      {unique.map((citation, i) => {
-        const meta = [citation.speaker?.trim(), citation.snippet?.trim()].filter(Boolean).join(" · ");
-        return (
-          <Text key={i} wrap="truncate-end">
-            <Text color="cyan">{`⟨${askCitationInlineLabel(citation)}⟩`}</Text>
-            {meta ? <Text dimColor>{` ${meta}`}</Text> : null}
-          </Text>
-        );
-      })}
-    </Box>
-  );
+  return out;
 }

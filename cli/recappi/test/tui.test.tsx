@@ -1446,6 +1446,29 @@ describe("AppShell (interactive)", () => {
     unmount();
   });
 
+  it("keeps the partial answer when the Ask stream errors mid-way", async () => {
+    async function* askStream(): AsyncGenerator<AskStreamEvent> {
+      yield { type: "answer_delta", delta: "partial answer so far" };
+      throw new Error("OpenAI response incomplete");
+    }
+    const askRecording = vi.fn(() => askStream());
+    const { stdin, lastFrame, unmount } = setup({ askRecording });
+    await flush();
+    stdin.write(ENTER); // open rec_1 detail
+    await flush();
+    stdin.write("a"); // open the Ask screen
+    await flush();
+    stdin.write("why?"); // type the question
+    await flush();
+    stdin.write(ENTER); // submit → streams then throws
+    await flush();
+    const frame = noAnsi(lastFrame());
+    // The partial output is preserved, and the error is surfaced beneath it.
+    expect(frame).toContain("partial answer so far");
+    expect(frame).toContain("Ask failed: OpenAI response incomplete");
+    unmount();
+  });
+
   it("shows cached recordings immediately with a background syncing indicator (SWR)", async () => {
     // Cache resolves fast; Cloud stays pending → the list shows cached rows
     // right away (no blocking Loading) plus a low-intrusion syncing hint.
