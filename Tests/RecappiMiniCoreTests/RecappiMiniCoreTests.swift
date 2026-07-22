@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Combine
 import SwiftUI
@@ -1164,6 +1165,40 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(recording.sourceTitle, "Google Meet in Safari")
         XCTAssertEqual(recording.sourceAppName, "Safari")
         XCTAssertEqual(recording.sourceAppBundleID, "com.apple.Safari")
+    }
+
+    func testCloudRecordingSourceAppIconUsesCacheOnly() {
+        CloudRecordingAppIconProvider.clearCacheForTesting()
+        let recording = CloudRecording(
+            id: "rec_123",
+            userId: "user_123",
+            title: "Browser meeting",
+            summaryTitle: nil,
+            sourceTitle: nil,
+            sourceAppName: "Arc",
+            sourceAppBundleID: "company.thebrowser.Browser",
+            r2Key: nil,
+            r2UploadId: nil,
+            status: .ready,
+            sizeBytes: nil,
+            durationMs: nil,
+            sampleRate: nil,
+            channels: nil,
+            contentType: nil,
+            activeTranscriptId: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        XCTAssertEqual(recording.sourceAppIconBundleID, "company.thebrowser.Browser")
+        XCTAssertNil(recording.sourceAppIcon)
+
+        CloudRecordingAppIconProvider.storeIconForTesting(
+            NSImage(size: NSSize(width: 12, height: 12)),
+            bundleID: "company.thebrowser.Browser"
+        )
+
+        XCTAssertEqual(recording.sourceAppIcon?.size, NSSize(width: 32, height: 32))
     }
 
     func testTranscriptResponseDecodesSummaryTitleFromSummaryJson() throws {

@@ -59,15 +59,18 @@ extension CloudRecording {
         return "waveform"
     }
 
+    var sourceAppIconBundleID: String? {
+        clean(sourceAppBundleID) ?? inferredSource?.bundleID
+    }
+
     var sourceAppIcon: NSImage? {
-        guard let bundleID = clean(sourceAppBundleID) ?? inferredSource?.bundleID,
-              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+        guard let bundleID = sourceAppIconBundleID else {
             return nil
         }
-
-        let icon = NSWorkspace.shared.icon(forFile: url.path)
-        icon.size = NSSize(width: 32, height: 32)
-        return icon
+        return CloudRecordingAppIconProvider.cachedIcon(
+            for: bundleID,
+            size: NSSize(width: 32, height: 32)
+        )
     }
 
     var nowPlayingArtwork: NSImage? {
@@ -249,5 +252,66 @@ struct CloudRecordingSource {
         return aliases.contains { alias in
             normalized.contains(alias)
         }
+    }
+}
+
+enum CloudRecordingAppIconProvider {
+    private static let cache = CloudRecordingAppIconCache()
+
+    static func cachedIcon(for bundleID: String, size: NSSize) -> NSImage? {
+        guard let icon = cache.icon(for: bundleID) else {
+            return nil
+        }
+        return resizedCopy(of: icon, size: size)
+    }
+
+    static func loadIcon(for bundleID: String, size: NSSize) -> NSImage? {
+        if let cached = cachedIcon(for: bundleID, size: size) {
+            return cached
+        }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            return nil
+        }
+
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        cache.store(icon, for: bundleID)
+        return resizedCopy(of: icon, size: size)
+    }
+
+    static func storeIconForTesting(_ icon: NSImage, bundleID: String) {
+        cache.store(icon, for: bundleID)
+    }
+
+    static func clearCacheForTesting() {
+        cache.removeAll()
+    }
+
+    private static func resizedCopy(of icon: NSImage, size: NSSize) -> NSImage {
+        let copy = (icon.copy() as? NSImage) ?? icon
+        copy.size = size
+        return copy
+    }
+}
+
+private final class CloudRecordingAppIconCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var icons: [String: NSImage] = [:]
+
+    func icon(for bundleID: String) -> NSImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        return icons[bundleID]
+    }
+
+    func store(_ icon: NSImage, for bundleID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        icons[bundleID] = icon
+    }
+
+    func removeAll() {
+        lock.lock()
+        defer { lock.unlock() }
+        icons.removeAll()
     }
 }
