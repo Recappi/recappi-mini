@@ -327,6 +327,34 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testRealtimeClaimNetworkLossDoesNotCaptureSentryErrors() {
+        let errorSummary = "domain=NSURLErrorDomain code=-1005 message=The network connection was lost."
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=POST path=/api/openai/realtime/sessions \(errorSummary)"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "claim.failed mode=transcription attempt=2 \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=POST path=/api/recordings \(errorSummary)"
+            )
+        )
+    }
+
     func testLocalOnlyRecordingDelete404DoesNotCaptureSentryErrors() {
         let errorSummary = "domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 404): Recording not found"
 

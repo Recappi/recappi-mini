@@ -508,6 +508,9 @@ private struct DiagnosticTelemetry {
         if isExpectedRealtimeClaimRateLimit {
             return false
         }
+        if isExpectedRealtimeClaimNetworkDrop {
+            return false
+        }
         if isTransientLiveCaptionSocketDisconnect {
             return false
         }
@@ -603,6 +606,22 @@ private struct DiagnosticTelemetry {
         let message = safeMessage.lowercased()
         guard message.contains("status 429"),
               message.contains("session claim rate exceeded") else {
+            return false
+        }
+
+        switch (category, operation) {
+        case ("network", "request.failed"):
+            return fields["path"] == "/api/openai/realtime/sessions"
+        case ("live-caption", "claim.failed"):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var isExpectedRealtimeClaimNetworkDrop: Bool {
+        guard fields["domain"] == NSURLErrorDomain,
+              fields["code"] == String(NSURLErrorNetworkConnectionLost) else {
             return false
         }
 
