@@ -148,6 +148,10 @@ actor RealtimeLiveCaptionActor {
     private var lifecycle: Lifecycle = .created
     private var nextGeneration: Int = 0
 
+    static let unsupportedRealtimeRegionCode = "unsupported_country_region_territory"
+    static let unsupportedRealtimeRegionUserMessage =
+        "OpenAI Realtime doesn't support this country/region yet. Recording still works — you can transcribe after it finishes."
+
     // MARK: Diagnostic trace state (Task C)
     //
     // `lastClaimedSessionId` is captured from `RealtimeSessionClaim`
@@ -1247,6 +1251,10 @@ actor RealtimeLiveCaptionActor {
                         generation: generation,
                         sinceOpenMs: elapsedMs
                     )
+                    if Self.isUnsupportedRealtimeRegionError(serverError) {
+                        await transitionToUnsupportedRealtimeRegionStop()
+                        return
+                    }
                     await scheduleReconnect(after: serverError, attempt: 1)
                     return
                 }
@@ -1326,7 +1334,13 @@ actor RealtimeLiveCaptionActor {
         }
         parts.append(DiagnosticsLog.errorSummary(error))
         let message = parts.joined(separator: " ")
-        if Self.isTransientSocketDisconnect(cause: cause, error: error, closeCode: closeCode) {
+        let isExpectedRegionStop = Self.isUnsupportedRealtimeRegionError(error)
+        let isTransientDisconnect = Self.isTransientSocketDisconnect(
+            cause: cause,
+            error: error,
+            closeCode: closeCode
+        )
+        if isExpectedRegionStop || isTransientDisconnect {
             DiagnosticsLog.warning("live-caption", message)
         } else {
             DiagnosticsLog.error("live-caption", message)
@@ -1352,6 +1366,27 @@ actor RealtimeLiveCaptionActor {
 
     private static func isTransientPOSIXSocketCode(_ code: Int) -> Bool {
         code == 54 || code == 57
+    }
+
+    static func isUnsupportedRealtimeRegionError(_ error: Error) -> Bool {
+        if let eventError = error as? RealtimeServerEventError {
+            return isUnsupportedRealtimeRegionError(
+                code: eventError.serverCode,
+                message: eventError.message
+            )
+        }
+        let nsError = error as NSError
+        return isUnsupportedRealtimeRegionError(
+            code: nil,
+            message: "\(nsError.domain) \(nsError.localizedDescription)"
+        )
+    }
+
+    private static func isUnsupportedRealtimeRegionError(code: String?, message: String?) -> Bool {
+        if code == unsupportedRealtimeRegionCode {
+            return true
+        }
+        return message?.localizedCaseInsensitiveContains(unsupportedRealtimeRegionCode) == true
     }
 
     /// Decode the optional close-reason payload into a sanitized
@@ -1504,13 +1539,17 @@ actor RealtimeLiveCaptionActor {
             // the normal failure path. We publish the user-facing
             // failure snapshot here, then return the error so the
             // receive loop transitions out of `.live`.
-            let message = event.error?.message ?? "Realtime session failed."
-            publishSnapshot(.statusOnly(phase: .failed, message: message))
-            return RealtimeServerEventError(
-                message: message,
+            let error = RealtimeServerEventError(
+                message: event.error?.message ?? "Realtime session failed.",
                 serverType: event.error?.type,
                 serverCode: event.error?.code
             )
+            guard !Self.isUnsupportedRealtimeRegionError(error) else {
+                return error
+            }
+            let message = error.message
+            publishSnapshot(.statusOnly(phase: .failed, message: message))
+            return error
         default:
             break
         }
@@ -1900,6 +1939,24 @@ actor RealtimeLiveCaptionActor {
         // lifecycle (Task C).
         lastClaimedSessionId = nil
         liveOpenedAt = nil
+        finishAllSnapshotStreams()
+    }
+
+    private func transitionToUnsupportedRealtimeRegionStop() async {
+        publishSnapshot(.statusOnly(
+            phase: .unavailable,
+            message: Self.unsupportedRealtimeRegionUserMessage
+        ))
+        lifecycle = .stopped
+        trace(
+            "phase",
+            "to=\(Self.snapshotTag(lifecycle.snapshot)) reason=unsupported_region"
+        )
+        lastClaimedSessionId = nil
+        liveOpenedAt = nil
+        pendingAudio.removeAll()
+        hasUncommittedAudio = false
+        uncommittedAudioByteCount = 0
         finishAllSnapshotStreams()
     }
 

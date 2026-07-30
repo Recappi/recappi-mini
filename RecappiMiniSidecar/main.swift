@@ -942,6 +942,7 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
     }
 
     private struct RealtimeReceiveError: Decodable {
+        let code: String?
         let message: String?
     }
 
@@ -956,6 +957,10 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
     private static let manualCommitByteThreshold = 67_200
     private static let reconnectDelays: [TimeInterval] = [1, 2, 5, 10, 30]
     private static let rateLimitReconnectDelay: TimeInterval = 30
+    private static let unsupportedRealtimeRegionCode = "unsupported_country_region_territory"
+    private static let unsupportedRealtimeRegionSidecarCode = "live_caption.unsupported_region"
+    private static let unsupportedRealtimeRegionUserMessage =
+        "OpenAI Realtime doesn't support this country/region yet. Recording still works — you can transcribe after it finishes."
 
     private let sessionID: String
     private let backendOrigin: String
@@ -1319,6 +1324,10 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
                 segmentId: "translation-current"
             )
         case "error":
+            if Self.isUnsupportedRealtimeRegionError(event.error) {
+                stopForUnsupportedRealtimeRegion(failedTask: task)
+                return
+            }
             scheduleReconnect(
                 code: "live_caption.server_error",
                 message: event.error?.message ?? "Live captions failed.",
@@ -1454,6 +1463,38 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         emitStatus(.reconnecting, message: statusMessage)
     }
 
+    private func stopForUnsupportedRealtimeRegion(failedTask: URLSessionWebSocketTask?) {
+        let taskToCancel: URLSessionWebSocketTask?
+        lock.lock()
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        if let failedTask {
+            guard let current = socket, current === failedTask else {
+                lock.unlock()
+                return
+            }
+        }
+        stopped = true
+        openTask?.cancel()
+        openTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        taskToCancel = socket
+        socket = nil
+        uncommittedAudioBytes = 0
+        lock.unlock()
+
+        taskToCancel?.cancel(with: .goingAway, reason: nil)
+        emitStatus(.stopped, message: Self.unsupportedRealtimeRegionUserMessage)
+        emitError(
+            code: Self.unsupportedRealtimeRegionSidecarCode,
+            message: Self.unsupportedRealtimeRegionUserMessage,
+            retryable: false
+        )
+    }
+
     private static func reconnectDelay(forAttempt attempt: Int, after message: String) -> TimeInterval {
         if message.localizedCaseInsensitiveContains("HTTP 429")
             || message.localizedCaseInsensitiveContains("rate limit")
@@ -1505,6 +1546,13 @@ private final class SidecarLiveCaptionStreamer: @unchecked Sendable {
         }
         let message = cleanMessage(error.localizedDescription)
         return message ?? fallback
+    }
+
+    private static func isUnsupportedRealtimeRegionError(_ error: RealtimeReceiveError?) -> Bool {
+        if error?.code == unsupportedRealtimeRegionCode {
+            return true
+        }
+        return error?.message?.localizedCaseInsensitiveContains(unsupportedRealtimeRegionCode) == true
     }
 
     private static func cleanMessage(_ raw: String?) -> String? {

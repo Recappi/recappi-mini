@@ -379,10 +379,21 @@ struct LiveCaptionFloatingPanel: View {
                          shortLabel: "Retry", systemImage: "exclamationmark.triangle.fill",
                          actionable: true)
         case .unavailable:
-            return .init(kind: kind, color: DT.systemOrange, label: "Live captions unavailable",
+            return .init(kind: kind, color: DT.systemOrange, label: liveCaptionUnavailableLabel,
                          shortLabel: "Unavailable", systemImage: "exclamationmark.octagon.fill",
                          actionable: panelState.canReconnect)
         }
+    }
+
+    private var liveCaptionUnavailableLabel: String {
+        guard let detail = liveCaptionStatusDetail else {
+            return "Live captions unavailable"
+        }
+        if detail.localizedCaseInsensitiveContains("country/region")
+            || detail.localizedCaseInsensitiveContains(RealtimeLiveCaptionActor.unsupportedRealtimeRegionCode) {
+            return "Live captions aren't available in your region"
+        }
+        return "Live captions unavailable"
     }
 
     /// Recorder diagnostic message, surfaced only as tooltip / accessibility

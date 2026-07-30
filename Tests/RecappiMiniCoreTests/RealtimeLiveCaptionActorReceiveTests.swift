@@ -101,6 +101,61 @@ final class RealtimeLiveCaptionActorReceiveTests: XCTestCase {
         XCTAssertEqual(connector.claimCallCount, 1)
     }
 
+    func testUnsupportedRealtimeRegionStopsWithoutReconnect() async {
+        let connector = MockRealtimeSessionConnector()
+        let actor = RealtimeLiveCaptionActor(
+            connector: connector,
+            language: "en",
+            mode: .transcription,
+            configuration: .init(reconnectDelays: [0.05])
+        )
+
+        await actor.start()
+        await connector.waitForClaimResolved()
+        await connector.waitForSocketOpened()
+        await Task.yield()
+        await Task.yield()
+
+        let stream = await actor.captionSnapshots()
+        let recorder = SnapshotRecorder()
+        let consumer = Task {
+            for await snapshot in stream {
+                recorder.append(snapshot)
+                if snapshot.phase == .unavailable { break }
+            }
+        }
+
+        guard let socket = connector.lastIssuedSocket else {
+            XCTFail("Expected a live socket.")
+            return
+        }
+        socket.enqueueScriptedMessage(.text("""
+            {"type":"error","error":{"code":"unsupported_country_region_territory","message":"Country, region, or territory not supported","param":null,"type":"request_forbidden"}}
+            """))
+
+        _ = await consumer.value
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        let lifecycle = await actor.lifecycleSnapshotForTesting()
+        XCTAssertEqual(
+            lifecycle,
+            .stopped,
+            "Unsupported-region Realtime errors must be terminal for live captions."
+        )
+        XCTAssertEqual(
+            connector.claimCallCount,
+            1,
+            "Unsupported-region Realtime errors must not reconnect-loop."
+        )
+        XCTAssertTrue(
+            recorder.snapshots.contains {
+                $0.phase == .unavailable
+                    && $0.message == RealtimeLiveCaptionActor.unsupportedRealtimeRegionUserMessage
+            },
+            "Unsupported-region terminal state should surface a friendly unavailable message."
+        )
+    }
+
     /// Code 1011 (server error / non-terminal) must schedule a
     /// reconnect. Pins the "transient codes recover" half of the close-
     /// code contract.

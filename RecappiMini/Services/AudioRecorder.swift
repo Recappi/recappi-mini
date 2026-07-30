@@ -1966,6 +1966,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     }
 
     var canReconnectLiveCaptions: Bool {
+        guard liveCaptionStatusPhase != .unavailable else { return false }
         if case .running(.backend, _, _) = liveCaptionState { return true }
         return uiTestMode.isEnabled && state == .recording
     }

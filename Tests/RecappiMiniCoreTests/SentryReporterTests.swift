@@ -383,6 +383,26 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testUnsupportedRealtimeRegionDoesNotCaptureSentryErrors() {
+        let unsupported = "ws.failed mode=transcription sessionId=mock generation=254 sinceOpenMs=650 cause=server.error closeCode=0 domain=RecappiMini.RealtimeServerEventError code=1 message=OpenAI Realtime WebSocket rejected with 403: {'error':{'code':'unsupported_country_region_territory','message':'Country, region, or territory not supported','param':null,'type':'request_forbidden'}}"
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: unsupported
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "ws.failed mode=transcription sessionId=mock generation=254 sinceOpenMs=650 cause=server.error closeCode=0 domain=RecappiMini.RealtimeServerEventError code=1 message=OpenAI Realtime WebSocket rejected with 403: {'error':{'code':'model_not_found','message':'Model missing','param':null,'type':'invalid_request_error'}}"
+            )
+        )
+    }
+
     func testRecordingUploadLayerNoiseKeepsOnlyCanonicalUploadFailure() {
         let errorSummary = "domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 500): upstream down"
 

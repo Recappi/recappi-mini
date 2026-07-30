@@ -511,6 +511,9 @@ private struct DiagnosticTelemetry {
         if isExpectedRealtimeClaimNetworkDrop {
             return false
         }
+        if isExpectedRealtimeUnsupportedRegion {
+            return false
+        }
         if isTransientLiveCaptionSocketDisconnect {
             return false
         }
@@ -651,6 +654,13 @@ private struct DiagnosticTelemetry {
         return fields["closeCode"] == "0"
             && fields["domain"] == NSURLErrorDomain
             && fields["code"] == String(NSURLErrorSecureConnectionFailed)
+    }
+
+    private var isExpectedRealtimeUnsupportedRegion: Bool {
+        guard category == "live-caption", operation == "ws.failed" else { return false }
+        return safeMessage.localizedCaseInsensitiveContains(
+            RealtimeLiveCaptionActor.unsupportedRealtimeRegionCode
+        )
     }
 
     private static func isTransientPOSIXSocketCode(_ code: String?) -> Bool {
