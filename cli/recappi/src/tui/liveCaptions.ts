@@ -5,7 +5,25 @@
 // contract can change without touching the TUI.
 import type { SidecarEvent, SidecarRecordingState } from "../../../packages/contracts/src/index";
 
-export type LiveCaptionStatus = "connecting" | "live" | "reconnecting" | "stopped" | "error";
+// "unsupportedRegion" is a terminal, expected state — not a failure: the
+// Realtime provider doesn't serve this country/region, so live captions can
+// never connect here. It must not reconnect and must not read as an error
+// (#282/#283); recording itself keeps working.
+export type LiveCaptionStatus =
+  | "connecting"
+  | "live"
+  | "reconnecting"
+  | "stopped"
+  | "unsupportedRegion"
+  | "error";
+
+// Sidecar error code for that state, agreed with the native/sidecar side (#282).
+export const LIVE_CAPTION_UNSUPPORTED_REGION_CODE = "live_caption.unsupported_region";
+
+export const LIVE_CAPTION_UNSUPPORTED_REGION_TITLE =
+  "Live captions aren't available in your region";
+export const LIVE_CAPTION_UNSUPPORTED_REGION_DETAIL =
+  "Recording still works — you can transcribe after it finishes.";
 
 export interface LiveCaptionLine {
   id: string;
@@ -138,6 +156,11 @@ export function sidecarToLiveCaptionEvent(event: SidecarEvent): LiveCaptionEvent
       }
       return { kind: "status", status: event.status };
     case "error":
+      // Region-unsupported is a terminal state, not a failure: surface it as a
+      // status so the UI stops reconnecting and doesn't paint it red.
+      if (event.code === LIVE_CAPTION_UNSUPPORTED_REGION_CODE) {
+        return { kind: "status", status: "unsupportedRegion" };
+      }
       return event.code.startsWith("live_caption.")
         ? { kind: "error", message: event.message }
         : null;
@@ -159,6 +182,8 @@ export function liveCaptionStatusLabel(status: LiveCaptionStatus): string {
       return "Reconnecting…";
     case "stopped":
       return "Stopped";
+    case "unsupportedRegion":
+      return "Unavailable in your region";
     case "error":
       return "Error";
   }

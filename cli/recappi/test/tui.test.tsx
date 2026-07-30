@@ -548,6 +548,37 @@ describe("views render", () => {
     expect(s.status).toBe("error");
     expect(s.error).toBe("stream dropped");
   });
+  it("maps the sidecar unsupported-region code to a terminal state, not an error", () => {
+    // #282/#283: the Realtime provider doesn't serve this region, so captions can
+    // never connect. It must read as an expected terminal state — no red error,
+    // no reconnect — while recording keeps working.
+    const event = sidecarToLiveCaptionEvent({
+      type: "error",
+      code: "live_caption.unsupported_region",
+      message: "unsupported_country_region_territory",
+    } as SidecarEvent);
+    expect(event).toEqual({ kind: "status", status: "unsupportedRegion" });
+
+    const state = liveCaptionReducer(initialLiveCaptionsState(), event!);
+    expect(state.status).toBe("unsupportedRegion");
+    expect(state.error).toBeUndefined(); // not surfaced as a failure
+
+    const frame = noAnsi(render(<LiveCaptionsView state={state} nowMs={0} />).lastFrame());
+    expect(frame).toContain("Unavailable in your region");
+    expect(frame).toContain("Live captions aren't available in your region");
+    expect(frame).toContain("Recording still works"); // the path that still works
+    expect(frame).not.toContain("Error");
+  });
+
+  it("still treats other live_caption.* sidecar errors as errors", () => {
+    const event = sidecarToLiveCaptionEvent({
+      type: "error",
+      code: "live_caption.stream_failed",
+      message: "stream dropped",
+    } as SidecarEvent);
+    expect(event).toEqual({ kind: "error", message: "stream dropped" });
+  });
+
   it("LiveCaptionsView renders status, finalized lines, and the partial", () => {
     const state: LiveCaptionsState = {
       status: "live",
