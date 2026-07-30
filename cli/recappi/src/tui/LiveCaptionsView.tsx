@@ -3,6 +3,8 @@ import { Box, Text, useInput } from "ink";
 import { displayWidth, formatClockMs, windowByHeights } from "./format";
 import { useTerminalSize } from "./terminal";
 import {
+  LIVE_CAPTION_UNSUPPORTED_REGION_DETAIL,
+  LIVE_CAPTION_UNSUPPORTED_REGION_TITLE,
   type LiveCaptionsState,
   liveCaptionStatusLabel,
 } from "./liveCaptions";
@@ -13,6 +15,8 @@ const STATUS_COLOR: Record<string, string> = {
   live: "cyan",
   reconnecting: "yellow",
   stopped: "gray",
+  // Expected terminal state, not a failure — dim, never red.
+  unsupportedRegion: "gray",
   error: "red",
 };
 
@@ -87,13 +91,21 @@ export function LiveCaptionsView({
 
       <Box marginTop={1} flexDirection="column">
         {items.length === 0 ? (
-          <Text dimColor>
-            {state.status === "error"
-              ? state.error
-                ? `Error: ${state.error}`
-                : "Live captions error"
-              : "Waiting for captions…"}
-          </Text>
+          state.status === "unsupportedRegion" ? (
+            // Terminal + honest: say why, and point at the path that still works.
+            <>
+              <Text dimColor>{LIVE_CAPTION_UNSUPPORTED_REGION_TITLE}</Text>
+              <Text dimColor>{LIVE_CAPTION_UNSUPPORTED_REGION_DETAIL}</Text>
+            </>
+          ) : (
+            <Text dimColor>
+              {state.status === "error"
+                ? state.error
+                  ? `Error: ${state.error}`
+                  : "Live captions error"
+                : "Waiting for captions…"}
+            </Text>
+          )
         ) : (
           items.slice(win.start, win.end).map((it) =>
             it.kind === "translation" ? (
