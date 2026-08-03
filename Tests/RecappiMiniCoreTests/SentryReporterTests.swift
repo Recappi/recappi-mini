@@ -245,6 +245,37 @@ final class SentryReporterTests: XCTestCase {
             )
         )
 
+        for (category, message) in [
+            (
+                "cloud",
+                "refresh.failed preserveVisibleData=true hasVisibleData=true \(errorSummary)"
+            ),
+            (
+                "cloud",
+                "local_processing.failed recordingID=local-2026-08-03_103156 action=transcriptAndSummary \(errorSummary)"
+            ),
+            (
+                "cloud",
+                "playback_audio.prepare.failed recordingID=local-2026-08-03_103156 \(errorSummary)"
+            ),
+            (
+                "cloud",
+                "job_history.load.failed recordingID=6c8ec42e-4400-425f-9701-3c1c8937d2c7 \(errorSummary)"
+            ),
+            (
+                "settings",
+                "billing.refresh.failed \(errorSummary)"
+            ),
+        ] {
+            XCTAssertFalse(
+                SentryReporter.shouldCaptureDiagnosticError(
+                    level: "error",
+                    category: category,
+                    message: message
+                )
+            )
+        }
+
         XCTAssertTrue(
             SentryReporter.shouldCaptureDiagnosticError(
                 level: "error",
@@ -258,6 +289,34 @@ final class SentryReporterTests: XCTestCase {
                 level: "error",
                 category: "cloud",
                 message: "transcription.start.failed recordingID=rec_123 \(errorSummary)"
+            )
+        )
+    }
+
+    func testCloudSignInCancellationDoesNotCaptureSentryErrors() {
+        let errorSummary = "domain=RecappiMini.RecappiSessionError code=4 message=Recappi Cloud sign-in did not finish. If you closed the browser sheet or saw an error page there, retry."
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "auth",
+                message: "oauth.failed provider=google \(errorSummary)"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "cloud",
+                message: "state.failed \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "cloud",
+                message: "state.failed domain=RecappiMini.RecappiSessionError code=4 message=Recappi Cloud sign-in returned to an unexpected callback."
             )
         )
     }
@@ -286,6 +345,45 @@ final class SentryReporterTests: XCTestCase {
                 level: "error",
                 category: "cloud",
                 message: "local_processing.failed recordingID=local-2026-06-24_092215 action=transcriptAndSummary \(errorSummary)"
+            )
+        )
+    }
+
+    func testTranscriptionStillProcessingDoesNotCaptureSentryErrors() {
+        let errorSummary = "domain=RecappiMini.SessionProcessorError code=3 message=转写仍在后台处理中，请稍后刷新云端记录"
+
+        for (category, message) in [
+            (
+                "cloud",
+                "local_processing.failed recordingID=local-2026-08-03_103156 action=transcriptAndSummary \(errorSummary)"
+            ),
+            (
+                "processing",
+                "transcription.poll.failed recording=6c8ec42e-4400-425f-9701-3c1c8937d2c7 job=73f4052d-5c9a-4b28-9c68-0d429fef83ca \(errorSummary)"
+            ),
+            (
+                "processing",
+                "process.failed dir=2026-08-03_103156 \(errorSummary)"
+            ),
+            (
+                "recording-panel",
+                "process_session.failed visible=true \(errorSummary)"
+            ),
+        ] {
+            XCTAssertFalse(
+                SentryReporter.shouldCaptureDiagnosticError(
+                    level: "error",
+                    category: category,
+                    message: message
+                )
+            )
+        }
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "processing",
+                message: "process.failed dir=2026-08-03_103156 domain=RecappiMini.SessionProcessorError code=3 message=Recappi transcription failed: upstream 500"
             )
         )
     }

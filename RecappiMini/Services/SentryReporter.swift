@@ -502,7 +502,13 @@ private struct DiagnosticTelemetry {
         if isExpectedCloudSignInRequired {
             return false
         }
+        if isExpectedCloudSignInCancellation {
+            return false
+        }
         if isExpectedCloudDisabled {
+            return false
+        }
+        if isExpectedTranscriptionStillProcessing {
             return false
         }
         if isExpectedRealtimeClaimRateLimit {
@@ -576,12 +582,52 @@ private struct DiagnosticTelemetry {
 
     private var isExpectedCloudSignInRequired: Bool {
         guard fields["domain"] == "RecappiMini.RecappiSessionError",
-              fields["code"] == "3" else {
+              fields["code"] == "3",
+              safeMessage.localizedCaseInsensitiveContains("Sign in to Recappi Cloud in Settings") else {
             return false
         }
 
         switch (category, operation) {
-        case ("processing", "process.failed"),
+        case ("cloud", "refresh.failed"),
+             ("cloud", "local_processing.failed"),
+             ("cloud", "playback_audio.prepare.failed"),
+             ("cloud", "job_history.load.failed"),
+             ("settings", "billing.refresh.failed"),
+             ("processing", "process.failed"),
+             ("recording-panel", "process_session.failed"):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var isExpectedCloudSignInCancellation: Bool {
+        guard fields["domain"] == "RecappiMini.RecappiSessionError",
+              fields["code"] == "4",
+              safeMessage.localizedCaseInsensitiveContains("sign-in did not finish") else {
+            return false
+        }
+
+        switch (category, operation) {
+        case ("auth", "oauth.failed"),
+             ("cloud", "state.failed"):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var isExpectedTranscriptionStillProcessing: Bool {
+        guard fields["domain"] == "RecappiMini.SessionProcessorError",
+              fields["code"] == "3",
+              safeMessage.localizedCaseInsensitiveContains("转写仍在后台处理中") else {
+            return false
+        }
+
+        switch (category, operation) {
+        case ("cloud", "local_processing.failed"),
+             ("processing", "transcription.poll.failed"),
+             ("processing", "process.failed"),
              ("recording-panel", "process_session.failed"):
             return true
         default:
