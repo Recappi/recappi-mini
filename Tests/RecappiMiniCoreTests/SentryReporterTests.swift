@@ -293,6 +293,42 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testCloudSessionExpiredDoesNotCaptureRealtimeClaimSentryErrors() {
+        let errorSummary = "domain=RecappiMini.RecappiAPIError code=3 message=Recappi Cloud session expired. Sign in again to continue."
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=POST path=/api/openai/realtime/sessions \(errorSummary)"
+            )
+        )
+
+        XCTAssertFalse(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "live-caption",
+                message: "claim.failed mode=transcription attempt=0 \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed attempts=1 method=GET path=/api/recordings \(errorSummary)"
+            )
+        )
+
+        XCTAssertTrue(
+            SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "cloud",
+                message: "refresh.failed preserveVisibleData=true hasVisibleData=true \(errorSummary)"
+            )
+        )
+    }
+
     func testCloudSignInCancellationDoesNotCaptureSentryErrors() {
         let errorSummary = "domain=RecappiMini.RecappiSessionError code=4 message=Recappi Cloud sign-in did not finish. If you closed the browser sheet or saw an error page there, retry."
 

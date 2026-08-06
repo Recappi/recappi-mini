@@ -502,6 +502,9 @@ private struct DiagnosticTelemetry {
         if isExpectedCloudSignInRequired {
             return false
         }
+        if isExpectedCloudSessionExpired {
+            return false
+        }
         if isExpectedCloudSignInCancellation {
             return false
         }
@@ -595,6 +598,23 @@ private struct DiagnosticTelemetry {
              ("settings", "billing.refresh.failed"),
              ("processing", "process.failed"),
              ("recording-panel", "process_session.failed"):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var isExpectedCloudSessionExpired: Bool {
+        guard fields["domain"] == "RecappiMini.RecappiAPIError",
+              fields["code"] == "3",
+              safeMessage.localizedCaseInsensitiveContains("Cloud session expired") else {
+            return false
+        }
+
+        switch (category, operation) {
+        case ("network", "request.failed"):
+            return fields["path"] == "/api/openai/realtime/sessions"
+        case ("live-caption", "claim.failed"):
             return true
         default:
             return false
