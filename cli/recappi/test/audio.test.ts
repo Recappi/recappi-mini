@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { RecappiApiClient } from "../src/api";
-import { createRecordingAudioRuntime, openPath, revealInFinder } from "../src/audio";
+import { createRecordingAudioRuntime, openPath, revealPath } from "../src/audio";
 import { openCliStore } from "../src/store";
 
 type SpawnFn = typeof import("node:child_process").spawn;
@@ -151,7 +151,7 @@ describe("recording audio runtime", () => {
     }) as unknown as SpawnFn;
 
     await openPath("/tmp/design-review.wav", { platform: "darwin", spawnProcess });
-    await revealInFinder("/tmp/design-review.wav", { platform: "darwin", spawnProcess });
+    await revealPath("/tmp/design-review.wav", { platform: "darwin", spawnProcess });
 
     expect(spawnProcess).toHaveBeenNthCalledWith(1, "open", ["/tmp/design-review.wav"], {
       stdio: "ignore",
@@ -161,9 +161,43 @@ describe("recording audio runtime", () => {
     });
   });
 
-  it("reports open/reveal as macOS-only", async () => {
-    await expect(openPath("/tmp/design-review.wav", { platform: "linux" })).rejects.toMatchObject({
-      descriptor: { code: "usage.invalid_argument" },
+  it("opens and reveals local files through Windows Explorer", async () => {
+    const spawnProcess = vi.fn((_cmd, _args, _opts) => {
+      const child = new EventEmitter() as ChildProcess;
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    }) as unknown as SpawnFn;
+    const localPath = String.raw`C:\Users\Ada\Recappi\design review.wav`;
+
+    await openPath(localPath, { platform: "win32", spawnProcess });
+    await revealPath(localPath, { platform: "win32", spawnProcess });
+
+    expect(spawnProcess).toHaveBeenNthCalledWith(1, "explorer.exe", [localPath], {
+      stdio: "ignore",
+    });
+    expect(spawnProcess).toHaveBeenNthCalledWith(2, "explorer.exe", ["/select,", localPath], {
+      stdio: "ignore",
+    });
+  });
+
+  it("opens local files and their containing folder through xdg-open", async () => {
+    const spawnProcess = vi.fn((_cmd, _args, _opts) => {
+      const child = new EventEmitter() as ChildProcess;
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    }) as unknown as SpawnFn;
+
+    await openPath("/tmp/recappi/design-review.wav", { platform: "linux", spawnProcess });
+    await revealPath("/tmp/recappi/design-review.wav", { platform: "linux", spawnProcess });
+
+    expect(spawnProcess).toHaveBeenNthCalledWith(
+      1,
+      "xdg-open",
+      ["/tmp/recappi/design-review.wav"],
+      { stdio: "ignore" },
+    );
+    expect(spawnProcess).toHaveBeenNthCalledWith(2, "xdg-open", ["/tmp/recappi"], {
+      stdio: "ignore",
     });
   });
 });

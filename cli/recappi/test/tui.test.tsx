@@ -460,6 +460,8 @@ describe("views render", () => {
     expect(frame).toContain("Ready");
     expect(frame).toContain("o open");
     expect(frame).toContain("d download");
+    expect(frame).toContain("f reveal");
+    expect(frame).not.toContain("f finder");
   });
   it("RecordingDetailView renders the audio download state", () => {
     const { lastFrame } = render(
@@ -1291,7 +1293,7 @@ describe("AppShell (interactive)", () => {
     const fetchTranscript = vi.fn().mockResolvedValue(transcript);
     const fetchRecordings = vi.fn().mockResolvedValue(recData);
     const openUrl = vi.fn();
-    const copyText = vi.fn();
+    const copyText = vi.fn().mockReturnValue(true);
     const r = render(
       <AppShell
         fetchJobs={fetchJobs}
@@ -1440,6 +1442,45 @@ describe("AppShell (interactive)", () => {
     await flush();
     expect(onExportRecording).toHaveBeenCalledWith("rec_1");
     expect(copyText).toHaveBeenCalledWith("/tmp/Recappi Mini/rec_1/transcript.md");
+    expect(noAnsi(lastFrame())).toContain("path copied");
+    unmount();
+  });
+
+  it("does not claim an exported path was copied when clipboard support is unavailable", async () => {
+    const textPath = "/tmp/Recappi Mini/rec_1/transcript.md";
+    const onExportRecording = vi.fn().mockResolvedValue({
+      recordingId: "rec_1",
+      sessionDir: "/tmp/Recappi Mini/rec_1",
+      textPath,
+    });
+    const { stdin, lastFrame, unmount } = setup({
+      onExportRecording,
+      copyText: vi.fn().mockReturnValue(false),
+    });
+    await flush();
+    stdin.write(ENTER);
+    await flush();
+    stdin.write("e");
+    await flush();
+    const frame = noAnsi(lastFrame());
+    expect(frame).toContain(`Exported · ${textPath}`);
+    expect(frame).not.toContain("path copied");
+    unmount();
+  });
+
+  it("shows the link when clipboard support is unavailable instead of claiming success", async () => {
+    const { stdin, lastFrame, unmount } = setup({
+      copyText: vi.fn().mockReturnValue(false),
+    });
+    await flush();
+    stdin.write(ENTER);
+    await flush();
+    stdin.write("c");
+    await flush();
+    const frame = noAnsi(lastFrame());
+    expect(frame).toContain("Copy unavailable");
+    expect(frame).toContain("https://recordmeet.ing/recordings/rec_1");
+    expect(frame).not.toContain("Link copied");
     unmount();
   });
 
