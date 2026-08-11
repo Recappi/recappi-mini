@@ -98,6 +98,13 @@ describe("recappi CLI contract", () => {
     );
     expect(windowsAudio.capabilities).toContain("Reveal in File Explorer");
 
+    const windowsAudioHelp = await run(["audio", "--help"], { platform: "win32" });
+    expect(windowsAudioHelp.exitCode).toBe(0);
+    expect(windowsAudioHelp.stdout.replace(/\s+/g, " ")).toContain(
+      "reveal the audio file in File Explorer",
+    );
+    expect(windowsAudioHelp.stdout).not.toContain("Finder");
+
     const macOSHelp = await run(["auth", "--help"], { platform: "darwin" });
     expect(macOSHelp.exitCode).toBe(0);
     expect(macOSHelp.stdout).toContain("import-macos");

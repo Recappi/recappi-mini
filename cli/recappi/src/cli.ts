@@ -1176,7 +1176,7 @@ Agent mode:
     .option("--open", "download if needed, then open the audio file")
     .option(
       "--reveal",
-      `download if needed, then reveal the audio file in ${fileManagerName()}`,
+      `download if needed, then reveal the audio file in ${fileManagerName(platform)}`,
     )
     .option(
       "--output-dir <dir>",
