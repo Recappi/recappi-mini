@@ -36,6 +36,7 @@ import type {
   RecordingSource,
 } from "../recordingCore";
 import type { TabKey } from "./chrome";
+import { clipboardCommand, openTargetCommand } from "../platform";
 
 export { AppShell } from "./AppShell";
 export { JobsView } from "./JobsView";
@@ -114,19 +115,19 @@ export const DASHBOARD_RENDER_OPTIONS = {
 // Open a URL in the OS default handler. Best-effort; failures are swallowed so a
 // missing opener never crashes the dashboard.
 function openUrl(url: string): void {
-  const cmd =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+  const spec = openTargetCommand(url);
   try {
-    spawn(cmd, [url], { stdio: "ignore", detached: true }).unref();
+    spawn(spec.command, spec.args, { stdio: "ignore", detached: true }).unref();
   } catch {
     /* ignore */
   }
 }
 
 function copyText(text: string): void {
-  if (process.platform !== "darwin") return; // pbcopy is macOS; other platforms TODO
+  const spec = clipboardCommand();
+  if (!spec) return;
   try {
-    const child = spawn("pbcopy", { stdio: ["pipe", "ignore", "ignore"] });
+    const child = spawn(spec.command, spec.args, { stdio: ["pipe", "ignore", "ignore"] });
     child.stdin.end(text);
   } catch {
     /* ignore */

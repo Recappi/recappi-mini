@@ -47,6 +47,7 @@ export interface RecappiApiClientOptions {
   sleep?: (ms: number) => Promise<void>;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
+  platform?: NodeJS.Platform;
 }
 
 export interface UploadOptions {
@@ -212,6 +213,7 @@ export class RecappiApiClient {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly env: NodeJS.ProcessEnv;
   private readonly homeDir?: string;
+  private readonly platform: NodeJS.Platform;
 
   constructor(
     private readonly auth: AuthContext,
@@ -221,6 +223,7 @@ export class RecappiApiClient {
     this.sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.env = opts.env ?? process.env;
     this.homeDir = opts.homeDir;
+    this.platform = opts.platform ?? process.platform;
   }
 
   async authStatus(): Promise<AuthStatusData> {
@@ -299,17 +302,26 @@ export class RecappiApiClient {
       }
     }
 
-    const keychain = await inspectMacOSAppKeychain({ env: this.env });
-    checks.push({
-      name: "auth.macos_keychain",
-      status: keychain.status === "error" ? "warn" : "ok",
-      message: keychain.message,
-      ...(keychain.status === "ok"
-        ? { hint: "Run recappi auth import-macos to copy this app session into CLI config." }
-        : keychain.hint
-          ? { hint: keychain.hint }
-          : {}),
-    });
+    if (this.platform === "darwin") {
+      const keychain = await inspectMacOSAppKeychain({ env: this.env, platform: this.platform });
+      checks.push({
+        name: "auth.macos_keychain",
+        status: keychain.status === "error" ? "warn" : "ok",
+        message: keychain.message,
+        ...(keychain.status === "ok"
+          ? { hint: "Run recappi auth import-macos to copy this app session into CLI config." }
+          : keychain.hint
+            ? { hint: keychain.hint }
+            : {}),
+      });
+    } else {
+      checks.push({
+        name: "auth.platform",
+        status: "ok",
+        message: "CLI sign-in uses device-code login or RECAPPI_AUTH_TOKEN on this platform.",
+        hint: "Run recappi auth login for interactive sign-in.",
+      });
+    }
 
     checks.push({
       name: "audio.wav",

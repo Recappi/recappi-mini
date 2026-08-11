@@ -3,6 +3,7 @@ import os from "node:os";
 import { promisify } from "node:util";
 import { saveAuthConfig, validateOrigin } from "./auth";
 import { cliError } from "./errors";
+import { openTargetCommand } from "./platform";
 
 const execFileAsync = promisify(execFile);
 
@@ -170,15 +171,8 @@ async function pollDeviceAuth(
 }
 
 async function openUrlWithSystemBrowser(url: string): Promise<void> {
-  if (process.platform === "darwin") {
-    await execFileAsync("/usr/bin/open", [url]);
-    return;
-  }
-  if (process.platform === "win32") {
-    await execFileAsync("cmd", ["/c", "start", "", url]);
-    return;
-  }
-  await execFileAsync("xdg-open", [url]);
+  const spec = openTargetCommand(url);
+  await execFileAsync(spec.command, spec.args);
 }
 
 function stringField(value: unknown, name: string): string {

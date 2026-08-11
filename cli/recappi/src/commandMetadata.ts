@@ -1,3 +1,5 @@
+import { fileManagerName } from "./platform";
+
 export interface CommandExampleDoc {
   description: string;
   command: string;
@@ -13,6 +15,8 @@ export interface CommonTaskDoc {
   label: string;
   command: string;
 }
+
+const FILE_MANAGER_NAME = fileManagerName();
 
 export const COMMON_TASKS: CommonTaskDoc[] = [
   { label: "Record audio + live captions", command: "recappi record --live" },
@@ -44,7 +48,10 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
       { description: "Start device-code sign-in", command: "recappi auth login" },
       { description: "Print the login URL without opening a browser", command: "recappi auth login --no-open" },
     ],
-    relatedCommands: ["auth status", "auth import-macos"],
+    relatedCommands:
+      process.platform === "darwin"
+        ? ["auth status", "auth import-macos"]
+        : ["auth status"],
   },
   "auth logout": {
     capabilities: ["Sign the CLI out and clear stored token"],
@@ -62,7 +69,11 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
     relatedCommands: ["auth status", "dashboard stats"],
   },
   doctor: {
-    capabilities: ["Diagnose auth, cloud connectivity, local audio/TCC permissions"],
+    capabilities: [
+      process.platform === "darwin"
+        ? "Diagnose auth, cloud connectivity, local audio/TCC permissions"
+        : "Diagnose auth, cloud connectivity, and local audio support",
+    ],
     examples: [{ description: "Check setup health", command: "recappi doctor" }],
     relatedCommands: ["auth status", "record"],
   },
@@ -106,11 +117,14 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
     relatedCommands: ["recordings list", "transcript get"],
   },
   audio: {
-    capabilities: ["Download audio", "Open in default player", "Reveal in Finder"],
+    capabilities: ["Download audio", "Open in default player", `Reveal in ${FILE_MANAGER_NAME}`],
     examples: [
       { description: "Download and open audio", command: "recappi audio <recordingId> --open" },
       { description: "Download audio and print the local path", command: "recappi audio <recordingId> --download" },
-      { description: "Reveal downloaded audio in Finder", command: "recappi audio <recordingId> --reveal" },
+      {
+        description: `Reveal downloaded audio in ${FILE_MANAGER_NAME}`,
+        command: "recappi audio <recordingId> --reveal",
+      },
     ],
     relatedCommands: ["recordings list", "recordings get"],
   },

@@ -70,6 +70,13 @@ export function requireToken(ctx: AuthContext): string {
   return ctx.token;
 }
 
+export function signInHint(platform: NodeJS.Platform = process.platform): string {
+  if (platform === "darwin") {
+    return "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.";
+  }
+  return "Run recappi auth login.";
+}
+
 export function validateOrigin(value: string): string {
   let url: URL;
   try {

@@ -6,6 +6,7 @@ import type {
   TranscriptSegment,
   TranscriptSummary,
 } from "../../../packages/contracts/src/index";
+import { fileManagerName } from "../platform";
 import {
   displayWidth,
   formatAge,
@@ -19,8 +20,8 @@ import {
 import { recordingTitle } from "./RecordingRow";
 import { useTerminalSize } from "./terminal";
 
-// View-model for the audio download/open action. The runtime (download + macOS
-// `open`) maps its progress onto this; presentation owns the shape.
+// View-model for the audio download/open action. The runtime maps its progress
+// onto this; presentation owns the shape.
 export interface AudioAction {
   status: "idle" | "downloading" | "ready" | "opening" | "error";
   localPath?: string;
@@ -250,7 +251,7 @@ function AudioActionRow({
         <Text color="cyan">d</Text>
         <Text dimColor> download · </Text>
         <Text color="cyan">f</Text>
-        <Text dimColor> reveal in Finder</Text>
+        <Text dimColor>{` reveal in ${fileManagerName()}`}</Text>
       </Text>
     );
   }

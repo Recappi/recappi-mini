@@ -1045,7 +1045,7 @@ export function AppShell({
     [onSyncRecordingAudio, rememberSessionDir],
   );
 
-  // Open the local session folder in Finder so the on-disk files (transcript.md,
+  // Open the local session folder so the on-disk files (transcript.md,
   // summary.md, audio, handoff.md) are one keystroke away.
   const openLocalFolder = useCallback(
     async (recordingId: string) => {
@@ -1291,7 +1291,7 @@ export function AppShell({
   const setAudio = (recordingId: string, action: AudioAction) =>
     setAudioCache((m) => new Map(m).set(recordingId, action));
   const runAudio = useCallback(
-    async (recordingId: string, mode: "open" | "download" | "finder") => {
+    async (recordingId: string, mode: "open" | "download" | "reveal") => {
       if (!recordingAudio) {
         setNotice("Audio actions are not available");
         return;
@@ -1302,9 +1302,9 @@ export function AppShell({
         if (mode === "open") {
           setAudio(recordingId, { status: "opening", localPath });
           await recordingAudio.openPath(localPath);
-        } else if (mode === "finder") {
+        } else if (mode === "reveal") {
           setAudio(recordingId, { status: "opening", localPath });
-          await recordingAudio.revealInFinder(localPath);
+          await recordingAudio.revealPath(localPath);
         }
         setAudio(recordingId, { status: "ready", localPath });
         void refreshDownloadedIds(); // reflect the new local download in the list
@@ -1465,7 +1465,7 @@ export function AppShell({
         // legacy download-to-cache path.
         if (onSyncRecordingAudio) void syncRecordingAudio(rec.recordingId);
         else void runAudio(rec.recordingId, "download");
-      } else if (input === "f" && rec) void runAudio(rec.recordingId, "finder");
+      } else if (input === "f" && rec) void runAudio(rec.recordingId, "reveal");
       else if (input === "l" && rec) void openLocalFolder(rec.recordingId);
       else if (input === "w" && links.webUrl) openUrl?.(links.webUrl);
       else if (input === "c" && links.webUrl) {

@@ -13,6 +13,7 @@ import {
   requireToken,
   resolveAuthContext,
   saveAuthConfig,
+  signInHint,
 } from "./auth";
 import { loginWithDeviceCode } from "./auth-login";
 import { RecappiApiClient, type AskCitation } from "./api";
@@ -40,6 +41,7 @@ import {
   type RecordRuntimeDeps,
 } from "./record";
 import { recordingArtifactFromRecordData } from "./recordingCore";
+import { fileManagerName } from "./platform";
 
 const DASHBOARD_RECORDINGS_PAGE_SIZE = 50;
 
@@ -110,6 +112,7 @@ export interface CliDeps {
   openUrl?: (url: string) => Promise<void>;
   runDashboard?: (deps: RunDashboardDeps) => Promise<void>;
   recordRuntime?: RecordRuntimeDeps;
+  platform?: NodeJS.Platform;
 }
 
 interface GlobalOptions {
@@ -155,12 +158,14 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       origin: parsed.options.origin,
       env: deps.env,
       homeDir: deps.homeDir,
+      platform: deps.platform,
     });
     let client = new RecappiApiClient(auth, {
       fetchImpl: deps.fetchImpl,
       sleep: deps.sleep,
       env: deps.env,
       homeDir: deps.homeDir,
+      platform: deps.platform,
     });
 
     if (parsed.kind === "dashboard") {
@@ -180,12 +185,14 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
           origin: parsed.options.origin,
           env: deps.env,
           homeDir: deps.homeDir,
+          platform: deps.platform,
         });
         client = new RecappiApiClient(auth, {
           fetchImpl: deps.fetchImpl,
           sleep: deps.sleep,
           env: deps.env,
           homeDir: deps.homeDir,
+          platform: deps.platform,
         });
         status = await client.authStatus();
       }
@@ -197,6 +204,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         account,
         env: deps.env,
         homeDir: deps.homeDir,
+        platform: deps.platform,
       });
       const runDashboard = deps.runDashboard ?? (await import("./tui")).runDashboard;
       await runDashboard({
@@ -229,7 +237,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
           const liveStatus = await client.authStatus();
           if (!liveStatus.loggedIn || !liveStatus.userId) {
             throw cliError("auth.not_logged_in", "Sign in before starting a sidecar recording.", {
-              hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
+              hint: signInHint(deps.platform),
             });
           }
           return startLiveRecordSession(
@@ -347,7 +355,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       return 0;
     }
     if (parsed.kind === "auth-import-macos") {
-      const keychain = await inspectMacOSAppKeychain({ env: deps.env });
+      const keychain = await inspectMacOSAppKeychain({ env: deps.env, platform: deps.platform });
       if (!keychain.token) {
         throw cliError("auth.not_logged_in", keychain.message, {
           hint: keychain.hint ?? "Run recappi auth login instead.",
@@ -406,7 +414,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       const status = await client.authStatus();
       if (!status.loggedIn || !status.userId) {
         throw cliError("auth.not_logged_in", "Sign in before starting a sidecar recording.", {
-          hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
+          hint: signInHint(deps.platform),
         });
       }
       const translationLanguage =
@@ -445,13 +453,14 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       const status = await client.authStatus();
       if (!status.loggedIn || !status.userId) {
         throw cliError("auth.not_logged_in", "Sign in before using local audio actions.", {
-          hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
+          hint: signInHint(deps.platform),
         });
       }
       const recordingAudio = createRecordingAudioRuntime(client, {
         account: { backendOrigin: auth.origin, userId: status.userId },
         env: deps.env,
         homeDir: deps.homeDir,
+        platform: deps.platform,
       });
       const download = await recordingAudio.downloadRecordingAudioFile(
         parsed.recordingId,
@@ -460,7 +469,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       if (parsed.action === "open") {
         await recordingAudio.openPath(download.localPath);
       } else if (parsed.action === "reveal") {
-        await recordingAudio.revealInFinder(download.localPath);
+        await recordingAudio.revealPath(download.localPath);
       }
       renderSuccess(
         "audio",
@@ -515,13 +524,14 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       const status = await client.authStatus();
       if (!status.loggedIn || !status.userId) {
         throw cliError("auth.not_logged_in", "Sign in before exporting a recording bundle.", {
-          hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
+          hint: signInHint(deps.platform),
         });
       }
       const recordingAudio = createRecordingAudioRuntime(client, {
         account: { backendOrigin: auth.origin, userId: status.userId },
         env: deps.env,
         homeDir: deps.homeDir,
+        platform: deps.platform,
       });
       const data = await exportRecording({
         recordingId: parsed.recordingId,
@@ -1156,7 +1166,10 @@ Agent mode:
     .argument("<recording-id>", "recording id")
     .option("--download", "download audio and print the local path")
     .option("--open", "download if needed, then open the audio file")
-    .option("--reveal", "download if needed, then reveal the audio file in Finder")
+    .option(
+      "--reveal",
+      `download if needed, then reveal the audio file in ${fileManagerName()}`,
+    )
     .option(
       "--output-dir <dir>",
       "directory for downloaded audio",
