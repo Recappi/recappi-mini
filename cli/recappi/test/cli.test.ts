@@ -80,10 +80,23 @@ describe("recappi CLI contract", () => {
       platform: "win32",
     });
     expect(windowsSchema.exitCode).toBe(0);
-    const windowsCommands = JSON.parse(windowsSchema.stdout).data.commands.map(
+    expect(windowsSchema.stdout).not.toContain("auth import-macos");
+    const windowsDocument = JSON.parse(windowsSchema.stdout).data;
+    const windowsCommands = windowsDocument.commands.map(
       (command: { name: string }) => command.name,
     );
     expect(windowsCommands).not.toContain("auth import-macos");
+    const windowsDoctor = windowsDocument.commands.find(
+      (command: { name: string }) => command.name === "doctor",
+    );
+    expect(windowsDoctor.capabilities).toContain(
+      "Diagnose auth, cloud connectivity, and local audio support",
+    );
+    expect(windowsDoctor.capabilities.join(" ")).not.toContain("TCC");
+    const windowsAudio = windowsDocument.commands.find(
+      (command: { name: string }) => command.name === "audio",
+    );
+    expect(windowsAudio.capabilities).toContain("Reveal in File Explorer");
 
     const macOSHelp = await run(["auth", "--help"], { platform: "darwin" });
     expect(macOSHelp.exitCode).toBe(0);

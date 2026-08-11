@@ -16,8 +16,6 @@ export interface CommonTaskDoc {
   command: string;
 }
 
-const FILE_MANAGER_NAME = fileManagerName();
-
 export const COMMON_TASKS: CommonTaskDoc[] = [
   { label: "Record audio + live captions", command: "recappi record --live" },
   { label: "Transcribe a local file", command: "recappi upload <file> --transcribe --wait" },
@@ -34,7 +32,7 @@ export const COMMON_TASKS: CommonTaskDoc[] = [
   { label: "Diagnose auth / audio setup", command: "recappi doctor" },
 ];
 
-export const COMMAND_METADATA: Record<string, CommandMetadata> = {
+const COMMAND_METADATA: Record<string, CommandMetadata> = {
   "auth import-macos": {
     capabilities: ["Reuse the macOS app's signed-in session for the CLI"],
     examples: [
@@ -48,10 +46,7 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
       { description: "Start device-code sign-in", command: "recappi auth login" },
       { description: "Print the login URL without opening a browser", command: "recappi auth login --no-open" },
     ],
-    relatedCommands:
-      process.platform === "darwin"
-        ? ["auth status", "auth import-macos"]
-        : ["auth status"],
+    relatedCommands: ["auth status"],
   },
   "auth logout": {
     capabilities: ["Sign the CLI out and clear stored token"],
@@ -69,11 +64,7 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
     relatedCommands: ["auth status", "dashboard stats"],
   },
   doctor: {
-    capabilities: [
-      process.platform === "darwin"
-        ? "Diagnose auth, cloud connectivity, local audio/TCC permissions"
-        : "Diagnose auth, cloud connectivity, and local audio support",
-    ],
+    capabilities: ["Diagnose auth, cloud connectivity, and local audio support"],
     examples: [{ description: "Check setup health", command: "recappi doctor" }],
     relatedCommands: ["auth status", "record"],
   },
@@ -117,12 +108,12 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
     relatedCommands: ["recordings list", "transcript get"],
   },
   audio: {
-    capabilities: ["Download audio", "Open in default player", `Reveal in ${FILE_MANAGER_NAME}`],
+    capabilities: ["Download audio", "Open in default player", "Reveal in file manager"],
     examples: [
       { description: "Download and open audio", command: "recappi audio <recordingId> --open" },
       { description: "Download audio and print the local path", command: "recappi audio <recordingId> --download" },
       {
-        description: `Reveal downloaded audio in ${FILE_MANAGER_NAME}`,
+        description: "Reveal downloaded audio in file manager",
         command: "recappi audio <recordingId> --reveal",
       },
     ],
@@ -236,6 +227,46 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
   },
 };
 
+export function commandMetadataForPlatform(
+  commandName: string,
+  platform: NodeJS.Platform = process.platform,
+): CommandMetadata | undefined {
+  const metadata = COMMAND_METADATA[commandName];
+  if (!metadata) return undefined;
+  if (commandName === "auth login") {
+    return {
+      ...metadata,
+      relatedCommands:
+        platform === "darwin"
+          ? ["auth status", "auth import-macos"]
+          : ["auth status"],
+    };
+  }
+  if (commandName === "doctor") {
+    return {
+      ...metadata,
+      capabilities: [
+        platform === "darwin"
+          ? "Diagnose auth, cloud connectivity, local audio/TCC permissions"
+          : "Diagnose auth, cloud connectivity, and local audio support",
+      ],
+    };
+  }
+  if (commandName === "audio") {
+    const manager = fileManagerName(platform);
+    return {
+      ...metadata,
+      capabilities: ["Download audio", "Open in default player", `Reveal in ${manager}`],
+      examples: metadata.examples.map((example) =>
+        example.command.endsWith("--reveal")
+          ? { ...example, description: `Reveal downloaded audio in ${manager}` }
+          : example,
+      ),
+    };
+  }
+  return metadata;
+}
+
 export function commonTasksHelpText(): string {
   return [
     "Common tasks:",
@@ -243,8 +274,11 @@ export function commonTasksHelpText(): string {
   ].join("\n");
 }
 
-export function commandMetadataHelpText(commandName: string): string {
-  const metadata = COMMAND_METADATA[commandName];
+export function commandMetadataHelpText(
+  commandName: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const metadata = commandMetadataForPlatform(commandName, platform);
   if (!metadata) return "";
   const lines: string[] = [];
   if (metadata.examples.length > 0) {

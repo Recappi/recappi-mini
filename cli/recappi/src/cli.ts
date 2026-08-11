@@ -993,7 +993,7 @@ Agent mode:
     .command("login")
     .description("Sign in to Recappi Cloud with a device code")
     .option("--no-open", "print the device URL without opening a browser")
-    .addHelpText("after", commandMetadataHelpText("auth login"));
+    .addHelpText("after", commandMetadataHelpText("auth login", platform));
   addCommonOptions(authLogin);
   authLogin.action((opts: AuthLoginCommanderOptions, command: Command) => {
     onSelect({
@@ -1183,7 +1183,7 @@ Agent mode:
       "directory for downloaded audio",
       parseStringOption("--output-dir"),
     )
-    .addHelpText("after", commandMetadataHelpText("audio"));
+    .addHelpText("after", commandMetadataHelpText("audio", platform));
   addCommonOptions(audio);
   audio.action((recordingId: string, opts: AudioCommanderOptions, command: Command) => {
     onSelect({
@@ -1206,7 +1206,7 @@ Agent mode:
       kind: "schema",
       options: collectGlobalOptions(command),
       commandName: "schema",
-      document: buildSchemaDocument(program),
+      document: buildSchemaDocument(program, platform),
     });
   });
 
