@@ -130,7 +130,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
   let parsed: ParsedCommand | null = null;
 
   try {
-    parsed = parseArgv(argv, isTTY);
+    parsed = parseArgv(argv, isTTY, deps.platform ?? process.platform);
     if (parsed.kind === "help") {
       stdout(parsed.helpText);
       return 0;
@@ -750,10 +750,15 @@ type ParsedCommand =
       model?: string;
     };
 
-function parseArgv(argv: string[], isTTY: boolean): ParsedCommand {
+function parseArgv(
+  argv: string[],
+  isTTY: boolean,
+  platform: NodeJS.Platform = process.platform,
+): ParsedCommand {
   let selected: ParsedCommand | null = null;
   let helpText = "";
   const program = buildProgram({
+    platform,
     onHelpOutput: (text) => {
       helpText += text;
     },
@@ -868,6 +873,7 @@ function dashboardCommand(
 }
 
 interface BuildProgramOptions {
+  platform: NodeJS.Platform;
   onHelpOutput: (text: string) => void;
   onSelect: (command: ParsedCommand) => void;
 }
@@ -954,7 +960,7 @@ interface AskCommanderOptions extends CommanderCommonOptions {
   model?: string;
 }
 
-function buildProgram({ onHelpOutput, onSelect }: BuildProgramOptions): Command {
+function buildProgram({ platform, onHelpOutput, onSelect }: BuildProgramOptions): Command {
   const program = new Command("recappi");
   program
     .description("Recappi Cloud command line interface")
@@ -1011,18 +1017,20 @@ Agent mode:
     });
   });
 
-  const authImportMacOS = auth
-    .command("import-macos")
-    .description("Copy the Recappi Mini macOS app session into CLI config")
-    .addHelpText("after", commandMetadataHelpText("auth import-macos"));
-  addCommonOptions(authImportMacOS);
-  authImportMacOS.action((_options: CommanderCommonOptions, command: Command) => {
-    onSelect({
-      kind: "auth-import-macos",
-      options: collectGlobalOptions(command),
-      commandName: "auth import-macos",
+  if (platform === "darwin") {
+    const authImportMacOS = auth
+      .command("import-macos")
+      .description("Copy the Recappi Mini macOS app session into CLI config")
+      .addHelpText("after", commandMetadataHelpText("auth import-macos"));
+    addCommonOptions(authImportMacOS);
+    authImportMacOS.action((_options: CommanderCommonOptions, command: Command) => {
+      onSelect({
+        kind: "auth-import-macos",
+        options: collectGlobalOptions(command),
+        commandName: "auth import-macos",
+      });
     });
-  });
+  }
 
   const authStatus = auth
     .command("status")

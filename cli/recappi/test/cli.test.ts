@@ -71,6 +71,25 @@ describe("recappi CLI contract", () => {
     expect(result.stdout).toContain("--json");
   });
 
+  it("only advertises the macOS auth import command on macOS", async () => {
+    const windowsHelp = await run(["auth", "--help"], { platform: "win32" });
+    expect(windowsHelp.exitCode).toBe(0);
+    expect(windowsHelp.stdout).not.toContain("import-macos");
+
+    const windowsSchema = await run(["schema", "--json", "--compact"], {
+      platform: "win32",
+    });
+    expect(windowsSchema.exitCode).toBe(0);
+    const windowsCommands = JSON.parse(windowsSchema.stdout).data.commands.map(
+      (command: { name: string }) => command.name,
+    );
+    expect(windowsCommands).not.toContain("auth import-macos");
+
+    const macOSHelp = await run(["auth", "--help"], { platform: "darwin" });
+    expect(macOSHelp.exitCode).toBe(0);
+    expect(macOSHelp.stdout).toContain("import-macos");
+  });
+
   it("points agents at the machine-readable schema from root help", async () => {
     const result = await run(["--help"]);
     expect(result.exitCode).toBe(0);
@@ -2008,6 +2027,7 @@ async function run(
     openUrl?: CliDeps["openUrl"];
     runDashboard?: CliDeps["runDashboard"];
     recordRuntime?: RecordRuntimeDeps;
+    platform?: NodeJS.Platform;
   } = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   let stdout = "";
@@ -2022,6 +2042,7 @@ async function run(
     openUrl: opts.openUrl,
     runDashboard: opts.runDashboard,
     recordRuntime: opts.recordRuntime,
+    platform: opts.platform,
     stdout: (text) => {
       stdout += text;
     },
