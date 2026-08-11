@@ -121,7 +121,7 @@ export interface AppShellProps {
   initialView?: TabKey;
   // Side effects, injected so tests stay pure and the component has no Node deps.
   openUrl?: (url: string) => void;
-  copyText?: (text: string) => void;
+  copyText?: (text: string) => boolean;
   now?: () => number;
   pollMs?: number;
   spinnerMs?: number;
@@ -1079,8 +1079,8 @@ export function AppShell({
       setNotice("Exporting…");
       try {
         const data = await onExportRecording(recordingId);
-        copyText?.(data.textPath);
-        setNotice(`Exported · ${data.textPath} (path copied)`);
+        const copied = copyText?.(data.textPath) ?? false;
+        setNotice(`Exported · ${data.textPath}${copied ? " (path copied)" : ""}`);
       } catch (error) {
         setNotice(transcribeHandoffErrorCopy(error));
       }
@@ -1445,8 +1445,8 @@ export function AppShell({
       else if ((input === "o" || input === "w") && links.webUrl) openUrl?.(links.webUrl);
       else if (input === "m") setNotice("Mac app deeplink not available yet");
       else if (input === "c" && links.webUrl) {
-        copyText?.(links.webUrl);
-        setNotice("Link copied");
+        const copied = copyText?.(links.webUrl) ?? false;
+        setNotice(copied ? "Link copied" : `Copy unavailable · ${links.webUrl}`);
       }
       return;
     }
@@ -1469,8 +1469,8 @@ export function AppShell({
       else if (input === "l" && rec) void openLocalFolder(rec.recordingId);
       else if (input === "w" && links.webUrl) openUrl?.(links.webUrl);
       else if (input === "c" && links.webUrl) {
-        copyText?.(links.webUrl);
-        setNotice("Link copied");
+        const copied = copyText?.(links.webUrl) ?? false;
+        setNotice(copied ? "Link copied" : `Copy unavailable · ${links.webUrl}`);
       }
       return;
     }

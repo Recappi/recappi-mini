@@ -188,7 +188,7 @@ export function RecordingDetailView({
           {ready && tab === "chapters" ? " · ↑↓ select · ⏎ jump" : ""}
           {scrollable ? " · ↑↓ scroll" : ""}
           {ready ? " · " : ""}
-          {`o open · d download · f finder`}
+          {`o open · d download · f reveal`}
           {localDir ? " · l folder" : ""}
           {" · T re-transcribe · s re-summarize · a ask · e export"}
           {item.activeTranscriptId ? " · t full" : ""}

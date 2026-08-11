@@ -1,6 +1,6 @@
 import React from "react";
 import { render, type Instance, type RenderOptions } from "ink";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import type { RecordingAudioRuntime } from "../audio";
 import type {
   AskRecordingOptions,
@@ -123,14 +123,17 @@ function openUrl(url: string): void {
   }
 }
 
-function copyText(text: string): void {
+function copyText(text: string): boolean {
   const spec = clipboardCommand();
-  if (!spec) return;
+  if (!spec) return false;
   try {
-    const child = spawn(spec.command, spec.args, { stdio: ["pipe", "ignore", "ignore"] });
-    child.stdin.end(text);
+    const result = spawnSync(spec.command, spec.args, {
+      input: text,
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    return !result.error && result.status === 0;
   } catch {
-    /* ignore */
+    return false;
   }
 }
 
