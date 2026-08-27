@@ -123,12 +123,12 @@ struct RecordingState: View {
 
     private func autoStopConfirmationRow(request: AutoStopRecordingRequest) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "video.slash")
+            Image(systemName: request.reason.systemImageName)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(DT.recordingLiveBlue)
                 .frame(width: 18, height: 28)
 
-            Text("Meeting ended?")
+            Text(request.reason.promptTitle)
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(DT.recordingGlassTextPrimary)
                 .lineLimit(1)
@@ -141,7 +141,7 @@ struct RecordingState: View {
             }
             .buttonStyle(RecordingInlineConfirmButtonStyle())
             .keyboardShortcut(.cancelAction)
-            .recappiTooltip("Keep recording even though \(request.context.promptTitle) is no longer detected")
+            .recappiTooltip(request.reason.keepTooltip(source: request.context.promptTitle))
             .accessibilityIdentifier(AccessibilityIDs.Panel.autoStopKeepButton)
 
             Button("Stop") {
@@ -408,6 +408,41 @@ private struct ConditionalPulsingModifier: ViewModifier {
             content.modifier(PulsingModifier())
         } else {
             content
+        }
+    }
+}
+
+private extension AutoStopRecordingReason {
+    var systemImageName: String {
+        switch self {
+        case .meetingEnded:
+            return "video.slash"
+        case .sourceInactive:
+            return "waveform.slash"
+        case .maxDurationReached:
+            return "timer"
+        }
+    }
+
+    var promptTitle: String {
+        switch self {
+        case .meetingEnded:
+            return "Meeting ended?"
+        case .sourceInactive:
+            return "Audio stopped?"
+        case .maxDurationReached:
+            return "Time limit reached?"
+        }
+    }
+
+    func keepTooltip(source: String) -> String {
+        switch self {
+        case .meetingEnded:
+            return "Keep recording even though \(source) is no longer detected"
+        case .sourceInactive:
+            return "Keep recording even though \(source) appears inactive"
+        case .maxDurationReached:
+            return "Keep recording past the configured limit"
         }
     }
 }

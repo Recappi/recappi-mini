@@ -2253,7 +2253,15 @@ final class AudioRecorder: NSObject, ObservableObject {
     func requestAutoStopForDetectedMeetingIfNeeded() {
         guard state == .recording, let context = detectedMeetingRecordingContext else { return }
         detectedMeetingRecordingContext = nil
-        autoStopRequest = AutoStopRecordingRequest(context: context)
+        autoStopRequest = AutoStopRecordingRequest(context: context, reason: .meetingEnded)
+    }
+
+    func requestAutoStopForRecordingAttentionIfNeeded(reason: AutoStopRecordingReason) {
+        guard state == .recording, autoStopRequest == nil else { return }
+        autoStopRequest = AutoStopRecordingRequest(
+            context: currentRecordingAttentionContext(),
+            reason: reason
+        )
     }
 
     func clearAutoStopRequest() {
@@ -2277,6 +2285,19 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         return true
+    }
+
+    private func currentRecordingAttentionContext() -> DetectedMeetingRecordingContext {
+        if let context = detectedMeetingRecordingContext {
+            return context
+        }
+
+        let fallbackAppName = recordingAppName ?? selectedApp?.name ?? "All system audio"
+        return DetectedMeetingRecordingContext(
+            appID: selectedApp?.id ?? "all-system-audio",
+            appName: fallbackAppName,
+            promptTitle: fallbackAppName
+        )
     }
 
     @discardableResult

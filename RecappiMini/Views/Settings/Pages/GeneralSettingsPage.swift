@@ -1,6 +1,29 @@
 import AppKit
 import SwiftUI
 
+private struct RecordingDurationOption: Identifiable, Hashable {
+    let minutes: Int
+    let title: String
+
+    var id: Int { minutes }
+}
+
+private let longRecordingReminderOptions: [RecordingDurationOption] = [
+    .init(minutes: 0, title: "Never"),
+    .init(minutes: 30, title: "30 min"),
+    .init(minutes: 45, title: "45 min"),
+    .init(minutes: 60, title: "1 hr"),
+    .init(minutes: 120, title: "2 hr"),
+]
+
+private let maxRecordingDurationOptions: [RecordingDurationOption] = [
+    .init(minutes: 0, title: "No limit"),
+    .init(minutes: 120, title: "2 hr"),
+    .init(minutes: 240, title: "4 hr"),
+    .init(minutes: 360, title: "6 hr"),
+    .init(minutes: 480, title: "8 hr"),
+]
+
 struct GeneralSettingsPage: View {
     @EnvironmentObject private var config: AppConfig
 
@@ -42,6 +65,29 @@ struct GeneralSettingsPage: View {
             }
 
             Section {
+                Picker("Hidden recording reminder", selection: longReminderBinding) {
+                    ForEach(longRecordingReminderOptions) { option in
+                        Text(option.title).tag(option.minutes)
+                    }
+                }
+                .accessibilityIdentifier(AccessibilityIDs.Settings.longRecordingReminderPicker)
+
+                Toggle("Suggest stop when audio goes quiet", isOn: suspectedForgottenStopBinding)
+                    .accessibilityIdentifier(AccessibilityIDs.Settings.suspectedForgottenStopToggle)
+
+                Picker("Recording limit", selection: maxDurationBinding) {
+                    ForEach(maxRecordingDurationOptions) { option in
+                        Text(option.title).tag(option.minutes)
+                    }
+                }
+                .accessibilityIdentifier(AccessibilityIDs.Settings.maxRecordingDurationPicker)
+            } footer: {
+                Text("Recappi keeps saving the recording; these prompts only bring you back when a background capture looks forgotten.")
+                    .foregroundStyle(Palette.labelSecondary)
+                    .font(.footnote)
+            }
+
+            Section {
                 LabeledContent("Recordings folder") {
                     Button("Show in Finder", action: openRecordingsFolder)
                 }
@@ -75,6 +121,27 @@ struct GeneralSettingsPage: View {
         Binding(
             get: { config.autoPromptForActiveAudioApps },
             set: { config.autoPromptForActiveAudioApps = $0 }
+        )
+    }
+
+    private var longReminderBinding: Binding<Int> {
+        Binding(
+            get: { config.recordingLongReminderMinutes },
+            set: { config.recordingLongReminderMinutes = $0 }
+        )
+    }
+
+    private var suspectedForgottenStopBinding: Binding<Bool> {
+        Binding(
+            get: { config.recordingSuspectedForgottenStopEnabled },
+            set: { config.recordingSuspectedForgottenStopEnabled = $0 }
+        )
+    }
+
+    private var maxDurationBinding: Binding<Int> {
+        Binding(
+            get: { config.recordingMaxDurationMinutes },
+            set: { config.recordingMaxDurationMinutes = $0 }
         )
     }
 
