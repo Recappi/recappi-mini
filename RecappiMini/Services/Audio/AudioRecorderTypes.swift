@@ -69,9 +69,28 @@ struct DetectedMeetingRecordingContext: Equatable, Sendable {
     }
 }
 
+enum AutoStopRecordingReason: Equatable, Sendable {
+    case meetingEnded
+    case sourceInactive
+    case maxDurationReached
+}
+
 struct AutoStopRecordingRequest: Equatable, Identifiable, Sendable {
     let id = UUID()
     let context: DetectedMeetingRecordingContext
+    let reason: AutoStopRecordingReason
+
+    init(
+        context: DetectedMeetingRecordingContext,
+        reason: AutoStopRecordingReason = .meetingEnded
+    ) {
+        self.context = context
+        self.reason = reason
+    }
+
+    static func == (lhs: AutoStopRecordingRequest, rhs: AutoStopRecordingRequest) -> Bool {
+        lhs.context == rhs.context && lhs.reason == rhs.reason
+    }
 }
 
 struct LiveCaptionRecordingConfiguration: Equatable, Sendable {

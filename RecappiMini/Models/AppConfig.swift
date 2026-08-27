@@ -138,6 +138,9 @@ final class AppConfig: ObservableObject {
     @AppStorage("recordingExtraPrompt") var recordingExtraPrompt: String = ""
     @AppStorage("recordingIncludeMicrophoneAudio") var recordingIncludeMicrophoneAudio: Bool = true
     @AppStorage("recordingMicrophoneDeviceID") var recordingMicrophoneDeviceID: String = MicrophoneInputDevice.systemDefaultID
+    @AppStorage("recordingLongReminderMinutes") var recordingLongReminderMinutes: Int = 45
+    @AppStorage("recordingSuspectedForgottenStopEnabled") var recordingSuspectedForgottenStopEnabled: Bool = true
+    @AppStorage("recordingMaxDurationMinutes") var recordingMaxDurationMinutes: Int = 0
     @Published var recordingTemplatePromptExpanded: Bool = false
     @AppStorage("appTheme") var theme: AppTheme = .light
 
@@ -160,6 +163,14 @@ final class AppConfig: ObservableObject {
             return String(base)
         }
         return "en"
+    }
+
+    var recordingAttentionSettings: RecordingAttentionSettings {
+        RecordingAttentionSettings(
+            longReminderIntervalSeconds: max(0, recordingLongReminderMinutes) * 60,
+            suspectedInactivityEnabled: recordingSuspectedForgottenStopEnabled,
+            maxDurationSeconds: max(0, recordingMaxDurationMinutes) * 60
+        )
     }
 
     private init() {

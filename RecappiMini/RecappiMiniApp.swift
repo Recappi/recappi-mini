@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
     private var statusItem: NSStatusItem?
     private var recordingDotView: NSView?
+    private var recordingStatusMenuItem: NSMenuItem?
     private var showHidePanelMenuItem: NSMenuItem?
     private var checkForUpdatesMenuItem: NSMenuItem?
     private var panel: FloatingPanel?
@@ -139,7 +140,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private var runningAppsRefreshGeneration = 0
     private var recorderStateObserver: AnyCancellable?
     private var liveCaptionSessionObserver: AnyCancellable?
+    private var recordingElapsedObserver: AnyCancellable?
     private var previousRecorderState: RecorderState = .idle
+    private var recordingAttentionPolicy = RecordingAttentionPolicy()
     private var workspaceObservers: [NSObjectProtocol] = []
     private var screenParametersObserver: NSObjectProtocol?
     private var panelTransitionToken: Int = 0
@@ -390,8 +393,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                 self.refreshSentryAppHangRenderContext()
 
                 self.notifyHiddenProcessingTransitionIfNeeded(from: previous, to: state)
+                self.handleRecordingAttentionTransition(from: previous, to: state)
                 self.handleDetectedMeetingRecordingActivity(self.effectiveActiveAudioBundleIDs)
                 self.reconcileLiveCaptionPanelPresentation()
+            }
+
+        recordingElapsedObserver = recorder.runtimeState
+            .$elapsedSeconds
+            .sink { [weak self] elapsedSeconds in
+                guard let self else { return }
+                self.handleRecordingElapsedTick(elapsedSeconds)
             }
 
         liveCaptionSessionObserver = recorder.$activeRecordingID
@@ -433,6 +444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         runningAppsRefreshTask?.cancel()
         recorderStateObserver?.cancel()
         liveCaptionSessionObserver?.cancel()
+        recordingElapsedObserver?.cancel()
         closeLiveCaptionWindow()
         let center = NSWorkspace.shared.notificationCenter
         for observer in workspaceObservers {
@@ -523,6 +535,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
         let menu = NSMenu()
         menu.delegate = self
+
+        let recordingStatus = NSMenuItem(
+            title: "Ready to Record",
+            action: #selector(showRecordingPanelFromStatusMenu),
+            keyEquivalent: ""
+        )
+        recordingStatus.target = self
+        recordingStatusMenuItem = recordingStatus
+        menu.addItem(recordingStatus)
 
         let showHide = NSMenuItem(
             title: "Show Panel",
@@ -669,8 +690,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     private func updateStatusMenuItems() {
+        recordingStatusMenuItem?.title = recordingStatusMenuTitle()
+        recordingStatusMenuItem?.isEnabled = recorder.state == .recording
         showHidePanelMenuItem?.title = panelVisible ? "Hide Panel" : "Show Panel"
         checkForUpdatesMenuItem?.isEnabled = appUpdater.canCheckForUpdates
+        updateStatusItemTooltip()
+    }
+
+    private func recordingStatusMenuTitle() -> String {
+        guard recorder.state == .recording else {
+            return "Ready to Record"
+        }
+        return "Recording \(formatRecordingElapsed(recorder.elapsedSeconds)) · \(recordingSourceDisplayName())"
+    }
+
+    private func updateStatusItemTooltip() {
+        guard let button = statusItem?.button else { return }
+        guard recorder.state == .recording else {
+            button.toolTip = "Recappi Mini"
+            return
+        }
+        button.toolTip = "Recording \(formatRecordingElapsed(recorder.elapsedSeconds)) · \(recordingSourceDisplayName())"
+    }
+
+    private func formatRecordingElapsed(_ seconds: Int) -> String {
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        let s = seconds % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%02d:%02d", m, s)
     }
 
     private func logAppLaunch() {
@@ -711,6 +759,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     @objc private func togglePanelFromStatusMenu() {
         togglePanel()
         updateStatusMenuItems()
+    }
+
+    @objc private func showRecordingPanelFromStatusMenu() {
+        showPanel(activateApp: true)
     }
 
     @objc private func openLogsFolderFromStatusMenu() {
@@ -811,7 +863,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     func hidePanel() {
         guard let panel else { return }
         guard panelTargetVisible || panel.isVisible || FloatingPanelController.isPresented(panel) else { return }
-        if recorder.state.isProcessing {
+        if recorder.state == .recording || recorder.state.isProcessing {
             requestNotificationAuthorizationIfNeeded()
         }
         panelTransitionToken += 1
@@ -1692,6 +1744,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
                 }
 
                 self.recorder.requestAutoStopForDetectedMeetingIfNeeded()
+                if !self.recordingPanelIsVisibleForAttention {
+                    self.postRecordingAttentionNotification(
+                        title: "Meeting ended?",
+                        body: "\(current.promptTitle) is no longer detected. Open Recappi Mini to stop or keep recording.",
+                        playSound: true
+                    )
+                }
                 self.detectedMeetingAutoStopTask = nil
                 return
             }
@@ -1997,6 +2056,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         UNUserNotificationCenter.current().delegate = self
     }
 
+    private func handleRecordingAttentionTransition(from previous: RecorderState, to current: RecorderState) {
+        if !previous.isRecording && current.isRecording {
+            recordingAttentionPolicy.reset()
+            handleRecordingElapsedTick(recorder.elapsedSeconds)
+        } else if previous.isRecording && !current.isRecording {
+            recordingAttentionPolicy.reset()
+            updateStatusMenuItems()
+        }
+    }
+
+    private func handleRecordingElapsedTick(_ elapsedSeconds: Int) {
+        updateStatusMenuItems()
+        guard recorder.state == .recording else { return }
+
+        let snapshot = RecordingAttentionSnapshot(
+            elapsedSeconds: elapsedSeconds,
+            isPanelVisible: recordingPanelIsVisibleForAttention,
+            activeBundleIDs: Set(effectiveActiveAudioBundleIDs.map(BundleCollapser.parent(of:))),
+            focusedSourceBundleID: focusedRecordingSourceBundleID,
+            audioLevel: recorder.audioLevel
+        )
+        let actions = recordingAttentionPolicy.actions(
+            for: snapshot,
+            settings: AppConfig.shared.recordingAttentionSettings
+        )
+
+        for action in actions {
+            handleRecordingAttention(action)
+        }
+    }
+
+    private var recordingPanelIsVisibleForAttention: Bool {
+        guard let panel else { return false }
+        return panelTargetVisible
+            && panel.isVisible
+            && FloatingPanelController.isPresented(panel)
+    }
+
+    private var focusedRecordingSourceBundleID: String? {
+        let rawID = recorder.selectedApp?.id ?? recorder.detectedMeetingRecordingContext?.appID
+        guard let rawID = rawID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawID.isEmpty,
+              rawID != "all-system-audio" else {
+            return nil
+        }
+        return BundleCollapser.parent(of: rawID)
+    }
+
+    private func recordingSourceDisplayName() -> String {
+        recorder.recordingAppName
+            ?? recorder.selectedApp?.name
+            ?? recorder.detectedMeetingRecordingContext?.appName
+            ?? "All system audio"
+    }
+
+    private func handleRecordingAttention(_ action: RecordingAttentionAction) {
+        DiagnosticsLog.event(
+            "recording-attention",
+            "action=\(action.logName) elapsedSeconds=\(recorder.elapsedSeconds) panelVisible=\(recordingPanelIsVisibleForAttention) source='\(DiagnosticsLog.sanitize(recordingSourceDisplayName(), maxLength: 80))'"
+        )
+
+        switch action {
+        case .longHiddenRecording:
+            postRecordingAttentionNotification(
+                title: "Still recording",
+                body: "\(recordingSourceDisplayName()) has been recording for \(formatRecordingElapsed(recorder.elapsedSeconds)).",
+                playSound: false
+            )
+        case .suspectedInactiveSource:
+            recorder.requestAutoStopForRecordingAttentionIfNeeded(reason: .sourceInactive)
+            if !recordingPanelIsVisibleForAttention {
+                postRecordingAttentionNotification(
+                    title: "Recording may be done",
+                    body: "\(recordingSourceDisplayName()) looks inactive. Open Recappi Mini to stop or keep recording.",
+                    playSound: true
+                )
+            }
+        case .maxDurationReached:
+            recorder.requestAutoStopForRecordingAttentionIfNeeded(reason: .maxDurationReached)
+            if !recordingPanelIsVisibleForAttention {
+                postRecordingAttentionNotification(
+                    title: "Recording limit reached",
+                    body: "\(recordingSourceDisplayName()) reached \(formatRecordingElapsed(recorder.elapsedSeconds)). Open Recappi Mini to stop or keep recording.",
+                    playSound: true
+                )
+            }
+        }
+    }
+
     private func requestNotificationAuthorizationIfNeeded(_ completion: (@Sendable (Bool) -> Void)? = nil) {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
@@ -2055,6 +2203,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
 
             let request = UNNotificationRequest(
                 identifier: "recappi.processing.\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request)
+        }
+    }
+
+    private func postRecordingAttentionNotification(title: String, body: String, playSound: Bool) {
+        requestNotificationAuthorizationIfNeeded { granted in
+            guard granted else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.threadIdentifier = "recappi.recording-attention"
+            content.userInfo = ["action": "showPanel"]
+            if playSound {
+                content.sound = .default
+            }
+
+            let request = UNNotificationRequest(
+                identifier: "recappi.recording-attention.\(UUID().uuidString)",
                 content: content,
                 trigger: nil
             )
@@ -2186,6 +2356,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         completionHandler([.banner, .list, .sound])
+    }
+}
+
+private extension RecordingAttentionAction {
+    var logName: String {
+        switch self {
+        case .longHiddenRecording:
+            return "long_hidden_recording"
+        case .suspectedInactiveSource:
+            return "suspected_inactive_source"
+        case .maxDurationReached:
+            return "max_duration_reached"
+        }
     }
 }
 

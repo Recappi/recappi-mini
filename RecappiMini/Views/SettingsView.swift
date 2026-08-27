@@ -13,7 +13,7 @@ enum SettingsItem: Hashable {
     var fallbackContentHeight: CGFloat {
         switch self {
         case .general:
-            430
+            520
         case .account:
             360
         case .permissions:
