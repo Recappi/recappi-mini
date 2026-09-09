@@ -109,33 +109,35 @@ final class RecordingRuntimeStateObservationTests: XCTestCase {
         )
         wait(for: [segmentsPublished], timeout: 0.3)
         XCTAssertEqual(store.statusPhase, .listening)
+
+        for phase in [LiveCaptionSnapshot.Phase.failed, .unavailable, .listening] {
+            let message = phase == .listening ? nil : "Live captions cannot continue."
+            recorder.applyLiveCaptionSnapshotForTesting(
+                LiveCaptionSnapshot(phase: phase, segments: [], allSegmentsFinal: false, message: message)
+            )
+
+            // Status-only snapshots must reach the panel synchronously in
+            // both directions, preserve captions, and clear stale details.
+            XCTAssertEqual(store.statusPhase, phase)
+            XCTAssertEqual(store.message, message)
+            XCTAssertEqual(store.segments, [segment])
+        }
     }
 
-    func testLiveCaptionPanelStoreRefreshesReconnectWhenLifecycleChangesWithoutPhase() {
+    func testLiveCaptionPanelStoreIgnoresProviderAndRecorderStateChanges() {
         var cancellables: Set<AnyCancellable> = []
         let recorder = AudioRecorder()
         let store = LiveCaptionPanelStore(recorder: recorder)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertFalse(store.canReconnect)
-
-        let reconnectEnabled = expectation(description: "backend lifecycle enables reconnect")
+        var publicationCount = 0
         store.objectWillChange
-            .sink { _ in
-                Task { @MainActor in
-                    if store.canReconnect {
-                        reconnectEnabled.fulfill()
-                    }
-                }
-            }
+            .sink { _ in publicationCount += 1 }
             .store(in: &cancellables)
 
-        recorder.installReconnectableBackendLiveCaptionProviderForTesting()
+        recorder.setLiveCaptionTranscriberForTesting(NSObject())
+        recorder.state = .recording
+        recorder.setLiveCaptionTranscriberForTesting(nil)
+        recorder.state = .idle
 
-        wait(for: [reconnectEnabled], timeout: 0.3)
-        XCTAssertTrue(store.canReconnect)
-
-        recorder.clearLiveCaptionProviderForTesting()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertFalse(store.canReconnect)
+        XCTAssertEqual(publicationCount, 0, "The panel only observes fields it renders.")
     }
 }

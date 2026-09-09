@@ -134,7 +134,6 @@ final class AudioRecorder: NSObject, ObservableObject {
     @Published private(set) var liveCaptionMessage: String?
     @Published private(set) var liveCaptionStatusPhase: LiveCaptionSnapshot.Phase?
     @Published private(set) var activeLiveCaptionConfiguration: LiveCaptionRecordingConfiguration?
-    @Published private(set) var liveCaptionLifecycleRevision: UInt64 = 0
     /// True when every segment in `liveCaptionSegments` is `isFinal`. UI
     /// can use this to gate animations or styling for "stable" captions.
     @Published private(set) var liveCaptionIsFinal: Bool = false
@@ -159,9 +158,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     /// provider. `.transitioning` is observable to `stopRecording`, so
     /// a stop arriving mid-restart no longer drops caption history.
     /// See `LiveCaptionState` for the case semantics.
-    private var liveCaptionState: LiveCaptionState = .none {
-        didSet { liveCaptionLifecycleRevision &+= 1 }
-    }
+    private var liveCaptionState: LiveCaptionState = .none
     /// Per-`liveCaptionState` snapshot subscription. Created when a
     /// `RealtimeLiveCaptionActor` is installed as the active provider,
     /// cancelled when the state advances past `.running(.backend(...))`.
@@ -399,17 +396,6 @@ final class AudioRecorder: NSObject, ObservableObject {
 
     func applyLiveCaptionSnapshotForTesting(_ snapshot: LiveCaptionSnapshot) {
         applyLiveCaptionSnapshot(snapshot)
-    }
-
-    func installReconnectableBackendLiveCaptionProviderForTesting() {
-        let client = RecappiAPIClient(origin: "https://example.test", bearerToken: "test-token")
-        let connector = LiveRealtimeSessionConnector(client: client)
-        let actor = RealtimeLiveCaptionActor(connector: connector, language: "en", mode: .transcription)
-        liveCaptionState = .running(provider: .backend(actor), locale: "en-US", generation: restartGeneration)
-    }
-
-    func clearLiveCaptionProviderForTesting() {
-        liveCaptionState = .none
     }
 #endif
 
@@ -1963,27 +1949,6 @@ final class AudioRecorder: NSObject, ObservableObject {
         case .translation:
             return "translation"
         }
-    }
-
-    var canReconnectLiveCaptions: Bool {
-        guard liveCaptionStatusPhase != .unavailable else { return false }
-        if case .running(.backend, _, _) = liveCaptionState { return true }
-        return uiTestMode.isEnabled && state == .recording
-    }
-
-    func reconnectLiveCaptionsNow() {
-        if case .running(.backend(let backendActor), _, _) = liveCaptionState {
-            DiagnosticsLog.event("live-caption", "reconnect.manual")
-            Task { await backendActor.reconnectNow() }
-            return
-        }
-        guard uiTestMode.isEnabled else {
-            DiagnosticsLog.warning("live-caption", "reconnect.ignored reason=unsupported_provider")
-            return
-        }
-        DiagnosticsLog.event("live-caption", "reconnect.manual.ui_test")
-        liveCaptionMessage = "正在重新连接字幕服务"
-        liveCaptionStatusPhase = .failed
     }
 
     private nonisolated static func fileSummary(_ url: URL?) -> String {
