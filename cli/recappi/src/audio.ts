@@ -8,6 +8,7 @@ import type {
 } from "./api";
 import { recordingAudioFileName } from "./api";
 import { cliError } from "./errors";
+import { openTargetCommand, revealTargetCommand, type PlatformCommand } from "./platform";
 import {
   defaultStorePath,
   tryOpenCliStore,
@@ -36,7 +37,7 @@ export interface RecordingAudioRuntime {
     opts?: DownloadRecordingAudioOptions,
   ): Promise<RecordingAudioRuntimeDownload>;
   openPath(localPath: string): Promise<void>;
-  revealInFinder(localPath: string): Promise<void>;
+  revealPath(localPath: string): Promise<void>;
   listDownloads(): Promise<LocalArtifact[]>;
   listDownloadedRecordingIds(): Promise<Set<string>>;
 }
@@ -87,7 +88,7 @@ export function createRecordingAudioRuntime(
       (await downloadRecordingAudioFile(recordingId, opts)).localPath,
     downloadRecordingAudioFile,
     openPath: (localPath) => openPath(localPath, deps),
-    revealInFinder: (localPath) => revealInFinder(localPath, deps),
+    revealPath: (localPath) => revealPath(localPath, deps),
     listDownloads: () => listExistingDownloads(deps),
     listDownloadedRecordingIds: async () =>
       new Set(
@@ -140,14 +141,16 @@ export function openPath(
   localPath: string,
   deps: RecordingAudioRuntimeOptions = {},
 ): Promise<void> {
-  return runMacOpen([localPath], deps);
+  const platform = deps.platform ?? process.platform;
+  return runPlatformCommand(openTargetCommand(localPath, platform), deps);
 }
 
-export function revealInFinder(
+export function revealPath(
   localPath: string,
   deps: RecordingAudioRuntimeOptions = {},
 ): Promise<void> {
-  return runMacOpen(["-R", localPath], deps);
+  const platform = deps.platform ?? process.platform;
+  return runPlatformCommand(revealTargetCommand(localPath, platform), deps);
 }
 
 async function findReusableDownload(
@@ -274,18 +277,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function runMacOpen(args: string[], deps: RecordingAudioRuntimeOptions): Promise<void> {
-  if ((deps.platform ?? process.platform) !== "darwin") {
-    return Promise.reject(
-      cliError(
-        "usage.invalid_argument",
-        "Recording audio file actions are supported on macOS only.",
-        {
-          hint: "Download the audio and open the printed local path manually on this platform.",
-        },
-      ),
-    );
-  }
+function runPlatformCommand(
+  spec: PlatformCommand,
+  deps: RecordingAudioRuntimeOptions,
+): Promise<void> {
   const spawnProcess = deps.spawnProcess ?? spawn;
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -296,7 +291,7 @@ function runMacOpen(args: string[], deps: RecordingAudioRuntimeOptions): Promise
       else resolve();
     };
     try {
-      const child = spawnProcess("open", args, { stdio: "ignore" });
+      const child = spawnProcess(spec.command, spec.args, { stdio: "ignore" });
       child.once("error", (error) =>
         finish(error instanceof Error ? error : new Error(String(error))),
       );
@@ -304,7 +299,10 @@ function runMacOpen(args: string[], deps: RecordingAudioRuntimeOptions): Promise
         if (code === 0) finish();
         else {
           finish(
-            cliError("internal.unexpected", `open failed with exit code ${code ?? "unknown"}.`),
+            cliError(
+              "internal.unexpected",
+              `${spec.command} failed with exit code ${code ?? "unknown"}.`,
+            ),
           );
         }
       });

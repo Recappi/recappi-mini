@@ -24,7 +24,7 @@ import {
   uploadBatchDataSchema,
   type ContractSchema,
 } from "../../packages/contracts/src/index";
-import { COMMAND_METADATA, type CommandExampleDoc } from "./commandMetadata";
+import { commandMetadataForPlatform, type CommandExampleDoc } from "./commandMetadata";
 import { allErrorCodeDescriptors } from "./errors";
 
 // Per-command result `data` shapes, keyed by the full command path. Keying by
@@ -113,9 +113,12 @@ export interface SchemaDocument {
 // from what actually parses), the common options, the error-code catalogue, and
 // JSON Schemas for the envelope and the JSONL event stream. zod v4 ships native
 // JSON Schema export, so this needs no third-party converter.
-export function buildSchemaDocument(program: Command): SchemaDocument {
+export function buildSchemaDocument(
+  program: Command,
+  platform: NodeJS.Platform = process.platform,
+): SchemaDocument {
   const commands: CommandDoc[] = [];
-  walkCommands(program, [], commands);
+  walkCommands(program, [], commands, platform);
   commands.sort((a, b) => a.name.localeCompare(b.name));
 
   return {
@@ -129,7 +132,12 @@ export function buildSchemaDocument(program: Command): SchemaDocument {
   };
 }
 
-function walkCommands(command: Command, path: string[], out: CommandDoc[]): void {
+function walkCommands(
+  command: Command,
+  path: string[],
+  out: CommandDoc[],
+  platform: NodeJS.Platform,
+): void {
   for (const sub of subcommandsOf(command)) {
     const name = sub.name();
     if (name === "help") continue;
@@ -138,15 +146,19 @@ function walkCommands(command: Command, path: string[], out: CommandDoc[]): void
     if (children.length === 0) {
       // A leaf command is the only thing an agent can actually run; group
       // commands (auth, jobs) exist only to namespace their children.
-      out.push(leafCommandDoc(sub, fullPath.join(" ")));
+      out.push(leafCommandDoc(sub, fullPath.join(" "), platform));
     }
-    walkCommands(sub, fullPath, out);
+    walkCommands(sub, fullPath, out, platform);
   }
 }
 
-function leafCommandDoc(command: Command, fullName: string): CommandDoc {
+function leafCommandDoc(
+  command: Command,
+  fullName: string,
+  platform: NodeJS.Platform,
+): CommandDoc {
   const dataSchema = COMMAND_DATA_SCHEMAS[fullName];
-  const metadata = COMMAND_METADATA[fullName] ?? {
+  const metadata = commandMetadataForPlatform(fullName, platform) ?? {
     capabilities: [],
     examples: [],
   };

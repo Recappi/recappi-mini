@@ -18,6 +18,10 @@ import {
 import { openCliStore, requireAccountPartition } from "../src/store";
 import { CLI_VERSION } from "../src/version";
 
+// chmod does not revoke read access on Windows, so these permission fixtures are
+// meaningful only on POSIX filesystems. Windows error mapping is shared code.
+const posixPermissionIt = it.skipIf(process.platform === "win32");
+
 describe("recappi CLI contract", () => {
   it("hard-fails explicit machine mode without command", async () => {
     const result = await run(["--json"]);
@@ -65,6 +69,45 @@ describe("recappi CLI contract", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Usage: recappi auth status");
     expect(result.stdout).toContain("--json");
+  });
+
+  it("only advertises the macOS auth import command on macOS", async () => {
+    const windowsHelp = await run(["auth", "--help"], { platform: "win32" });
+    expect(windowsHelp.exitCode).toBe(0);
+    expect(windowsHelp.stdout).not.toContain("import-macos");
+
+    const windowsSchema = await run(["schema", "--json", "--compact"], {
+      platform: "win32",
+    });
+    expect(windowsSchema.exitCode).toBe(0);
+    expect(windowsSchema.stdout).not.toContain("auth import-macos");
+    const windowsDocument = JSON.parse(windowsSchema.stdout).data;
+    const windowsCommands = windowsDocument.commands.map(
+      (command: { name: string }) => command.name,
+    );
+    expect(windowsCommands).not.toContain("auth import-macos");
+    const windowsDoctor = windowsDocument.commands.find(
+      (command: { name: string }) => command.name === "doctor",
+    );
+    expect(windowsDoctor.capabilities).toContain(
+      "Diagnose auth, cloud connectivity, and local audio support",
+    );
+    expect(windowsDoctor.capabilities.join(" ")).not.toContain("TCC");
+    const windowsAudio = windowsDocument.commands.find(
+      (command: { name: string }) => command.name === "audio",
+    );
+    expect(windowsAudio.capabilities).toContain("Reveal in File Explorer");
+
+    const windowsAudioHelp = await run(["audio", "--help"], { platform: "win32" });
+    expect(windowsAudioHelp.exitCode).toBe(0);
+    expect(windowsAudioHelp.stdout.replace(/\s+/g, " ")).toContain(
+      "reveal the audio file in File Explorer",
+    );
+    expect(windowsAudioHelp.stdout).not.toContain("Finder");
+
+    const macOSHelp = await run(["auth", "--help"], { platform: "darwin" });
+    expect(macOSHelp.exitCode).toBe(0);
+    expect(macOSHelp.stdout).toContain("import-macos");
   });
 
   it("points agents at the machine-readable schema from root help", async () => {
@@ -1007,13 +1050,13 @@ describe("recappi CLI contract", () => {
   });
 
   it("resolves bundled helper locations per platform and architecture", () => {
-    expect(bundledSidecarCommand("darwin", "arm64")).toMatch(
+    expect(bundledSidecarCommand("darwin", "arm64")?.replaceAll("\\", "/")).toMatch(
       /helpers\/darwin-arm64\/Recappi Recorder\.app$/,
     );
-    expect(bundledSidecarCommand("darwin", "x64")).toMatch(
+    expect(bundledSidecarCommand("darwin", "x64")?.replaceAll("\\", "/")).toMatch(
       /helpers\/darwin-x64\/Recappi Recorder\.app$/,
     );
-    expect(bundledSidecarCommand("win32", "x64")).toMatch(
+    expect(bundledSidecarCommand("win32", "x64")?.replaceAll("\\", "/")).toMatch(
       /helpers\/win32-x64\/RecappiMiniSidecar\.exe$/,
     );
     expect(bundledSidecarCommand("linux", "x64")).toBeNull();
@@ -1159,6 +1202,9 @@ describe("recappi CLI contract", () => {
       });
       expect(env.data.checks.map((check: { name: string }) => check.name)).toEqual(
         expect.arrayContaining(["runtime.node", "auth.token", "auth.session", "audio.metadata"]),
+      );
+      expect(env.data.checks.map((check: { name: string }) => check.name)).toContain(
+        process.platform === "darwin" ? "auth.macos_keychain" : "auth.platform",
       );
     },
     15_000,
@@ -1898,7 +1944,7 @@ describe("recappi CLI contract", () => {
     }
   });
 
-  it("reports unreadable upload paths as permission_denied", async () => {
+  posixPermissionIt("reports unreadable upload paths as permission_denied", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
     const blockedDir = path.join(dir, "blocked");
     const filePath = path.join(blockedDir, "secret.wav");
@@ -1928,34 +1974,37 @@ describe("recappi CLI contract", () => {
     }
   });
 
-  it("reports non-WAV duration probe permission errors as permission_denied", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
-    const filePath = path.join(dir, "wechat-container.mp3");
-    await writeFile(filePath, Buffer.from("not-readable-mp3"));
-    await chmod(filePath, 0o000);
-    try {
-      const result = await run(["upload", filePath, "--json"], { fetchImpl: uploadFetch() });
-      const env = JSON.parse(result.stdout);
-      expect(result.exitCode).toBe(4);
-      expect(env).toMatchObject({
-        ok: false,
-        command: "upload",
-        data: {
-          attemptedCount: 1,
-          totalCount: 1,
-          successes: [],
-        },
-      });
-      expect(env.data.failures[0].error).toMatchObject({
-        code: "input.permission_denied",
-        message: expect.stringContaining("Permission denied reading path:"),
-        hint: expect.stringContaining("copy the audio to a readable location"),
-      });
-    } finally {
-      await chmod(filePath, 0o600).catch(() => {});
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+  posixPermissionIt(
+    "reports non-WAV duration probe permission errors as permission_denied",
+    async () => {
+      const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
+      const filePath = path.join(dir, "wechat-container.mp3");
+      await writeFile(filePath, Buffer.from("not-readable-mp3"));
+      await chmod(filePath, 0o000);
+      try {
+        const result = await run(["upload", filePath, "--json"], { fetchImpl: uploadFetch() });
+        const env = JSON.parse(result.stdout);
+        expect(result.exitCode).toBe(4);
+        expect(env).toMatchObject({
+          ok: false,
+          command: "upload",
+          data: {
+            attemptedCount: 1,
+            totalCount: 1,
+            successes: [],
+          },
+        });
+        expect(env.data.failures[0].error).toMatchObject({
+          code: "input.permission_denied",
+          message: expect.stringContaining("Permission denied reading path:"),
+          hint: expect.stringContaining("copy the audio to a readable location"),
+        });
+      } finally {
+        await chmod(filePath, 0o600).catch(() => {});
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("rejects directory inputs instead of recursively uploading hidden files", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
@@ -1998,6 +2047,7 @@ async function run(
     openUrl?: CliDeps["openUrl"];
     runDashboard?: CliDeps["runDashboard"];
     recordRuntime?: RecordRuntimeDeps;
+    platform?: NodeJS.Platform;
   } = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   let stdout = "";
@@ -2012,6 +2062,7 @@ async function run(
     openUrl: opts.openUrl,
     runDashboard: opts.runDashboard,
     recordRuntime: opts.recordRuntime,
+    platform: opts.platform,
     stdout: (text) => {
       stdout += text;
     },

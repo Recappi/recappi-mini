@@ -1,17 +1,18 @@
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, readFile, access, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const outDir = await mkdtemp(join(tmpdir(), "recappi-cli-pack-"));
 try {
-  const pack = spawnSync("pnpm", ["pack", "--pack-destination", outDir], {
+  const pack = spawnNpm(["pack", "--pack-destination", outDir], {
     cwd: new URL("..", import.meta.url),
     encoding: "utf8",
     stdio: "pipe",
   });
   if (pack.status !== 0) {
-    process.stderr.write(pack.stderr);
+    reportSpawnFailure("npm pack", pack);
     process.exit(pack.status ?? 1);
   }
   const tarball = pack.stdout.trim().split("\n").at(-1);
@@ -19,7 +20,7 @@ try {
   const tarPath = isAbsolute(tarball) ? tarball : join(outDir, tarball);
   const inspect = spawnSync("tar", ["-xzf", tarPath, "-C", outDir], { encoding: "utf8" });
   if (inspect.status !== 0) {
-    process.stderr.write(inspect.stderr);
+    reportSpawnFailure("tar", inspect);
     process.exit(inspect.status ?? 1);
   }
   const pkgPath = join(outDir, "package", "package.json");
@@ -69,8 +70,7 @@ try {
   }
   const consumerDir = join(outDir, "consumer");
   await mkdir(consumerDir);
-  const install = spawnSync(
-    "npm",
+  const install = spawnNpm(
     [
       "install",
       tarPath,
@@ -87,7 +87,7 @@ try {
     },
   );
   if (install.status !== 0) {
-    process.stderr.write(install.stderr);
+    reportSpawnFailure("npm install", install);
     process.exit(install.status ?? 1);
   }
   const installedBinPath = join(consumerDir, "node_modules", ...pkg.name.split("/"), bin);
@@ -102,4 +102,24 @@ try {
   }
 } finally {
   await rm(outDir, { recursive: true, force: true });
+}
+
+function spawnNpm(args, options) {
+  const npmCli = resolveNpmCli();
+  if (npmCli) return spawnSync(process.execPath, [npmCli, ...args], options);
+  return spawnSync("npm", args, options);
+}
+
+function resolveNpmCli() {
+  const fromEnv = process.env.npm_execpath;
+  if (fromEnv && /(?:^|[\\/])npm-cli\.js$/i.test(fromEnv) && existsSync(fromEnv)) {
+    return fromEnv;
+  }
+  const besideNode = join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+  return existsSync(besideNode) ? besideNode : null;
+}
+
+function reportSpawnFailure(label, result) {
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.error) process.stderr.write(`${label} failed: ${result.error.message}\n`);
 }

@@ -13,6 +13,7 @@ import {
   requireToken,
   resolveAuthContext,
   saveAuthConfig,
+  signInHint,
 } from "./auth";
 import { loginWithDeviceCode } from "./auth-login";
 import { RecappiApiClient, type AskCitation } from "./api";
@@ -40,6 +41,7 @@ import {
   type RecordRuntimeDeps,
 } from "./record";
 import { recordingArtifactFromRecordData } from "./recordingCore";
+import { fileManagerName } from "./platform";
 
 const DASHBOARD_RECORDINGS_PAGE_SIZE = 50;
 
@@ -110,6 +112,7 @@ export interface CliDeps {
   openUrl?: (url: string) => Promise<void>;
   runDashboard?: (deps: RunDashboardDeps) => Promise<void>;
   recordRuntime?: RecordRuntimeDeps;
+  platform?: NodeJS.Platform;
 }
 
 interface GlobalOptions {
@@ -127,7 +130,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
   let parsed: ParsedCommand | null = null;
 
   try {
-    parsed = parseArgv(argv, isTTY);
+    parsed = parseArgv(argv, isTTY, deps.platform ?? process.platform);
     if (parsed.kind === "help") {
       stdout(parsed.helpText);
       return 0;
@@ -155,12 +158,14 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       origin: parsed.options.origin,
       env: deps.env,
       homeDir: deps.homeDir,
+      platform: deps.platform,
     });
     let client = new RecappiApiClient(auth, {
       fetchImpl: deps.fetchImpl,
       sleep: deps.sleep,
       env: deps.env,
       homeDir: deps.homeDir,
+      platform: deps.platform,
     });
 
     if (parsed.kind === "dashboard") {
@@ -180,12 +185,14 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
           origin: parsed.options.origin,
           env: deps.env,
           homeDir: deps.homeDir,
+          platform: deps.platform,
         });
         client = new RecappiApiClient(auth, {
           fetchImpl: deps.fetchImpl,
           sleep: deps.sleep,
           env: deps.env,
           homeDir: deps.homeDir,
+          platform: deps.platform,
         });
         status = await client.authStatus();
       }
@@ -197,6 +204,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         account,
         env: deps.env,
         homeDir: deps.homeDir,
+        platform: deps.platform,
       });
       const runDashboard = deps.runDashboard ?? (await import("./tui")).runDashboard;
       await runDashboard({
@@ -229,7 +237,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
           const liveStatus = await client.authStatus();
           if (!liveStatus.loggedIn || !liveStatus.userId) {
             throw cliError("auth.not_logged_in", "Sign in before starting a sidecar recording.", {
-              hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
+              hint: signInHint(deps.platform),
             });
           }
           return startLiveRecordSession(
@@ -347,7 +355,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       return 0;
     }
     if (parsed.kind === "auth-import-macos") {
-      const keychain = await inspectMacOSAppKeychain({ env: deps.env });
+      const keychain = await inspectMacOSAppKeychain({ env: deps.env, platform: deps.platform });
       if (!keychain.token) {
         throw cliError("auth.not_logged_in", keychain.message, {
           hint: keychain.hint ?? "Run recappi auth login instead.",
@@ -406,7 +414,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       const status = await client.authStatus();
       if (!status.loggedIn || !status.userId) {
         throw cliError("auth.not_logged_in", "Sign in before starting a sidecar recording.", {
-          hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
+          hint: signInHint(deps.platform),
         });
       }
       const translationLanguage =
@@ -445,13 +453,14 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       const status = await client.authStatus();
       if (!status.loggedIn || !status.userId) {
         throw cliError("auth.not_logged_in", "Sign in before using local audio actions.", {
-          hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
+          hint: signInHint(deps.platform),
         });
       }
       const recordingAudio = createRecordingAudioRuntime(client, {
         account: { backendOrigin: auth.origin, userId: status.userId },
         env: deps.env,
         homeDir: deps.homeDir,
+        platform: deps.platform,
       });
       const download = await recordingAudio.downloadRecordingAudioFile(
         parsed.recordingId,
@@ -460,7 +469,7 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       if (parsed.action === "open") {
         await recordingAudio.openPath(download.localPath);
       } else if (parsed.action === "reveal") {
-        await recordingAudio.revealInFinder(download.localPath);
+        await recordingAudio.revealPath(download.localPath);
       }
       renderSuccess(
         "audio",
@@ -515,13 +524,14 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       const status = await client.authStatus();
       if (!status.loggedIn || !status.userId) {
         throw cliError("auth.not_logged_in", "Sign in before exporting a recording bundle.", {
-          hint: "Run recappi auth login, or import the Recappi Mini session with recappi auth import-macos.",
+          hint: signInHint(deps.platform),
         });
       }
       const recordingAudio = createRecordingAudioRuntime(client, {
         account: { backendOrigin: auth.origin, userId: status.userId },
         env: deps.env,
         homeDir: deps.homeDir,
+        platform: deps.platform,
       });
       const data = await exportRecording({
         recordingId: parsed.recordingId,
@@ -740,10 +750,15 @@ type ParsedCommand =
       model?: string;
     };
 
-function parseArgv(argv: string[], isTTY: boolean): ParsedCommand {
+function parseArgv(
+  argv: string[],
+  isTTY: boolean,
+  platform: NodeJS.Platform = process.platform,
+): ParsedCommand {
   let selected: ParsedCommand | null = null;
   let helpText = "";
   const program = buildProgram({
+    platform,
     onHelpOutput: (text) => {
       helpText += text;
     },
@@ -858,6 +873,7 @@ function dashboardCommand(
 }
 
 interface BuildProgramOptions {
+  platform: NodeJS.Platform;
   onHelpOutput: (text: string) => void;
   onSelect: (command: ParsedCommand) => void;
 }
@@ -944,7 +960,7 @@ interface AskCommanderOptions extends CommanderCommonOptions {
   model?: string;
 }
 
-function buildProgram({ onHelpOutput, onSelect }: BuildProgramOptions): Command {
+function buildProgram({ platform, onHelpOutput, onSelect }: BuildProgramOptions): Command {
   const program = new Command("recappi");
   program
     .description("Recappi Cloud command line interface")
@@ -977,7 +993,7 @@ Agent mode:
     .command("login")
     .description("Sign in to Recappi Cloud with a device code")
     .option("--no-open", "print the device URL without opening a browser")
-    .addHelpText("after", commandMetadataHelpText("auth login"));
+    .addHelpText("after", commandMetadataHelpText("auth login", platform));
   addCommonOptions(authLogin);
   authLogin.action((opts: AuthLoginCommanderOptions, command: Command) => {
     onSelect({
@@ -1001,18 +1017,20 @@ Agent mode:
     });
   });
 
-  const authImportMacOS = auth
-    .command("import-macos")
-    .description("Copy the Recappi Mini macOS app session into CLI config")
-    .addHelpText("after", commandMetadataHelpText("auth import-macos"));
-  addCommonOptions(authImportMacOS);
-  authImportMacOS.action((_options: CommanderCommonOptions, command: Command) => {
-    onSelect({
-      kind: "auth-import-macos",
-      options: collectGlobalOptions(command),
-      commandName: "auth import-macos",
+  if (platform === "darwin") {
+    const authImportMacOS = auth
+      .command("import-macos")
+      .description("Copy the Recappi Mini macOS app session into CLI config")
+      .addHelpText("after", commandMetadataHelpText("auth import-macos"));
+    addCommonOptions(authImportMacOS);
+    authImportMacOS.action((_options: CommanderCommonOptions, command: Command) => {
+      onSelect({
+        kind: "auth-import-macos",
+        options: collectGlobalOptions(command),
+        commandName: "auth import-macos",
+      });
     });
-  });
+  }
 
   const authStatus = auth
     .command("status")
@@ -1156,13 +1174,16 @@ Agent mode:
     .argument("<recording-id>", "recording id")
     .option("--download", "download audio and print the local path")
     .option("--open", "download if needed, then open the audio file")
-    .option("--reveal", "download if needed, then reveal the audio file in Finder")
+    .option(
+      "--reveal",
+      `download if needed, then reveal the audio file in ${fileManagerName(platform)}`,
+    )
     .option(
       "--output-dir <dir>",
       "directory for downloaded audio",
       parseStringOption("--output-dir"),
     )
-    .addHelpText("after", commandMetadataHelpText("audio"));
+    .addHelpText("after", commandMetadataHelpText("audio", platform));
   addCommonOptions(audio);
   audio.action((recordingId: string, opts: AudioCommanderOptions, command: Command) => {
     onSelect({
@@ -1185,7 +1206,7 @@ Agent mode:
       kind: "schema",
       options: collectGlobalOptions(command),
       commandName: "schema",
-      document: buildSchemaDocument(program),
+      document: buildSchemaDocument(program, platform),
     });
   });
 
