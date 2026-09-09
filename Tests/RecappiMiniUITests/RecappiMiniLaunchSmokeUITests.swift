@@ -221,12 +221,12 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         add(attachment)
     }
 
-    func testManualLiveCaptionReconnectDoesNotInterruptOrClearCaptions() throws {
-        let liveCaption = "Reconnect smoke caption should stay visible after a manual reconnect click."
+    func testInterruptedLiveCaptionsShowStatusWithoutDeadRetry() throws {
+        let liveCaption = "Interrupted caption should stay visible while recording continues."
         let app = launchRecappiApp(
             authToken: "invalid-test-token",
             simulatedLiveCaptionText: liveCaption,
-            simulatedLiveCaptionErrorMessage: "Live caption connection lost. Click to reconnect."
+            simulatedLiveCaptionErrorMessage: "Live caption connection lost."
         )
 
         startFixtureRecording(in: app)
@@ -239,31 +239,37 @@ final class AAARecappiMiniLaunchSmokeUITests: XCTestCase {
         let captionText = [caption.label, caption.value as? String]
             .compactMap { $0 }
             .joined(separator: " ")
-        XCTAssertTrue(captionText.localizedCaseInsensitiveContains("Reconnect smoke caption"))
+        XCTAssertTrue(captionText.localizedCaseInsensitiveContains("Interrupted caption"))
 
-        XCTAssertTrue(revealLiveCaptionChrome(in: app), "Expected live-caption chrome to reveal for reconnect.")
+        for mode in ["expanded", "compact"] {
+            XCTAssertTrue(revealLiveCaptionChrome(in: app), "Expected caption status in \(mode) mode.")
+            let status = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", "Captions interrupted"))
+                .firstMatch
+            XCTAssertTrue(status.waitForExistence(timeout: 5), "Expected interruption status in \(mode) mode.")
+            XCTAssertTrue(
+                (status.value as? String ?? "").localizedCaseInsensitiveContains("connection lost"),
+                "The non-clickable status must retain the accessible error detail."
+            )
+            XCTAssertFalse(
+                app.buttons[UITestIDs.Cloud.currentMeetingCaptionReconnectButton].exists,
+                "A stopped caption session must not offer a dead Retry button."
+            )
+            XCTAssertTrue(
+                elementText(caption).localizedCaseInsensitiveContains("Interrupted caption"),
+                "Existing captions must remain visible in \(mode) mode."
+            )
+            XCTAssertTrue(
+                app.buttons[UITestIDs.Panel.stopButton].exists,
+                "A caption failure must not stop the recording."
+            )
 
-        let reconnectButton = app.buttons[UITestIDs.Cloud.currentMeetingCaptionReconnectButton]
-        XCTAssertTrue(reconnectButton.waitForExistence(timeout: 5), "Expected a clickable live-caption warning control.")
-        XCTAssertTrue(
-            (reconnectButton.value as? String ?? "")
-                .localizedCaseInsensitiveContains("connection lost"),
-            "Expected warning control to expose the error text."
-        )
-        reconnectButton.click()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-
-        XCTAssertFalse(
-            app.buttons["OK"].waitForExistence(timeout: 0.5),
-            "Manual reconnect should not show a blocking NSAlert confirmation button."
-        )
-        let captionTextAfterReconnect = [caption.label, caption.value as? String]
-            .compactMap { $0 }
-            .joined(separator: " ")
-        XCTAssertTrue(
-            captionTextAfterReconnect.localizedCaseInsensitiveContains("Reconnect smoke caption"),
-            "Manual reconnect should preserve existing live captions, got: \(captionTextAfterReconnect)"
-        )
+            if mode == "expanded" {
+                let modeButton = app.buttons[UITestIDs.Cloud.currentMeetingPanelModeButton]
+                XCTAssertTrue(modeButton.waitForExistence(timeout: 5))
+                modeButton.click()
+            }
+        }
     }
 
     func testRealtimeWebSocketDisconnectReconnectsAndPreservesCaptions() throws {

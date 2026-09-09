@@ -339,7 +339,7 @@ struct LiveCaptionFloatingPanel: View {
     private enum LiveCaptionStatusKind: Equatable {
         case connecting   // .preparing — first connection
         case reconnecting // .reconnecting — session dropped, retry in flight
-        case interrupted  // .failed — gave up, user can retry
+        case interrupted  // .failed — caption session interrupted
         case unavailable  // .unavailable — backend can't be used
     }
 
@@ -376,8 +376,11 @@ struct LiveCaptionFloatingPanel: View {
                          shortLabel: "Reconnecting", systemImage: nil, actionable: false)
         case .interrupted:
             return .init(kind: kind, color: DT.statusWarning, label: "Captions interrupted",
-                         shortLabel: "Retry", systemImage: "exclamationmark.triangle.fill",
-                         actionable: true)
+                         shortLabel: "Interrupted", systemImage: "exclamationmark.triangle.fill",
+                         // Terminal failures stop the actor and finish its
+                         // snapshot stream; reconnectNow() cannot restart it.
+                         // Transient failures use the automatic retry path.
+                         actionable: false)
         case .unavailable:
             return .init(kind: kind, color: DT.systemOrange, label: liveCaptionUnavailableLabel,
                          shortLabel: "Unavailable", systemImage: "exclamationmark.octagon.fill",
@@ -1063,8 +1066,8 @@ struct LiveCaptionFloatingPanel: View {
         }
         // When the connection is in a status state (connecting / reconnecting /
         // failed / unavailable), `liveCaptionMessage` carries the backend's
-        // diagnostic error text. That belongs in the header status strip +
-        // retry affordance (see `liveCaptionConnectionStatus`), NOT in the
+        // diagnostic error text. That belongs in the header status tooltip
+        // (see `liveCaptionConnectionStatus`), NOT in the
         // caption body — otherwise a raw server error like
         // "Model gpt-realtime-whisper is a transcription model…" renders as if
         // it were a transcript line. Only fall back to `liveCaptionMessage`
