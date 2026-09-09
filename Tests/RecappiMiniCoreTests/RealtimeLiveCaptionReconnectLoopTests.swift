@@ -109,6 +109,24 @@ final class RealtimeLiveCaptionReconnectLoopTests: XCTestCase {
             "A permanent rejection must never publish .reconnecting."
         )
 
+        // The panel hardcodes `actionable: false` for `.unavailable` on
+        // the strength of this invariant: the phase is terminal, so a
+        // Reconnect control would be dead. Lock it here — a future change
+        // that let `reconnectNow()` resume from `.stopped` would silently
+        // turn that constant into a lie.
+        await actor.reconnectNow()
+        let afterReconnect = await actor.lifecycleSnapshotForTesting()
+        XCTAssertEqual(
+            afterReconnect,
+            .stopped,
+            "reconnectNow() must not resurrect a permanently rejected session."
+        )
+        XCTAssertEqual(
+            connector.claimCallCount,
+            1,
+            "reconnectNow() from a terminal stop must not issue a fresh claim."
+        )
+
         consumer.cancel()
         _ = await actor.stop(saveTo: nil)
     }
