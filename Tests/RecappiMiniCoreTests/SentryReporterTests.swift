@@ -424,6 +424,68 @@ final class SentryReporterTests: XCTestCase {
         )
     }
 
+    func testRealtimeQuotaExhaustionDoesNotCaptureEitherDiagnosticLayer() {
+        for message in ["Monthly minutes quota exhausted (60 of 60 minutes used).", ""] {
+            let error = RecappiAPIError.http(statusCode: 402, message: message)
+            let errorSummary = DiagnosticsLog.errorSummary(error)
+            let networkMessage = "request.failed attempts=1 method=POST path=/api/openai/realtime/sessions \(errorSummary)"
+
+            XCTAssertFalse(SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: networkMessage
+            ))
+            XCTAssertTrue(SentryReporter.diagnosticFingerprint(
+                level: "error",
+                category: "network",
+                message: networkMessage
+            ).contains("status:402"))
+
+            for mode in ["transcription", "translation:zh"] {
+                XCTAssertFalse(SentryReporter.shouldCaptureDiagnosticError(
+                    level: RealtimeLiveCaptionActor.claimFailureDiagnosticLevel(for: error),
+                    category: "live-caption",
+                    message: "claim.failed mode=\(mode) attempt=0 \(errorSummary)"
+                ))
+            }
+        }
+    }
+
+    func testRealtimeQuotaSuppressionKeepsUnrelatedFailuresReportable() {
+        let errorSummary = DiagnosticsLog.errorSummary(RecappiAPIError.http(
+            statusCode: 402,
+            message: "Monthly minutes quota exhausted"
+        ))
+        for (category, message) in [
+            ("network", "request.failed method=POST path=/api/recordings \(errorSummary)"),
+            ("network", "request.failed method=POST path=/api/billing/checkout \(errorSummary)"),
+            ("network", "request.failed method=POST path=/api/openai/realtime/sessions/other \(errorSummary)"),
+            ("network", "request.failed method=GET path=/api/openai/realtime/sessions \(errorSummary)"),
+            ("network", "download.failed method=POST path=/api/openai/realtime/sessions \(errorSummary)"),
+            ("processing", "request.failed method=POST path=/api/openai/realtime/sessions \(errorSummary)"),
+            ("live-caption", "ws.failed \(errorSummary)"),
+            ("network", "request.failed method=POST path=/api/openai/realtime/sessions domain=OtherError code=0 message=Unexpected status 402"),
+        ] {
+            XCTAssertTrue(SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: category,
+                message: message
+            ), message)
+        }
+
+        for statusCode in [400, 401, 403, 409, 429, 500, 502, 503, 504] {
+            let summary = DiagnosticsLog.errorSummary(RecappiAPIError.http(
+                statusCode: statusCode,
+                message: "Unexpected claim failure"
+            ))
+            XCTAssertTrue(SentryReporter.shouldCaptureDiagnosticError(
+                level: "error",
+                category: "network",
+                message: "request.failed method=POST path=/api/openai/realtime/sessions \(summary)"
+            ), "Unexpected HTTP \(statusCode) request failures must still be reported.")
+        }
+    }
+
     func testRealtimeClaimRateLimitDoesNotCaptureSentryErrors() {
         let errorSummary = "domain=RecappiMini.RecappiAPIError code=0 message=Recappi API error (status 429): OpenAI Realtime session claim rate exceeded (10/minute)."
 

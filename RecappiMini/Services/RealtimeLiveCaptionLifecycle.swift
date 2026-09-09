@@ -690,7 +690,7 @@ actor RealtimeLiveCaptionActor {
     }
 
     static func claimFailureDiagnosticLevel(for error: Error) -> String {
-        if isRealtimeClaimRateLimitError(error) {
+        if isPermanentClaimRejection(error) || isRealtimeClaimRateLimitError(error) {
             return "warning"
         }
 
@@ -1197,12 +1197,9 @@ actor RealtimeLiveCaptionActor {
             // never clear. Stop instead and surface the server's text.
             if Self.isPermanentClaimRejection(error) {
                 trace("claim.terminal", "err=\(DiagnosticsLog.errorSummary(error))")
-                // Warning, not error: a plan that ran out of minutes is
-                // an expected user state, and `claim.failed` above
-                // already carries the same status + message. Logging
-                // this at `error` would mint a SECOND Sentry issue
-                // group (only level == "error" is captured) for one
-                // non-actionable event.
+                // Quota exhaustion is an expected user state. Keep both
+                // claim diagnostics as warnings so the status and message
+                // remain available without creating Sentry errors.
                 DiagnosticsLog.warning(
                     "live-caption",
                     "claim.permanent_rejection mode=\(Self.modeLabel(mode)) attempt=\(attempt) \(DiagnosticsLog.errorSummary(error))"
