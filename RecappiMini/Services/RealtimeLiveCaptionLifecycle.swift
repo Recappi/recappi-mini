@@ -2017,8 +2017,8 @@ actor RealtimeLiveCaptionActor {
 
     /// Give up for good: the backend cannot serve this session and no
     /// number of retries will change that. Publishes `.unavailable`
-    /// ("backend can't be used") rather than `.failed` ("interrupted,
-    /// retry in flight"), so the panel offers no Reconnect control.
+    /// ("backend can't be used") rather than `.failed` ("captions
+    /// interrupted"). Neither terminal status offers a Reconnect control.
     ///
     /// Shared by every terminal cause. The two known ones — an
     /// unsupported region reported on the socket, and a claim the server

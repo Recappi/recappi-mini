@@ -74,6 +74,11 @@ final class CloudLibraryStore: ObservableObject {
     var isRemoteRefreshInFlight = false
     var transcriptLoadingRecordingIDs: Set<String> = []
     var jobHistoryLoadingRecordingIDs: Set<String> = []
+    #if DEBUG
+    /// Holds the shared request open while cancellation/coalescing tests
+    /// arrange a second caller, without relying on executor scheduling.
+    var beforeJobHistoryRequestForTesting: (@MainActor () async -> Void)?
+    #endif
     /// Recording ids whose job-history reload was dropped by the in-flight
     /// guard in `loadJobHistoryForSelection()`. Only callers that passed
     /// `requiresFreshFetch: true` — the ones that invalidated state first
