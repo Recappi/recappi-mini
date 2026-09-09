@@ -286,20 +286,27 @@ final class RealtimeLiveCaptionLifecycleTests: XCTestCase {
 
         await actor.start()
         await connector.waitForClaimResolved()
-        try? await Task.sleep(nanoseconds: 30_000_000)
-
-        XCTAssertEqual(
-            connector.claimCallCount,
-            1,
-            "429 realtime claim rate-limit must not immediately re-claim on the generic delay."
-        )
-
-        try? await Task.sleep(nanoseconds: 90_000_000)
+        // CI may schedule the retry later than its sleep deadline. Wait
+        // for the observed claim, then assert the minimum cooldown using
+        // monotonic timestamps instead of sampling inside a tiny window.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline && connector.claimCallCount < 2 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertEqual(
             connector.claimCallCount,
             2,
             "429 realtime claim rate-limit should retry after the configured cooldown."
         )
+        let claimInstants = connector.claimInstants
+        if claimInstants.count == 2 {
+            XCTAssertGreaterThanOrEqual(
+                claimInstants[0].duration(to: claimInstants[1]),
+                .milliseconds(80),
+                "429 realtime claim rate-limit must not re-claim on the shorter generic delay."
+            )
+        }
+        _ = await actor.stop(saveTo: nil)
     }
 
     // MARK: - Stop during reconnect
@@ -542,6 +549,7 @@ final class MockRealtimeSessionConnector: RealtimeSessionConnector, @unchecked S
     private let lock = NSLock()
 
     private var _claimCallCount = 0
+    private var _claimInstants: [ContinuousClock.Instant] = []
     private var _openSocketCallCount = 0
     private var _claimFailures: Int = 0
     private var _claimFailureError: Error = NSError(domain: "MockConnector", code: 1)
@@ -556,6 +564,7 @@ final class MockRealtimeSessionConnector: RealtimeSessionConnector, @unchecked S
     private var _lastIssuedSocket: MockRealtimeSocket?
 
     var claimCallCount: Int { lock.withLock { _claimCallCount } }
+    var claimInstants: [ContinuousClock.Instant] { lock.withLock { _claimInstants } }
     var openSocketCallCount: Int { lock.withLock { _openSocketCallCount } }
     var lastIssuedSocket: MockRealtimeSocket? { lock.withLock { _lastIssuedSocket } }
 
@@ -578,6 +587,7 @@ final class MockRealtimeSessionConnector: RealtimeSessionConnector, @unchecked S
     ) async throws -> RealtimeSessionClaim {
         let shouldFail: Bool = lock.withLock {
             _claimCallCount += 1
+            _claimInstants.append(ContinuousClock.now)
             if _claimFailures > 0 {
                 _claimFailures -= 1
                 return true
