@@ -74,6 +74,15 @@ final class CloudLibraryStore: ObservableObject {
     var isRemoteRefreshInFlight = false
     var transcriptLoadingRecordingIDs: Set<String> = []
     var jobHistoryLoadingRecordingIDs: Set<String> = []
+    /// Recording ids whose job-history reload was dropped by the in-flight
+    /// guard in `loadJobHistoryForSelection()`. Only callers that passed
+    /// `requiresFreshFetch: true` — the ones that invalidated state first
+    /// (dropped caches, a freshly created job row) — queue here; plain UI
+    /// triggers coalesce onto the in-flight response instead. The owner
+    /// drains this on completion and issues exactly one more fetch, so an
+    /// invalidating caller is still guaranteed a request issued after its
+    /// own mutation.
+    var jobHistoryReloadRequestedRecordingIDs: Set<String> = []
     var selectionDetailRefreshTask: Task<Void, Never>?
     var cachePersistTask: Task<Void, Never>?
     /// In-memory once-per-session guard so the shape-based fallback (cached

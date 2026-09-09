@@ -133,6 +133,7 @@ extension CloudLibraryStore {
             locallyManagedRecordingUpdatedAt[newID] = updatedAt
         }
         summaryRefreshAttemptedRecordingIDs.remove(oldID)
+        jobHistoryReloadRequestedRecordingIDs.remove(oldID)
         if selectedRecordingID == oldID {
             selectedRecordingID = newID
         }
@@ -273,7 +274,10 @@ extension CloudLibraryStore {
             // view will not refire while the recording id is unchanged.
             if contentUpdatedSinceCache {
                 await loadTranscriptForSelection()
-                await loadJobHistoryForSelection()
+                // We dropped `transcriptionJobsByRecordingID` above, so this
+                // caller needs a request issued after that mutation — it must
+                // not coalesce onto a response fetched before it.
+                await loadJobHistoryForSelection(requiresFreshFetch: true)
             }
         } catch {
             if let apiError = error as? RecappiAPIError, apiError == .unauthorized {
@@ -388,7 +392,8 @@ extension CloudLibraryStore {
         // fallback retry once more if necessary.
         summaryRefreshAttemptedRecordingIDs.remove(recordingID)
         await loadTranscriptForSelection()
-        await loadJobHistoryForSelection()
+        // The caches were dropped above, so demand a fetch issued after that.
+        await loadJobHistoryForSelection(requiresFreshFetch: true)
         // Only clear the banner once we actually have *the active* transcript
         // for the current selection. Loading some other transcript (e.g. an
         // older job that the API returned) would leave the user staring at

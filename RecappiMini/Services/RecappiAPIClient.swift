@@ -144,7 +144,15 @@ struct RecappiAPIClient: Sendable {
             path: "/api/recordings/\(recordingId)/jobs",
             queryItems: [URLQueryItem(name: "limit", value: String(limit))]
         )
-        let (data, _) = try await performValidated(request)
+        // Job history is the one endpoint whose 503 means server cost rather
+        // than a transient blip: it is the Void 10s wall clock on an
+        // expensive query, so retrying re-runs the exact query that stalled.
+        // The caller degrades to cached rows, so one attempt is enough for
+        // *that* status. Everything else `isRetryable` covers here — dropped
+        // connections, DNS, timeouts, 408/429/500/502/504 — is still a
+        // genuine blip and keeps the default GET retry. This is defence in
+        // depth alongside the server-side index, not the primary fix.
+        let (data, _) = try await performValidated(request, nonRetryableStatusCodes: [503])
         return try JSONDecoder().decode(RecordingJobsResponse.self, from: data)
     }
 
@@ -283,10 +291,20 @@ struct RecappiAPIClient: Sendable {
         _ = try? await session.data(for: request)
     }
 
+    /// Perform a request, validate it, and retry transient failures.
+    ///
+    /// - Parameter nonRetryableStatusCodes: HTTP statuses this particular
+    ///   endpoint must never retry, even though `isRetryable` would normally
+    ///   accept them. Narrower than `allowsRetry: false`, which also gives up
+    ///   on transport failures. Empty by default, so every other caller keeps
+    ///   today's behaviour. Deliberately not applied to the
+    ///   subscription-renewal path: that retry is matched on a specific 503
+    ///   message and is a different failure entirely.
     func performValidated(
         _ request: URLRequest,
         allowsRetry explicitAllowsRetry: Bool? = nil,
-        retriesSubscriptionRenewal: Bool = false
+        retriesSubscriptionRenewal: Bool = false,
+        nonRetryableStatusCodes: Set<Int> = []
     ) async throws -> (Data, URLResponse) {
         let allowsRetry = explicitAllowsRetry ?? Self.isIdempotent(request)
         let maxAttempts = max(
@@ -309,6 +327,7 @@ struct RecappiAPIClient: Sendable {
                     allowsRetry
                     && attempt < maxAttempts
                     && Self.isRetryable(error)
+                    && !Self.hasStatusCode(error, in: nonRetryableStatusCodes)
 
                 guard shouldRetrySubscriptionRenewal || shouldRetryGeneric else {
                     DiagnosticsLog.error(
@@ -466,6 +485,14 @@ struct RecappiAPIClient: Sendable {
             NSURLErrorNotConnectedToInternet,
             NSURLErrorDNSLookupFailed,
         ].contains(nsError.code)
+    }
+
+    private static func hasStatusCode(_ error: Error, in statusCodes: Set<Int>) -> Bool {
+        guard !statusCodes.isEmpty,
+              case RecappiAPIError.http(let statusCode, _) = error
+        else { return false }
+
+        return statusCodes.contains(statusCode)
     }
 
     static func isSubscriptionRenewalError(_ error: Error) -> Bool {
