@@ -10,8 +10,7 @@ import Foundation
 /// - `.none` — no transcriber is active. Initial state, and the state
 ///   `reset()` returns to.
 /// - `.running(transcriber, locale, generation)` — a single
-///   transcriber is the active provider. Used by the receive loop and
-///   by `reconnectLiveCaptionsNow`.
+///   transcriber is the active provider used by the receive loop.
 /// - `.transitioning(from, to, transitionTask, generation)` — a
 ///   `restartLiveCaptions(...)` is in flight. `from` is the previous
 ///   transcriber whose entries have already been snapshotted into
@@ -98,10 +97,8 @@ enum LiveCaptionState {
     )
     case stopping(provider: LiveCaptionProvider?)
 
-    /// Convenience accessor used by legacy readers
-    /// (`canReconnectLiveCaptions`, `reconnectLiveCaptionsNow`, the
-    /// UI test path) that still need the active provider as an
-    /// optional. Production now carries only the backend actor here.
+    /// Active provider used by the restart, stop, and UI test paths.
+    /// Production carries only the backend actor here.
     var activeProvider: LiveCaptionProvider? {
         switch self {
         case .none:

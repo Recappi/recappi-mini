@@ -19,22 +19,18 @@ final class LiveCaptionPanelStore: ObservableObject {
     @Published private(set) var message: String?
     @Published private(set) var statusPhase: LiveCaptionSnapshot.Phase?
     @Published private(set) var activeConfiguration: LiveCaptionRecordingConfiguration?
-    @Published private(set) var canReconnect: Bool
     @Published private(set) var fallbackShowsTranslation: Bool
     @Published private(set) var cloudLanguage: String
     @Published private(set) var fallbackTargetLanguage: String
 
-    private weak var recorder: AudioRecorder?
     private var cancellables: Set<AnyCancellable> = []
 
     init(recorder: AudioRecorder, defaults: UserDefaults = .standard) {
-        self.recorder = recorder
         elapsedSeconds = recorder.elapsedSeconds
         segments = recorder.liveCaptionSegments
         message = recorder.liveCaptionMessage
         statusPhase = recorder.liveCaptionStatusPhase
         activeConfiguration = recorder.activeLiveCaptionConfiguration
-        canReconnect = recorder.canReconnectLiveCaptions
         fallbackShowsTranslation = defaults.liveCaptionsBilingualEnabled
         cloudLanguage = defaults.speechLanguage ?? "en-US"
         fallbackTargetLanguage = defaults.liveCaptionsTranslationTargetLanguage ?? "zh"
@@ -64,7 +60,6 @@ final class LiveCaptionPanelStore: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] value in
                 self?.statusPhase = value
-                self?.refreshCanReconnect()
             }
             .store(in: &cancellables)
 
@@ -72,21 +67,6 @@ final class LiveCaptionPanelStore: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] value in
                 self?.activeConfiguration = value
-                self?.refreshCanReconnect()
-            }
-            .store(in: &cancellables)
-
-        recorder.$liveCaptionLifecycleRevision
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                self?.refreshCanReconnect()
-            }
-            .store(in: &cancellables)
-
-        recorder.$state
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                self?.refreshCanReconnect()
             }
             .store(in: &cancellables)
 
@@ -115,15 +95,6 @@ final class LiveCaptionPanelStore: ObservableObject {
                 self?.fallbackTargetLanguage = value
             }
             .store(in: &cancellables)
-    }
-
-    func reconnectLiveCaptionsNow() {
-        recorder?.reconnectLiveCaptionsNow()
-        refreshCanReconnect()
-    }
-
-    private func refreshCanReconnect() {
-        canReconnect = recorder?.canReconnectLiveCaptions ?? false
     }
 }
 
