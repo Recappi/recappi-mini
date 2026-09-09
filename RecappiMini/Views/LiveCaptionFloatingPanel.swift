@@ -381,7 +381,27 @@ struct LiveCaptionFloatingPanel: View {
         case .unavailable:
             return .init(kind: kind, color: DT.systemOrange, label: liveCaptionUnavailableLabel,
                          shortLabel: "Unavailable", systemImage: "exclamationmark.octagon.fill",
-                         actionable: panelState.canReconnect)
+                         // Constant, deliberately — `.unavailable` means the
+                         // backend cannot be used. Both producers
+                         // (`transitionToUnavailableStop`: unsupported region,
+                         // and a permanent 402 claim rejection) set
+                         // `lifecycle = .stopped`, and `reconnectNow()` guards
+                         // on `.live`, so the action is dead by construction.
+                         //
+                         // NOT `panelState.canReconnect`, even though
+                         // `canReconnectLiveCaptions` looks like it says the
+                         // same thing. `LiveCaptionPanelStore` refreshes it
+                         // from `recorder.$liveCaptionStatusPhase`, and
+                         // `@Published` emits in `willSet` — so the guard
+                         // inside `canReconnectLiveCaptions` re-reads the
+                         // *previous* phase and the flag trails the real phase
+                         // by one transition. Measured: recorder says false
+                         // while the store still says true, and nothing
+                         // refreshes it again (`applyLiveCaptionSnapshot`
+                         // never writes `liveCaptionState`, so the revision
+                         // never bumps), so it stays stale for the rest of the
+                         // session.
+                         actionable: false)
         }
     }
 
@@ -473,6 +493,12 @@ struct LiveCaptionFloatingPanel: View {
                 pill
                     .recappiTooltip(liveCaptionStatusDetail ?? style.label)
                     .accessibilityLabel(style.label)
+                    // Matches the actionable branch above. Without it a
+                    // non-actionable phase reads as its bare label, so a
+                    // VoiceOver user on `.unavailable` would hear "Live
+                    // captions unavailable" and lose the server's quota text
+                    // and reset date — the whole point of surfacing a 402.
+                    .accessibilityValue(liveCaptionStatusDetail ?? "")
             }
         } else {
             HStack(spacing: 4) {

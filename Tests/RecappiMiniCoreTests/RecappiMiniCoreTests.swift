@@ -340,6 +340,57 @@ final class RecappiMiniCoreTests: XCTestCase {
         XCTAssertEqual(callCounter.value, 1)
     }
 
+    func testListRecordingJobsDoesNotRetry503() async {
+        StubConnectorURLProtocol.clearStubs()
+        defer { StubConnectorURLProtocol.clearStubs() }
+
+        let url = URL(string: "https://recordmeet.ing/api/recordings/rec_123/jobs?limit=50")!
+        let callCounter = StubCallCounter()
+        StubConnectorURLProtocol.stub(url: url) { _ in
+            _ = callCounter.increment()
+            return (Data(#"{"message":"upstream unavailable"}"#.utf8), 503)
+        }
+
+        let client = Self.makeStubbedAPIClient()
+
+        do {
+            _ = try await client.listRecordingJobs(recordingId: "rec_123", limit: 50)
+            XCTFail("Expected job history 503 to fail without retry.")
+        } catch {
+            // Expected.
+        }
+
+        XCTAssertEqual(callCounter.value, 1)
+    }
+
+    func testListRecordingJobsStillRetries500() async {
+        StubConnectorURLProtocol.clearStubs()
+        defer { StubConnectorURLProtocol.clearStubs() }
+
+        let url = URL(string: "https://recordmeet.ing/api/recordings/rec_123/jobs?limit=50")!
+        let callCounter = StubCallCounter()
+        StubConnectorURLProtocol.stub(url: url) { _ in
+            let currentCall = callCounter.increment()
+
+            if currentCall == 1 {
+                return (Data(#"{"message":"internal error"}"#.utf8), 500)
+            }
+
+            return (Data(#"{"items":[]}"#.utf8), 200)
+        }
+
+        let client = Self.makeStubbedAPIClient()
+
+        do {
+            let page = try await client.listRecordingJobs(recordingId: "rec_123", limit: 50)
+            XCTAssertTrue(page.items.isEmpty)
+        } catch {
+            XCTFail("Expected job history 500 to be retried, got \(error).")
+        }
+
+        XCTAssertEqual(callCounter.value, 2)
+    }
+
     func testStartTranscriptionRetriesSubscriptionRenewal503() async throws {
         StubConnectorURLProtocol.clearStubs()
         defer { StubConnectorURLProtocol.clearStubs() }

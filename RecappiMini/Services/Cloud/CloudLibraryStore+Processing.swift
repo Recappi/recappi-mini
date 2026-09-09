@@ -223,7 +223,10 @@ extension CloudLibraryStore {
                 transcriptCacheRecordingUpdatedAt.removeValue(forKey: remoteID)
                 summaryRefreshAttemptedRecordingIDs.remove(remoteID)
                 await loadTranscriptForSelection()
-                await loadJobHistoryForSelection()
+                // The pipeline just created a job row for this recording;
+                // guarantee a fetch issued after it rather than reusing a
+                // response that predates the job.
+                await loadJobHistoryForSelection(requiresFreshFetch: true)
             }
             await persistCacheSnapshot()
         } catch let error as RecappiAPIError where error == .unauthorized {

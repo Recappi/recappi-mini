@@ -319,6 +319,21 @@ actor RealtimeLiveCaptionActor {
     /// `ingestReceiveEventJSONForTesting` already depends on that).
     private var pendingContextHintSend: Bool = false
     private var publishListeningOnNextLive: Bool = false
+    /// Consecutive socket-level failures since the last socket that
+    /// STAYED UP for `Self.healthySocketUptime`. Feeds
+    /// `scheduleReconnect`'s ladder index so repeated short-lived
+    /// sockets escalate 2→5→10→30 s instead of pinning at a hardcoded
+    /// `attempt: 1` (= 2 s) forever.
+    ///
+    /// The reset lives in `retireLiveSocket()` — reached from every
+    /// path that retires a live socket, not just the failure one — and
+    /// is gated on uptime, NOT on `.live` and NOT on the first frame.
+    /// Both of those fire on a socket that is about to die: `openSocket`
+    /// returns before the WebSocket handshake completes, and every
+    /// upstream emits `session.created` /
+    /// `transcription_session.created` immediately — so resetting on
+    /// either one re-pins the ladder at index 1 forever.
+    private var socketFailureStreak: Int = 0
 
     /// Tunables for retry timing + audio buffering. Carved out so tests
     /// can run with near-zero reconnect delays and a small audio cap
@@ -695,6 +710,32 @@ actor RealtimeLiveCaptionActor {
         return message.localizedCaseInsensitiveContains("session claim rate exceeded")
     }
 
+    /// A claim rejection the reconnect ladder can never resolve by
+    /// retrying. Only 402 qualifies: the server's unified-minutes gate
+    /// rejects until the billing period resets, so every retry is pure
+    /// load against a user who cannot be admitted. 503 ("Retry in a few
+    /// seconds"), 429, and 409 ("re-claim required" / "please retry the
+    /// claim") are explicitly retryable contracts, and 401 is resolved
+    /// by the next cycle's fresh token — every reconnect re-claims — so
+    /// all of them keep looping.
+    static func isPermanentClaimRejection(_ error: Error) -> Bool {
+        guard case RecappiAPIError.http(let statusCode, _) = error else { return false }
+        return statusCode == 402
+    }
+
+    /// The user-facing message for a permanent claim rejection. Passes
+    /// the server's own text through (it carries the used/cap minutes
+    /// and the reset date) and falls back to a generic line when the
+    /// server sent nothing usable.
+    static func claimRejectionMessage(_ error: Error) -> String {
+        guard case RecappiAPIError.http(_, let message) = error,
+              !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return "Live captions unavailable."
+        }
+        return message
+    }
+
     /// Force a reconnect from `.live`. No-op from other states (a
     /// caller racing against `stop()` must not be able to resurrect
     /// a torn-down session).
@@ -703,6 +744,7 @@ actor RealtimeLiveCaptionActor {
         receiveTask.cancel()
         watchdogTask.cancel()
         socket.cancel(code: 1001, reason: nil)
+        retireLiveSocket()
         publishReconnectingSnapshot()
         publishListeningOnNextLive = true
         await beginClaim(attempt: 0)
@@ -869,7 +911,7 @@ actor RealtimeLiveCaptionActor {
         }
         trace("ws.send_failure", "err=\(DiagnosticsLog.errorSummary(error))")
         let wrapped = RealtimeSendFailureError(underlying: error.localizedDescription)
-        await scheduleReconnect(after: wrapped, attempt: 1)
+        await scheduleReconnect(after: wrapped, attempt: nextSocketFailureAttempt())
     }
 
     /// Send the OpenAI realtime `input_audio_buffer.commit` event.
@@ -1148,6 +1190,29 @@ actor RealtimeLiveCaptionActor {
             } else {
                 DiagnosticsLog.error("live-caption", claimFailureMessage)
             }
+            // A permanent rejection (402 — unified minutes cap) can
+            // never be resolved by retrying: the ladder would hammer
+            // /sessions at its 30 s floor for the rest of the recording
+            // while the user sits on a "Reconnecting…" panel that will
+            // never clear. Stop instead and surface the server's text.
+            if Self.isPermanentClaimRejection(error) {
+                trace("claim.terminal", "err=\(DiagnosticsLog.errorSummary(error))")
+                // Warning, not error: a plan that ran out of minutes is
+                // an expected user state, and `claim.failed` above
+                // already carries the same status + message. Logging
+                // this at `error` would mint a SECOND Sentry issue
+                // group (only level == "error" is captured) for one
+                // non-actionable event.
+                DiagnosticsLog.warning(
+                    "live-caption",
+                    "claim.permanent_rejection mode=\(Self.modeLabel(mode)) attempt=\(attempt) \(DiagnosticsLog.errorSummary(error))"
+                )
+                await transitionToUnavailableStop(
+                    message: Self.claimRejectionMessage(error),
+                    reason: "permanent_rejection"
+                )
+                return
+            }
             await scheduleReconnect(after: error, attempt: attempt)
         }
     }
@@ -1214,6 +1279,9 @@ actor RealtimeLiveCaptionActor {
             do {
                 let message = try await socket.receive()
                 guard isCurrent(socket: socket, generation: generation) else { return }
+                // NOTE: a delivered frame deliberately does NOT reset
+                // `socketFailureStreak`. The ladder's health check is
+                // uptime-based and lives in `nextSocketFailureAttempt()`.
                 // Cheap event-type derivation for the verbose recv
                 // trace: peek at the message body without re-parsing the
                 // whole event (the canonical parse happens inside
@@ -1251,11 +1319,19 @@ actor RealtimeLiveCaptionActor {
                         generation: generation,
                         sinceOpenMs: elapsedMs
                     )
+                    // Terminal first: an unsupported region never
+                    // recovers by retrying, so it must not bump the
+                    // failure streak on its way out.
                     if Self.isUnsupportedRealtimeRegionError(serverError) {
-                        await transitionToUnsupportedRealtimeRegionStop()
+                        await transitionToUnavailableStop(
+                            message: Self.unsupportedRealtimeRegionUserMessage,
+                            reason: "unsupported_region"
+                        )
                         return
                     }
-                    await scheduleReconnect(after: serverError, attempt: 1)
+                    // `nextSocketFailureAttempt()` clears `liveOpenedAt`,
+                    // so it has to run after `sinceOpenMs()` above.
+                    await scheduleReconnect(after: serverError, attempt: nextSocketFailureAttempt())
                     return
                 }
                 // Push the context hint as soon as the upstream is
@@ -1296,7 +1372,7 @@ actor RealtimeLiveCaptionActor {
                     generation: generation,
                     sinceOpenMs: elapsedMs
                 )
-                await scheduleReconnect(after: error, attempt: 1)
+                await scheduleReconnect(after: error, attempt: nextSocketFailureAttempt())
                 return
             }
         }
@@ -1942,18 +2018,35 @@ actor RealtimeLiveCaptionActor {
         finishAllSnapshotStreams()
     }
 
-    private func transitionToUnsupportedRealtimeRegionStop() async {
-        publishSnapshot(.statusOnly(
-            phase: .unavailable,
-            message: Self.unsupportedRealtimeRegionUserMessage
-        ))
+    /// Give up for good: the backend cannot serve this session and no
+    /// number of retries will change that. Publishes `.unavailable`
+    /// ("backend can't be used") rather than `.failed` ("interrupted,
+    /// retry in flight"), so the panel offers no Reconnect control.
+    ///
+    /// Shared by every terminal cause. The two known ones — an
+    /// unsupported region reported on the socket, and a claim the server
+    /// rejected permanently — differ only in the message and the trace
+    /// tag, so they must not be two functions: a fix to one would not
+    /// reach the other.
+    ///
+    /// - Parameter message: user-facing copy. The permanent-rejection
+    ///   path passes the server's own text so the panel can name the
+    ///   quota and its reset date.
+    /// - Parameter reason: trace tag, so the diagnostics log still tells
+    ///   the two causes apart.
+    private func transitionToUnavailableStop(message: String, reason: String) async {
+        publishSnapshot(.statusOnly(phase: .unavailable, message: message))
         lifecycle = .stopped
-        trace(
-            "phase",
-            "to=\(Self.snapshotTag(lifecycle.snapshot)) reason=unsupported_region"
-        )
+        trace("phase", "to=\(Self.snapshotTag(lifecycle.snapshot)) reason=\(reason)")
+        // Clear per-session diagnostic state so a later `start()` cannot
+        // carry a stale sid / openedAt into a fresh lifecycle.
         lastClaimedSessionId = nil
         liveOpenedAt = nil
+        // Drop the buffered audio too. `.stopped` never accepts more
+        // (`ingestPCM16` only enqueues while `.claiming`) and
+        // `flushPendingAudio` only runs after a claim succeeds, so this
+        // can never be replayed — holding it to dealloc just wastes the
+        // ring buffer.
         pendingAudio.removeAll()
         hasUncommittedAudio = false
         uncommittedAudioByteCount = 0
@@ -2135,7 +2228,7 @@ actor RealtimeLiveCaptionActor {
             lastInboundSourceTranscriptAt = Date()
             return .pingedAndRecovered
         case .failure(let error):
-            await scheduleReconnect(after: error, attempt: 1)
+            await scheduleReconnect(after: error, attempt: nextSocketFailureAttempt())
             return .pingFailedAndReconnected
         }
     }
@@ -2178,7 +2271,7 @@ actor RealtimeLiveCaptionActor {
             code: 1001,
             reason: "proactive session rotation".data(using: .utf8)
         )
-        liveOpenedAt = nil
+        retireLiveSocket()
         await beginClaim(attempt: 0)
         return true
     }
@@ -2203,7 +2296,7 @@ actor RealtimeLiveCaptionActor {
             code: 1001,
             reason: "source transcript stall".data(using: .utf8)
         )
-        liveOpenedAt = nil
+        retireLiveSocket()
         publishReconnectingSnapshot(message: "Reconnecting transcription…")
         publishListeningOnNextLive = true
         await beginClaim(attempt: 0)
@@ -2300,6 +2393,55 @@ actor RealtimeLiveCaptionActor {
         }
     }
 
+    /// How long a socket must stay up before it counts as healthy and
+    /// restarts the socket-failure ladder. Matches the top of the
+    /// default `reconnectDelays` ladder: a socket that outlived the
+    /// longest backoff we would ever wait for it carried a working
+    /// session; anything shorter is a flap.
+    static let healthySocketUptime: TimeInterval = 30
+
+    /// Retire the current `.live` window. THE single point every path
+    /// that takes a live socket out of service goes through — socket
+    /// failure (via `nextSocketFailureAttempt`), the proactive age
+    /// rotation, the source-stall rotation, and the user's manual
+    /// `reconnectNow()` — so a socket that stayed up past
+    /// `healthySocketUptime` clears the failure streak HOWEVER it ends,
+    /// not only when it fails. Gating the reset on the failure path
+    /// alone turns the ladder into a permanent penalty: two old blips
+    /// would still charge `delays[3]` after hours of healthy recording
+    /// across many planned rotations.
+    ///
+    /// Careful in both directions: a socket that never opened
+    /// (`liveOpenedAt == nil`) or died young reads as short uptime and
+    /// leaves the streak alone.
+    ///
+    /// Clearing `liveOpenedAt` is also what makes the reset single-shot.
+    /// One retirement resets at most once, so the `retireLiveSocket()`
+    /// inside `scheduleReconnect` cannot wipe the streak that the
+    /// caller's `nextSocketFailureAttempt()` just incremented.
+    private func retireLiveSocket() {
+        if let openedAt = liveOpenedAt,
+           Date().timeIntervalSince(openedAt) >= Self.healthySocketUptime {
+            socketFailureStreak = 0
+        }
+        liveOpenedAt = nil
+    }
+
+    /// Ladder index for the next socket-level reconnect. The first
+    /// failure after a healthy socket returns 1, so the first retry
+    /// keeps today's `delays[1]` cadence; only repeats escalate.
+    ///
+    /// "Healthy" is measured as the failed socket's uptime since
+    /// `.live` (see `retireLiveSocket`), because a socket that received
+    /// one frame and then died is not healthy — only one that STAYED UP
+    /// is. Callers that need `sinceOpenMs()` for a drop trace must read
+    /// it BEFORE this call: retiring the socket clears the open instant.
+    private func nextSocketFailureAttempt() -> Int {
+        retireLiveSocket()
+        socketFailureStreak += 1
+        return socketFailureStreak
+    }
+
     private func scheduleReconnect(after error: Error, attempt: Int) async {
         let delay = reconnectDelay(forAttempt: attempt, after: error)
         trace("reconnect.schedule", "attempt=\(attempt) delayMs=\(Int(delay * 1000))")
@@ -2311,12 +2453,13 @@ actor RealtimeLiveCaptionActor {
         )
         trace("phase", "to=\(Self.snapshotTag(lifecycle.snapshot))")
         publishReconnectingSnapshot()
-        // The .live window is over: clear the open-instant so a future
-        // drop trace doesn't compute `sinceOpenMs` against a defunct
-        // socket. `lastClaimedSessionId` deliberately stays — the next
-        // claim will overwrite it, but until then traces continue to
-        // identify which session we're reconnecting from.
-        liveOpenedAt = nil
+        // The .live window is over: retire it so a future drop trace
+        // doesn't compute `sinceOpenMs` against a defunct socket (and a
+        // healthy socket clears the failure streak).
+        // `lastClaimedSessionId` deliberately stays — the next claim will
+        // overwrite it, but until then traces continue to identify which
+        // session we're reconnecting from.
+        retireLiveSocket()
         // Audio captured pre-reconnect belongs to the failed session;
         // replaying it on the next live socket replays a window the
         // server already considered stalled / dropped. Wipe the queue
@@ -2476,7 +2619,7 @@ actor RealtimeLiveCaptionActor {
             guard isCurrent(socket: socket, generation: generation) else {
                 return lifecycle.snapshot
             }
-            await scheduleReconnect(after: error, attempt: 1)
+            await scheduleReconnect(after: error, attempt: nextSocketFailureAttempt())
             return lifecycle.snapshot
         }
     }
@@ -2489,6 +2632,19 @@ actor RealtimeLiveCaptionActor {
             return nil
         }
         return (socket, generation)
+    }
+
+    /// Test seam: move the `.live` open instant backwards so uptime-gated
+    /// logic (the socket-failure ladder's health check in
+    /// `nextSocketFailureAttempt`) can be exercised without holding a
+    /// socket open for the real `healthySocketUptime`. Returns false when
+    /// there is no open instant to backdate, so a test asserts on a real
+    /// signal instead of silently no-opping.
+    @discardableResult
+    func backdateLiveOpenedAtForTesting(by seconds: TimeInterval) -> Bool {
+        guard let openedAt = liveOpenedAt else { return false }
+        liveOpenedAt = openedAt.addingTimeInterval(-seconds)
+        return true
     }
 
     /// Test seam: feed an already-encoded PCM16 payload directly into

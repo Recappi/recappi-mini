@@ -3,40 +3,110 @@ import Foundation
 
 @MainActor
 extension CloudLibraryStore {
-    func loadJobHistoryForSelection() async {
+    /// Load the selected recording's job history, at most one request per
+    /// recording in flight at a time.
+    ///
+    /// - Parameter requiresFreshFetch: pass `true` only from callers that
+    ///   invalidated state before calling — dropped the cached job rows, or
+    ///   created a job row the server has yet to report. Those callers are
+    ///   guaranteed a request issued *after* their own mutation even when the
+    ///   in-flight guard below drops them. Plain UI triggers leave it `false`:
+    ///   they mutate nothing, so the response the in-flight owner is already
+    ///   about to apply is correct for them too, and three simultaneous
+    ///   triggers coalesce into one request instead of two.
+    func loadJobHistoryForSelection(requiresFreshFetch: Bool = false) async {
         guard let recording = selectedRecording else { return }
         guard !recording.isLocalOnlyRecording else {
             transcriptionJobsByRecordingID[recording.id] = transcriptionJobsByRecordingID[recording.id] ?? []
             return
         }
+        // Leading edge: at most one GET /api/recordings/:id/jobs in flight per
+        // recording. `jobHistoryLoadingRecordingIDs` is written *only* here
+        // (insert below, remove at the end of this function) and both writes
+        // are synchronous, so there is no `await` between this check and the
+        // claim — the main actor cannot interleave a second caller in.
+        guard !jobHistoryLoadingRecordingIDs.contains(recording.id) else {
+            if requiresFreshFetch {
+                jobHistoryReloadRequestedRecordingIDs.insert(recording.id)
+            }
+            return
+        }
+        // The request below is issued *now*, so it already satisfies any
+        // reload queued before this point — including one a cancelled or
+        // deselected owner had to leave behind. Draining it here keeps a
+        // stale flag from buying a spurious extra fetch later.
+        jobHistoryReloadRequestedRecordingIDs.remove(recording.id)
         setJobHistoryLoading(true, for: recording.id)
 
-        do {
-            let page = try await runAuthorized { client in
-                try await client.listRecordingJobs(recordingId: recording.id, limit: 50)
+        // The request is *shared*: every caller the guard above dropped is
+        // relying on the rows this one applies. Issue it from an unstructured
+        // task so it is not a child of whichever view Task happened to win the
+        // claim. Unstructured tasks do not inherit cancellation, so tearing
+        // down the detail view — or `scheduleSelectedDetailRefresh` cancelling
+        // and replacing `selectionDetailRefreshTask` — no longer aborts a
+        // request that other callers were coalesced onto and are left with no
+        // way to re-issue.
+        //
+        // `self` is captured strongly, but the task is awaited immediately and
+        // never stored, so it cannot outlive this call or form a cycle.
+        // Awaiting a `Task<Void, Never>` cannot throw and is not interrupted by
+        // *our* cancellation, so the claim release below still runs exactly
+        // once on every path, including when the request throws.
+        await Task { @MainActor [self] in
+            do {
+                let page = try await runAuthorized { client in
+                    try await client.listRecordingJobs(recordingId: recording.id, limit: 50)
+                }
+                transcriptionJobsByRecordingID[recording.id] = page.items
+                cacheWarningMessage = nil
+                await persistCacheSnapshot()
+            } catch let error as RecappiAPIError where error == .unauthorized {
+                apply(error: error)
+            } catch RecappiAPIError.http(let statusCode, _) where statusCode == 404 {
+                // Older backend deployments do not expose recording job history yet.
+                // Jobs started from this app are still tracked via POST /transcribe
+                // + GET /api/jobs/:id.
+                transcriptionJobsByRecordingID[recording.id] = transcriptionJobsByRecordingID[recording.id] ?? []
+            } catch {
+                DiagnosticsLog.error(
+                    "cloud",
+                    "job_history.load.failed recordingID=\(recording.id) \(DiagnosticsLog.errorSummary(error))"
+                )
+                if selectedRecordingID == recording.id {
+                    cacheWarningMessage = "Showing cached data · Job status refresh failed"
+                    isShowingCachedData = true
+                }
             }
-            transcriptionJobsByRecordingID[recording.id] = page.items
-            cacheWarningMessage = nil
-            await persistCacheSnapshot()
-        } catch let error as RecappiAPIError where error == .unauthorized {
-            apply(error: error)
-        } catch RecappiAPIError.http(let statusCode, _) where statusCode == 404 {
-            // Older backend deployments do not expose recording job history yet.
-            // Jobs started from this app are still tracked via POST /transcribe
-            // + GET /api/jobs/:id.
-            transcriptionJobsByRecordingID[recording.id] = transcriptionJobsByRecordingID[recording.id] ?? []
-        } catch {
-            DiagnosticsLog.error(
-                "cloud",
-                "job_history.load.failed recordingID=\(recording.id) \(DiagnosticsLog.errorSummary(error))"
-            )
-            if selectedRecordingID == recording.id {
-                cacheWarningMessage = "Showing cached data · Job status refresh failed"
-                isShowingCachedData = true
-            }
-        }
+        }.value
 
         setJobHistoryLoading(false, for: recording.id)
+
+        // Trailing edge: a caller that had invalidated state was dropped while
+        // we were in flight. Its need post-dates the response we just applied
+        // (dropped caches in `acknowledgeNewerVersion` /
+        // `refreshSelectedDetailIfNeeded`, or a job row the local pipeline
+        // created), so issue exactly one more fetch.
+        //
+        // Deliberately *not* gated on `Task.isCancelled`. Because the request
+        // above is unstructured, a cancelled owner still received its response
+        // and can still service the queued reload; bailing here would strand
+        // the caller it dropped, and nothing else is guaranteed to run —
+        // `.task(id:)` will not refire while the recording id is unchanged and
+        // every other caller needs a fresh user action.
+        //
+        // `Set.remove` mutates and `if` conditions short-circuit left to
+        // right, so the flag is consumed *last* — checking it first would let
+        // an owner whose selection moved on swallow the queued reload without
+        // issuing anything. Bailing here leaves the flag set; the leading edge
+        // above drains it on the next fetch for this recording.
+        guard selectedRecordingID == recording.id else { return }
+        if jobHistoryReloadRequestedRecordingIDs.remove(recording.id) != nil {
+            // Carry the guarantee forward: if this re-fetch is itself dropped
+            // by a newer owner it must queue again rather than coalesce away.
+            // Bounded: the id is removed before re-entry and only a *new*
+            // invalidating caller can put it back.
+            await loadJobHistoryForSelection(requiresFreshFetch: true)
+        }
     }
 
     /// Retry the failed parts of a smart-chunk job. On success, merges the
