@@ -473,6 +473,12 @@ struct LiveCaptionFloatingPanel: View {
                 pill
                     .recappiTooltip(liveCaptionStatusDetail ?? style.label)
                     .accessibilityLabel(style.label)
+                    // Matches the actionable branch above. Without it a
+                    // non-actionable phase reads as its bare label, so a
+                    // VoiceOver user on `.unavailable` would hear "Live
+                    // captions unavailable" and lose the server's quota text
+                    // and reset date — the whole point of surfacing a 402.
+                    .accessibilityValue(liveCaptionStatusDetail ?? "")
             }
         } else {
             HStack(spacing: 4) {

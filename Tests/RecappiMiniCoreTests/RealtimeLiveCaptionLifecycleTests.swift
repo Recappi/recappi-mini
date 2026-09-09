@@ -691,6 +691,21 @@ final class MockRealtimeSocket: RealtimeSocket, @unchecked Sendable {
     var closeCode: Int { lock.withLock { _closeCode } }
     var closeReason: Data? { lock.withLock { _closeReason } }
 
+    /// How many times `receive()` has been entered, plus the waiters
+    /// parked on that count. Lets a test synchronise on the receive
+    /// loop's ACTUAL progress instead of sleeping and hoping: the
+    /// close-error queue is drained before the message queue, so a
+    /// frame scripted while the loop is still booting would otherwise
+    /// be silently overtaken by a close.
+    private struct ReceiveEnteredWaiter {
+        let id: Int
+        let target: Int
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+    private var _receiveEnteredCount = 0
+    private var _receiveEnteredWaiters: [ReceiveEnteredWaiter] = []
+    private var _receiveEnteredWaiterSeq = 0
+
     func send(text: String) async throws {
         let handler: (@Sendable (String) async throws -> Void)? = lock.withLock { _sendHandler }
         if let handler {
@@ -760,8 +775,18 @@ final class MockRealtimeSocket: RealtimeSocket, @unchecked Sendable {
     }
 
     func receive() async throws -> RealtimeSocketMessage {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RealtimeSocketMessage, Error>) in
+        enum ReceiveOutcome {
+            case throwing(Error)
+            case message(RealtimeSocketMessage)
+            case parked
+        }
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RealtimeSocketMessage, Error>) in
             lock.lock()
+            _receiveEnteredCount += 1
+            let entered = _receiveEnteredCount
+            let satisfied = _receiveEnteredWaiters.filter { $0.target <= entered }
+            _receiveEnteredWaiters.removeAll { $0.target <= entered }
+            let outcome: ReceiveOutcome
             // Drain any close error that landed before this waiter
             // registered. Without this, a `simulateCloseFromServer`
             // that races the receive-loop startup would silently drop
@@ -770,19 +795,80 @@ final class MockRealtimeSocket: RealtimeSocket, @unchecked Sendable {
             // semantics for `enqueueScriptedMessage`.
             if let pending = _pendingCloseError {
                 _pendingCloseError = nil
-                lock.unlock()
-                continuation.resume(throwing: pending)
-                return
+                outcome = .throwing(pending)
+            } else if !receivedMessages.isEmpty {
+                outcome = .message(receivedMessages.removeFirst())
+            } else {
+                // Registered BEFORE the entered-waiters are resumed, so
+                // a test woken by `waitForReceiveEntered` always finds a
+                // waiter to hand its frame to.
+                pendingReceiveWaiters.append(continuation)
+                outcome = .parked
             }
-            if !receivedMessages.isEmpty {
-                let next = receivedMessages.removeFirst()
-                lock.unlock()
-                continuation.resume(returning: next)
-                return
-            }
-            pendingReceiveWaiters.append(continuation)
             lock.unlock()
+            for waiter in satisfied { waiter.continuation.resume(returning: true) }
+            switch outcome {
+            case .throwing(let error):
+                continuation.resume(throwing: error)
+            case .message(let message):
+                continuation.resume(returning: message)
+            case .parked:
+                break
+            }
         }
+    }
+
+    /// Wait until `receive()` has been entered at least `count` times.
+    /// The deterministic replacement for "sleep and hope the receive
+    /// loop got there": entry number N+1 is proof that the frame
+    /// delivered against entry N was fully consumed.
+    ///
+    /// Returns `false` if the signal doesn't arrive within `timeout`.
+    /// The deadline exists so a receive loop that never gets there
+    /// produces a RED test rather than a stuck CI job — nothing here
+    /// resumes a parked waiter once the socket is cancelled, so without
+    /// it the await is unbounded. Callers must fail on `false`; they
+    /// must not treat it as "arrived".
+    @discardableResult
+    func waitForReceiveEntered(atLeast count: Int, timeout: TimeInterval = 2.0) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let id: Int
+            let resolveImmediately: Bool
+            (id, resolveImmediately) = lock.withLock { () -> (Int, Bool) in
+                if _receiveEnteredCount >= count { return (0, true) }
+                _receiveEnteredWaiterSeq += 1
+                let waiterID = _receiveEnteredWaiterSeq
+                _receiveEnteredWaiters.append(
+                    ReceiveEnteredWaiter(id: waiterID, target: count, continuation: continuation)
+                )
+                return (waiterID, false)
+            }
+            if resolveImmediately {
+                continuation.resume(returning: true)
+                return
+            }
+            // Strong capture: the timer must outlive a mock that the
+            // test has already let go, otherwise the parked
+            // continuation leaks instead of expiring.
+            Task.detached {
+                try? await Task.sleep(
+                    nanoseconds: UInt64(max(timeout, 0) * 1_000_000_000)
+                )
+                self.expireReceiveEnteredWaiter(id: id)
+            }
+        }
+    }
+
+    /// Resume a receive-entered waiter with `false` because its deadline
+    /// passed. A no-op if `receive()` already satisfied it.
+    private func expireReceiveEnteredWaiter(id: Int) {
+        let expired: ReceiveEnteredWaiter? = lock.withLock {
+            guard let index = _receiveEnteredWaiters.firstIndex(where: { $0.id == id }) else {
+                return nil
+            }
+            return _receiveEnteredWaiters.remove(at: index)
+        }
+        expired?.continuation.resume(returning: false)
     }
 
     func cancel(code: Int, reason: Data?) {
