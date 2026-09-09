@@ -53,6 +53,9 @@ extension CloudLibraryStore {
         // *our* cancellation, so the claim release below still runs exactly
         // once on every path, including when the request throws.
         await Task { @MainActor [self] in
+            #if DEBUG
+            await beforeJobHistoryRequestForTesting?()
+            #endif
             do {
                 let page = try await runAuthorized { client in
                     try await client.listRecordingJobs(recordingId: recording.id, limit: 50)

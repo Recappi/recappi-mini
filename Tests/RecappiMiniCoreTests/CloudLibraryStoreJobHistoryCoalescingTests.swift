@@ -19,8 +19,10 @@ import XCTest
 /// where the request fails fast inside `ensureAuthorized`, and assert the
 /// *ownership* contract around it:
 ///
-///  - the owner stays in flight across an `await` (it would not, if the
-///    request were issued inline — the signed-out failure never suspends),
+/// A test gate holds the shared request before authorization so the
+/// signed-out failure cannot complete before the second caller arrives.
+///
+///  - the owner stays in flight across an `await`,
 ///  - the request body still runs and applies its outcome after the owner's
 ///    Task is cancelled,
 ///  - the claim is released exactly once, and
@@ -32,7 +34,7 @@ final class CloudLibraryStoreJobHistoryCoalescingTests: XCTestCase {
     /// A remote (not local-only) recording, so `loadJobHistoryForSelection`
     /// reaches the in-flight guard instead of the local short-circuit.
     @MainActor
-    private func makeStore() -> (CloudLibraryStore, CloudRecording) {
+    private func makeStore() -> (CloudLibraryStore, CloudRecording, JobHistoryRequestGate) {
         let recording = CloudRecording(
             id: Self.recordingID,
             userId: "user_123",
@@ -59,16 +61,21 @@ final class CloudLibraryStoreJobHistoryCoalescingTests: XCTestCase {
         // detail refresh, and the latter calls back into
         // `loadJobHistoryForSelection(requiresFreshFetch: true)`.
         store.selectedRecordingID = recording.id
-        return (store, recording)
+        let gate = JobHistoryRequestGate()
+        store.beforeJobHistoryRequestForTesting = {
+            await gate.wait()
+            XCTAssertFalse(Task.isCancelled, "The shared request must not inherit owner cancellation.")
+        }
+        return (store, recording, gate)
     }
 
-    /// The owner claims synchronously and then suspends on the unstructured
-    /// request task, so one yield is enough; the bound is only a safety net.
+    /// The explicit request gate keeps the claim observable until released.
     @MainActor
     private func waitUntilJobHistoryClaimed(_ store: CloudLibraryStore) async {
-        for _ in 0..<200 {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline {
             if store.jobHistoryLoadingRecordingIDs.contains(Self.recordingID) { return }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(10))
         }
     }
 
@@ -85,7 +92,7 @@ final class CloudLibraryStoreJobHistoryCoalescingTests: XCTestCase {
     @MainActor
     func testCancelledJobHistoryOwnerStillServesPlainCoalescedCaller() async throws {
         try skipIfSignedIn()
-        let (store, recording) = makeStore()
+        let (store, recording, gate) = makeStore()
 
         let owner = Task { await store.loadJobHistoryForSelection() }
         await waitUntilJobHistoryClaimed(store)
@@ -105,7 +112,9 @@ final class CloudLibraryStoreJobHistoryCoalescingTests: XCTestCase {
             "A plain caller must not queue a reload; it rides the in-flight request."
         )
 
+        gate.release()
         await owner.value
+        XCTAssertEqual(gate.requestCount, 1, "A plain caller must share the original request.")
 
         // The cancelled owner still carried the shared request to completion
         // and applied its outcome to state keyed by recording id, so the
@@ -127,7 +136,7 @@ final class CloudLibraryStoreJobHistoryCoalescingTests: XCTestCase {
     @MainActor
     func testCancelledJobHistoryOwnerStillServesFreshFetchCaller() async throws {
         try skipIfSignedIn()
-        let (store, recording) = makeStore()
+        let (store, recording, gate) = makeStore()
 
         let owner = Task { await store.loadJobHistoryForSelection() }
         await waitUntilJobHistoryClaimed(store)
@@ -146,7 +155,9 @@ final class CloudLibraryStoreJobHistoryCoalescingTests: XCTestCase {
             "A requiresFreshFetch caller dropped by the guard must queue a reload."
         )
 
+        gate.release()
         await owner.value
+        XCTAssertEqual(gate.requestCount, 2, "A fresh-fetch caller must receive one trailing reload.")
 
         XCTAssertFalse(
             store.jobHistoryReloadRequestedRecordingIDs.contains(recording.id),
@@ -156,5 +167,24 @@ final class CloudLibraryStoreJobHistoryCoalescingTests: XCTestCase {
             store.jobHistoryLoadingRecordingIDs.contains(recording.id),
             "The claim must be released on every path, including the trailing-edge re-fetch."
         )
+    }
+}
+
+@MainActor
+private final class JobHistoryRequestGate {
+    private var isReleased = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var requestCount = 0
+
+    func wait() async {
+        requestCount += 1
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        isReleased = true
+        continuation?.resume()
+        continuation = nil
     }
 }
