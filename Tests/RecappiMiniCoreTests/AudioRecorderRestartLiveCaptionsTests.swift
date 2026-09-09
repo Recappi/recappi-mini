@@ -23,7 +23,7 @@ final class AudioRecorderRestartLiveCaptionsTests: XCTestCase {
     /// in `BackendRealtimeLiveCaptionTranscriber.stop`). The second
     /// restart fires while the first is still awaiting. Expectation:
     /// only the SECOND restart's `start` callback runs to completion.
-    func testRapidSuccessiveRestartsResultInSingleProvider() async {
+    func testRapidSuccessiveRestartsResultInSingleProvider() async throws {
         let recorder = AudioRecorder()
         let stops = StopRecorder()
         let starts = StartRecorder()
@@ -41,13 +41,14 @@ final class AudioRecorderRestartLiveCaptionsTests: XCTestCase {
         )
 
         recorder.restartLiveCaptionsForTesting(localeIdentifier: "en-A")
+        let firstRestart = try XCTUnwrap(recorder.pendingRestartTaskForTesting)
         recorder.restartLiveCaptionsForTesting(localeIdentifier: "en-B")
+        let secondRestart = try XCTUnwrap(recorder.pendingRestartTaskForTesting)
 
-        // Allow both spawned Tasks to settle. 250 ms is comfortably
-        // longer than two consecutive 80 ms stops, so a buggy
-        // implementation has time to fire both starts before we
-        // assert.
-        try? await Task.sleep(nanoseconds: 250_000_000)
+        // Join both tasks, including a stale first task that a broken
+        // restart chain might allow to outlive the second one.
+        await firstRestart.value
+        await secondRestart.value
 
         XCTAssertEqual(
             starts.localeIdentifiers, ["en-B"],
@@ -68,7 +69,7 @@ final class AudioRecorderRestartLiveCaptionsTests: XCTestCase {
     /// The fix is to serialize the restart Tasks themselves so the
     /// second restart's body cannot begin until the first restart's
     /// body (including its stop-await) has fully returned.
-    func testSecondRestartWaitsForFirstRestartStopEvenWhenSecondCapturesNilTranscriber() async {
+    func testSecondRestartWaitsForFirstRestartStopEvenWhenSecondCapturesNilTranscriber() async throws {
         let recorder = AudioRecorder()
         let events = EventRecorder()
 
@@ -94,11 +95,12 @@ final class AudioRecorderRestartLiveCaptionsTests: XCTestCase {
         )
 
         recorder.restartLiveCaptionsForTesting(localeIdentifier: "en-A")
+        let firstRestart = try XCTUnwrap(recorder.pendingRestartTaskForTesting)
         recorder.restartLiveCaptionsForTesting(localeIdentifier: "en-B")
+        let secondRestart = try XCTUnwrap(recorder.pendingRestartTaskForTesting)
 
-        // Allow both spawned Tasks to settle, with comfortable margin
-        // over the 80 ms slow stop.
-        try? await Task.sleep(nanoseconds: 300_000_000)
+        await firstRestart.value
+        await secondRestart.value
 
         let recorded = events.snapshot()
 
@@ -124,7 +126,7 @@ final class AudioRecorderRestartLiveCaptionsTests: XCTestCase {
     /// Focused unit-test on the generation guard itself. Bump the
     /// generation between spawning the Task and resolving its `stop`
     /// — the Task must observe the bump and decline to call `start`.
-    func testRestartGenerationGuardSupersedesStaleProvider() async {
+    func testRestartGenerationGuardSupersedesStaleProvider() async throws {
         let recorder = AudioRecorder()
         let starts = StartRecorder()
         let stopReleased = AsyncOneShot()
@@ -139,6 +141,7 @@ final class AudioRecorderRestartLiveCaptionsTests: XCTestCase {
         )
 
         recorder.restartLiveCaptionsForTesting(localeIdentifier: "stale")
+        let restart = try XCTUnwrap(recorder.pendingRestartTaskForTesting)
 
         // Move the generation forward while restart#1's Task is still
         // suspended in `await stop(...)`. This simulates restart#2
@@ -149,8 +152,7 @@ final class AudioRecorderRestartLiveCaptionsTests: XCTestCase {
         // the generation, observe the bump, and refuse to start.
         stopReleased.fire()
 
-        // Drain.
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        await restart.value
 
         XCTAssertTrue(
             starts.localeIdentifiers.isEmpty,
