@@ -220,6 +220,29 @@ final class RealtimeLiveCaptionLifecycleTests: XCTestCase {
         _ = await actor.stop(saveTo: nil)
     }
 
+    func testQuotaExhaustedClaimFailureIsWarningTelemetry() {
+        for message in ["Monthly minutes quota exhausted (60 of 60 minutes used).", ""] {
+            XCTAssertEqual(
+                RealtimeLiveCaptionActor.claimFailureDiagnosticLevel(for: RecappiAPIError.http(
+                    statusCode: 402,
+                    message: message
+                )),
+                "warning"
+            )
+        }
+
+        for statusCode in [400, 401, 403, 409, 429, 500, 502, 503, 504] {
+            XCTAssertEqual(
+                RealtimeLiveCaptionActor.claimFailureDiagnosticLevel(for: RecappiAPIError.http(
+                    statusCode: statusCode,
+                    message: "Unexpected claim failure"
+                )),
+                "error",
+                "Unexpected HTTP \(statusCode) claim failures must still be reported."
+            )
+        }
+    }
+
     func testSubscriptionRenewalClaimFailureIsWarningTelemetry() {
         XCTAssertEqual(
             RealtimeLiveCaptionActor.claimFailureDiagnosticLevel(for: RecappiAPIError.http(

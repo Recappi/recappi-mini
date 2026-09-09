@@ -517,6 +517,9 @@ private struct DiagnosticTelemetry {
         if isExpectedRealtimeClaimRateLimit {
             return false
         }
+        if isExpectedRealtimeQuotaExhaustion {
+            return false
+        }
         if isExpectedRealtimeClaimNetworkDrop {
             return false
         }
@@ -686,6 +689,18 @@ private struct DiagnosticTelemetry {
         default:
             return false
         }
+    }
+
+    private var isExpectedRealtimeQuotaExhaustion: Bool {
+        // Both caption modes claim through this endpoint. Its 402 means
+        // the shared minutes quota is exhausted; retain the breadcrumb
+        // without capturing the transport layer's request.failed error.
+        category == "network"
+            && operation == "request.failed"
+            && fields["method"] == "POST"
+            && fields["path"] == "/api/openai/realtime/sessions"
+            && fields["domain"] == "RecappiMini.RecappiAPIError"
+            && httpStatusCode == "402"
     }
 
     private var isExpectedRealtimeClaimNetworkDrop: Bool {
