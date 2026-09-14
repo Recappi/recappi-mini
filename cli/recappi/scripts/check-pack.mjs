@@ -2,10 +2,11 @@ import { mkdtemp, rm, readFile, access, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { runPackageManager } from "../../helpers/package-manager.mjs";
 
 const outDir = await mkdtemp(join(tmpdir(), "recappi-cli-pack-"));
 try {
-  const pack = spawnSync("pnpm", ["pack", "--pack-destination", outDir], {
+  const pack = runPackageManager("pnpm", ["pack", "--pack-destination", outDir], {
     cwd: new URL("..", import.meta.url),
     encoding: "utf8",
     stdio: "pipe",
@@ -38,6 +39,12 @@ try {
   if (typeof bin !== "string") throw new Error("package.json missing bin.recappi");
   const binPath = join(outDir, "package", bin);
   await access(binPath);
+  await access(join(outDir, "package", "dist", "windows-sidecar.js"));
+  for (const arch of ["x64", "arm64"]) {
+    if (pkg.optionalDependencies?.[`recappi-helper-win32-${arch}`] !== pkg.version) {
+      throw new Error(`Windows ${arch} helper version must match recappi`);
+    }
+  }
   if (pkg.optionalDependencies?.["recappi-helper-darwin-arm64"] !== pkg.version) {
     throw new Error("recappi optional helper dependency must match package version");
   }
@@ -69,7 +76,7 @@ try {
   }
   const consumerDir = join(outDir, "consumer");
   await mkdir(consumerDir);
-  const install = spawnSync(
+  const install = runPackageManager(
     "npm",
     [
       "install",

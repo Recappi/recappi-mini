@@ -29,7 +29,9 @@
     "react": "^19.2.7"
   },
   "optionalDependencies": {
-    "recappi-helper-darwin-arm64": "0.1.0"
+    "recappi-helper-darwin-arm64": "0.1.0",
+    "recappi-helper-win32-x64": "0.1.0",
+    "recappi-helper-win32-arm64": "0.1.0"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.4",

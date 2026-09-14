@@ -11,6 +11,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-cli:
+    name: Windows CLI
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: npm install -g vite-plus@0.2.1
+      - run: pnpm install --frozen-lockfile
+      - run: ./scripts/build-windows-cli-helper.ps1
+      - run: pnpm --filter recappi check
+      - run: pnpm --filter recappi pack:check
+      - run: node cli/recappi/scripts/check-windows-install.mjs
+      - run: node ../check-helper-pack.mjs RecappiAudioCapture.exe
+        working-directory: cli/helpers/win32-x64
+
   tests:
     name: Swift tests
     runs-on: macos-26

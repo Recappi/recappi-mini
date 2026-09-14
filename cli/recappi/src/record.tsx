@@ -657,6 +657,10 @@ export function bundledSidecarCommand(
   platform: NodeJS.Platform,
   arch: string,
 ): string | null {
+  if (platform === "win32") {
+    if (!["x64", "arm64"].includes(arch)) return null;
+    return fileURLToPath(new URL("../dist/windows-sidecar.js", import.meta.url));
+  }
   const executable = helperExecutableName(platform);
   if (!executable) return null;
   const helperPackage = helperPackageName(platform, arch);

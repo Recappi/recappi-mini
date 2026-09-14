@@ -1,9 +1,10 @@
 import { appendFile, readFile, writeFile } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
+import { runPackageManager } from "../../helpers/package-manager.mjs";
 
 const packageUrl = new URL("../package.json", import.meta.url);
 const pkg = JSON.parse(await readFile(packageUrl, "utf8"));
-const helperPackageUrls = [new URL("../../helpers/darwin-arm64/package.json", import.meta.url)];
+const helperPlatforms = ["darwin-arm64", "win32-x64", "win32-arm64"];
+const helperPackageUrls = helperPlatforms.map((platform) => new URL(`../../helpers/${platform}/package.json`, import.meta.url));
 
 const requestedVersion = process.env.RECAPPI_CLI_VERSION?.trim();
 const tagVersion = process.env.GITHUB_REF_NAME?.startsWith("recappi-v")
@@ -16,7 +17,7 @@ const resolvedVersion =
 pkg.version = resolvedVersion;
 pkg.optionalDependencies = {
   ...pkg.optionalDependencies,
-  "recappi-helper-darwin-arm64": resolvedVersion,
+  ...Object.fromEntries(helperPlatforms.map((platform) => [`recappi-helper-${platform}`, resolvedVersion])),
 };
 await writeFile(packageUrl, `${JSON.stringify(pkg, null, 2)}\n`);
 
@@ -47,7 +48,7 @@ function resolveNextStableVersion(packageName, packageVersion) {
 }
 
 function getPublishedVersions(packageName) {
-  const result = spawnSync("npm", ["view", packageName, "versions", "--json"], {
+  const result = runPackageManager("npm", ["view", packageName, "versions", "--json"], {
     encoding: "utf8",
     stdio: "pipe",
   });

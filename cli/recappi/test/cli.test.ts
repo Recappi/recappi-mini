@@ -1007,14 +1007,14 @@ describe("recappi CLI contract", () => {
   });
 
   it("resolves bundled helper locations per platform and architecture", () => {
-    expect(bundledSidecarCommand("darwin", "arm64")).toMatch(
+    expect(bundledSidecarCommand("darwin", "arm64")?.replaceAll("\\", "/")).toMatch(
       /helpers\/darwin-arm64\/Recappi Recorder\.app$/,
     );
-    expect(bundledSidecarCommand("darwin", "x64")).toMatch(
+    expect(bundledSidecarCommand("darwin", "x64")?.replaceAll("\\", "/")).toMatch(
       /helpers\/darwin-x64\/Recappi Recorder\.app$/,
     );
-    expect(bundledSidecarCommand("win32", "x64")).toMatch(
-      /helpers\/win32-x64\/RecappiMiniSidecar\.exe$/,
+    expect(bundledSidecarCommand("win32", "x64")?.replaceAll("\\", "/")).toMatch(
+      /dist\/windows-sidecar\.js$/,
     );
     expect(bundledSidecarCommand("linux", "x64")).toBeNull();
   });
@@ -1898,7 +1898,7 @@ describe("recappi CLI contract", () => {
     }
   });
 
-  it("reports unreadable upload paths as permission_denied", async () => {
+  it.skipIf(process.platform === "win32")("reports unreadable upload paths as permission_denied", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
     const blockedDir = path.join(dir, "blocked");
     const filePath = path.join(blockedDir, "secret.wav");
@@ -1928,7 +1928,7 @@ describe("recappi CLI contract", () => {
     }
   });
 
-  it("reports non-WAV duration probe permission errors as permission_denied", async () => {
+  it.skipIf(process.platform === "win32")("reports non-WAV duration probe permission errors as permission_denied", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "recappi-cli-test-"));
     const filePath = path.join(dir, "wechat-container.mp3");
     await writeFile(filePath, Buffer.from("not-readable-mp3"));
