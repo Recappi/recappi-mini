@@ -40,6 +40,11 @@ private final class RecappiMiniSidecar {
 
         let id = requestID(from: object)
         do {
+            if let params = object["params"] as? [String: Any],
+               let options = params["options"] as? [String: Any],
+               options["targetProcessId"] != nil {
+                throw SidecarFailure(code: -32602, message: "Process ID capture is Windows-only. Select a macOS app from the recording sources.")
+            }
             switch method(from: object) {
             case "recappi.handshake":
                 result(id: id, [

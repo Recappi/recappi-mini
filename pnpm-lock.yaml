@@ -41,6 +41,9 @@ importers:
       react:
         specifier: ^19.2.7
         version: 19.2.7
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: ^0.18.4
@@ -51,6 +54,9 @@ importers:
       '@types/react':
         specifier: ^19.2.17
         version: 19.2.17
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       ink-testing-library:
         specifier: ^4.0.0
         version: 4.0.0(@types/react@19.2.17)
@@ -460,6 +466,9 @@ packages:
 
   '@types/react@19.2.17':
     resolution: {integrity: sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@voidzero-dev/vite-plus-core@0.1.24':
     resolution: {integrity: sha512-iXPGBABnQnrDMx89H6MOCGcTZp+QW+3rY4YMVKdE6ydchSvPk2O3MI2vgaRVfOtWJ2IjnxSnf1n2yjP67ZBRFQ==}
@@ -1526,6 +1535,10 @@ snapshots:
   '@types/react@19.2.17':
     dependencies:
       csstype: 3.2.3
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 24.13.2
 
   '@voidzero-dev/vite-plus-core@0.1.24(@arethetypeswrong/core@0.18.4)(@types/node@24.13.2)(esbuild@0.27.7)(publint@0.3.21)(typescript@5.9.3)':
     dependencies:

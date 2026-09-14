@@ -21,6 +21,12 @@ const sources: RecordingSource[] = [
 ];
 
 describe("recording core", () => {
+  it("maps a Windows app to a process ID without pretending it is a macOS bundle", () => {
+    expect(recordingCaptureMappingFromSelection(
+      { sourceId: "process:1234", includeMicrophone: true, microphoneDeviceId: "usb-mic" },
+      [{ id: "process:1234", kind: "app", label: "Meeting app", processId: 1234 }],
+    )).toMatchObject({ targetProcessId: 1234, microphoneDeviceId: "usb-mic", includeSystemAudio: true });
+  });
   it("exposes macOS-style default sources without a microphone-only source", () => {
     expect(DEFAULT_RECORDING_SOURCES).toEqual([
       expect.objectContaining({

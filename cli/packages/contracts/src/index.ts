@@ -190,6 +190,7 @@ export const sidecarRecordingOptionsSchema = z.object({
   includeSystemAudio: z.boolean().default(true),
   includeMicrophone: z.boolean().default(true),
   targetBundleId: z.string().optional(),
+  targetProcessId: z.number().int().positive().max(0xffffffff).optional(),
   microphoneDeviceId: z.string().optional(),
   liveCaptions: z.boolean().default(false),
   translationLanguage: z.string().optional(),
@@ -204,6 +205,7 @@ export const sidecarRecordingSourceSchema = z.object({
   label: z.string(),
   appName: z.string().optional(),
   bundleId: z.string().optional(),
+  processId: z.number().int().positive().max(0xffffffff).optional(),
 });
 export type SidecarRecordingSource = z.infer<typeof sidecarRecordingSourceSchema>;
 
@@ -225,6 +227,11 @@ export const sidecarMicrophonesListResultSchema = z.object({
   microphones: z.array(sidecarMicrophoneDeviceSchema),
 });
 export type SidecarMicrophonesListResult = z.infer<typeof sidecarMicrophonesListResultSchema>;
+
+export const recordInputsDataSchema = z.object({
+  sources: z.array(sidecarRecordingSourceSchema),
+  microphones: z.array(sidecarMicrophoneDeviceSchema),
+});
 
 export const sidecarPermissionNameSchema = z.enum(["screen_recording", "microphone"]);
 export type SidecarPermissionName = z.infer<typeof sidecarPermissionNameSchema>;

@@ -1,10 +1,15 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { WindowsCapture, WindowsCaptureBackend } from "./windowsRecorder";
+import {
+  sidecarMicrophonesListResultSchema,
+  sidecarRecordingSourcesListResultSchema,
+} from "../../packages/contracts/src/index";
 
 export function loadWindowsCaptureBackend(): WindowsCaptureBackend {
   if (process.platform !== "win32") throw new Error("Windows capture requires Windows.");
@@ -21,12 +26,28 @@ export function loadWindowsCaptureBackend(): WindowsCaptureBackend {
     );
   }
   if (!existsSync(executable)) throw new Error("Windows recording helper is missing.");
+  const catalog = async (option: string) => {
+    const { stdout } = await promisify(execFile)(executable, [option], {
+      windowsHide: true,
+      timeout: 8000,
+      maxBuffer: 1024 * 1024,
+    });
+    return JSON.parse(stdout);
+  };
   return {
-    start: (callback, options) =>
+    listSources: async () =>
+      sidecarRecordingSourcesListResultSchema.parse(await catalog("--list-sources")).sources,
+    listMicrophones: async () =>
+      sidecarMicrophonesListResultSchema.parse(await catalog("--list-microphones")).microphones,
+    start: (callback, options, onLevel) =>
       new Promise<WindowsCapture>((resolve, reject) => {
         const args = [
           ...(!options.includeSystemAudio ? ["--no-system-audio"] : []),
           ...(!options.includeMicrophone ? ["--no-microphone"] : []),
+          ...(options.targetProcessId ? ["--process-id", String(options.targetProcessId)] : []),
+          ...(options.microphoneDeviceId
+            ? ["--microphone-device", options.microphoneDeviceId]
+            : []),
         ];
         const child = spawn(executable, args, {
           stdio: ["pipe", "pipe", "pipe"],
@@ -81,6 +102,12 @@ export function loadWindowsCaptureBackend(): WindowsCaptureBackend {
                   }
                 },
               });
+            } else if (message.type === "level" && ready && !failed) {
+              if (
+                (message.input === "system" || message.input === "microphone") &&
+                Number.isFinite(message.rmsDb)
+              )
+                onLevel?.(message.input, message.rmsDb);
             } else if (message.type === "audio" && ready && !failed) {
               const bytes = Buffer.from(message.samples, "base64");
               if (bytes.length % 4) throw new Error("Invalid Windows PCM frame.");

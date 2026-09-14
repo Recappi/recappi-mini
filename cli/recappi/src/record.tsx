@@ -67,6 +67,7 @@ export interface RecordCommandOptions {
   includeSystemAudio?: boolean;
   includeMicrophone?: boolean;
   targetBundleId?: string;
+  targetProcessId?: number;
   microphoneDeviceId?: string;
   translationLanguage?: string;
   transcriptionLanguage?: string;
@@ -111,6 +112,7 @@ export interface RecordSetupLevelPreviewSession {
 export interface RecordInputOptions {
   cliVersion: string;
   env?: NodeJS.ProcessEnv;
+  homeDir?: string;
   sidecarCommand?: string;
   sidecarArgs?: string[];
   runtime?: Pick<RecordRuntimeDeps, "spawnSidecar">;
@@ -145,7 +147,11 @@ export async function recordViaSidecar(opts: RecordCommandOptions): Promise<Reco
         createInkRecordingHeroRenderer({
         source: session.source,
         sourceLabel:
-          opts.includeSystemAudio === false ? "Microphone" : "System audio · all apps",
+          opts.includeSystemAudio === false
+            ? "Microphone"
+            : opts.targetProcessId
+              ? `App · PID ${opts.targetProcessId}`
+              : "System audio · all apps",
         micEnabled: opts.includeMicrophone !== false,
         captionStreamEnabled: session.captionStreamEnabled,
         renderApp: opts.runtime?.renderApp,
@@ -189,6 +195,7 @@ export async function startLiveRecordSession(
     includeSystemAudio: capture.includeSystemAudio,
     includeMicrophone: capture.includeMicrophone,
     targetBundleId: capture.targetBundleId,
+    targetProcessId: capture.targetProcessId,
     microphoneDeviceId: capture.microphoneDeviceId,
     live: true,
   });
@@ -261,6 +268,7 @@ export async function startRecordSetupLevelPreview(
         includeMicrophone: capture.includeMicrophone,
         liveCaptions: false,
         ...(capture.targetBundleId ? { targetBundleId: capture.targetBundleId } : {}),
+        ...(capture.targetProcessId ? { targetProcessId: capture.targetProcessId } : {}),
         ...(capture.microphoneDeviceId ? { microphoneDeviceId: capture.microphoneDeviceId } : {}),
       },
     });
@@ -369,6 +377,7 @@ async function startRecordSessionOnce(opts: RecordCommandOptions): Promise<Activ
       includeSystemAudio: opts.includeSystemAudio ?? true,
       includeMicrophone: opts.includeMicrophone ?? true,
       ...(opts.targetBundleId ? { targetBundleId: opts.targetBundleId } : {}),
+      ...(opts.targetProcessId ? { targetProcessId: opts.targetProcessId } : {}),
       ...(opts.microphoneDeviceId ? { microphoneDeviceId: opts.microphoneDeviceId } : {}),
       liveCaptions: captionStreamEnabled,
       ...(captionStreamEnabled && opts.translationLanguage ? { translationLanguage: opts.translationLanguage } : {}),
@@ -461,6 +470,7 @@ function normalizeSidecarSources(sources: SidecarRecordingSource[]): RecordingSo
       label: source.label,
       ...(source.appName ? { appName: source.appName } : {}),
       ...(source.bundleId ? { bundleId: source.bundleId } : {}),
+      ...(source.processId ? { processId: source.processId } : {}),
       canIncludeMicrophone: true,
     });
   }

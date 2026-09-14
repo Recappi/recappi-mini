@@ -79,6 +79,15 @@ the additive microphone input:
 }
 ```
 
+On Windows, app sources carry a numeric `processId` and an ID such as
+`process:1234`, rather than a macOS `bundleId`. Send that value as
+`options.targetProcessId` to capture the process and its descendants. This
+requires Windows build 20348 or later. macOS rejects `targetProcessId` and Windows
+rejects `targetBundleId`; neither helper silently substitutes whole-system audio.
+Windows microphone IDs are the native endpoint IDs returned by enumeration.
+Omitting `microphoneDeviceId` (or using `default` on Windows) selects the current
+default input when capture starts.
+
 Permission status and recording start both use recording options. Permission
 status is a no-prompt preflight so the CLI/TUI can show a setup screen before a
 recording attempt hits macOS TCC:
@@ -158,6 +167,16 @@ helpers emit levels from the shared core session's captured sample buffers at a
 throttled UI cadence, using `rmsDb` plus `atMs`.
 
 `live_caption.delta` is provisional stream data. It carries `stream`, `text`, optional `isFinal`, optional `segmentId`/`speaker`, and optional timing fields (`atMs`, `startMs`, `endMs`) so the CLI can map it to connecting/live/error status, partial caption rows, and finalized caption lines. If persisted, the artifact kind is `live_caption_draft`; it must not be treated as the official transcript.
+
+Windows advertises `live_captions.stream`. Its Node adapter claims the existing
+`/api/openai/realtime/sessions` endpoint using the account supplied at recording
+start, then streams 24 kHz mono PCM16 over the returned authenticated WebSocket.
+Transcription and translation share the macOS service protocol. Its local WAV
+remains independent of caption connection/error state. Credentials are not sent
+to the native helper or persisted in session metadata. `live_caption.status`
+reports connecting/live/reconnecting/stopped; terminal failures also emit an
+`error` whose code begins with `live_caption.`. Input level events are per-input,
+never a mixed signal relabeled as system or microphone.
 
 ## Local Artifacts
 

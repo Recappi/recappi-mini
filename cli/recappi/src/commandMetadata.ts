@@ -31,6 +31,11 @@ export const COMMON_TASKS: CommonTaskDoc[] = [
 ];
 
 export const COMMAND_METADATA: Record<string, CommandMetadata> = {
+  "record inputs": {
+    capabilities: ["List available recording apps and microphone devices without authentication"],
+    examples: [{ description: "Discover Windows process IDs and microphone device IDs", command: "recappi record inputs" }],
+    relatedCommands: ["record"],
+  },
   "auth import-macos": {
     capabilities: ["Reuse the macOS app's signed-in session for the CLI"],
     examples: [
@@ -100,6 +105,8 @@ export const COMMAND_METADATA: Record<string, CommandMetadata> = {
     ],
     examples: [
       { description: "Record with live captions", command: "recappi record --live" },
+      { description: "Record a Windows app and its children", command: "recappi record --process-id 1234 --no-microphone" },
+      { description: "Record a selected microphone", command: 'recappi record --microphone-device "<device-id>" --no-system-audio' },
       { description: "Record a microphone-only voice note", command: 'recappi record --no-system-audio --title "Voice note"' },
       { description: "Record with live caption translation", command: "recappi record --live --translation-language en" },
     ],

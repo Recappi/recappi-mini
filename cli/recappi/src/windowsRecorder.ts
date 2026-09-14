@@ -10,8 +10,11 @@ import {
   type SidecarLocalArtifact,
   type SidecarRecordingOptions,
   type SidecarRecordingState,
+  type SidecarRecordingSource,
+  type SidecarMicrophoneDevice,
 } from "../../packages/contracts/src/index";
 import { CLI_VERSION } from "./version";
+import { WindowsLiveCaptions, type WindowsCaptionStream } from "./windowsLiveCaptions";
 
 export interface WindowsCapture {
   sampleRate: number;
@@ -20,9 +23,12 @@ export interface WindowsCapture {
 }
 
 export interface WindowsCaptureBackend {
+  listSources?(): Promise<SidecarRecordingSource[]>;
+  listMicrophones?(): Promise<SidecarMicrophoneDevice[]>;
   start(
     callback: (error: Error | null, samples: Float32Array) => void,
     options: SidecarRecordingOptions,
+    onLevel?: (input: "system" | "microphone", rmsDb: number) => void,
   ): WindowsCapture | Promise<WindowsCapture>;
 }
 
@@ -140,6 +146,7 @@ interface Session {
   artifact?: SidecarLocalArtifact;
   error?: string;
   release?: Promise<void>;
+  captions?: WindowsCaptionStream;
 }
 
 export class WindowsRecorder {
@@ -153,6 +160,11 @@ export class WindowsRecorder {
       loadBackend: () => Promise<WindowsCaptureBackend>;
       emit: (event: SidecarEvent) => void;
       root?: string;
+      createCaptions?: (
+        account: SidecarAccount,
+        options: SidecarRecordingOptions,
+        sessionId: string,
+      ) => WindowsCaptionStream;
     },
   ) {}
 
@@ -185,19 +197,21 @@ export class WindowsRecorder {
         result = {
           protocolVersion: SIDECAR_PROTOCOL_VERSION,
           sidecar: { name: "recappi-windows-recorder", version: CLI_VERSION },
-          capabilities: ["recording.capture", "local_artifacts.index"],
+          capabilities: ["recording.capture", "local_artifacts.index", "live_captions.stream"],
         };
       } else {
         if (!this.handshaken) throw new RecorderError("Handshake required before recording.");
         switch (request.method) {
           case "recappi.recording.sources.list":
             result = {
-              sources: [{ id: "system", kind: "system", label: "System audio · all apps" }],
+              sources: (await this.backend!.listSources?.()) ?? [
+                { id: "system", kind: "system", label: "System audio · all apps" },
+              ],
             };
             break;
           case "recappi.recording.microphones.list":
             result = {
-              microphones: [
+              microphones: (await this.backend!.listMicrophones?.()) ?? [
                 { id: "default", label: "Windows default microphone", isDefault: true },
               ],
             };
@@ -229,7 +243,7 @@ export class WindowsRecorder {
             result = await this.cancel(this.requireSession(request.params.sessionId));
             break;
           default:
-            // The helper only exposes mixed samples. Never label them as separate input meters.
+            // Recording emits per-input levels; a separate setup preview is not implemented.
             throw new RecorderError(
               "Windows input level preview is unavailable.",
               "record.capture_unavailable",
@@ -269,11 +283,11 @@ export class WindowsRecorder {
     if (
       (!options.includeSystemAudio && !options.includeMicrophone) ||
       options.targetBundleId ||
-      (options.microphoneDeviceId && options.microphoneDeviceId !== "default") ||
-      options.liveCaptions
+      (options.targetProcessId && !options.includeSystemAudio) ||
+      (options.microphoneDeviceId && !options.includeMicrophone)
     ) {
       throw new RecorderError(
-        "Windows supports system audio and/or the default microphone. Select at least one input. App isolation, device selection and live captions are not supported yet.",
+        "Select at least one input. Windows app recording uses a process ID with system audio enabled; microphone selection requires microphone audio.",
         "record.capture_unavailable",
       );
     }
@@ -306,38 +320,73 @@ export class WindowsRecorder {
     };
     this.session = session;
     try {
-      session.capture = await this.backend!.start((error, samples) => {
-        if (session.state !== "recording" && session.state !== "stopping") return;
-        try {
-          if (error) throw error;
-          session.writer!.append(samples);
-        } catch (failure) {
-          session.state = "failed";
-          session.error = failure instanceof Error ? failure.message : "Audio capture failed.";
-          void this.release(session)
-            .then(() => this.saveMetadata(session))
-            .catch(() => {});
+      session.capture = await this.backend!.start(
+        (error, samples) => {
+          if (session.state !== "recording" && session.state !== "stopping") return;
+          try {
+            if (error) throw error;
+            session.writer!.append(samples);
+            try {
+              session.captions?.append(samples);
+            } catch {
+              this.captionFailure(session);
+            }
+          } catch (failure) {
+            session.state = "failed";
+            session.error = failure instanceof Error ? failure.message : "Audio capture failed.";
+            void this.release(session)
+              .then(() => this.saveMetadata(session))
+              .catch(() => {});
+            this.deps.emit({
+              type: "recording.state",
+              sessionId: id,
+              state: "failed",
+              message: session.error,
+            });
+            this.deps.emit({
+              type: "error",
+              sessionId: id,
+              code: "record.capture_failed",
+              message: session.error,
+              retryable: false,
+            });
+          }
+        },
+        options,
+        (input, rmsDb) => {
+          if (session.state !== "recording") return;
           this.deps.emit({
-            type: "recording.state",
+            type: "audio.level",
             sessionId: id,
-            state: "failed",
-            message: session.error,
+            input,
+            rmsDb,
+            atMs: Date.now(),
+            ...(input === "system"
+              ? {
+                  sourceId: options.targetProcessId
+                    ? `process:${options.targetProcessId}`
+                    : "system",
+                }
+              : {}),
+            ...(input === "microphone" && options.microphoneDeviceId
+              ? { microphoneDeviceId: options.microphoneDeviceId }
+              : {}),
           });
-          this.deps.emit({
-            type: "error",
-            sessionId: id,
-            code: "record.capture_failed",
-            message: session.error,
-            retryable: false,
-          });
-        }
-      }, options);
+        },
+      );
       session.writer = new PcmWavWriter(
         join(directory, "audio.wav"),
         session.capture.sampleRate,
         session.capture.channels,
       );
       session.state = "recording";
+      if (options.liveCaptions) {
+        if (session.capture.sampleRate !== 48000 || session.capture.channels !== 1)
+          throw new RecorderError("Live captions require the Windows helper's 48 kHz mono format.");
+        session.captions =
+          this.deps.createCaptions?.(account, options, id) ??
+          new WindowsLiveCaptions({ account, options, sessionId: id, emit: this.deps.emit });
+      }
       this.saveMetadata(session);
       this.deps.emit({ type: "recording.state", ...this.status(session) });
       return this.status(session);
@@ -347,7 +396,7 @@ export class WindowsRecorder {
       await this.release(session);
       this.saveMetadata(session);
       throw new RecorderError(
-        `Windows capture could not start: ${error instanceof Error ? error.message : "device unavailable"}. Check the default input/output devices and microphone access for desktop apps.`,
+        `Windows capture could not start: ${error instanceof Error ? error.message : "device unavailable"}. Check the selected app/devices and microphone access for desktop apps.`,
       );
     }
   }
@@ -369,10 +418,31 @@ export class WindowsRecorder {
       try {
         await capture?.stop();
       } finally {
-        session.writer?.close();
+        try {
+          session.writer?.close();
+        } finally {
+          try {
+            await session.captions?.stop();
+          } catch {
+            this.captionFailure(session);
+          }
+        }
       }
     })();
     return session.release;
+  }
+
+  private captionFailure(session: Session): void {
+    const captions = session.captions;
+    session.captions = undefined;
+    if (captions) void captions.stop().catch(() => {});
+    this.deps.emit({
+      type: "error",
+      sessionId: session.id,
+      code: "live_caption.failed",
+      message: "Live captions stopped unexpectedly. Local recording is still saved.",
+      retryable: false,
+    });
   }
 
   private async stop(session: Session): Promise<unknown> {
