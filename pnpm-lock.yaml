@@ -14,6 +14,10 @@ importers:
 
   cli/helpers/darwin-arm64: {}
 
+  cli/helpers/win32-arm64: {}
+
+  cli/helpers/win32-x64: {}
+
   cli/packages/contracts:
     dependencies:
       zod:
@@ -69,6 +73,12 @@ importers:
       recappi-helper-darwin-arm64:
         specifier: 0.1.0
         version: link:../helpers/darwin-arm64
+      recappi-helper-win32-arm64:
+        specifier: 0.1.0
+        version: link:../helpers/win32-arm64
+      recappi-helper-win32-x64:
+        specifier: 0.1.0
+        version: link:../helpers/win32-x64
 
 packages:
 

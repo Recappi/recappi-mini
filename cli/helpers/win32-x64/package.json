@@ -1,0 +1,9 @@
+{
+  "name": "recappi-helper-win32-x64",
+  "version": "0.1.0",
+  "description": "Windows x64 audio capture helper for the recappi CLI",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["RecappiAudioCapture.exe", "licenses"],
+  "publishConfig": { "access": "public" }
+}

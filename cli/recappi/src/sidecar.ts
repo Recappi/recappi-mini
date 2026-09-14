@@ -327,20 +327,33 @@ export function spawnMiniSidecar(opts: SpawnMiniSidecarOptions): SpawnedMiniSide
   }
 
   const spawnProcess = opts.spawnProcess ?? spawn;
-  const child = spawnProcess(opts.command, opts.args ?? [], {
+  const nodeHelper = /\.[cm]?js$/i.test(opts.command);
+  const child = spawnProcess(nodeHelper ? process.execPath : opts.command, nodeHelper ? [opts.command, ...(opts.args ?? [])] : opts.args ?? [], {
     env: opts.env,
     stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
   });
   const client = new MiniSidecarClient({
     input: child.stdin,
     output: child.stdout,
     requestTimeoutMs: opts.requestTimeoutMs,
   });
+  child.stderr.resume();
+  child.once("error", () => client.close());
+  child.stdin.on("error", () => client.close());
   return {
     client,
     kill: () => {
       client.close();
-      child.kill();
+      if (nodeHelper) {
+        // EOF lets the recorder stop native capture and finalize its local WAV.
+        child.stdin.end();
+        const timer = setTimeout(() => child.kill(), 2_000);
+        timer.unref();
+        child.once("exit", () => clearTimeout(timer));
+      } else {
+        child.kill();
+      }
     },
   };
 }

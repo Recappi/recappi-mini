@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
 import { spawnSync } from "node:child_process";
+import { runPackageManager } from "./package-manager.mjs";
 
 const helperPathArg = process.argv[2];
 const executableInBundle = process.argv[3];
@@ -16,12 +17,12 @@ if (helperPathArg.endsWith(".app")) {
   }
   await access(join(helperPathArg, executableInBundle), constants.X_OK);
 } else {
-  await access(helperPathArg, constants.X_OK);
+  await access(helperPathArg, helperPathArg.endsWith(".exe") ? constants.F_OK : constants.X_OK);
 }
 
 const outDir = await mkdtemp(join(tmpdir(), "recappi-helper-pack-"));
 try {
-  const pack = spawnSync("pnpm", ["pack", "--pack-destination", outDir], {
+  const pack = runPackageManager("pnpm", ["pack", "--pack-destination", outDir], {
     cwd: process.cwd(),
     encoding: "utf8",
     stdio: "pipe",
@@ -79,7 +80,18 @@ try {
     if (!helperStat.isFile()) {
       throw new Error(`Packed helper is not a file: ${helperPath}`);
     }
-    if ((helperStat.mode & 0o111) === 0) {
+    if (helperPathArg.endsWith(".exe")) {
+      const binary = await readFile(helperPath);
+      const pkg = JSON.parse(await readFile(join(outDir, "package", "package.json"), "utf8"));
+      const peOffset = binary.readUInt32LE(0x3c);
+      const expectedMachine = pkg.cpu?.[0] === "arm64" ? 0xaa64 : 0x8664;
+      if (binary.toString("ascii", 0, 2) !== "MZ" || binary.readUInt32LE(peOffset) !== 0x4550 || binary.readUInt16LE(peOffset + 4) !== expectedMachine) {
+        throw new Error("Windows helper architecture does not match its package");
+      }
+      for (const notice of ["NAudio-NOTICES.txt", "DOTNET-LICENSE.txt", "DOTNET-NOTICES.txt"]) {
+        await access(join(outDir, "package", "licenses", notice));
+      }
+    } else if (process.platform !== "win32" && (helperStat.mode & 0o111) === 0) {
       throw new Error(`Packed helper is not executable: ${helperPath}`);
     }
   }

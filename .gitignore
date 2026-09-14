@@ -16,6 +16,12 @@ cli/recappi/dist/
 cli/recappi/node_modules/
 cli/packages/*/node_modules/
 *.tgz
+native/windows/bin/
+native/windows/obj/
+cli/helpers/win32-*/*.exe
+cli/helpers/win32-*/*.pdb
+cli/helpers/win32-*/*.dll
+cli/helpers/win32-*/licenses/
 
 # macOS
 .DS_Store

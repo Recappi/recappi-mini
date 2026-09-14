@@ -25,6 +25,8 @@ on:
       - "Package.swift"
       - "RecappiMiniSidecar/**"
       - "scripts/build-cli-helper.sh"
+      - "scripts/build-windows-cli-helper.ps1"
+      - "native/windows/**"
       - "cli/recappi/**"
       - "cli/helpers/**"
       - "cli/packages/contracts/**"
@@ -37,12 +39,38 @@ permissions:
   contents: read
 
 jobs:
+  windows-helpers:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - run: ./scripts/build-windows-cli-helper.ps1 -Architecture x64
+      - run: ./scripts/build-windows-cli-helper.ps1 -Architecture arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-cli-helpers
+          path: |
+            cli/helpers/win32-*/*.exe
+            cli/helpers/win32-*/licenses/**
+          if-no-files-found: error
+
   publish:
+    needs: windows-helpers
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-cli-helpers
+          path: cli/helpers
 
       - name: Prepare helper signing keychain
         shell: bash
@@ -136,9 +164,29 @@ jobs:
           ./node_modules/.bin/publint run --strict
           ./node_modules/.bin/attw --pack . --no-emoji
 
+      - name: Check Windows helper packages
+        run: |
+          cd cli/helpers/win32-x64
+          node ../check-helper-pack.mjs RecappiAudioCapture.exe
+          cd ../win32-arm64
+          node ../check-helper-pack.mjs RecappiAudioCapture.exe
+
       - name: Publish Darwin arm64 helper
         run: npm publish --access public --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
         working-directory: cli/helpers/darwin-arm64
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish Windows x64 helper
+        # Publish all platform helpers before the CLI that depends on them.
+        run: npm publish --access public --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
+        working-directory: cli/helpers/win32-x64
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish Windows arm64 helper
+        run: npm publish --access public --tag "${{ github.event.inputs.npm_tag || 'latest' }}"
+        working-directory: cli/helpers/win32-arm64
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

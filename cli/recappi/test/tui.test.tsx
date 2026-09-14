@@ -764,7 +764,7 @@ describe("views render", () => {
       />,
     );
     const sf = noAnsi(stopped.lastFrame());
-    expect(sf).toContain("Saved to your Mac");
+    expect(sf).toContain("Saved locally");
     expect(sf).toContain("Saved locally");
     stopped.rerender(
       <RecordingHeroScreen
@@ -874,7 +874,7 @@ describe("views render", () => {
     expect(f).toContain("Listening for speech");
   });
   it("RecordingHeroScreen shows the post-stop upload/transcribe lifecycle with a bar", () => {
-    // Uploading: stays "Saved to your Mac" (not yet on cloud) + a progress bar.
+    // Uploading: stays "Saved locally" (not yet on cloud) + a progress bar.
     const uploading = render(
       <RecordingHeroScreen
         telemetry={{ status: "stopped", sourceLabel: "Arc", micEnabled: true, durationMs: 60_000, sizeBytes: 1_000_000 }}
@@ -884,7 +884,7 @@ describe("views render", () => {
       />,
     );
     const uf = noAnsi(uploading.lastFrame());
-    expect(uf).toContain("Saved to your Mac");
+    expect(uf).toContain("Saved locally");
     expect(uf).toContain("Uploading to Recappi Cloud");
     expect(uf).toContain("64%");
     // Uploaded + transcribing: now claims the cloud + shows transcribe progress,
@@ -1898,7 +1898,7 @@ describe("AppShell (interactive)", () => {
     });
     await flush();
     expect(noAnsi(lastFrame())).toContain("Design review");
-    expect(noAnsi(lastFrame())).not.toContain("Saved to your Mac");
+    expect(noAnsi(lastFrame())).not.toContain("Saved locally");
     unmount();
   });
 
