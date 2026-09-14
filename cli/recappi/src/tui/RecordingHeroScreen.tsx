@@ -199,7 +199,7 @@ export function RecordingHeroScreen({
       .filter(Boolean)
       .join(" · ");
     // Destination-aware: only claim the cloud once the upload actually landed.
-    const saved = artifact?.uploadStatus === "uploaded" ? "✓ Saved to Recappi Cloud" : "✓ Saved to your Mac";
+    const saved = artifact?.uploadStatus === "uploaded" ? "✓ Saved to Recappi Cloud" : "✓ Saved locally";
     return (
       <Box flexDirection="column" paddingX={1}>
         <Text dimColor>recappi · Recording</Text>
