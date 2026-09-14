@@ -395,6 +395,19 @@ function renderHumanSuccess(command: string, data: unknown, opts: RenderOptions)
     }
     return;
   }
+  if (command === "record inputs" && isRecord(data)) {
+    opts.stdout("Recording sources:\n");
+    for (const source of Array.isArray(data.sources) ? data.sources : []) {
+      if (!isRecord(source)) continue;
+      opts.stdout(`  ${source.label}${typeof source.processId === "number" ? ` — --process-id ${source.processId}` : ""}\n`);
+    }
+    opts.stdout("Microphones:\n");
+    for (const mic of Array.isArray(data.microphones) ? data.microphones : []) {
+      if (!isRecord(mic)) continue;
+      opts.stdout(`  ${mic.label}${mic.isDefault ? " (default)" : ""}\n    --microphone-device "${mic.id}"\n`);
+    }
+    return;
+  }
   if (command === "record" && isRecord(data)) {
     opts.stdout("Recording complete\n");
     if (typeof data.recordingId === "string") opts.stdout(`  recordingId: ${data.recordingId}\n`);

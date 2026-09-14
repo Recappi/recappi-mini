@@ -14,6 +14,7 @@ import {
   jobListDataSchema,
   operationEventSchema,
   recordCommandDataSchema,
+  recordInputsDataSchema,
   recordingDataSchema,
   recordingExportDataSchema,
   recordingListDataSchema,
@@ -44,6 +45,7 @@ const COMMAND_DATA_SCHEMAS: Record<string, ContractSchema> = {
   "dashboard stats": dashboardStatsDataSchema,
   upload: uploadBatchDataSchema,
   record: recordCommandDataSchema,
+  "record inputs": recordInputsDataSchema,
   "recordings get": recordingDataSchema,
   "recordings export": recordingExportDataSchema,
   "recordings list": recordingListDataSchema,
@@ -135,9 +137,9 @@ function walkCommands(command: Command, path: string[], out: CommandDoc[]): void
     if (name === "help") continue;
     const fullPath = [...path, name];
     const children = subcommandsOf(sub).filter((child) => child.name() !== "help");
-    if (children.length === 0) {
-      // A leaf command is the only thing an agent can actually run; group
-      // commands (auth, jobs) exist only to namespace their children.
+    if (children.length === 0 || COMMAND_DATA_SCHEMAS[fullPath.join(" ")]) {
+      // Some commands (record) have both a runnable action and subcommands.
+      // Keep their result contract discoverable alongside the child commands.
       out.push(leafCommandDoc(sub, fullPath.join(" ")));
     }
     walkCommands(sub, fullPath, out);

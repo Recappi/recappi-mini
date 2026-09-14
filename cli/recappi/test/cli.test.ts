@@ -19,6 +19,43 @@ import { openCliStore, requireAccountPartition } from "../src/store";
 import { CLI_VERSION } from "../src/version";
 
 describe("recappi CLI contract", () => {
+  it("lists recording inputs without authentication, network access, or opening capture", async () => {
+    const fake = fakeRecordRuntime();
+    const result = await run(["record", "inputs", "--json", "--sidecar-command", "fake-sidecar"], {
+      env: {}, recordRuntime: fake.runtime,
+      fetchImpl: async () => { throw new Error("Input discovery must be offline"); },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, command: "record inputs", data: {
+      sources: expect.arrayContaining([expect.objectContaining({ kind: "app" })]),
+      microphones: [expect.objectContaining({ id: "mic_default" })],
+    } });
+    expect(fake.calls.map((call) => call.method)).toEqual(["spawn", "handshake", "sources", "microphones", "kill"]);
+  });
+
+  it("passes explicit Windows app and microphone selection through permission preflight and recording", async () => {
+    const fake = fakeRecordRuntime();
+    const result = await run(["record", "--json", "--process-id", "1234", "--microphone-device", "USB-device", "--live", "--sidecar-command", "fake-sidecar"], {
+      fetchImpl: uploadCreateFailureFetch(), recordRuntime: fake.runtime,
+    });
+    expect(result.exitCode).toBe(0);
+    for (const method of ["permissions", "start"])
+      expect(fake.calls.find((call) => call.method === method)?.params).toMatchObject({ options: {
+        targetProcessId: 1234, microphoneDeviceId: "USB-device", liveCaptions: true,
+      } });
+  });
+
+  it("rejects invalid process IDs and selections of disabled inputs before capture", async () => {
+    for (const args of [
+      ["--process-id", "0"], ["--process-id", "12x"], ["--process-id", "-1"],
+      ["--process-id", "4294967296"], ["--process-id", "1234", "--no-system-audio"],
+      ["--microphone-device", "USB-device", "--no-microphone"],
+    ]) {
+      const result = await run(["record", "--json", ...args]);
+      expect(result.exitCode).toBe(2);
+      expect(JSON.parse(result.stdout).error.code).toBe("usage.invalid_argument");
+    }
+  });
   it("hard-fails explicit machine mode without command", async () => {
     const result = await run(["--json"]);
     expect(result.exitCode).toBe(2);
@@ -1726,6 +1763,9 @@ describe("recappi CLI contract", () => {
     expect(audio.data.properties.reused.type).toBe("boolean");
     const record = env.data.commands.find((c: { name: string }) => c.name === "record");
     expect(record.data.properties.artifacts.type).toBe("array");
+    expect(record.options).toContainEqual(expect.objectContaining({ flags: "--process-id <pid>" }));
+    const inputs = env.data.commands.find((c: { name: string }) => c.name === "record inputs");
+    expect(inputs.data.properties.sources.items.properties.processId.type).toBe("integer");
     const transcript = env.data.commands.find((c: { name: string }) => c.name === "transcript get");
     expect(transcript.data.properties.transcriptId.type).toBe("string");
     expect(transcript.capabilities).toContain("Fetch a finished transcript by id");

@@ -151,6 +151,17 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
       renderSuccess("version", { version: CLI_VERSION }, render);
       return 0;
     }
+    if (parsed.kind === "record-inputs") {
+      const inputs = await listRecordInputs({
+        cliVersion: CLI_VERSION,
+        env: deps.env,
+        homeDir: deps.homeDir,
+        sidecarCommand: parsed.sidecarCommand,
+        runtime: deps.recordRuntime,
+      });
+      renderSuccess("record inputs", inputs, render);
+      return 0;
+    }
     let auth = await resolveAuthContext({
       origin: parsed.options.origin,
       env: deps.env,
@@ -425,6 +436,8 @@ export async function runCli(deps: CliDeps = {}): Promise<number> {
         live: parsed.live === true || (mode === "human" && isTTY),
         includeSystemAudio: parsed.includeSystemAudio,
         includeMicrophone: parsed.includeMicrophone,
+        targetProcessId: parsed.targetProcessId,
+        microphoneDeviceId: parsed.microphoneDeviceId,
         translationLanguage,
         transcriptionLanguage: parsed.transcriptionLanguage,
         sidecarCommand: parsed.sidecarCommand,
@@ -654,8 +667,16 @@ type ParsedCommand =
       live?: boolean;
       includeSystemAudio?: boolean;
       includeMicrophone?: boolean;
+      targetProcessId?: number;
+      microphoneDeviceId?: string;
       translationLanguage?: string;
       transcriptionLanguage?: string;
+      sidecarCommand?: string;
+    }
+  | {
+      kind: "record-inputs";
+      options: GlobalOptions;
+      commandName: "record inputs";
       sidecarCommand?: string;
     }
   | {
@@ -896,6 +917,8 @@ interface RecordCommanderOptions extends CommanderCommonOptions {
   live?: boolean;
   systemAudio?: boolean;
   microphone?: boolean;
+  processId?: number;
+  microphoneDevice?: string;
   translationLanguage?: string;
   transcriptionLanguage?: string;
   sidecarCommand?: string;
@@ -1110,6 +1133,20 @@ Agent mode:
     .option("--no-system-audio", "record microphone only")
     .option("--no-microphone", "record system audio only")
     .option(
+      "--process-id <pid>",
+      "record a Windows app and its child processes (see record inputs)",
+      (value: string) => {
+        if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 0x7fffffff)
+          throw new InvalidArgumentError("--process-id must be a positive Windows process ID.");
+        return Number(value);
+      },
+    )
+    .option(
+      "--microphone-device <id>",
+      "microphone device ID from record inputs",
+      parseStringOption("--microphone-device"),
+    )
+    .option(
       "--translation-language <lang>",
       "live caption translation language",
       parseStringOption("--translation-language"),
@@ -1132,6 +1169,14 @@ Agent mode:
         hint: "Use system audio, microphone, or both.",
       });
     }
+    if (
+      (opts.processId && opts.systemAudio === false) ||
+      (opts.microphoneDevice && opts.microphone === false)
+    )
+      throw cliError(
+        "usage.invalid_argument",
+        "The selected app or microphone must be enabled for recording.",
+      );
     onSelect({
       kind: "record",
       options: collectGlobalOptions(command),
@@ -1140,6 +1185,8 @@ Agent mode:
       ...(opts.live === true ? { live: true } : {}),
       ...(opts.systemAudio === false ? { includeSystemAudio: false } : {}),
       ...(opts.microphone === false ? { includeMicrophone: false } : {}),
+      ...(opts.processId ? { targetProcessId: opts.processId } : {}),
+      ...(opts.microphoneDevice ? { microphoneDeviceId: opts.microphoneDevice } : {}),
       ...(typeof opts.translationLanguage === "string"
         ? { translationLanguage: opts.translationLanguage }
         : {}),
@@ -1147,6 +1194,25 @@ Agent mode:
         ? { transcriptionLanguage: opts.transcriptionLanguage }
         : {}),
       ...(typeof opts.sidecarCommand === "string" ? { sidecarCommand: opts.sidecarCommand } : {}),
+    });
+  });
+
+  const recordInputs = record
+    .command("inputs")
+    .description("List local recording apps and microphones without recording or signing in")
+    .option(
+      "--sidecar-command <path>",
+      "Recappi Mini sidecar executable",
+      parseStringOption("--sidecar-command"),
+    );
+  addCommonOptions(recordInputs);
+  recordInputs.action((_opts: unknown, command: Command) => {
+    const opts = command.optsWithGlobals<RecordCommanderOptions>();
+    onSelect({
+      kind: "record-inputs",
+      options: collectGlobalOptions(command),
+      commandName: "record inputs",
+      ...(opts.sidecarCommand ? { sidecarCommand: opts.sidecarCommand } : {}),
     });
   });
 

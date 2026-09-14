@@ -5,7 +5,7 @@ import { PassThrough } from "node:stream";
 import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
 import { sidecarResponseSchema, type SidecarEvent } from "../../packages/contracts/src/index";
-import { PcmWavWriter, WindowsRecorder } from "../src/windowsRecorder";
+import { PcmWavWriter, WindowsRecorder, type WindowsCaptureBackend } from "../src/windowsRecorder";
 import { parseWavHeader } from "../src/wav";
 import { MiniSidecarClient } from "../src/sidecar";
 import { runCli } from "../src/cli";
@@ -21,22 +21,34 @@ const account = {
 };
 const options = { includeSystemAudio: true, includeMicrophone: true, liveCaptions: false };
 
-function setup() {
+function setup(
+  config: { sampleRate?: number; captions?: boolean; captionFailure?: "append" | "stop" } = {},
+) {
   const root = mkdtempSync(join(tmpdir(), "recappi-windows-"));
   roots.push(root);
   let callback: (error: Error | null, samples: Float32Array) => void = () => {};
   let starts = 0;
   let stops = 0;
   const events: SidecarEvent[] = [];
+  const selections: unknown[] = [];
+  const captionSamples: Float32Array[] = [];
+  let captionStops = 0;
+  let level: Parameters<WindowsCaptureBackend["start"]>[2];
   const recorder = new WindowsRecorder({
     root,
     emit: (event) => events.push(event),
     loadBackend: async () => ({
-      start: (next) => {
+      listSources: async () => [
+        { id: "process:1234", kind: "app", label: "Test app", processId: 1234 },
+      ],
+      listMicrophones: async () => [{ id: "test-mic", label: "USB microphone", isDefault: true }],
+      start: (next, options, onLevel) => {
         starts++;
+        selections.push(options);
+        level = onLevel;
         callback = next;
         return {
-          sampleRate: 16000,
+          sampleRate: config.sampleRate ?? 16000,
           channels: 1,
           stop: () => {
             stops++;
@@ -44,6 +56,20 @@ function setup() {
         };
       },
     }),
+    ...(config.captions
+      ? {
+          createCaptions: () => ({
+            append: (samples: Float32Array) => {
+              if (config.captionFailure === "append") throw new Error("caption append failed");
+              captionSamples.push(samples);
+            },
+            stop: async () => {
+              captionStops++;
+              if (config.captionFailure === "stop") throw new Error("caption close failed");
+            },
+          }),
+        }
+      : {}),
   });
   let id = 0;
   async function request(method: string, params: unknown = {}) {
@@ -67,6 +93,12 @@ function setup() {
     root,
     recorder,
     events,
+    selections,
+    captionSamples,
+    get captionStops() {
+      return captionStops;
+    },
+    level: (input: "system" | "microphone", rmsDb: number) => level?.(input, rmsDb),
     request,
     handshake,
     start,
@@ -85,7 +117,11 @@ describe("Windows recording helper", () => {
   it("streams a valid WAV, returns an uploadable artifact and never persists credentials", async () => {
     const test = setup();
     const hello = await test.handshake();
-    expect(hello.result.capabilities).toEqual(["recording.capture", "local_artifacts.index"]);
+    expect(hello.result.capabilities).toEqual([
+      "recording.capture",
+      "local_artifacts.index",
+      "live_captions.stream",
+    ]);
     const start = await test.start();
     const sessionId = start.result.sessionId;
     test.samples(Float32Array.from({ length: 1600 }, (_, i) => Math.sin(i / 10) * 0.25));
@@ -113,14 +149,14 @@ describe("Windows recording helper", () => {
     expect(readFileSync(artifact.metadata.audioPath)).toEqual(wav);
   });
 
-  it("rejects unsupported options before opening any audio device", async () => {
+  it("rejects incompatible options before opening any audio device", async () => {
     const test = setup();
     await test.handshake();
     for (const override of [
       { includeMicrophone: false, includeSystemAudio: false },
       { targetBundleId: "app" },
-      { microphoneDeviceId: "other" },
-      { liveCaptions: true },
+      { targetProcessId: 1234, includeSystemAudio: false },
+      { microphoneDeviceId: "other", includeMicrophone: false },
     ]) {
       expect(await test.start(override)).toMatchObject({
         error: { data: { cliCode: "record.capture_unavailable" } },
@@ -128,6 +164,58 @@ describe("Windows recording helper", () => {
     }
     expect(test.starts).toBe(0);
     expect(readdirSync(test.root)).toEqual([]);
+  });
+
+  it("lists native inputs and carries process/device selections into capture and physical meters", async () => {
+    const test = setup();
+    await test.handshake();
+    expect(await test.request("recappi.recording.sources.list")).toMatchObject({
+      result: { sources: [{ processId: 1234 }] },
+    });
+    expect(await test.request("recappi.recording.microphones.list")).toMatchObject({
+      result: { microphones: [{ id: "test-mic" }] },
+    });
+    const started = await test.start({ targetProcessId: 1234, microphoneDeviceId: "test-mic" });
+    expect(test.selections).toEqual([
+      expect.objectContaining({ targetProcessId: 1234, microphoneDeviceId: "test-mic" }),
+    ]);
+    test.samples(new Float32Array(160));
+    test.level("system", -24);
+    test.level("microphone", -48);
+    expect(test.events).toContainEqual(
+      expect.objectContaining({
+        type: "audio.level",
+        input: "system",
+        sourceId: "process:1234",
+        rmsDb: -24,
+      }),
+    );
+    expect(test.events).toContainEqual(
+      expect.objectContaining({
+        type: "audio.level",
+        input: "microphone",
+        microphoneDeviceId: "test-mic",
+        rmsDb: -48,
+      }),
+    );
+    await test.request("recappi.recording.stop", { sessionId: started.result.sessionId });
+  });
+
+  it("feeds live PCM to captions while retaining the full WAV and closes captions on stop/disconnect", async () => {
+    for (const disconnect of [false, true]) {
+      const test = setup({ sampleRate: 48000, captions: true });
+      await test.handshake();
+      const started = await test.start({ liveCaptions: true });
+      const samples = new Float32Array(4800).fill(0.2);
+      test.samples(samples);
+      expect(test.captionSamples).toEqual([samples]);
+      if (disconnect) await test.recorder.shutdown();
+      else await test.request("recappi.recording.stop", { sessionId: started.result.sessionId });
+      expect(test.captionStops).toBe(1);
+      expect(
+        parseWavHeader(readFileSync(join(started.result.localSessionRef, "audio.wav"))).durationMs,
+      ).toBe(100);
+    }
   });
 
   it("rejects cross-account capture and unknown sessions", async () => {
@@ -144,6 +232,27 @@ describe("Windows recording helper", () => {
     );
     expect(test.starts).toBe(0);
   });
+
+  it.each(["append", "stop"] as const)(
+    "preserves a successful local recording when captions %s fails",
+    async (captionFailure) => {
+      const test = setup({ sampleRate: 48000, captions: true, captionFailure });
+      await test.handshake();
+      const started = await test.start({ liveCaptions: true });
+      test.samples(new Float32Array(4800).fill(0.25));
+      const stopped = await test.request("recappi.recording.stop", {
+        sessionId: started.result.sessionId,
+      });
+      expect(stopped.result.state).toBe("completed");
+      expect(
+        parseWavHeader(readFileSync(stopped.result.artifacts[0].metadata.audioPath)).durationMs,
+      ).toBe(100);
+      expect(test.events).toContainEqual(expect.objectContaining({ code: "live_caption.failed" }));
+      expect(test.events).not.toContainEqual(
+        expect.objectContaining({ type: "recording.state", state: "failed" }),
+      );
+    },
+  );
 
   it("preserves a readable partial recording after device failure or parent disconnect", async () => {
     for (const fail of [true, false]) {

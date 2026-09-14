@@ -19,6 +19,7 @@ export interface RecordingSource {
   label: string;
   appName?: string;
   bundleId?: string;
+  processId?: number;
   canIncludeMicrophone?: boolean;
 }
 
@@ -97,6 +98,7 @@ export interface RecordingCaptureMapping {
   includeSystemAudio: boolean;
   includeMicrophone: boolean;
   targetBundleId?: string;
+  targetProcessId?: number;
   microphoneDeviceId?: string;
   sourceLabel: string;
   micEnabled: boolean;
@@ -137,6 +139,7 @@ export function recordingCaptureMappingFromSelection(
     includeSystemAudio: true,
     includeMicrophone: selection.includeMicrophone,
     ...(source.kind === "app" && source.bundleId ? { targetBundleId: source.bundleId } : {}),
+    ...(source.kind === "app" && source.processId ? { targetProcessId: source.processId } : {}),
     ...(microphoneDeviceId ? { microphoneDeviceId } : {}),
     sourceLabel: source.label,
     micEnabled: selection.includeMicrophone,

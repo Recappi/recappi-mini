@@ -22,8 +22,23 @@ static async Task<int> RunAsync(string[] args)
     var inputs = new List<CaptureInput>();
     try
     {
-        if (system) inputs.Add(new CaptureInput(new WasapiLoopbackCapture()));
-        if (microphone) inputs.Add(new CaptureInput(new WasapiCapture()));
+        if (args.SequenceEqual(["--list-sources"])) { Send(InputCatalog.Sources()); return 0; }
+        if (args.SequenceEqual(["--list-microphones"])) { Send(InputCatalog.Microphones()); return 0; }
+        var processArgument = OptionValue(args, "--process-id");
+        var microphoneId = OptionValue(args, "--microphone-device");
+        if (system) inputs.Add(new CaptureInput(processArgument is null
+            ? new WasapiLoopbackCapture()
+            : new ProcessLoopbackCapture(uint.Parse(processArgument)), "system"));
+        if (microphone)
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            using var device = microphoneId is null or "default"
+                ? enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console)
+                : enumerator.GetDevice(microphoneId);
+            if (device.DataFlow != DataFlow.Capture || device.State != DeviceState.Active)
+                throw new ArgumentException("The selected microphone is not an active input device.");
+            inputs.Add(new CaptureInput(new WasapiCapture(device), "microphone"));
+        }
         foreach (var input in inputs) input.Start();
         Send(new { type = "ready", sampleRate = 48000, channels = 1 });
         var stopped = Task.Run(() => { while (Console.ReadLine() is not null) { } });
@@ -50,6 +65,9 @@ static async Task<int> RunAsync(string[] args)
                     if (input.Error is { } error) throw error;
                     var samples = new float[count];
                     input.Read(samples);
+                    double sum = 0;
+                    foreach (float sample in samples) sum += (double)sample * sample;
+                    Send(new { type = "level", input = input.Input, rmsDb = sum > 0 ? Math.Max(-120, 10 * Math.Log10(sum / count)) : -120 });
                     for (int i = 0; i < count; i++) mixed[i] += samples[i];
                 }
                 for (int i = 0; i < count; i++)
@@ -73,6 +91,14 @@ static async Task<int> RunAsync(string[] args)
     }
 }
 
+static string? OptionValue(string[] args, string option)
+{
+    int index = Array.IndexOf(args, option);
+    if (index < 0) return null;
+    if (index + 1 >= args.Length || args[index + 1].StartsWith("--")) throw new ArgumentException($"Missing value for {option}.");
+    return args[index + 1];
+}
+
 static void Send(object value)
 {
     Console.WriteLine(JsonSerializer.Serialize(value));
@@ -81,16 +107,21 @@ static void Send(object value)
 
 sealed class CaptureInput : IDisposable
 {
-    private readonly WasapiCapture capture;
+    private readonly IWaveIn capture;
     private readonly BufferedWaveProvider buffer;
     private readonly ISampleProvider samples;
     private Exception? error;
     private bool stopping;
+    private bool started;
+    private readonly ManualResetEventSlim stopped = new(false);
     public Exception? Error => Volatile.Read(ref error);
 
-    public CaptureInput(WasapiCapture capture)
+    public string Input { get; }
+
+    public CaptureInput(IWaveIn capture, string input)
     {
         this.capture = capture;
+        Input = input;
         // A bounded buffer handles callback jitter. On overflow we fail explicitly
         // rather than silently dropping meeting audio or accumulating memory.
         buffer = new BufferedWaveProvider(capture.WaveFormat)
@@ -111,18 +142,22 @@ sealed class CaptureInput : IDisposable
         {
             if (!stopping)
                 Interlocked.CompareExchange(ref error, data.Exception ?? new IOException("Audio device stopped unexpectedly."), null);
+            else if (data.Exception is not null)
+                Interlocked.CompareExchange(ref error, data.Exception, null);
+            stopped.Set();
         };
     }
 
-    public void Start() => capture.StartRecording();
+    public void Start() { capture.StartRecording(); started = true; }
     public void Read(float[] destination) => samples.Read(destination, 0, destination.Length);
     public void Stop()
     {
-        if (stopping) return;
+        if (stopping || !started) return;
         stopping = true;
         capture.StopRecording();
+        if (!stopped.Wait(TimeSpan.FromSeconds(2))) throw new IOException("Audio device did not stop in time.");
     }
-    public void Dispose() { try { Stop(); } finally { capture.Dispose(); } }
+    public void Dispose() { try { Stop(); } finally { capture.Dispose(); stopped.Dispose(); } }
 }
 
 sealed class MonoProvider(ISampleProvider source) : ISampleProvider

@@ -39,13 +39,19 @@ Keep npm optional dependencies enabled when installing `recappi`.
 
 ```powershell
 recappi auth login
+recappi record inputs            # available apps (PIDs) and microphone device IDs
 recappi record --title "Meeting"
 # Press Enter in the recording UI, or Ctrl+C, to stop and upload.
 recappi record --no-microphone     # system audio only
 recappi record --no-system-audio   # default microphone only
+recappi record --process-id 1234 --no-microphone  # one app and its child processes
+recappi record --microphone-device "<device-id>" # a microphone from record inputs
+recappi record --live --transcription-language en
+recappi record --live --translation-language zh # source captions + Chinese translation
 ```
 
-Recording uses the Windows default input/output devices. It saves a local PCM
+Recording uses the Windows default input/output devices unless an app or
+microphone is selected. It saves a local PCM
 WAV before uploading through the existing cloud API and queuing transcription.
 Local recordings are account-partitioned under
 `%USERPROFILE%\.config\recappi\recordings`; `RECAPPI_RECORDINGS_DIR` can override
@@ -53,12 +59,26 @@ the recording directory. If upload fails, the local file remains available for
 `recappi upload <audio.wav>`. Never treat `state: completed` alone as cloud
 success: inspect `recordingId` and `cloudHandoffError` in JSON output.
 
-The first Windows version does not implement app-specific capture, microphone
-device selection, input level previews, or live captions. Unsupported options
-fail explicitly; the regular recording UI can run without live captions.
-Devices are selected when capture starts; restart recording after switching the
-Windows default devices. Enable microphone access for desktop apps in Windows
-Settings when recording the microphone.
+App-specific capture requires Windows build 20348 or later (Windows 11 / Server
+2022). It captures the selected process and its children, including browser audio
+subprocesses, without recording other apps. PIDs can change after an app restarts;
+run `recappi record inputs` again. An invalid app/device selection fails explicitly
+and never falls back to recording the entire system or a different microphone.
+The interactive recording setup lists apps and microphones; use arrow keys to
+choose an app and `m` to cycle microphones.
+
+Live captions use the existing Recappi realtime service and require a signed-in
+account with access to that service. Both selected inputs feed captions when
+system/app audio and the microphone are enabled. Connection failures retry with
+bounded backoff; service/region restrictions stop captions while local recording
+continues. Stopping recording drains pending captions for up to 1.5 seconds.
+Live captions are provisional; the post-recording cloud transcript remains the
+official transcript.
+
+Input levels are emitted during recording; setup-time level previews are not
+implemented on Windows. Devices are selected when capture starts; restart
+recording after switching devices. Enable microphone access for desktop apps in
+Windows Settings when recording the microphone.
 
 Build and verify from source on Windows with Node.js 24, pnpm and .NET SDK 10:
 
@@ -78,6 +98,12 @@ packaging are checked by CI; audio hardware checks are opt-in:
 node cli/recappi/scripts/smoke-windows-recording.mjs
 # Play a quiet test tone and verify it appears in system capture:
 node cli/recappi/scripts/smoke-windows-recording.mjs --tone --system-only
+# Two test players: verify selected-app audio is present and other-app audio is excluded:
+node cli/recappi/scripts/smoke-windows-inputs.mjs
 # Verify an isolated npm installation without opening audio devices:
 node cli/recappi/scripts/check-windows-install.mjs
+# Opt-in real-service test with the checked-in spoken fixture and existing CLI login:
+$env:RECAPPI_TEST_LIVE = '1'
+pnpm --filter recappi exec vp test test/windowsRealtime.live.test.ts
+Remove-Item Env:RECAPPI_TEST_LIVE
 ```

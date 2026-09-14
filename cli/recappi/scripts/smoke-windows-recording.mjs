@@ -63,6 +63,9 @@ try {
       includeSystemAudio: !process.argv.includes("--microphone-only"),
       includeMicrophone: !process.argv.includes("--system-only"),
       liveCaptions: false,
+      ...(process.argv.includes("--microphone-device") ? {
+        microphoneDeviceId: process.argv[process.argv.indexOf("--microphone-device") + 1],
+      } : {}),
     },
   });
   if (process.argv.includes("--tone")) {
