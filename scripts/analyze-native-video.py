@@ -107,7 +107,7 @@ def analyze(video, events_path, output):
               "suppressedFrames": duplicates, "eventsOutsideVideo": outside, "events": events, "keyframes": kept,
               "transitionCandidates": anomalies, "visualAcceptance": "requires-frame-review",
               "limits": ["No audio was recorded by this UI capture.", "Wall-clock event alignment is approximate.",
-                         "15 fps cannot exclude sub-frame flashes.", "Pixel differences cannot determine semantic UI correctness or occlusion."]}
+                         f"{fps:g} fps cannot exclude sub-frame flashes.", "Pixel differences cannot determine semantic UI correctness or occlusion."]}
     (output / "analysis.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     cols, cell_w, cell_h = 3, 480, 344
     sheet = Image.new("RGB", (cols * cell_w, ((len(kept) + cols - 1) // cols) * cell_h), "#e6e9ee")
