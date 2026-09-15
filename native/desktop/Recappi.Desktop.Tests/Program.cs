@@ -102,6 +102,19 @@ internal static class Program
                     throw new Exception("Imported audio did not appear selected and playable in the library.");
                 if (!((Button)library.FindName("ImportButton")).IsEnabled || ((Button)library.FindName("CancelImportButton")).Visibility != Visibility.Collapsed)
                     throw new Exception("Import controls did not return to idle.");
+                // Simulate the persisted state left by an interrupted process, then use
+                // the real recovery and native media paths (no upload/network request).
+                library.RefreshRecordings(recording.Id); // Release the imported file's player handle.
+                store.Save(imported with { State = RecordingState.Recording, DurationMs = 0 });
+                if (store.RecoverInterruptedRecordings() != 1) throw new Exception("Interrupted library entry was not recovered.");
+                library.RefreshRecordings(imported.Id);
+                if (list.SelectedItem is not LocalRecording { State: RecordingState.Error, DurationMs: > 0 } ||
+                    !((Button)library.FindName("PlayButton")).IsEnabled || ((Button)library.FindName("UploadButton")).IsEnabled ||
+                    !((TextBlock)library.FindName("Status")).Text.Contains("意外中断"))
+                    throw new Exception("Recovered audio was not playable with an interruption warning, or became uploadable.");
+                var recoveredPosition = (Slider)library.FindName("Position");
+                for (var attempt = 0; attempt < 100 && !recoveredPosition.IsEnabled; attempt++) await Task.Delay(50);
+                if (!recoveredPosition.IsEnabled || recoveredPosition.Maximum <= 0) throw new Exception("Native player could not open recovered WAV.");
                 library.Close(); window.Close();
                 await CloudLibraryTests.RunAsync(root, app.Dispatcher);
                 await LibraryProfile.RunAsync(smokeOnly: true);

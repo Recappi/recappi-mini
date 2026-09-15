@@ -20,7 +20,7 @@
 | N10 | 活动/会议录音建议与隐藏抑制；AudioActivityMonitor / AppDelegate | RecordingSuggestion + AudioActivity 峰值观察，托盘建议只选择来源、不自动录制 | AttentionTests/策略回归；普通浏览器音频不冒充会议。浏览器会议检测未实现，真实通知操作与长期性能待验 |
 | N11 | 静音/会议结束建议停止、隐藏提醒、时长上限；RecordingAttentionPolicy | RecordingAttention + App 定时检查；原生继续/停止提醒 | 策略和 WPF Keep/Stop 回归；真实长时/静音/通知操作待验；不能用普通音频静音证明会议已结束 |
 | N12 | 上传、分块、排队、后台处理；processSession | CloudProcessing 持久任务/上传关联、轮询/取消/重试；App 完成提醒与自动上传 | ProcessingTests 恢复/隔离、真实 C# 上传转写流水线；完整桌面后台处理并录新会、关窗与网络恢复待验 |
-| N13 | 本地完成与失败恢复；DoneState / ErrorState | LocalRecordingStore、LocalLibraryView；录音与云处理错误分别展示 | 真实本机结果查看/播放、停止/退出保存；失败上传不删除本机文件回归；完整失败重试操作待验 |
+| N13 | 本地完成与失败恢复；DoneState / ErrorState | LocalRecordingStore、LocalLibraryView；启动恢复中断会话的 WAV/时长，保留载荷、标记中断、禁止自动上传 | 合成录音子进程强制结束、完整发布 App 启动恢复及 WPF 实际媒体打开通过；真实设备异常退出/掉电与恢复视频 UI 仍待验；正常结果播放和失败上传保留本机已有证据 |
 | N14 | 双语实时流、连接与重连；LiveRealtimeSessionConnector | LiveCaptions / CaptionConnection / CaptionPcmEncoder；延迟启动屏障、有界队列、手动重连、重新登录续写 | CaptionTests 首条归档、停止/终止、重试、归档故障不中断录音；完整发布 App 受控进程 WASAPI→真实双语字幕→最终归档通过，隐藏期间继续；混录、断网/过期/账号竞争待验 |
 | N15 | 字幕展开/紧凑、显隐、完整句；LiveCaptionFloatingPanel | CaptionWindow 双语/紧凑/显示选项、隐藏恢复、独立持续归档警告 | CaptionWindowTests 通过；所有实窗尺寸、焦点、DPI 与完整 App 重连操作待验 |
 | N16 | 库分页、账号隔离与状态；CloudCenterPanel / CloudLibraryStore | CloudLibraryWindow 统一日期列表、本机/云端详情、当前会议、已确认副本关联；单一 App 窗口 | CloudLibraryTests 500 行真实 WPF 容器/分页/选择/隔离；10,000 行合成数据性能；实际本机搜索/选择/播放。真实云合并、离线切换与整套导航待验 |
@@ -38,7 +38,7 @@
 
 ## 验证入口与证据边界
 
-- 核心：`dotnet run --project native/desktop/Recappi.Core.Tests/Recappi.Core.Tests.csproj`。目前 24 组；网络场景默认使用测试 handler，部分文件/媒体/Windows API 为实际执行，不能统一称为真实后端测试。
+- 核心：`dotnet run --project native/desktop/Recappi.Core.Tests/Recappi.Core.Tests.csproj`。目前 25 组；网络场景默认使用测试 handler，部分文件/媒体/Windows API 为实际执行，不能统一称为真实后端测试。
 - 原生控件：`dotnet run --project native/desktop/Recappi.Desktop.Tests/Recappi.Desktop.Tests.csproj`。目前 17 组；实际 WPF 控件与媒体运行，账号/网络数据主要为测试替身。
 - 实际服务：`CloudSmoke` / `CloudPipelineSmoke` 的原始记录见验证文档。它们不是完整 App 的人工交互验收，禁止因为既有服务样本成功而勾选所有 UI 路径。
 - 实际桌面：验证文档分别记录受控进程录音、本机库/播放、设置/引导、隐藏恢复、取消退出和最终保存等已观察操作。

@@ -59,6 +59,37 @@ public sealed class LocalRecordingStore(string root)
         if (!Directory.EnumerateFileSystemEntries(recording.Directory).Any()) Directory.Delete(recording.Directory);
     }
 
+    /// <summary>Run once before creating an engine, after obtaining application single-instance ownership.</summary>
+    public int RecoverInterruptedRecordings()
+    {
+        var recovered = 0;
+        foreach (var recording in List().Where(x => x.State is RecordingState.Starting or RecordingState.Recording or RecordingState.Stopping))
+        {
+            FileStream? audio = null;
+            try
+            {
+                long duration = 0;
+                var message = "上次录音意外中断；已保留可恢复的音频，请播放检查。";
+                try
+                {
+                    if ((File.GetAttributes(recording.AudioPath) & FileAttributes.ReparsePoint) != 0) continue;
+                    audio = new FileStream(recording.AudioPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                    duration = PcmWaveWriter.RecoverInterrupted(audio);
+                    if (duration == 0) message = "上次录音意外中断，未找到完整音频样本。已有文件已保留。";
+                }
+                catch (FileNotFoundException) { message = "上次录音意外中断，未找到音频文件。"; }
+                catch (InvalidDataException) { message = "上次录音意外中断，音频格式不完整。原文件已保留，请打开文件位置检查。"; }
+                // Keep the exclusive audio handle until metadata commits. Busy or inaccessible
+                // files remain untouched and can be retried on a later launch.
+                Save(recording with { State = RecordingState.Error, DurationMs = duration, Error = message });
+                recovered++;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            finally { audio?.Dispose(); }
+        }
+        return recovered;
+    }
+
     private void Validate(LocalRecording recording)
     {
         if (!Guid.TryParseExact(recording.Id, "N", out _)) throw new ArgumentException("Invalid local recording ID.");

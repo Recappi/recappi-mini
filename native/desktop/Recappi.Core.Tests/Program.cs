@@ -4,6 +4,11 @@ using Recappi.Core;
 
 var root = Path.Combine(Path.GetFullPath("build/native-desktop-validation"), "core-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+if (args.Length == 2 && args[0] == "--interrupted-recording-child")
+{
+    await InterruptedRecordingTests.RunChildAsync(Path.GetFullPath(args[1]));
+    return;
+}
 if (args.Length >= 2 && args[0] is "--prepare-desktop-caption-fixture" or "--verify-desktop-caption-fixture" or "--clear-desktop-caption-fixture")
 {
     try
@@ -148,6 +153,8 @@ await Test("Microphone toggle disposes device and can reconnect without restarti
     await Task.Delay(150);
     Check((await engine.StopAsync())?.State == RecordingState.Done, "Toggle interrupted capture.");
 });
+
+await Test("Interrupted recordings recover without losing audio or touching active writers", () => InterruptedRecordingTests.RunAsync(root));
 
 await Test("Disposal finalizes active audio even with no window", async () =>
 {

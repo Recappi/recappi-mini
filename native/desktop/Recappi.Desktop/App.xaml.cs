@@ -106,6 +106,9 @@ public partial class App : Application
         DesktopTheme.Apply(preferences.Theme);
         var dataRoot = overrideRoot ?? preferences.RecordingsRoot;
         var store = new LocalRecordingStore(dataRoot);
+        // Single-instance ownership is established; no recorder/import can write yet.
+        try { await Task.Run(store.RecoverInterruptedRecordings); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { /* Library access errors remain visible when opening the library. */ }
         accountSession = new AccountSession(new AccountStore(Path.Combine(applicationRoot, "Account")));
         processing = new CloudProcessing(Path.Combine(applicationRoot, "Processing"), account => accountSession.Client(account));
         accountSession.Changed += value =>
