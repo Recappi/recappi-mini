@@ -33,7 +33,7 @@
 | N23 | 删除确认/索引关联/失败恢复；CloudCenterPanel+Detail | 云库删除确认、处理关联清理；云副本删除保留本机录音 | CloudLibraryActionTests 取消/失败/成功/隔离；真实 API 测试记录清理；完整桌面删除与账户变化竞争待验 |
 | N24 | 用量、套餐与管理链接；BillingStatus / CloudCenterPanel+AccountHeader | BillingStatus DTO + BillingPanel 嵌入 AccountWindow；刷新/超额/不限量/周期；POST portal，409 转 plans；只打开可信链接 | BillingTests、BillingPanelTests 覆盖配额/URL/延迟响应/失败/账号隔离/401；真实只读 GET 解析成功，实际窗口用明确测试数据作布局检查。完整 App 真实用量/管理服务、账号状态与键盘实机待验 |
 | N25 | 主题、设置、关于、更新；SettingsView / AppUpdater | SettingsWindow 五组配置即时保存；共用现代样式；DesktopUpdates / UpdatePanel 官方发布源、架构/通道/摘要检查；独立安装器 | Settings/Theme/Update 测试、实际浅深色设置；已有 x64 安装升级/回滚/数据保留测试。生产签名/可用更新发布、自动安装、全部窗口视觉/高对比度/ARM64 实机未完成 |
-| N26 | 文本/字幕/音频导出；CLI export / macOS 复制与本地副本 | 云文字导出/音频副本；CaptionArchive 和本机 TXT/JSONL 导出 | 归档恢复和下载内容回归；原生对话框取消、全部格式/编码/时间轴与完整导出操作仍待验 |
+| N26 | 文本/字幕/音频导出；CLI export / macOS 复制与本地副本 | 云文字导出/音频副本；CaptionArchive 和本机 TXT/JSONL 导出；对话框返回后重新核对账号及来源 | WPF 回归覆盖文字/音频内容、取消保留目标文件、对话框期间切换录音/退出账号；回调替代真实对话框。归档恢复和下载内容回归已验；系统对话框实操、全部格式/编码/时间轴仍待验 |
 | N27 | 录音标题重命名；CloudCenterPanel Rename Save TODO | 不提供假成功操作 | 基线 macOS Save 未接后端，排除已实现对齐范围；若后续有真实契约再评估 |
 
 ## 验证入口与证据边界

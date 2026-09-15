@@ -1,5 +1,13 @@
 # Windows 原生版验证记录
 
+## 2026-09-15：导出对话框期间的账号与录音隔离
+
+CloudLibraryWindow 的原文字导出在对话框前读取正文、返回后读取标题；音频副本返回后才读取 audioPath。保存对话框允许 Dispatcher 处理其他状态变化，因此可能混用不同选择的内容。新增可替换的对话框回调，在真实 WPF 控件测试中改变选择，先复现 `Changing recordings during the export dialog wrote a stale transcript` 失败。
+
+修复后在打开对话框前固定来源，返回后检查窗口、账号分区、数据代次及正文/音频来源仍一致；否则不写目标文件并提示重选。正常文字导出、音频字节一致、false/null 取消、切换录音、文字/音频对话框期间退出账号均通过，完整 WPF 17 组复跑通过。账号 HTTP 与对话框返回值使用测试替身，不声称真实服务或系统文件对话框交互验收。
+
+更新便携包 `build/native-desktop-release/70ee9a9268b5487eb7f98622137c7a70/release-report.json`：x64 ZIP 74,449,657 B，SHA256 `6ba375464038e407b15b73ba88fdeb96b3497106f5c015bc9c7254fe6b1ceb66`；ARM64 ZIP 69,275,966 B，SHA256 `0230733c65051625d5b4722f6a3f77ca5ded86ef05b9f0546760af5a4decd819`。两架构检查通过，sourceCommit=3258b4b、sourceDirty=true，均未签名；不包含新安装器或 ARM64 实机验收。
+
 ## 2026-09-15：草稿 PR 前回归与 CI 接入
 
 当前工作树重新执行 Release 核心 24 组（`core-tests-6bb626a3f5e34c5aa0f54b9b80f179e4`）与 WPF 17 组，全部通过。`pnpm cli:check` 类型检查、226 个测试及构建通过，6 个测试跳过；Windows x64 helper 重建、隔离安装/启动/sidecar 握手和 helper 打包检查通过。第一次从 helper 子目录启动打包检查选中了本机 Node 20/Corepack 组合，报动态 import callback 错误；从仓库 Node 22 环境进入子目录后同一检查通过，没有修改 CLI 实现。

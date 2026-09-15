@@ -37,6 +37,7 @@ public partial class CloudLibraryWindow : Window
     private readonly Func<CloudAccount, string, Task>? remoteDeleted;
     private bool deleting;
     public Func<string, bool>? ConfirmDelete { get; set; }
+    public Func<Microsoft.Win32.SaveFileDialog, bool?>? ShowExportDialog { get; set; }
     private bool audioLoading;
     private double? citationSeek;
     private readonly SpeakerProfileStore speakers = new(SpeakerProfileStore.DefaultRoot);
@@ -447,18 +448,27 @@ public partial class CloudLibraryWindow : Window
     }
     private void ExportText(object sender, RoutedEventArgs e)
     {
-        if (loadedTranscript is not { } transcript) return;
+        if (loadedTranscript is not { } transcript || SelectedCloud is not { } recording || VisiblePartition is not { } exportPartition) return;
+        var version = generation;
+        var title = Heading.Text;
         var dialog = new Microsoft.Win32.SaveFileDialog { FileName = "recording.txt", Filter = "文本 (*.txt)|*.txt|Markdown (*.md)|*.md", AddExtension = true };
-        if (dialog.ShowDialog(this) != true) return;
-        try { File.WriteAllText(dialog.FileName, Heading.Text + "\n\n摘要\n" + transcript.Summary + "\n\n逐字稿\n" + transcript.Text, new UTF8Encoding(false)); Status.Text = "文字已导出。"; }
+        if ((ShowExportDialog is { } show ? show(dialog) : dialog.ShowDialog(this)) != true) return;
+        // Native modal dialogs run a nested dispatcher loop: account/detail state can change.
+        if (closed || generation != version || exportPartition != VisiblePartition || SelectedCloud?.Id != recording.Id || !ReferenceEquals(loadedTranscript, transcript))
+        { if (!closed) Status.Text = "录音或账号已变化，请重新选择要导出的内容。"; return; }
+        try { File.WriteAllText(dialog.FileName, title + "\n\n摘要\n" + transcript.Summary + "\n\n逐字稿\n" + transcript.Text, new UTF8Encoding(false)); Status.Text = "文字已导出。"; }
         catch (Exception) { Status.Text = "导出失败，请检查目标位置。"; }
     }
     private void SaveAudio(object sender, RoutedEventArgs e)
     {
-        if (audioPath is null) return;
-        var dialog = new Microsoft.Win32.SaveFileDialog { FileName = "recording" + Path.GetExtension(audioPath), Filter = "音频文件|*.*" };
-        if (dialog.ShowDialog(this) != true) return;
-        try { File.Copy(audioPath, dialog.FileName, true); Status.Text = "音频副本已保存。"; }
+        if (audioPath is not { } source || VisiblePartition is not { } exportPartition) return;
+        var version = generation;
+        var recordingId = audioRecordingId;
+        var dialog = new Microsoft.Win32.SaveFileDialog { FileName = "recording" + Path.GetExtension(source), Filter = "音频文件|*.*" };
+        if ((ShowExportDialog is { } show ? show(dialog) : dialog.ShowDialog(this)) != true) return;
+        if (closed || generation != version || exportPartition != VisiblePartition || audioPath != source || audioRecordingId != recordingId)
+        { if (!closed) Status.Text = "音频或账号已变化，请重新选择要保存的副本。"; return; }
+        try { File.Copy(source, dialog.FileName, true); Status.Text = "音频副本已保存。"; }
         catch (Exception) { Status.Text = "保存失败，请检查目标位置。"; }
     }
     private async void DeleteRecording(object sender, RoutedEventArgs e)
