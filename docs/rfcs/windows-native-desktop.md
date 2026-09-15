@@ -89,6 +89,8 @@
 
 已验证的增量检查点（不替代上述阶段验收）：
 
+- [x] 完整 x64 发布应用的合成双语字幕文本导出、Escape 取消及录音目录目标拒绝实际操作完成；三段视频 4412 帧→21 关键帧，自动证据门禁与画面分析 3 项通过/2 项证据不足。两次 74 B 文本内容相同、原字幕两行保留，两个测试进程正常退出。首段遗漏独立对话框且末事件越界，补录区域有缩放裁剪，未宣称完整连续布局；JSONL/覆盖确认/切换竞争与真实音频链路仍待验。报告 `build/native-desktop-validation/caption-export-video-53b88d50a26241d6930ebe5152bafd81/acceptance.html`。
+
 - [x] 真实文件锁复现云处理记录替换失败，增加仅限 Windows 文件冲突的 25/50/100 ms 有界重试与临时文件清理；短暂占用后上传完成、永久占用保留原记录、释放后重试不重复创建/转写均通过。核心 31 组通过，专项证据 `core-tests-c40bf4e71dce46c2aa98f64340cd689a`，全量 `core-tests-7ea4dbf806d84f77aeb7e64373032d7f`（位于 `build/native-desktop-validation/`）。确认该存储失败路径，不据此断言上轮偶发失败的占用来源；云端响应为测试服务，真实云交互视频仍待验收。
 
 - [x] 本地字幕导出改为同目录临时文件完整写入后替换，拒绝录音存储目录内目标，并在保存对话框返回后核对选择；专项验证缺失/锁定来源、锁定目标保留已有文件、临时清理及双语/原始归档内容通过，完整 WPF 回归通过。真实对话框视频尚未补验。本轮完整核心回归在既有云上传测试失败，状态为 `Failed / UploadCompleted=true / TranscriptionAttempted=false`，未证明意外转写；需定位失败原因，不宣称核心全通过。专项证据 `core-tests-ca15cb9c203e42df96348869af86b236`，失败证据 `core-tests-2eeaf341b0f84a0d9821083d8ce823ba`（均在 `build/native-desktop-validation/`）。
