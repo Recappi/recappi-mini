@@ -85,6 +85,30 @@
 
 ## 未完成的性能验收
 
+### 2026-09-15：界面检查连接影响真实录音 CPU（对照确认）
+
+当前 x64 自包含包 `b9c1159dae8a408aa19fc614ec1611a9`，完整 App PID 48908，真实 WASAPI 进程采集、已授权测试账号 en→zh 字幕，麦克风/上传/建议关闭。播放器 PID 48564 于 12:55:23 UTC 启动，限时 300 秒；以下采样均在其存活期间完成。录音条与字幕窗保持可见，没有修改应用代码、渲染设置或可访问性支持。各段只改变 Computer Use 的 JavaScript 会话连接状态；采样期间无窗口输入/抓图，首次段中调用过一次窗口枚举。
+
+| 顺序 / 条件 | 实际时长 | 单核 CPU | 主 UI 线程 CPU | 另一热点线程 CPU |
+| --- | ---: | ---: | ---: | ---: |
+| 只请求截图，未请求控件树 | 25.495 s | 53.994% | 26.660% | 23.780% |
+| 重置检查会话、未重新接入 | 19.243 s | 3.329% | 1.299% | 见原始报告 |
+| 重新接入并取一次截图 | 19.094 s | 47.707% | 25.368% | 20.294% |
+| 再次重置检查会话 | 19.234 s | 3.331% | 1.137% | 见原始报告 |
+| 保持断开，逐采样核对音频源进程 | 19.222 s | 2.113% | 0.975% | 见原始报告 |
+
+前后反转表明：本环境中 Computer Use 连接显著增加了实际应用进程的 CPU，单纯在采样期间“不调用工具”不足以消除测量干扰；截图模式也会发生。这不是通过禁用生产 UI Automation 获得的优化，也不证明具体客户端内部机制或所有历史高 CPU 样本都已归因。最后一段工作集 226,791,424 B、私有内存 139,972,608 B；这些短样本不能证明长期稳定或最终性能达标。未登录空闲新进程在读取控件树前后均未观察到累计 CPU 增量，干扰不能泛化为所有空闲窗口。
+
+原始报告按表顺序为 `process-profile-4393bc0206da4794a0b459b46c840b1a`、`process-profile-a06fb6ae848e4c21b3222a9f99982bc9`、`process-profile-68e4ae805c904d27a3e37af98a8908b9`、`process-profile-3d0b9bafcfc4415ea2c34a46a5ce206d`、`process-profile-be44c690af8840af9bbc3d15c158e054`，文件均为 `build/native-desktop-validation/<目录>/results.json`。主 UI TID 49356，另一热点 TID 47564。最后一段使用 Windows PowerShell 5.1 成功验证新增采样选项。
+
+同日先前 App PID 11996 的真实字幕样本为 51.874%（未挂线程采样器），UI TID 48284 占 27.918%，TID 25708 占 21.701%。同时段 EventPipe 墙钟栈显示后者主要涉及 UI Automation ProviderOptions/Navigate/GetRuntimeId 与 Dispatcher 请求；结合独立线程 CPU 计数用于确定对照方向，不能把其墙钟栈百分比当作 CPU 函数占比。详细栈及 trace 在 `build/native-desktop-validation/performance-real-20260915/`。
+
+先前场景标注有两处限制：`process-profile-d49011f23d2249888d5aec0328a6e712/results.json` 虽命名为仅录音条，但关闭字幕输入失败，实际仍是双窗可见；`process-profile-0b1a447a29084db189016ed2b0bca260/results.json` 的两窗隐藏 1.068% 样本与播放器结束时间重叠，不能用来作持续语音的显示/隐藏因果对照。原始数据保留，以上说明覆盖错误场景名。
+
+两次真实录音分别保存 402.872 秒和 233.994 秒，48 kHz/单声道/16-bit WAV 结构、时长及受控英文/中文最终归档通过校验；账号副本已清理，原 CLI 账号未变。证据在 `performance-real-20260915/session/verification.json` 和 `performance-real-20260915/screenshot-only-session/verification.json`。本轮是性能诊断，没有录制 UI 验收视频，因此不新增 UI 验收通过项。
+
+测量脚本新增 `-IncludeThreads`：使用实际线程 CPU/user/kernel 时间增量，按 PID/TID/启动时间区分线程，输出读失败数；忽略首个不完整间隔和未观察到的短命线程，与进程计数非原子读取。可加 `-RequiredInputProcessId`：每次快照核对输入源身份，源退出或 PID 复用则失败，不生成成功报告；进程存活本身不证明有声数据持续流动。报告增加采样 UTC 起点。后续正式性能基线必须先结束界面检查连接，再独立采样；视频 UI 验收作为另一轮证据，不能与无观察者性能基线混用。
+
 ### 录音与字幕窗口隔离诊断（合成输入）
 
 新增显式诊断入口 `dotnet run --project native/desktop/Recappi.Desktop.Tests -c Release -- --recording-ui-profile`，可加 `--software-rendering` 做软件渲染对照。使用生产 RecorderWindow、CaptionWindow、RecorderViewModel 和 RecordingEngine，但音频为进程内 443 Hz 合成 PCM，字幕为每 100 ms 更新的固定长度双语文本；没有 WASAPI、账号、网络、托盘或完整 App。录音写入独立 build 样本目录，结束时停止引擎、计时器并关闭窗口。
