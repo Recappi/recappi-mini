@@ -63,10 +63,10 @@ public sealed class CloudProcessing : IAsyncDisposable
         {
             try
             {
-                var value = JsonSerializer.Deserialize<ProcessingEntry>(File.ReadAllText(file), Json);
+                var value = ReadJournal(file);
                 if (value is not null && value.Partition == partition && EntryPath(partition, value.LocalId) == file) entries.Add(value);
             }
-            catch (Exception error) when (error is JsonException or IOException or ArgumentException) { }
+            catch (Exception error) when (error is JsonException or IOException or ArgumentException or UnauthorizedAccessException) { }
         }
         return entries;
     }
@@ -94,7 +94,16 @@ public sealed class CloudProcessing : IAsyncDisposable
 
     private async Task<ProcessingEntry> ProcessAsync(LocalRecording recording, CloudAccount account, ProcessingOptions options, CancellationToken cancellation)
     {
-        var prior = List(account.Partition).FirstOrDefault(x => x.LocalId == recording.Id);
+        // A display list can skip inaccessible rows; resuming work cannot treat them as absent.
+        ProcessingEntry? prior;
+        try
+        {
+            prior = ReadJournal(EntryPath(account.Partition, recording.Id));
+            if (prior is null || prior.LocalId != recording.Id || prior.Partition != account.Partition || !Enum.IsDefined(prior.Stage))
+                throw new InvalidDataException("本地处理记录无效，请先检查云端录音；不会重新上传。");
+        }
+        catch (FileNotFoundException) { prior = null; }
+        catch (DirectoryNotFoundException) { prior = null; }
         var entry = prior ?? new ProcessingEntry(recording.Id, account.Partition, recording.Title, ProcessingStage.Creating);
         if (prior is { Ticket: null, Stage: ProcessingStage.Creating }) entry = entry with { Stage = ProcessingStage.NeedsReconciliation };
         var acquired = false;
@@ -191,27 +200,18 @@ public sealed class CloudProcessing : IAsyncDisposable
         return entry;
     }
 
+    private static ProcessingEntry? ReadJournal(string path)
+    {
+        // Share delete so rendering the list does not block atomic journal replacement.
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        return JsonSerializer.Deserialize<ProcessingEntry>(stream, Json);
+    }
+
     private void Save(ProcessingEntry entry)
     {
         var path = EntryPath(entry.Partition, entry.LocalId);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
-        {
-            File.WriteAllText(temporary, JsonSerializer.Serialize(entry, Json));
-            for (var attempt = 0; ; attempt++)
-            {
-                try { File.Move(temporary, path, true); break; }
-                catch (Exception error) when (attempt < 3 &&
-                    error is IOException or UnauthorizedAccessException && (error.HResult & 0xffff) is 5 or 32 or 33)
-                {
-                    // A short-lived reader must not turn completed upload into failure.
-                    // Permanent denial still propagates with the prior journal intact.
-                    Thread.Sleep(25 << attempt);
-                }
-            }
-        }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        AtomicJsonFile.Write(path, JsonSerializer.Serialize(entry, Json));
         Notify(entry);
     }
     private void Notify(ProcessingEntry entry)

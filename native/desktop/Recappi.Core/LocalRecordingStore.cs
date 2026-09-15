@@ -23,9 +23,7 @@ public sealed class LocalRecordingStore(string root)
     {
         Validate(recording);
         var path = Path.Combine(recording.Directory, "desktop-session.json");
-        var temporary = path + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(recording, Json));
-        File.Move(temporary, path, true);
+        AtomicJsonFile.Write(path, JsonSerializer.Serialize(recording, Json));
     }
 
     public IReadOnlyList<LocalRecording> List()
