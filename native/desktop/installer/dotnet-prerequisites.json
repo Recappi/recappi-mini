@@ -1,0 +1,14 @@
+{
+  "version": "10.0.12",
+  "source": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json",
+  "runtimes": {
+    "win-x64": {
+      "url": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.12/windowsdesktop-runtime-10.0.12-win-x64.exe",
+      "sha512": "0b907e9312867172a4eb82f4b5ab3f7c2d25e27d8349546d77eeb5d5b8cbecab9ebebfed189b13e9669dc578d892756c548366da539d47b3ddac5efcb7ae72fe"
+    },
+    "win-arm64": {
+      "url": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.12/windowsdesktop-runtime-10.0.12-win-arm64.exe",
+      "sha512": "909ffed452c1b45572d558b5dbf088927a57854dcd3844b46701ead6d4d175fb3f329084fdf9b077aa7cdecaececcacb95c82870d32d7b8c411638331491c441"
+    }
+  }
+}

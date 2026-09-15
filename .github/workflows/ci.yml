@@ -29,6 +29,14 @@ jobs:
         run: dotnet build native/desktop/Recappi.Desktop.Tests -c Release
       - name: Publish and verify both native architectures
         run: ./scripts/publish-native-desktop.ps1
+      - name: Build runtime prerequisite probes
+        run: |
+          foreach ($runtime in @('win-x64', 'win-arm64')) {
+            dotnet publish native/desktop/Recappi.RuntimeProbe/Recappi.RuntimeProbe.csproj -c Release -r $runtime --self-contained false -p:RestoreLockedMode=true -o "build/runtime-probe/$runtime"
+            if ($LASTEXITCODE -ne 0) { throw "Runtime probe build failed: $runtime" }
+          }
+          & ./build/runtime-probe/win-x64/Recappi.RuntimeProbe.exe --check-runtime
+          if ($LASTEXITCODE -ne 0) { throw 'Installed runtime probe failed.' }
       - uses: actions/upload-artifact@v7
         with:
           name: windows-native-preview
