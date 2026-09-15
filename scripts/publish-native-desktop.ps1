@@ -2,7 +2,8 @@ param(
     [ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$')]
     [string]$Version = '0.1.0-preview.1',
     [ValidateSet('win-x64', 'win-arm64')]
-    [string[]]$Runtimes = @('win-x64', 'win-arm64')
+    [string[]]$Runtimes = @('win-x64', 'win-arm64'),
+    [switch]$ResourceOptimizationCandidate
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -18,8 +19,21 @@ $destination = Join-Path $repository ('build/native-desktop-release/' + [Guid]::
 $artifacts = @()
 foreach ($runtime in $Runtimes) {
     $output = Join-Path $destination $runtime
-    & dotnet publish $project --configuration Release --runtime $runtime --self-contained true --output $output -p:RestoreLockedMode=true "-p:Version=$Version"
+    $optimizationArguments = @()
+    # .NET Desktop ships simplified Chinese under zh-Hans; English is neutral.
+    if ($ResourceOptimizationCandidate) { $optimizationArguments += '-p:SatelliteResourceLanguages=zh-Hans' }
+    & dotnet publish $project --configuration Release --runtime $runtime --self-contained true --output $output -p:RestoreLockedMode=true "-p:Version=$Version" @optimizationArguments
     if ($LASTEXITCODE -ne 0) { throw "Native publish failed for $runtime." }
+    if ($ResourceOptimizationCandidate) {
+        if (-not (Test-Path -LiteralPath (Join-Path $output 'zh-Hans/PresentationFramework.resources.dll'))) {
+            throw 'Candidate is missing simplified Chinese WPF resources.'
+        }
+        $symbols = Join-Path $destination ('symbols/' + $runtime)
+        [void][IO.Directory]::CreateDirectory($symbols)
+        Get-ChildItem -LiteralPath $output -File -Filter '*.pdb' | ForEach-Object {
+            Move-Item -LiteralPath $_.FullName -Destination (Join-Path $symbols $_.Name)
+        }
+    }
     $executable = Join-Path $output 'Recappi Mini.exe'
     $binary = [IO.File]::ReadAllBytes($executable)
     $peOffset = [BitConverter]::ToInt32($binary, 0x3c)
@@ -51,6 +65,7 @@ foreach ($runtime in $Runtimes) {
         archive = $archive
         archiveBytes = (Get-Item -LiteralPath $archive).Length
         sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+        resourceOptimizationCandidate = [bool]$ResourceOptimizationCandidate
     }
 }
 $report = Join-Path $destination 'release-report.json'
