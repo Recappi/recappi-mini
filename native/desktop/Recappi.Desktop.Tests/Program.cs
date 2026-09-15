@@ -116,6 +116,7 @@ internal static class Program
                 for (var attempt = 0; attempt < 100 && !recoveredPosition.IsEnabled; attempt++) await Task.Delay(50);
                 if (!recoveredPosition.IsEnabled || recoveredPosition.Maximum <= 0) throw new Exception("Native player could not open recovered WAV.");
                 library.Close(); window.Close();
+                await LocalPlaybackTests.RunAsync(root);
                 await CloudLibraryTests.RunAsync(root, app.Dispatcher);
                 await LibraryProfile.RunAsync(smokeOnly: true);
                 await CloudSearchTests.RunAsync(root, app.Dispatcher);

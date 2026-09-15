@@ -36,7 +36,7 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
         if (processing is not null) processing.Changed += ProcessingChanged;
         if (accountSession is not null) accountSession.Changed += AccountChanged;
         player.MediaOpened += (_, _) => { Position.Maximum = player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan.TotalSeconds : 1; Position.IsEnabled = true; };
-        player.MediaEnded += (_, _) => { playing = false; playbackTimer.Stop(); PlayButton.Content = "播放"; player.Position = TimeSpan.Zero; };
+        player.MediaEnded += (_, _) => { playing = false; playbackTimer.Stop(); PlayButton.Content = "播放"; player.Position = TimeSpan.Zero; Position.Value = 0; PlaybackTime.Text = "00:00"; };
         player.MediaFailed += (_, e) => { Status.Text = "播放失败：" + e.ErrorException.Message; playing = false; playbackTimer.Stop(); PlayButton.Content = "播放"; };
         playbackTimer.Tick += (_, _) => { if (!Position.IsMouseCaptureWithin) Position.Value = player.Position.TotalSeconds; PlaybackTime.Text = player.Position.ToString(@"mm\:ss"); };
     }
@@ -107,6 +107,7 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
         AudioCard.Visibility = ProcessingActions.Visibility = selected is null ? Visibility.Collapsed : Visibility.Visible;
         EntrySelected?.Invoke(selected);
         player.Close(); playing = false; playbackTimer.Stop(); PlayButton.Content = "播放"; Position.Value = 0; Position.IsEnabled = false;
+        PlaybackTime.Text = selected is null ? "" : "00:00";
         if (selected is null)
         {
             Heading.Text = "选择一条录音"; Metadata.Text = ""; Status.Text = "从左侧选择录音，或导入音频开始回顾。"; PlaybackTime.Text = "";
@@ -144,8 +145,15 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
         try { Process.Start(new ProcessStartInfo(selected.Directory) { UseShellExecute = true }); }
         catch (Exception error) { Status.Text = error.Message; }
     }
-    private void Seek(object sender, MouseButtonEventArgs e) => player.Position = TimeSpan.FromSeconds(Position.Value);
-    private void SeekKey(object sender, KeyEventArgs e) => player.Position = TimeSpan.FromSeconds(Position.Value);
+    private void Seek(object sender, MouseButtonEventArgs e) => SeekToSelectedPosition();
+    private void SeekKey(object sender, KeyEventArgs e) => SeekToSelectedPosition();
+    private void SeekToSelectedPosition()
+    {
+        var position = TimeSpan.FromSeconds(Position.Value);
+        player.Position = position;
+        // Paused playback has no timer ticks to update the displayed position.
+        PlaybackTime.Text = position.ToString(@"mm\:ss");
+    }
     private void ProcessingChanged(ProcessingEntry entry) => Dispatcher.BeginInvoke(() =>
     {
         if (entry.LocalId == selected?.Id && entry.Partition == accountSession?.Snapshot.Account?.Partition) RenderProcessing(entry);
