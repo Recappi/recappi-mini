@@ -46,7 +46,7 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
         player.MediaOpened += (_, _) => { Position.Maximum = player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan.TotalSeconds : 1; Position.IsEnabled = true; };
         player.MediaEnded += (_, _) => { playing = false; playbackTimer.Stop(); PlayButton.Content = "播放"; player.Position = TimeSpan.Zero; Position.Value = 0; PlaybackTime.Text = "00:00"; };
         player.MediaFailed += (_, e) => { Status.Text = "播放失败：" + e.ErrorException.Message; playing = false; playbackTimer.Stop(); PlayButton.Content = "播放"; };
-        playbackTimer.Tick += (_, _) => { if (!Position.IsMouseCaptureWithin) Position.Value = player.Position.TotalSeconds; PlaybackTime.Text = player.Position.ToString(@"mm\:ss"); };
+        playbackTimer.Tick += (_, _) => { if (!Position.IsMouseCaptureWithin) Position.Value = player.Position.TotalSeconds; PlaybackTime.Text = FormatPlaybackTime(player.Position); };
     }
     public void Dispose()
     {
@@ -173,12 +173,15 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
     }
     private void Seek(object sender, MouseButtonEventArgs e) => SeekToSelectedPosition();
     private void SeekKey(object sender, KeyEventArgs e) => SeekToSelectedPosition();
+    private static string FormatPlaybackTime(TimeSpan position) => position.TotalHours >= 1
+        ? $"{(long)position.TotalHours:00}:{position.Minutes:00}:{position.Seconds:00}"
+        : position.ToString(@"mm\:ss");
     private void SeekToSelectedPosition()
     {
         var position = TimeSpan.FromSeconds(Position.Value);
         player.Position = position;
         // Paused playback has no timer ticks to update the displayed position.
-        PlaybackTime.Text = position.ToString(@"mm\:ss");
+        PlaybackTime.Text = FormatPlaybackTime(position);
     }
     private void ProcessingChanged(ProcessingEntry entry) => Dispatcher.BeginInvoke(() =>
     {
