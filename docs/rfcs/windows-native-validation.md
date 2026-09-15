@@ -1,5 +1,19 @@
 # Windows 原生版验证记录
 
+## 2026-09-15：麦克风关闭后的电平与静音提醒
+
+发现关闭麦克风只释放设备，没有清除已发布的最后电平：`App` 的静音判断继续读取旧 RMS，录音条也保留旧电平。新增回归先复现 `Muted microphone retained its last signal level`；核心在移除麦克风时发布静音电平，停止/设备失败收尾同时清除启用状态及两路电平。WPF 回归另复现清零事件被 100 ms 节流丢弃；现在仅已释放麦克风的状态更新绕过节流，排队的旧电平根据当前启用状态归零，正常音频电平仍按原节流更新。
+
+Release 核心 **27 组通过**：`build/native-desktop-validation/core-tests-15ed5a847d9c4e4f9f8cffff279fc2ab/results.json`。新增 `RecordingMicrophoneTests` 覆盖非零电平→关闭→静音策略、关闭区间 PCM 全零、重新启用失败保持系统录音、成功重开、停止/设备异常后的状态与文件保留。输入为合成 PCM、设备故障为测试替身，提醒使用明确时间快照。最终完整 WPF 回归通过，目录 `ui-smoke-68862ab750434e409bcf8e9ca4ffdffd`；不等同真实长时提醒或物理设备故障。
+
+实际 x64 发布 App PID 45976 运行最新 `88154664e1e24c719c31b82afb135b5a` 包，PATH 无 Node；独立数据目录、未登录、字幕/上传/建议/提醒关闭。受控播放器 PID 15316 输出 443 Hz，App 录制该进程并选中本机唯一可用的 **Steam 虚拟麦克风**。通过窗口完成开启→关闭→重新开启→停止保存，实际会话为 Done、96955 ms；WAV 9307806 B，SHA256 `41b35d098ff260e1f7ebde1a70bd7ad27d77c780a5460e0faeb037a203b04e4a`。RIFF/data 长度和采样时长吻合；第 10/45/80 秒各一秒样本都检测到 443 Hz，RMS 分别 0.019419/0.038840/0.019419，符合静音麦克风参与平均混音、关闭后仅系统输入的变化。只检查这些样本，不据此证明全文件无缺口、物理声音混录质量或拔插恢复。
+
+本地 `build/native-desktop-validation/microphone-real-20260915/acceptance.html` / `acceptance.json`：112.6 秒、15 fps、1689 帧→35 关键帧，AI 查看全部帧，**3 项通过、2 项证据不足**。通过关闭后继续、重开后继续及保存行/文件核对；无音轨、没有物理非零麦克风信号、真实静音提醒或完整退出视频。停止后窗口变矮，固定录屏下部残留旧区域，仅引用实际上部保存行。一次关闭操作后界面工具报 no monitor，重新观察及视频确认已关闭，未重复输入；退出菜单命中越界，最终确认录音 Done 后仅结束自有空闲 App。播放器与 FFmpeg 正常停止，未创建账号副本，无上传。
+
+更新双架构精简自包含 ZIP，报告 `build/native-desktop-release/88154664e1e24c719c31b82afb135b5a/release-report.json`，源码 94d274a 加本轮修改（sourceDirty=true）：x64 70,962,623 B，SHA256 `5b6d132b0f98d7f017f82cb2de0bf97a594faf99a8ac3a137df9d3bd1be965f6`；ARM64 65,360,630 B，SHA256 `c442c6e265beb8119fde08c6eff291da3378bf2de6b3233b959749c46e6b32fc`。PE/运行时/资源/ZIP 验证通过。
+
+相同包生成未签名开发 MSIX：x64 `build/native-msix/86124814fdf2436ab944a54c59d27d09`，69,822,986 B，SHA256 `5c3311a5b34019fad3868b16fd2acacb43f2325b3aae8466d0fde88217679a19`；ARM64 `build/native-msix/39757ec7994642eda0553a3d17dc6b16`，64,857,623 B，SHA256 `cec25bdd1757f47db7316413b3f661f148a2f5e63bfc14ddd62b8061da77dc78`，SDK 与载荷 273/272 文件校验通过。未安装/签名/Store 验收/ARM64 实机；本轮未新增性能测量，CLI/macOS 实现未修改、未重跑其本地检查。
+
 ## 2026-09-15：双语字幕独立视区与实际视频验收
 
 实际 en→zh 字幕录像发现：原文和译文共用 TextBox，自动滚到底后长译文把原文挤出视区。按 macOS `LiveCaptionFloatingPanel` 的布局语义改为展开时 57/43 独立两栏、紧凑时上下各一行；只显示一路时占满宽度，至少保留一路。两路独立跟随尾部，展开时手动上滚保留位置，切换选项不丢失用户展开高度；重连/归档警告换行时动态保留文字高度。纯转写会话禁用译文并显示原文。

@@ -145,12 +145,15 @@ public sealed class RecorderViewModel : INotifyPropertyChanged
         {
             var now = Environment.TickCount64;
             ref var last = ref (value.Input == "system" ? ref lastSystemLevel : ref lastMicrophoneLevel);
-            if (now - last < 100) return;
+            // Clearing a released input is a state change, not a meter animation.
+            var releasedMicrophone = value.Input == "microphone" && !Engine.MicrophoneEnabled;
+            if (!releasedMicrophone && now - last < 100) return;
             last = now;
             dispatcher.BeginInvoke(() =>
             {
                 if (!IsActive) return;
-                var level = Math.Clamp((value.RmsDb + 60) / 60 * 100, 0, 100);
+                var level = value.Input == "microphone" && !Engine.MicrophoneEnabled
+                    ? 0 : Math.Clamp((value.RmsDb + 60) / 60 * 100, 0, 100);
                 if (value.Input == "system") { systemLevel = level; Notify(nameof(SystemLevel)); }
                 else { microphoneLevel = level; Notify(nameof(MicrophoneLevel)); }
             });

@@ -160,6 +160,7 @@ public sealed class RecordingEngine : IAsyncDisposable
                                 {
                                     inputs.Remove(microphone);
                                     Volatile.Write(ref microphoneEnabled, false);
+                                    Notify(Level, new AudioLevel("microphone", -120));
                                     microphone.Dispose();
                                 }
                             }
@@ -204,6 +205,9 @@ public sealed class RecordingEngine : IAsyncDisposable
         catch (Exception error) { failure = error; }
         finally
         {
+            Volatile.Write(ref microphoneEnabled, false);
+            Notify(Level, new AudioLevel("microphone", -120));
+            Notify(Level, new AudioLevel("system", -120));
             foreach (var input in inputs)
             {
                 try { input.Dispose(); }

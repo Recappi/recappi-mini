@@ -156,6 +156,7 @@ await Test("Microphone toggle disposes device and can reconnect without restarti
 });
 
 await Test("Interrupted recordings recover without losing audio or touching active writers", () => InterruptedRecordingTests.RunAsync(root));
+await Test("Microphone mute clears signal, permits silence reminders and preserves audio through reconnect/failure", () => RecordingMicrophoneTests.RunAsync(root));
 
 await Test("Disposal finalizes active audio even with no window", async () =>
 {
