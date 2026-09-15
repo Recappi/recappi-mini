@@ -1,5 +1,15 @@
 # Windows 原生版验证记录
 
+## 2026-09-15：进程激活期限与设置文件短暂冲突
+
+桌面进程回环等待 COM 激活回调最多 15 秒，超时转为明确错误并释放录音状态锁。操作本身不能取消，原激活任务继续持有参数和回调，迟到音频客户端被释放；单个待定操作阻止重复启动堆积，完成后可重试。CLI 的默认无内部期限行为保留，由现有父进程期限控制。此保护不覆盖同步 P/Invoke、Initialize 或 Stop 本身挂起。
+
+核心 29 组通过，结果 `build/native-desktop-validation/core-tests-a902b7926bf4483ea5609d067eb042cc/results.json`。超时使用注入任务验证，包含迟到成功/失败、重试、停止与其他来源恢复。真实受控 443 Hz 进程音源经过生产 RecordingEngine 连续两次开始/停止：2003/2002 ms，PCM16 峰值均 1801，WAV 长度字段与载荷一致；报告 `core-tests-80dffeb3873e49c8904a9867183436d8/process-recording-smoke.json`。这是设备/核心集成检查，不替代完整 UI 视频验收或真实 Windows 回调永久阻塞实验。
+
+完整 WPF 回归首次在引导导航/完成断言间歇失败，两次重跑通过不能证明修复。新增 `--onboarding-stress` 在连续流程中复现 `PreferencesStore.Save` 的 `File.Move` 返回 UnauthorizedAccessException；具体占用方未查明。现在仅对 Windows 错误 5/32/33 的替换失败重试三次（25/50/100 ms，总等待上限 175 ms），持续拒绝仍向 UI 报错，不覆盖旧设置。真实文件句柄测试覆盖短暂占用恢复、持续拒绝保留字节、临时文件清理及手动重试；修改后 50 轮引导与完整 WPF 回归通过。保留保存异常诊断，避免未来只看到笼统导航断言。
+
+本轮工作区候选双架构 ZIP：`build/native-desktop-release/2c21a304bc2a4e17bb3676bc06bc75d4/release-report.json`，不是干净提交对照。未签名 MSIX 的全部 273/272 个载荷验证通过：x64 `d3a9dfa2d4cf4ce59819e4148757b2cd` 为 69,824,883 B，ARM64 `5d1a29fc25e244369301ed6f1d85cb43` 为 64,859,530 B（均位于 `build/native-msix`）。完整 x64 自包含 App 隔离 PATH 无 Node 单次就绪并正常退出，1472.595 ms；证据 `startup-profile-05d04d77d2bf4ff6aee63b857a2295f9/results.json`。单次冒烟不支持性能趋势结论；签名、安装、ARM64 实机和完整 UI 验收仍未完成。
+
 ## 2026-09-15：干净提交的双架构体积与启动对照
 
 从干净 `7b2272a` 构建完整/精简两组 x64/ARM64 ZIP，加入 `compare-native-packages.ps1` 校验同提交/版本/配置、ZIP SHA256、完整依赖清单、保留文件一致及符号保留。两个架构分别 271/270 个保留文件哈希完全一致，仅其他语言资源和分离符号解释逻辑体积减少；dirty 来源与相同配置负向用例均被拒绝。完整报告在 `build/native-desktop-validation/release-ab-20260915/verified-comparison-v2`。

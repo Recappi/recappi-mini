@@ -4,6 +4,30 @@ using Recappi.Core;
 
 var root = Path.Combine(Path.GetFullPath("build/native-desktop-validation"), "core-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+if (args.Length == 2 && args[0] == "--process-recording-smoke")
+{
+    await using var engine = new RecordingEngine(new LocalRecordingStore(root));
+    var recordings = new List<object>();
+    for (var attempt = 0; attempt < 2; attempt++)
+    {
+        await engine.StartAsync(new("Process activation smoke", true, false, ProcessId: uint.Parse(args[1])));
+        await Task.Delay(2000);
+        var saved = await engine.StopAsync();
+        if (saved is not { State: RecordingState.Done, DurationMs: >= 1800 and <= 4000 })
+            throw new Exception("Real process recording failed to settle or preserve duration.");
+        var wav = File.ReadAllBytes(saved.AudioPath);
+        if (wav.Length < 44 || BinaryPrimitives.ReadUInt32LittleEndian(wav.AsSpan(40)) != wav.Length - 44)
+            throw new Exception("Real process recording WAV was not finalized.");
+        var peak = 0;
+        for (var offset = 44; offset + 1 < wav.Length; offset += 2)
+            peak = Math.Max(peak, Math.Abs((int)BinaryPrimitives.ReadInt16LittleEndian(wav.AsSpan(offset))));
+        if (peak < 100) throw new Exception("Expected controlled process audio was silent.");
+        recordings.Add(new { saved.Id, saved.DurationMs, saved.AudioPath, peak });
+    }
+    File.WriteAllText(Path.Combine(root, "process-recording-smoke.json"), JsonSerializer.Serialize(recordings));
+    Console.WriteLine("PASS two real process recordings activated, captured signal and finalized: " + root);
+    return;
+}
 if (args.Length == 2 && args[0] == "--interrupted-recording-child")
 {
     await InterruptedRecordingTests.RunChildAsync(Path.GetFullPath(args[1]));
@@ -157,6 +181,7 @@ await Test("Microphone toggle disposes device and can reconnect without restarti
 
 await Test("Interrupted recordings recover without losing audio or touching active writers", () => InterruptedRecordingTests.RunAsync(root));
 await Test("Microphone mute clears signal, permits silence reminders and preserves audio through reconnect/failure", () => RecordingMicrophoneTests.RunAsync(root));
+await Test("Process activation deadline retains late native ownership, bounds pending retries and permits recording recovery", () => AudioActivationTests.RunAsync(root));
 
 await Test("Disposal finalizes active audio even with no window", async () =>
 {
@@ -199,6 +224,7 @@ await Test("Speaker profiles persist protected, isolate account/recording and pr
 await Test("Cloud content cache searches all cached recordings, survives reload, isolates accounts and tolerates damage", () => CloudContentCacheTests.RunAsync(root));
 await Test("Captions resample PCM, bound queues, drain final text, reconnect and preserve bilingual streams", CaptionTests.RunAsync);
 await Test("Preferences persist, recording options stay immutable and caption archives survive partial final lines", () => PreferencesArchiveTests.RunAsync(root));
+await Test("Settings replacement recovers from brief file locks and preserves original on persistent denial", () => PreferencesFileConflictTests.RunAsync(root));
 await Test("Recording reminders respect visibility, grace/reset/once rules and native activity enumeration", AttentionTests.RunAsync);
 await Test("Caption failure does not interrupt local recording", async () =>
 {

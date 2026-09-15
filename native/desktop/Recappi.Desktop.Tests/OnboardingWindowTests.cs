@@ -15,7 +15,12 @@ internal static class OnboardingWindowTests
         void Save(DesktopPreferences value)
         {
             if (rejectSave) throw new IOException("test failure");
-            store.Save(value);
+            try { store.Save(value); }
+            catch (Exception error)
+            {
+                Console.Error.WriteLine($"Unexpected onboarding settings save failure: {error}");
+                throw;
+            }
         }
         OnboardingWindow Open()
         {

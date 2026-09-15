@@ -61,7 +61,23 @@ public sealed class PreferencesStore(string directory)
     {
         preferences = preferences.Validate(); Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try { File.WriteAllText(temporary, JsonSerializer.Serialize(preferences, Json)); File.Move(temporary, path, true); }
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(preferences, Json));
+            for (var attempt = 0; ; attempt++)
+            {
+                try { File.Move(temporary, path, true); break; }
+                catch (Exception error) when (attempt < 3 && IsFileConflict(error))
+                {
+                    // Windows can briefly deny replacement while another handle closes.
+                    // Keep the original intact; permanent denial still reaches the UI.
+                    Thread.Sleep(25 << attempt);
+                }
+            }
+        }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
+
+    private static bool IsFileConflict(Exception error) =>
+        error is IOException or UnauthorizedAccessException && (error.HResult & 0xffff) is 5 or 32 or 33;
 }

@@ -20,6 +20,12 @@ internal static class Program
                 if (args.Contains("--recording-ui-profile")) { await RecordingUiProfile.RunAsync(args.Contains("--software-rendering")); exit = 0; return; }
                 if (args.Contains("--library-profile")) { await LibraryProfile.RunAsync(); exit = 0; return; }
                 var root = Path.GetFullPath(Path.Combine("build", "native-desktop-validation", "ui-smoke-" + Guid.NewGuid().ToString("N")));
+                if (args.Contains("--onboarding-stress"))
+                {
+                    for (var attempt = 0; attempt < 50; attempt++)
+                        await OnboardingWindowTests.RunAsync(Path.Combine(root, attempt.ToString()));
+                    exit = 0; return;
+                }
                 if (args.Contains("--billing-preview") || args.Contains("--billing-preview-dark")) { await BillingPanelTests.PreviewAsync(root, args.Contains("--billing-preview-dark")); exit = 0; return; }
                 var store = new LocalRecordingStore(root);
                 await using var engine = new RecordingEngine(store, _ => [new SilenceInput()]);

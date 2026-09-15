@@ -239,7 +239,7 @@ public sealed class RecordingEngine : IAsyncDisposable
         var inputs = new List<IAudioInput>();
         try
         {
-            if (options.IncludeSystem) inputs.Add(new NativeAudioInput(options.ProcessId is { } pid ? new ProcessLoopbackCapture(pid) : new WasapiLoopbackCapture(), "system"));
+            if (options.IncludeSystem) inputs.Add(new NativeAudioInput(options.ProcessId is { } pid ? new ProcessLoopbackCapture(pid, TimeSpan.FromSeconds(15)) : new WasapiLoopbackCapture(), "system"));
             if (options.IncludeMicrophone) inputs.Add(CreateMicrophone(options.MicrophoneId));
             return inputs;
         }
