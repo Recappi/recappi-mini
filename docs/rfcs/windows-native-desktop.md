@@ -97,6 +97,8 @@
 
 已验证的增量检查点（不替代上述阶段验收）：
 
+- [x] 2026-09-16：完整 x64 App 录制独立 443 Hz 测试进程期间，成功将 344,649,225 B 合成 MP3 导入为 2,757,189,214 B WAV；导入完成自动选中，当前录音继续，手动停止后独立保存 Done / 143.380 秒。视频 `build/native-desktop-validation/import-recording-ui-01/acceptance.html` 三项通过，240 秒／2400 帧→14 关键帧、零越界事件。`verification.json` 核对两个结果、源哈希不变、录音六个时点均为 443 Hz，排除首尾各 0.5 秒后 1423 个 100 ms 窗口无整段静音；不证明逐样本无缝或听感。应用、播放器和录屏均已退出。复用 `1089045cc2fd49cd9851993f1cadf0ec` 产物，未改生产代码；录屏仅覆盖录音库，不验文件对话框、独立录音条、云处理并行或麦克风混录。
+
 - [x] 2026-09-16：所有托盘提示统一经 RecordingNotifications 呈现；普通完成/失败/提醒通知清除旧录音建议，来源刷新期间的新通知或抑制使旧选择失效，刷新失败不从旧列表选择。新增 RecordingNotificationTests 使用实际 RecorderWindow/来源控件与可控通知、枚举等待，验证有效点击仅选择不采集、普通通知覆盖、延迟刷新、清除、来源消失及呈现失败；完整 WPF 回归通过。实际 x64 App 播放独立 443 Hz 进程后，Windows 显示指向测试 PID 的建议，应用保持空闲、未创建录音；视频 `build/native-desktop-validation/notification-ui-01/acceptance.html` 一项通过／一项证据不足（75.9 秒、759 帧→6 关键帧、零越界事件）。工具未提供可操作的系统通知窗口，实际点击/替换及通知中心历史条目行为仍待验，不以回归替代。双架构发布 `build/native-desktop-release/1089045cc2fd49cd9851993f1cadf0ec/release-report.json`，10f0bd6 加本轮生产改动；x64/ARM64 ZIP 70,968,106 / 65,366,113 B。测试进程正常退出，无真实账号/录音数据。
 
 - [x] 2026-09-16：完整 x64 App 的一分钟时长提醒→继续录音→手动停止保存实操通过。仅捕获独立 443 Hz 测试播放器进程，未登录/未启用麦克风或云处理；提醒出现后未自动停止，继续操作收起提醒且保持同一录音，随后保存 Done / 117.496875 秒 WAV。视频 `build/native-desktop-validation/duration-reminder-ui-01/acceptance.html` 三项通过，177.7 秒／1777 帧→41 关键帧，零越界事件。`verification.json` 核对 48 kHz 单声道 PCM16、时长/ID、三个时点的 443 Hz，以及排除首尾各 0.5 秒后的 1164 个 100 ms 窗口无整段静音；不证明逐样本无缝或听感。`cleanup.json` 验证应用、播放器与录屏正常退出。复用 1eeaa4a1ceb84bfba1a2a052f56ec627 产物，生产代码未改；隐藏通知、静音提醒、提醒内停止按钮、多屏与真实长会仍待验。

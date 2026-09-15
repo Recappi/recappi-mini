@@ -8,6 +8,8 @@
 
 2026-09-16 N17/N20 大文件增量：`import-complete-ui-01` 完整 x64 App 实际完成 344.6 MB 合成 MP3 导入，生成 2.76 GB、7:58:40 WAV；自动选中入库及接近末尾 seek 后播放/暂停视频两项通过，源哈希保持且末五秒数据可读。此前大文件完成缺口对这一格式/样本已补验；不代表其他格式、八小时连续播放或云详情期间导入已完成。原始证据和限制见 [实施计划](windows-native-desktop.md)。
 
+2026-09-16 N08/N16/N17 并行增量：`import-recording-ui-01` 完整 x64 App 在真实 WASAPI 进程录音期间完成同一大 MP3 导入，当前会议继续计时，导入与新录音分别保存；视频三项通过。143.380 秒录音的六个时点及 1423 个 100 ms 信号窗口验证通过；不代表云后台处理、麦克风混录或逐样本无缝已验，具体证据见实施计划。
+
 代码定位：核心文件位于 `native/desktop/Recappi.Core`，窗口文件位于 `native/desktop/Recappi.Desktop`；同名测试分别位于 `Recappi.Core.Tests` / `Recappi.Desktop.Tests`。所有测试证据的具体执行范围、日期、样本和报告见验证记录，不把测试文件存在当作通过。
 
 | ID | macOS 功能 / 源码基线 | 当前 Windows 实现 | 已有证据及剩余缺口 |
