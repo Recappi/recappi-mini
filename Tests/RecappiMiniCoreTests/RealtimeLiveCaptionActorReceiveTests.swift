@@ -184,8 +184,12 @@ final class RealtimeLiveCaptionActorReceiveTests: XCTestCase {
             error: NSError(domain: "fake", code: -1)
         )
 
-        // Wait long enough for the reconnect retry to fire.
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        // Observe the retry instead of assuming CI schedules it within 200 ms.
+        // Keep a deadline so a missing reconnect still fails the assertion.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline && connector.claimCallCount < 2 {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
 
         XCTAssertGreaterThanOrEqual(
             connector.claimCallCount,
