@@ -1,5 +1,18 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：当前提交的 CLI 兼容与双架构包检查
+
+在干净 `8f40070` 上执行，Windows 11 Pro 10.0.26200 x64、Node 22.16.0、pnpm 11.0.9。本轮没有修改生产代码。
+
+- `pnpm --filter recappi check`：类型检查、12 个测试文件／226 项测试、CLI 与 Windows sidecar 构建通过。6 项跳过：2 项 macOS helper 安装/签名刷新、2 项 POSIX 文件权限、2 项显式 opt-in 的真实字幕服务测试。没有把跳过项或替身测试算作真实采集/服务通过。
+- `pnpm --filter recappi pack:check`：实际打包、隔离安装后的 JSON 错误协议、发布清单与严格 publint 检查通过。
+- `scripts/build-windows-cli-helper.ps1` 的 x64 / ARM64 发布通过；两架构分别在对应 helper 目录运行 `node ../check-helper-pack.mjs RecappiAudioCapture.exe`，实际解包、PE 架构和运行时/NAudio 通知文件检查通过。ARM64 未执行。
+- `node cli/recappi/scripts/check-windows-install.mjs`：临时 consumer 实际安装本地 CLI/helper tarball，x64 helper `--version`、CLI `--help`、sidecar 握手及系统音源枚举通过，临时目录已由脚本清理；不证明录音、麦克风、实时服务或干净机器运行。
+
+首次从 helper 子目录执行包检查被本机旧 Node 20.19.1/Corepack 的动态 import 错误拦截；从已确认 Node 22.16.0 的仓库根进程保留 PATH，再进入子目录，两架构检查通过。未修改全局工具或产品依赖。此前主目录的 check / pack:check 均正常，不把环境失败称作产品修复。
+
+本轮同时为当前代码对应的 `1eeaa4a1ceb84bfba1a2a052f56ec627` 发布载荷生成并校验两架构 MSIX；详细字节/哈希及未签名、未安装边界见 [发布记录](windows-native-store-release.md#2026-09-16当前代码的-msix-载荷复验)。本轮不重复已通过的 WPF 回归，不以 CLI 检查替代原生 UI 验收；macOS 运行仍依赖其 CI/实机证据。
+
 ## 2026-09-15：完整应用引导与设置恢复录像
 
 使用上一轮 `2c21a304bc2a4e17bb3676bc06bc75d4/win-x64` 自包含应用和新的隔离数据目录，未登录、未改用户设置或 Windows 权限。完成欢迎→音频说明→跳过登录→准备就绪→返回登录→再次跳过→完成引导；随后实际切换深色、键盘修改隐藏提醒为 12 分钟、正常退出并以同一目录重启。新进程只显示录音条，重新打开设置仍为深色与 12。两个测试进程 42832/14716 均通过原生退出入口结束，未强制终止。

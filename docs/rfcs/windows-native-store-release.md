@@ -1,5 +1,16 @@
 # Windows 商店发布与体积优化
 
+## 2026-09-16：当前代码的 MSIX 载荷复验
+
+对 `8f40070` 对应的发布目录 `build/native-desktop-release/1eeaa4a1ceb84bfba1a2a052f56ec627` 运行双架构 `build-native-msix.ps1`。该发布报告为 `898c38a` 加随后提交于 `8f40070` 的长音频时间显示修改；本轮没有重建或改写载荷，也不将其标成干净提交发布。
+
+| 架构 | 未签名 MSIX 字节 | 校验载荷数 | 报告目录（build/native-msix 下） | SHA256 |
+| --- | ---: | ---: | --- | --- |
+| x64 | 69,828,736 | 273 | `ee88c2cbe64f487885f2fac8161ed1af` | `cdd36c45fa61b5b6cef086666f8ec8b6868cac87aacffd214d3729dd69c004fd` |
+| ARM64 | 64,863,377 | 272 | `177b341ba2b04a02a7ff152f3f130865` | `b4f0bb9ae12a733d7f0823136b78e4077d0b6db7363e66ac07a7529629156707` |
+
+Windows SDK MakeAppx 与逐文件哈希核对均通过，包审计检查自包含运行时、WPF/音频必需载荷及禁止的 Node/WebView 等载荷。两包使用开发身份，`signed=false`、`installed=false`、`storeReady=false`；本轮未注册、签名、安装或上传，不替代签名生命周期、干净 Windows 或 ARM64 实机门禁。
+
 2026-09-15 用户新增交付要求；本文件是主计划阶段 5 的强制验收项。当前已有语言/符号精简候选、双架构 MSIX、同一干净提交的体积/启动对照；签名安装、资源回退的完整行为验证及干净环境验收尚未完成。
 
 ## 在线 EXE 安装器候选（2026-09-15）

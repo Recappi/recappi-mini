@@ -91,6 +91,8 @@
 
 已验证的增量检查点（不替代上述阶段验收）：
 
+- [x] 2026-09-16：干净 8f40070 的 CLI 类型检查、226 项测试、打包/隔离 consumer 安装、x64 helper 实际启动与 sidecar 握手/音源枚举通过；双架构 helper 构建及 tarball 架构/许可证检查通过。6 项平台/真实服务测试明确跳过；ARM64 未运行。当前原生载荷的双架构 MSIX SDK 与文件哈希复验通过，仍未签名/安装。具体命令、环境和范围见 [验证记录](windows-native-validation.md#2026-09-16当前提交的-cli-兼容与双架构包检查) 与 [MSIX 记录](windows-native-store-release.md#2026-09-16当前代码的-msix-载荷复验)。本轮未改生产代码。
+
 - [x] 2026-09-16：修复本机播放计时超过一小时后省略小时的问题；暂停跳转与播放计时共用总小时格式，一小时内保留分秒。真实 3661 秒 WAV 回归先复现 `3605 → 00:05`，修复后验证 `3599 → 59:59`、`3605 → 01:00:05`、播放计时和回退短时间；完整 WPF 回归通过。完整 x64 App 视频两项通过／一项证据不足，`build/native-desktop-validation/long-playback-ui-01/acceptance.html`：75.3 秒、753 帧→7 关键帧；最后回退操作的事件越界，未判视频通过。样本为隔离库内 61 分 1 秒静音 WAV，不证明真实长时录音或听感。双架构 self-contained 发布报告 `build/native-desktop-release/1eeaa4a1ceb84bfba1a2a052f56ec627/release-report.json`，基于 898c38a 加本轮代码；x64/ARM64 ZIP 70,967,623 / 65,365,618 B。
 
 - [x] 2026-09-16：完整 x64 发布应用真实大文件转码中取消及取消后重试通过。合成 MP3 344,649,225 B，ffprobe 实测 28,720.718 秒；取消前已生成 120,960,046 B 临时 WAV，取消后录音目录为空、源文件 SHA256 不变。随后短 MP3 导入成功，目录仅一个 Done / 9484 ms 副本，取消目录未重新出现。视频 `build/native-desktop-validation/import-cancel-ui-01/acceptance.html` 两项通过，207.9 秒／2079 帧→17 关键帧，零越界事件；磁盘证据为同目录 `partial-before-cancel.json`、`cancel-verification.json`、`verification.json`。应用与录屏进程正常退出。本轮复用 ef06961 对应的 3e7758bb8651430caf5da61d78a1d035 发布产物，未改生产代码或重复构建。10 fps 无声录像不证明听感或精确取消延迟；完整大文件导入完成、云详情期间取消实操及其他格式/尺寸仍待验。
