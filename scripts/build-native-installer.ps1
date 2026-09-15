@@ -15,6 +15,7 @@ $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
 $artifact = @($report.artifacts | Where-Object runtime -eq $Runtime)
 if ($artifact.Count -ne 1) { throw 'Expected one artifact for the requested architecture.' }
 $artifact = $artifact[0]
+if ($artifact.selfContained -ne $true) { throw 'This installer requires a self-contained release. Runtime prerequisite installation is not implemented.' }
 if ($artifact.version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-preview\.([1-9][0-9]*))?$') { throw 'Installer versions must use major.minor.patch or major.minor.patch-preview.N.' }
 $numericVersion = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], $(if ($Matches[4]) { [int]$Matches[4] } else { 65535 }))
 if (@($numericVersion | Where-Object { $_ -gt 65535 }).Count -or ($artifact.version.Contains('-') -and $numericVersion[3] -eq 65535)) { throw 'Installer version component is out of range.' }
@@ -34,6 +35,9 @@ try {
     }
 } finally { $archiveCheck.Dispose() }
 [IO.Compression.ZipFile]::ExtractToDirectory($archive, $source)
+$runtimeConfiguration = Get-Content -LiteralPath (Join-Path $source 'Recappi Mini.runtimeconfig.json') -Raw | ConvertFrom-Json
+if (-not $runtimeConfiguration.runtimeOptions.includedFrameworks -or
+    -not (Test-Path -LiteralPath (Join-Path $source 'coreclr.dll'))) { throw 'Installer payload is not self-contained, regardless of release report metadata.' }
 $executable = Join-Path $source 'Recappi Mini.exe'
 $binary = [IO.File]::ReadAllBytes($executable)
 $machine = [BitConverter]::ToUInt16($binary, [BitConverter]::ToInt32($binary, 0x3c) + 4)

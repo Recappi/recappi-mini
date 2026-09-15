@@ -3,7 +3,8 @@ param(
     [string]$Version = '0.1.0-preview.1',
     [ValidateSet('win-x64', 'win-arm64')]
     [string[]]$Runtimes = @('win-x64', 'win-arm64'),
-    [switch]$ResourceOptimizationCandidate
+    [switch]$ResourceOptimizationCandidate,
+    [switch]$FrameworkDependentCandidate
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -22,10 +23,11 @@ foreach ($runtime in $Runtimes) {
     $optimizationArguments = @()
     # .NET Desktop ships simplified Chinese under zh-Hans; English is neutral.
     if ($ResourceOptimizationCandidate) { $optimizationArguments += '-p:SatelliteResourceLanguages=zh-Hans' }
-    & dotnet publish $project --configuration Release --runtime $runtime --self-contained true --output $output -p:RestoreLockedMode=true "-p:Version=$Version" @optimizationArguments
+    $selfContained = (-not $FrameworkDependentCandidate).ToString().ToLowerInvariant()
+    & dotnet publish $project --configuration Release --runtime $runtime --self-contained $selfContained --output $output -p:RestoreLockedMode=true "-p:Version=$Version" @optimizationArguments
     if ($LASTEXITCODE -ne 0) { throw "Native publish failed for $runtime." }
     if ($ResourceOptimizationCandidate) {
-        if (-not (Test-Path -LiteralPath (Join-Path $output 'zh-Hans/PresentationFramework.resources.dll'))) {
+        if (-not $FrameworkDependentCandidate -and -not (Test-Path -LiteralPath (Join-Path $output 'zh-Hans/PresentationFramework.resources.dll'))) {
             throw 'Candidate is missing simplified Chinese WPF resources.'
         }
         $symbols = Join-Path $destination ('symbols/' + $runtime)
@@ -41,10 +43,20 @@ foreach ($runtime in $Runtimes) {
     $expected = if ($runtime -eq 'win-x64') { 0x8664 } else { 0xaa64 }
     if ($machine -ne $expected) { throw "Unexpected executable architecture for $runtime." }
     $configuration = Get-Content -LiteralPath (Join-Path $output 'Recappi Mini.runtimeconfig.json') -Raw | ConvertFrom-Json
-    if (-not $configuration.runtimeOptions.includedFrameworks) { throw 'Publish output is not self-contained.' }
-    if (-not (Test-Path -LiteralPath (Join-Path $output 'PresentationFramework.Fluent.dll'))) { throw 'Native theme runtime is missing.' }
+    $requiredFrameworks = @()
+    if ($FrameworkDependentCandidate) {
+        $requiredFrameworks = @($configuration.runtimeOptions.frameworks)
+        if ($configuration.runtimeOptions.includedFrameworks -or
+            @($requiredFrameworks | Where-Object name -eq 'Microsoft.WindowsDesktop.App').Count -ne 1 -or
+            @($requiredFrameworks | Where-Object name -eq 'Microsoft.NETCore.App').Count -ne 1 -or
+            (Test-Path -LiteralPath (Join-Path $output 'coreclr.dll'))) { throw 'Invalid framework-dependent candidate runtime metadata.' }
+    } else {
+        if (-not $configuration.runtimeOptions.includedFrameworks) { throw 'Publish output is not self-contained.' }
+        if (-not (Test-Path -LiteralPath (Join-Path $output 'PresentationFramework.Fluent.dll'))) { throw 'Native theme runtime is missing.' }
+    }
     if ((Test-Path -LiteralPath (Join-Path $output 'node.exe')) -or (Test-Path -LiteralPath (Join-Path $output 'node.dll'))) { throw 'Unexpected Node runtime in native release.' }
-    $archive = Join-Path $destination "Recappi-Mini-$Version-$runtime.zip"
+    $candidateSuffix = if ($FrameworkDependentCandidate) { '-requires-dotnet-candidate' } else { '' }
+    $archive = Join-Path $destination "Recappi-Mini-$Version-$runtime$candidateSuffix.zip"
     [IO.Compression.ZipFile]::CreateFromDirectory($output, $archive)
     $files = @(Get-ChildItem -LiteralPath $output -File -Recurse)
     $archiveCheck = [IO.Compression.ZipFile]::OpenRead($archive)
@@ -59,7 +71,9 @@ foreach ($runtime in $Runtimes) {
         version = $Version
         executable = $executable
         executableMachine = ('0x{0:x4}' -f $machine)
-        selfContained = $true
+        selfContained = -not [bool]$FrameworkDependentCandidate
+        frameworkDependentCandidate = [bool]$FrameworkDependentCandidate
+        requiredFrameworks = $requiredFrameworks
         fileCount = $files.Count
         publishedBytes = ($files | Measure-Object -Property Length -Sum).Sum
         archive = $archive
@@ -69,5 +83,6 @@ foreach ($runtime in $Runtimes) {
     }
 }
 $report = Join-Path $destination 'release-report.json'
-[ordered]@{ createdAt = [DateTimeOffset]::UtcNow.ToString('O'); sourceCommit = $sourceCommit; sourceDirty = $sourceDirty; artifacts = $artifacts; packageType = 'portable-zip'; signed = $false } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $report -Encoding utf8
+$packageType = if ($FrameworkDependentCandidate) { 'framework-dependent-candidate-zip' } else { 'portable-zip' }
+[ordered]@{ createdAt = [DateTimeOffset]::UtcNow.ToString('O'); sourceCommit = $sourceCommit; sourceDirty = $sourceDirty; artifacts = $artifacts; packageType = $packageType; signed = $false } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $report -Encoding utf8
 Write-Output "Release report: $report"

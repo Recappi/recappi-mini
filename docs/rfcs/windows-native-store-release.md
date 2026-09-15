@@ -2,6 +2,25 @@
 
 2026-09-15 用户新增交付要求；本文件是主计划阶段 5 的强制验收项。当前已有语言/符号精简候选、双架构 MSIX、同一干净提交的体积/启动对照；签名安装、资源回退的完整行为验证及干净环境验收尚未完成。
 
+## 不附带运行时的体积候选（2026-09-15）
+
+用户反馈约 70 MB MSIX 仍太大。检查最新 x64 MSIX 的 ZIP 条目压缩长度：应用/NAudio 约 578,274 B，中文资源 467,915 B，其余运行时/载荷约 68,727,632 B；不能靠压缩应用代码解决主要体积。条目分组用于定位占用，不等于可删除清单。
+
+新增显式 `publish-native-desktop.ps1 -FrameworkDependentCandidate -ResourceOptimizationCandidate`，默认发布仍自包含。候选文件名带 `requires-dotnet-candidate`，报告记录 `selfContained=false`、两个共享框架名称/最低版本、架构及 ZIP 哈希；不把其称作便携版。工作区候选报告 `build/native-desktop-release/22452f45a0c947e3b19f4044bc649198/release-report.json`：
+
+| 架构 | 文件数 | 解压逻辑字节 | ZIP 字节 |
+| --- | ---: | ---: | ---: |
+| x64 | 7 | 1,188,926 | 570,331 |
+| ARM64 | 7 | 1,166,402 | 557,594 |
+
+这是移出依赖后的应用载荷，不是完整首次下载或 MSIX/安装器大小。需要匹配架构的 Microsoft.NETCore.App 与 Microsoft.WindowsDesktop.App 10.0 兼容运行时。x64 已安装运行时的本机，显式 `measure-native-startup.ps1 -AllowFrameworkDependentCandidate -Iterations 1` 在无 Node PATH 下实际就绪并正常退出，单次 937.321 ms；证据 `startup-profile-d73727c6aaca4dedbf6ce5654bc9f203/results.json`，不据此宣称性能改善。
+
+`test-native-framework-dependency.ps1` 在独立副本要求不存在的 WindowsDesktop 99.0.0，仅允许补丁前滚，实际 apphost 在应用就绪前拒绝启动，原配置哈希不变；证据 `framework-dependency-8ccf7d60af1d4d91ac10e13aaf9c6867/results.json`。这只是注入缺失依赖的负向验证，不是干净 Windows，也没有安装/卸载本机运行时。
+
+现有 EXE 安装器增加报告和实际 runtimeconfig/coreclr 双重门禁：候选及伪造 selfContained 标记均被拒绝；MSIX 原有载荷门禁也拒绝小包。默认自包含 x64 构建与 EXE 编译仍通过，`b0291359c3ef4a01b0240bb0a9c7968d` 下安装器为 53,285,850 B，未签名、未在本轮安装。自动检测/补装/离线说明、可信下载校验、取消和失败恢复、ARM64 实机均待实现或验收，不能发布小包给无运行时用户。
+
+分发边界：独立 EXE 引导安装器可以规划运行时依赖安装，但 MSIX/Store 依赖机制不能未经验证就当成 WPF .NET Desktop Runtime 自动安装。Windows App SDK 的共享框架不是该运行时。相关依据：[.NET Windows 安装](https://learn.microsoft.com/en-us/dotnet/core/install/windows)、[Windows App SDK 部署架构](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/deployment-architecture)、[WPF 裁剪限制](https://learn.microsoft.com/en-us/dotnet/core/deploying/trimming/incompatibilities)。本轮未修改 MSIX 的自包含交付策略。
+
 ## 同一干净提交的包与启动对照（2026-09-15）
 
 从 `7b2272a9dbbb138a145def94060bf336eb3e67bc` 分别运行默认 `scripts/publish-native-desktop.ps1` 和 `-ResourceOptimizationCandidate`，两份报告均 `sourceDirty=false`、版本 `0.1.0-preview.1`。基线目录 `build/native-desktop-release/8e17103065be4428ad71e199ffedc0da`，候选目录 `build/native-desktop-release/093416eb1afc414f98a61e560ab5fdb5`。本节取代旧 dirty 构建作为当前包差值依据，旧数据保留为过程记录。

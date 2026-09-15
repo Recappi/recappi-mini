@@ -1,13 +1,16 @@
 param(
     [Parameter(Mandatory)][string]$Executable,
-    [ValidateRange(1, 10)][int]$Iterations = 5
+    [ValidateRange(1, 10)][int]$Iterations = 5,
+    [switch]$AllowFrameworkDependentCandidate
 )
 $ErrorActionPreference = 'Stop'
 $expected = (Resolve-Path -LiteralPath $Executable).Path
 if ([IO.Path]::GetFileName($expected) -ne 'Recappi Mini.exe') { throw 'Select the published native desktop executable.' }
 $package = Split-Path -Parent $expected
 $runtime = Get-Content -LiteralPath (Join-Path $package 'Recappi Mini.runtimeconfig.json') -Raw | ConvertFrom-Json
-if (-not $runtime.runtimeOptions.includedFrameworks) { throw 'Measure a self-contained publish output.' }
+$selfContained = [bool]$runtime.runtimeOptions.includedFrameworks
+if (-not $selfContained -and -not $AllowFrameworkDependentCandidate) { throw 'Measure a self-contained publish output, or explicitly opt into a framework-dependent candidate.' }
+if (-not $selfContained -and @($runtime.runtimeOptions.frameworks | Where-Object name -eq 'Microsoft.WindowsDesktop.App').Count -ne 1) { throw 'Candidate has no Windows Desktop framework requirement.' }
 if (@(Get-Process -Name 'Recappi Mini' -ErrorAction SilentlyContinue).Count -ne 0) { throw 'Close existing Recappi Mini instances before benchmarking.' }
 $repository = Split-Path -Parent $PSScriptRoot
 $root = Join-Path $repository ('build/native-desktop-validation/startup-profile-' + [Guid]::NewGuid().ToString('N'))
@@ -65,6 +68,7 @@ $middle = [int][Math]::Floor($ordered.Count / 2)
 $median = if ($ordered.Count % 2 -eq 0) { ($ordered[$middle - 1] + $ordered[$middle]) / 2 } else { $ordered[$middle] }
 $report = [ordered]@{
     measuredAt = [DateTimeOffset]::UtcNow.ToString('O'); executable = $expected;
+    selfContained = $selfContained; requiredFrameworks = @($runtime.runtimeOptions.frameworks);
     assemblySha256 = (Get-FileHash -LiteralPath (Join-Path $package 'Recappi Mini.dll') -Algorithm SHA256).Hash.ToLowerInvariant();
     os = [Environment]::OSVersion.VersionString; logicalProcessors = [Environment]::ProcessorCount;
     scope = 'Fresh process launch to observed first ContentRendered plus device enumeration and signed-out account restore; OS file cache is not cleared; includes report publication and up to one polling interval; no recording, onboarding or network login';
