@@ -22,7 +22,8 @@
     <TextBlock Text="搜索录音" FontSize="12" Opacity="0.7" Margin="0,0,0,8"/>
     <TextBox x:Name="LibraryQuery" Height="40" Padding="10,0" VerticalContentAlignment="Center" TextChanged="LibraryQueryChanged" AutomationProperties.Name="搜索本机录音和云端缓存" ToolTip="本机录音标题，以及此账号已缓存的标题、摘要和逐字稿"/>
     <TextBlock x:Name="LibrarySearchStatus" TextWrapping="Wrap" Margin="0,6" AutomationProperties.LiveSetting="Polite"/>
-    <WrapPanel><Button x:Name="ImportLocalButton" Content="导入音频" Click="ImportLocal" Visibility="Collapsed" Style="{StaticResource AccentButton}"/><Button x:Name="RefreshButton" Content="刷新" Click="RefreshClick" Style="{StaticResource QuietButton}"/></WrapPanel>
+    <WrapPanel><Button x:Name="ImportLocalButton" Content="导入音频" Click="ImportLocal" Visibility="Collapsed" Style="{StaticResource AccentButton}"/><Button x:Name="CancelLocalImportButton" Content="取消导入" Click="CancelLocalImport" Visibility="Collapsed"/><Button x:Name="RefreshButton" Content="刷新" Click="RefreshClick" Style="{StaticResource QuietButton}"/></WrapPanel>
+    <TextBlock x:Name="ImportLocalStatus" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,6" AutomationProperties.LiveSetting="Polite"/>
     <Button Content="按说话人搜索" Click="SearchCache" HorizontalAlignment="Left" Style="{StaticResource QuietButton}"/>
    </StackPanel>
    <StackPanel Grid.Row="2" Margin="0,12,0,0">

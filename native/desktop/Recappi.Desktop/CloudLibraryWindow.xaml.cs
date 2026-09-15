@@ -96,7 +96,9 @@ public partial class CloudLibraryWindow : Window
             LocalDetail.Visibility = Visibility.Visible; CloudDetail.Visibility = Visibility.Collapsed; ImportLocalButton.Visibility = Visibility.Visible;
             localLibrary.EntriesChanged += RefreshLocalItems;
             localLibrary.EntrySelected += LocalEntrySelected;
-            Closed += (_, _) => { localLibrary.EntriesChanged -= RefreshLocalItems; localLibrary.EntrySelected -= LocalEntrySelected; localLibrary.Dispose(); };
+            localLibrary.ImportChanged += RenderLocalImport;
+            RenderLocalImport();
+            Closed += (_, _) => { localLibrary.EntriesChanged -= RefreshLocalItems; localLibrary.EntrySelected -= LocalEntrySelected; localLibrary.ImportChanged -= RenderLocalImport; localLibrary.Dispose(); };
             RefreshLocalRecordings();
         }
         RebuildLibrary();
@@ -165,6 +167,14 @@ public partial class CloudLibraryWindow : Window
     }
     private void OpenAccount(object sender, RoutedEventArgs e) => showAccount?.Invoke();
     private async void ImportLocal(object sender, RoutedEventArgs e) { if (localLibrary is not null) await localLibrary.PickImportFileAsync(); }
+    private void CancelLocalImport(object sender, RoutedEventArgs e) => localLibrary?.CancelPendingImport();
+    private void RenderLocalImport()
+    {
+        ImportLocalButton.IsEnabled = localLibrary?.CanImport == true;
+        CancelLocalImportButton.Visibility = localLibrary?.IsImporting == true ? Visibility.Visible : Visibility.Collapsed;
+        ImportLocalStatus.Text = localLibrary?.ImportMessage ?? "";
+        ImportLocalStatus.Visibility = ImportLocalStatus.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
     public void RefreshLocalRecordings(string? recordingId = null)
     {
         if (localLibrary is null) return;

@@ -91,6 +91,8 @@
 
 已验证的增量检查点（不替代上述阶段验收）：
 
+- [x] 2026-09-16：统一录音库侧栏接收导入进度/结果与取消入口，选择云端详情不再隐藏取消操作；文件选择与转码期间禁止重复启动。新增 ImportLifecycleTests 验证重复对话框/任务抑制、切云详情取消可达、取消/失败后恢复、过期进度丢弃、真实 WAV 解码选择及关窗取消；完整 WPF 回归通过。实际发布 App 无效 WAV 失败→MP3 重试→播放视频三项通过，`build/native-desktop-validation/import-recovery-ui-01/acceptance.html`（113.5 秒、1135 帧→17 关键帧、零越界事件）；`verification.json` 验证仅一个 Done 副本、48 kHz 单声道 PCM 9.485 秒与源文件保留。双架构 self-contained 发布报告 `build/native-desktop-release/3e7758bb8651430caf5da61d78a1d035/release-report.json`，基于 40506da 加本轮改动；x64/ARM64 ZIP 70,967,520 / 65,365,516 B。无声录像不证明听感，大文件真实取消、云选择期间实操和全部尺寸仍未验收。
+
 - [x] 2026-09-16：完整 x64 自包含应用未登录导入合成 WAV，实际文件对话框 Escape 取消、重新选择后自动选中、播放前进与结束复位视频三项通过。`build/native-desktop-validation/import-ui-01/acceptance.html`：105.3 秒／1053 帧→14 关键帧，事件均在录像内；`verification.json` 核对 Done、9417 ms、48 kHz 单声道 PCM、源文件保留及进程退出。使用 c4424c3a37db4c6ebc99d37d5b887116 发布应用；本轮未改生产代码，不重复构建。无声录像不证明听感，其他格式、大文件、转码中取消、重启和云上传仍待验。
 
 - [x] 完整 x64 应用的原始字幕 JSONL 导出实操：保存类型从文本切到归档时文件名自动变为 `.jsonl`；目标 251 B、2 行，与原归档 SHA256 完全相同。两段 10 fps 视频 1639 帧→8 关键帧，画面分析与自动证据检查 2 项通过/1 项证据不足。报告 `build/native-desktop-validation/caption-archive-video-3ba2c6eb1d0a4bc4ae3e3d9bdb8bac94/acceptance.html`；合成字幕无音频，覆盖确认/选择竞争仍待验。录制关闭窗口后结束，末黑帧不证明应用闪烁；同时修正分析脚本写死 15 fps 的说明。

@@ -25,13 +25,22 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
     private readonly Action? showAccount;
     private readonly Func<Task>? waitForCaptions;
     private CancellationTokenSource? importCancellation;
+    private bool choosingImportFile;
+    private bool externalList;
+    private readonly Func<string, IProgress<double>, CancellationToken, Task<LocalRecording>> importAudio;
     private bool closed;
     public event Action? EntriesChanged;
     public event Action<LocalRecording?>? EntrySelected;
+    public event Action? ImportChanged;
+    public bool IsImporting => importCancellation is not null;
+    public bool CanImport => !closed && !choosingImportFile && !IsImporting;
+    public string ImportMessage => ImportStatus.Text;
+    public Func<Microsoft.Win32.OpenFileDialog, bool?>? ShowImportDialog { get; set; }
     public System.Collections.Generic.IReadOnlyList<LocalRecording> Entries => Recordings.Items.Cast<LocalRecording>().ToArray();
-    public LocalLibraryView(LocalRecordingStore store, AccountSession? accountSession = null, CloudProcessing? processing = null, Action? showAccount = null, Func<Task>? waitForCaptions = null)
+    public LocalLibraryView(LocalRecordingStore store, AccountSession? accountSession = null, CloudProcessing? processing = null, Action? showAccount = null, Func<Task>? waitForCaptions = null, Func<string, IProgress<double>, CancellationToken, Task<LocalRecording>>? importAudio = null)
     {
         InitializeComponent(); this.store = store; this.accountSession = accountSession; this.processing = processing; this.showAccount = showAccount; this.waitForCaptions = waitForCaptions;
+        this.importAudio = importAudio ?? ((path, progress, cancellation) => new AudioImport(store).ImportAsync(path, progress: progress, cancellation: cancellation));
         if (processing is not null) processing.Changed += ProcessingChanged;
         if (accountSession is not null) accountSession.Changed += AccountChanged;
         player.MediaOpened += (_, _) => { Position.Maximum = player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan.TotalSeconds : 1; Position.IsEnabled = true; };
@@ -48,11 +57,14 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
     }
     public void UseExternalList()
     {
+        externalList = true;
         LibraryGrid.Children[0].Visibility = Visibility.Collapsed;
         LibraryGrid.ColumnDefinitions[0].Width = new GridLength(0);
         LibraryGrid.ColumnDefinitions[1].Width = new GridLength(0);
         LibraryGrid.Margin = new Thickness(0);
         ImportButton.Visibility = Visibility.Collapsed;
+        CancelImportButton.Visibility = Visibility.Collapsed;
+        ImportStatus.Visibility = Visibility.Collapsed;
     }
     public void SelectEntry(string? id) => Recordings.SelectedItem = Recordings.Items.Cast<LocalRecording>().FirstOrDefault(x => x.Id == id);
     public void RefreshRecordings(string? selectedRecordingId = null)
@@ -69,35 +81,50 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
         catch (Exception error) { Status.Text = error.Message; }
     }
     private void RefreshClick(object sender, RoutedEventArgs e) => RefreshRecordings();
-    private void CancelImport(object sender, RoutedEventArgs e) => importCancellation?.Cancel();
+    private void CancelImport(object sender, RoutedEventArgs e) => CancelPendingImport();
+    public void CancelPendingImport() => importCancellation?.Cancel();
+    private void RenderImport(string? message = null)
+    {
+        if (message is not null) ImportStatus.Text = message;
+        ImportButton.IsEnabled = CanImport;
+        CancelImportButton.Visibility = IsImporting && !externalList ? Visibility.Visible : Visibility.Collapsed;
+        ImportChanged?.Invoke();
+    }
     private async void ImportAudio(object sender, RoutedEventArgs e) => await PickImportFileAsync();
     public async Task PickImportFileAsync()
     {
-        var dialog = new Microsoft.Win32.OpenFileDialog { Title = "导入音频", Filter = "音频文件|*.wav;*.mp3;*.m4a;*.aac;*.wma;*.flac;*.ogg;*.opus;*.webm|所有文件|*.*", CheckFileExists = true };
-        if (dialog.ShowDialog(Window.GetWindow(this)) == true) await ImportFileAsync(dialog.FileName);
+        if (!CanImport) return;
+        choosingImportFile = true;
+        RenderImport();
+        try
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog { Title = "导入音频", Filter = "音频文件|*.wav;*.mp3;*.m4a;*.aac;*.wma;*.flac;*.ogg;*.opus;*.webm|所有文件|*.*", CheckFileExists = true };
+            if ((ShowImportDialog is null ? dialog.ShowDialog(Window.GetWindow(this)) : ShowImportDialog(dialog)) == true)
+                await ImportFileAsync(dialog.FileName);
+        }
+        finally { choosingImportFile = false; if (!closed) RenderImport(); }
     }
     public async Task ImportFileAsync(string path)
     {
         if (importCancellation is not null || closed) return;
         using var cancellation = new CancellationTokenSource();
         importCancellation = cancellation;
-        ImportButton.IsEnabled = false; CancelImportButton.Visibility = Visibility.Visible;
-        ImportStatus.Text = "正在导入音频…";
+        RenderImport("正在导入音频…");
         try
         {
-            var entry = await new AudioImport(store).ImportAsync(path, progress: new Progress<double>(value =>
-            { if (!closed && importCancellation == cancellation) ImportStatus.Text = $"正在导入 {value:P0}"; }), cancellation: cancellation.Token);
+            var entry = await importAudio(path, new Progress<double>(value =>
+            { if (!closed && importCancellation == cancellation) RenderImport($"正在导入 {value:P0}"); }), cancellation.Token);
             if (closed) return;
             RefreshRecordings();
             Recordings.SelectedItem = Recordings.Items.Cast<LocalRecording>().FirstOrDefault(x => x.Id == entry.Id);
-            ImportStatus.Text = "已导入本地副本，可播放或上传转写。";
+            RenderImport("已导入本地副本，可播放或上传转写。");
         }
-        catch (OperationCanceledException) { if (!closed) ImportStatus.Text = "已取消导入。"; }
-        catch (Exception) { if (!closed) ImportStatus.Text = "导入失败。请检查文件是否有效及 Windows 是否支持此音频格式，然后重试。"; }
+        catch (OperationCanceledException) { if (!closed) RenderImport("已取消导入。"); }
+        catch (Exception) { if (!closed) RenderImport("导入失败。请检查文件是否有效及 Windows 是否支持此音频格式，然后重试。"); }
         finally
         {
             importCancellation = null;
-            if (!closed) { ImportButton.IsEnabled = true; CancelImportButton.Visibility = Visibility.Collapsed; }
+            if (!closed) RenderImport();
         }
     }
     private void SelectRecording(object sender, SelectionChangedEventArgs e)
