@@ -22,22 +22,27 @@
    <Button Grid.Column="3" Content="隐藏" Click="HidePanel" ToolTip="隐藏面板"/>
    <Button Grid.Column="4" Content="开始录音" Command="{Binding Start}" IsDefault="True" AutomationProperties.AutomationId="recording.start" Style="{StaticResource AccentButton}" Margin="6,0,0,0"/>
   </Grid>
-  <Popup x:Name="OptionsPopup" IsOpen="{Binding IsChecked, ElementName=OptionsButton, Mode=TwoWay}" PlacementTarget="{Binding ElementName=OptionsButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+  <Popup x:Name="OptionsPopup" IsOpen="{Binding IsChecked, ElementName=OptionsButton, Mode=TwoWay}" PlacementTarget="{Binding ElementName=OptionsButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True" Opened="OptionsOpened">
    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="20" Width="360" PreviewKeyDown="OptionsKeyDown">
-    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="500"><StackPanel IsEnabled="{Binding CanConfigure}">
+    <Grid x:Name="OptionsContent" MaxHeight="500" KeyboardNavigation.TabNavigation="Cycle" IsEnabled="{Binding CanConfigure}">
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <TextBlock Text="录音选项" FontSize="18" Margin="0,0,0,12"/>
-     <TextBlock Text="录音名称（可选）"/><TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" AutomationProperties.AutomationId="recording.title"/>
+     <ScrollViewer x:Name="OptionsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"><StackPanel>
+     <TextBlock Text="录音名称（可选）"/><TextBox x:Name="RecordingTitle" Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" AutomationProperties.AutomationId="recording.title"/>
      <CheckBox IsChecked="{Binding Microphone}" Content="同时录制麦克风" Margin="0,12,0,6" AutomationProperties.AutomationId="recording.microphone.enabled"/>
      <ComboBox ItemsSource="{Binding Microphones}" SelectedItem="{Binding SelectedMicrophone}" DisplayMemberPath="Label" IsEnabled="{Binding Microphone}" AutomationProperties.Name="麦克风设备" AutomationProperties.AutomationId="recording.microphone"/>
      <Button Content="刷新声音来源与设备" Command="{Binding RefreshDevices}" HorizontalAlignment="Left" Margin="0,6,0,12"/>
      <CheckBox Content="实时字幕（需要登录）" IsChecked="{Binding CaptionsEnabled}"/>
      <TextBlock Text="原文语言（如 zh / en）" Margin="0,10,0,0"/><TextBox Text="{Binding CaptionLanguage, UpdateSourceTrigger=PropertyChanged}" MaxLength="20"/>
      <TextBlock Text="翻译语言（留空不翻译）" Margin="0,10,0,0"/><TextBox Text="{Binding TranslationLanguage, UpdateSourceTrigger=PropertyChanged}" MaxLength="20"/>
+     </StackPanel></ScrollViewer>
+     <StackPanel Grid.Row="2">
      <Separator Margin="0,12"/>
      <Button Content="设置 · 场景与云处理" Click="OpenSettings"/>
      <WrapPanel><Button Content="本地录音" Click="OpenLibrary"/><Button Content="账号" Click="OpenAccount" AutomationProperties.AutomationId="account.open"/><Button Content="打开目录" Command="{Binding OpenFolder}"/></WrapPanel>
      <Separator Margin="0,12"/><Button x:Name="QuitButton" Content="退出应用…" Click="QuitApplication" AutomationProperties.AutomationId="application.quit"/>
-    </StackPanel></ScrollViewer>
+     </StackPanel>
+    </Grid>
    </Border>
   </Popup>
   <StackPanel x:Name="CapturePanel" Visibility="{Binding IsActive, Converter={StaticResource VisibleWhenTrue}}">

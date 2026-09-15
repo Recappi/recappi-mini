@@ -43,6 +43,20 @@ internal static class Program
                 ((System.Windows.Controls.Primitives.ToggleButton)window.FindName("OptionsButton")).IsChecked = true;
                 await app.Dispatcher.InvokeAsync(window.UpdateLayout, DispatcherPriority.ApplicationIdle);
                 if (!((System.Windows.Controls.Primitives.Popup)window.FindName("OptionsPopup")).IsOpen) throw new Exception("Recording options did not open.");
+                var optionsContent = (Grid)window.FindName("OptionsContent");
+                var optionsScroll = (ScrollViewer)window.FindName("OptionsScroll");
+                var quitButton = (Button)window.FindName("QuitButton");
+                foreach (var maximumHeight in new[] { 500d, 360d })
+                {
+                    optionsContent.MaxHeight = maximumHeight;
+                    optionsContent.UpdateLayout();
+                    await app.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                    var quitBottom = quitButton.TranslatePoint(new Point(0, quitButton.ActualHeight), optionsContent).Y;
+                    if (quitButton.ActualHeight <= 0 || quitBottom > optionsContent.ActualHeight + 1 ||
+                        optionsScroll.ViewportHeight <= 0 || optionsScroll.ExtentHeight <= optionsScroll.ViewportHeight)
+                        throw new Exception("Recording options hid the quit footer or lost the scrollable form under constrained height.");
+                }
+                optionsContent.MaxHeight = 500;
                 ((Button)window.FindName("QuitButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 if (quitRequests != 1 || ((System.Windows.Controls.Primitives.Popup)window.FindName("OptionsPopup")).IsOpen) throw new Exception("Options quit did not dismiss the popup and delegate application shutdown.");
                 ((System.Windows.Controls.Primitives.ToggleButton)window.FindName("OptionsButton")).IsChecked = true;

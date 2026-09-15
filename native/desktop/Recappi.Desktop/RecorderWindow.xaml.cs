@@ -55,6 +55,12 @@ public partial class RecorderWindow : Window
     {
         if (e.Key == Key.Escape && OptionsPopup.IsOpen) { OptionsPopup.IsOpen = false; OptionsButton.Focus(); e.Handled = true; }
     }
+    private void OptionsOpened(object? sender, EventArgs e)
+    {
+        OptionsScroll.ScrollToTop();
+        Dispatcher.BeginInvoke(new Action(() => { if (OptionsPopup.IsOpen) RecordingTitle.Focus(); }),
+            System.Windows.Threading.DispatcherPriority.Input);
+    }
     private void HidePanel(object sender, RoutedEventArgs e) { OptionsPopup.IsOpen = false; Hide(); }
     private void OpenCloud(object sender, RoutedEventArgs e) => showCloud();
     private void OpenSavedRecording(object sender, RoutedEventArgs e)
