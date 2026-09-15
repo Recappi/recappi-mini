@@ -136,6 +136,7 @@ internal static class Program
                 await BillingPanelTests.RunAsync(root);
                 await SettingsWindowTests.RunAsync(root);
                 await SourceSelectionTests.RunAsync(root, app.Dispatcher);
+                await RecordingNotificationTests.RunAsync(root, app.Dispatcher);
                 await OnboardingWindowTests.RunAsync(root);
                 await UpdatePanelTests.RunAsync(root);
                 await ThemeTests.RunAsync(root, app.Dispatcher);

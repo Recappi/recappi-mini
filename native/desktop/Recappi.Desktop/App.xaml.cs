@@ -52,7 +52,7 @@ public partial class App : Application
     private DispatcherTimer? suggestionTimer;
     private readonly RecordingSuggestion suggestions = new();
     private bool checkingSuggestions;
-    private AudioSource? pendingSuggestion;
+    private RecordingNotifications? notifications;
     private bool suppressNextSuggestionObservation;
     private bool checkingAttention;
     private int? recordingSourceProcessId;
@@ -136,9 +136,9 @@ public partial class App : Application
             if (entry.Partition != accountSession.Snapshot.Account?.Partition) return;
             if (entry.Stage is ProcessingStage.Synced or ProcessingStage.Completed && cloudLibraryWindow is { } library)
                 _ = library.RefreshProcessedRecordingAsync(entry);
-            if (entry.Stage == ProcessingStage.Completed) tray?.ShowBalloonTip(3000, "会议处理完成", entry.Title, Forms.ToolTipIcon.Info);
-            else if (entry.Stage == ProcessingStage.Synced) tray?.ShowBalloonTip(3000, "录音上传完成", "可在录音库手动转写。", Forms.ToolTipIcon.Info);
-            else if (entry.Stage is ProcessingStage.Failed or ProcessingStage.NeedsReconciliation) tray?.ShowBalloonTip(3000, "云端处理未完成", "本地音频已保留，可在录音库继续处理。", Forms.ToolTipIcon.Warning);
+            if (entry.Stage == ProcessingStage.Completed) notifications?.Show(3000, "会议处理完成", entry.Title, Forms.ToolTipIcon.Info);
+            else if (entry.Stage == ProcessingStage.Synced) notifications?.Show(3000, "录音上传完成", "可在录音库手动转写。", Forms.ToolTipIcon.Info);
+            else if (entry.Stage is ProcessingStage.Failed or ProcessingStage.NeedsReconciliation) notifications?.Show(3000, "云端处理未完成", "本地音频已保留，可在录音库继续处理。", Forms.ToolTipIcon.Warning);
         });
         recorder = new RecorderViewModel(new RecordingEngine(store), store, Dispatcher);
         recorder.ApplyPreferences(preferences);
@@ -146,13 +146,13 @@ public partial class App : Application
         recorder.PropertyChanged += RecordingChanged;
         recorder.Starting += () =>
         {
-            suggestions.SuppressActive(); pendingSuggestion = null; suppressNextSuggestionObservation = true;
+            suggestions.SuppressActive(); notifications?.ClearSuggestion(); suppressNextSuggestionObservation = true;
             attention.Reset(); systemRms = microphoneRms = 0; recordingSourceProcessId = recorder.SelectedSource?.ProcessId;
             recordingPreferences = recorder.Preferences.Validate(); preferences = recordingPreferences;
             if (!preferencesLoadFailed)
             {
                 try { preferencesStore.Save(preferences); }
-                catch (Exception) { tray?.ShowBalloonTip(3000, "设置未保存", "本次录音仍会使用当前设置。", Forms.ToolTipIcon.Warning); }
+                catch (Exception) { notifications?.Show(3000, "设置未保存", "本次录音仍会使用当前设置。", Forms.ToolTipIcon.Warning); }
             }
             recordingAccount = accountSession.Snapshot.State == AccountState.SignedIn ? accountSession.Snapshot.Account : null;
             StartCaptions();
@@ -189,6 +189,8 @@ public partial class App : Application
         idleTrayIcon = LoadTrayIcon("Recappi.ico");
         recordingTrayIcon = LoadTrayIcon("Recappi.Recording.ico");
         tray = new Forms.NotifyIcon { Icon = idleTrayIcon, Text = "Recappi Mini", Visible = true };
+        notifications = new RecordingNotifications(recorder, ShowRecorder,
+            (timeout, title, message, icon) => tray.ShowBalloonTip(timeout, title, message, icon));
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("显示录音面板", null, (_, _) => Dispatcher.BeginInvoke(ShowRecorder));
         menu.Items.Add("录音库", null, (_, _) => Dispatcher.BeginInvoke(ShowLibrary));
@@ -199,15 +201,7 @@ public partial class App : Application
         menu.Items.Add("退出", null, (_, _) => Dispatcher.BeginInvoke(async () => await QuitAsync()));
         tray.ContextMenuStrip = menu;
         tray.DoubleClick += (_, _) => Dispatcher.BeginInvoke(ShowRecorder);
-        tray.BalloonTipClicked += (_, _) => Dispatcher.BeginInvoke(async () =>
-        {
-            var candidate = pendingSuggestion; pendingSuggestion = null;
-            ShowRecorder();
-            if (candidate is null || recorder.IsActive) return;
-            await recorder.RefreshDevicesAsync();
-            var current = recorder.Sources.FirstOrDefault(x => x.Id == candidate.Id);
-            if (current is not null && !recorder.IsActive) { recorder.SelectSuggestedSource(current); }
-        });
+        tray.BalloonTipClicked += (_, _) => Dispatcher.BeginInvoke(async () => await notifications.HandleClickAsync());
         suggestionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         suggestionTimer.Tick += async (_, _) => await CheckSuggestionsAsync();
         suggestionTimer.Start();
@@ -288,8 +282,8 @@ public partial class App : Application
     private async Task ProcessRecordingAsync(LocalRecording recording, CloudAccount account)
     {
         try { await processing!.StartAsync(recording, account, recording.Processing ?? preferences.Processing); }
-        catch (ProcessingJournalException error) { await Dispatcher.InvokeAsync(() => tray?.ShowBalloonTip(5000, "后台处理无法继续", error.Message, Forms.ToolTipIcon.Warning)); }
-        catch { await Dispatcher.InvokeAsync(() => tray?.ShowBalloonTip(3000, "后台处理无法继续", "请从录音库重试；本地音频未删除。", Forms.ToolTipIcon.Warning)); }
+        catch (ProcessingJournalException error) { await Dispatcher.InvokeAsync(() => notifications?.Show(5000, "后台处理无法继续", error.Message, Forms.ToolTipIcon.Warning)); }
+        catch { await Dispatcher.InvokeAsync(() => notifications?.Show(3000, "后台处理无法继续", "请从录音库重试；本地音频未删除。", Forms.ToolTipIcon.Warning)); }
     }
 
     private void ShowSettings()
@@ -442,9 +436,9 @@ public partial class App : Application
     {
         if (quitting) return;
         e.Cancel = true;
-        suggestions.SuppressActive(); pendingSuggestion = null;
+        suggestions.SuppressActive(); notifications?.ClearSuggestion();
         recorderWindow?.Hide();
-        if (recorder?.IsActive == true) tray?.ShowBalloonTip(3000, "录音继续进行", "可从系统托盘恢复录音面板。", Forms.ToolTipIcon.Info);
+        if (recorder?.IsActive == true) notifications?.Show(3000, "录音继续进行", "可从系统托盘恢复录音面板。", Forms.ToolTipIcon.Info);
     }
 
     private void RecordingChanged(object? sender, PropertyChangedEventArgs e)
@@ -471,11 +465,11 @@ public partial class App : Application
             var snapshot = new AttentionSnapshot((int)(recorder.Engine.Snapshot.Recording.DurationMs / 1000), visible, active, recordingSourceProcessId, rms, known);
             foreach (var action in attention.Evaluate(snapshot, recordingPreferences.Attention))
             {
-                if (action == AttentionAction.LongHiddenRecording) tray?.ShowBalloonTip(4000, "录音仍在继续", $"已录制 {snapshot.ElapsedSeconds / 60} 分钟，可从托盘恢复面板。", Forms.ToolTipIcon.Info);
+                if (action == AttentionAction.LongHiddenRecording) notifications?.Show(4000, "录音仍在继续", $"已录制 {snapshot.ElapsedSeconds / 60} 分钟，可从托盘恢复面板。", Forms.ToolTipIcon.Info);
                 else
                 {
                     recorder.RequestAttention(action);
-                    if (!visible) tray?.ShowBalloonTip(4000, action == AttentionAction.DurationLimit ? "已达到录音时长提醒" : "声音来源似乎已停止", "打开录音面板，选择停止保存或继续录音。", Forms.ToolTipIcon.Info);
+                    if (!visible) notifications?.Show(4000, action == AttentionAction.DurationLimit ? "已达到录音时长提醒" : "声音来源似乎已停止", "打开录音面板，选择停止保存或继续录音。", Forms.ToolTipIcon.Info);
                 }
             }
         }
@@ -484,7 +478,7 @@ public partial class App : Application
     private async Task CheckSuggestionsAsync()
     {
         if (checkingSuggestions || quitting || recorder is null) return;
-        if (!preferences.RecordingSuggestions || recorder.IsActive) { suggestions.SuppressActive(); pendingSuggestion = null; suppressNextSuggestionObservation = true; return; }
+        if (!preferences.RecordingSuggestions || recorder.IsActive) { suggestions.SuppressActive(); notifications?.ClearSuggestion(); suppressNextSuggestionObservation = true; return; }
         checkingSuggestions = true;
         try
         {
@@ -498,8 +492,7 @@ public partial class App : Application
             suppressNextSuggestionObservation = false;
             if (suggestion is not null)
             {
-                pendingSuggestion = suggestion;
-                tray?.ShowBalloonTip(6000, "是否录制应用声音？", suggestion.Label + " 正在播放声音。点击选择此来源，再确认开始录音。", Forms.ToolTipIcon.Info);
+                notifications?.Show(6000, "是否录制应用声音？", suggestion.Label + " 正在播放声音。点击选择此来源，再确认开始录音。", Forms.ToolTipIcon.Info, suggestion);
             }
         }
         catch (Exception) { /* Missing activity information must not create a suggestion. */ }
