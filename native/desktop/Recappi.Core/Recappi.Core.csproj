@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+    <Compile Include="../../windows/ProcessLoopbackCapture.cs" Link="ProcessLoopbackCapture.cs" />
+    <Compile Include="../../windows/AudioActivationGate.cs" Link="AudioActivationGate.cs" />
+    <Compile Include="../../windows/InputCatalog.cs" Link="InputCatalog.cs" />
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Recappi.Core.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

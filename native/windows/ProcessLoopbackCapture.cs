@@ -7,8 +7,9 @@ using NAudio.Wave;
 // Process loopback captures a process AND its children, independent of output
 // endpoint. Never fall back to device loopback when activation fails.
 // https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/
-public sealed class ProcessLoopbackCapture(uint processId) : IWaveIn
+public sealed class ProcessLoopbackCapture(uint processId, TimeSpan? activationTimeout = null) : IWaveIn
 {
+    private static readonly AudioActivationGate Activation = new();
     private AudioClient? client;
     private Thread? worker;
     private readonly EventWaitHandle samplesReady = new(false, EventResetMode.AutoReset);
@@ -24,7 +25,7 @@ public sealed class ProcessLoopbackCapture(uint processId) : IWaveIn
         if (worker is not null) throw new InvalidOperationException("Capture has already started.");
         using (var process = Process.GetProcessById(checked((int)processId)))
             if (process.HasExited) throw new IOException("The selected app has exited. Select it again.");
-        client = ActivateAsync(processId).GetAwaiter().GetResult();
+        client = Activation.RunAsync(() => ActivateAsync(processId), activationTimeout, late => late.Dispose()).GetAwaiter().GetResult();
         try
         {
             client.Initialize(AudioClientShareMode.Shared,
@@ -108,8 +109,9 @@ public sealed class ProcessLoopbackCapture(uint processId) : IWaveIn
             int activationResult = ActivateAudioInterfaceAsync(
                 "VAD\\Process_Loopback", ref iid, ref variant, completion, out operation);
             if (activationResult < 0) throw new COMException("Process audio activation failed.", activationResult);
-            // The parent process bounds activation time and kills a stuck helper.
-            // Keep the callback and activation storage alive until COM completes.
+            // CLI callers retain their parent-process deadline. Desktop callers
+            // bound waiting via Activation, which owns/disposes a late result.
+            // Keep this callback and activation storage alive until COM completes.
             return new AudioClient(await completion.Result.Task.ConfigureAwait(false));
         }
         finally
