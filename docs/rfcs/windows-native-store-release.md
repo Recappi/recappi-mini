@@ -21,6 +21,10 @@
 
 新增 `test-native-online-installer-guard.ps1` 在独立探针副本注入不存在的 WindowsDesktop 99.0.0，编译测试安装器并真实静默执行：非零退出、无应用文件和卸载注册，证明依赖失败不会冒充安装完成；证据 `online-installer-guard-4baf1b11f73a41d296c4b2978e1bca99/results.json`。默认自包含 EXE 在本轮仍编译通过。模拟探针不替代干净系统；ARM64 只验证构建，在线候选升级/回滚、签名与实际交互视频仍待验收。
 
+提交 `aac44e021dc3786ac27a50a42e2da520e617f3ec` 的 [CI 34989843083](https://github.com/Recappi/recappi-mini/actions/runs/34989843083) 已于 2026-09-15 完成：Windows native desktop、Windows CLI、Swift tests 三项均成功。原生任务包含核心回归、WPF 交互测试项目构建、双架构发布检查，以及双架构运行时探针构建和 x64 探针执行；WPF 测试项目构建不等于交互测试运行，探针成功不等于首次安装成功。
+
+本机干净环境可用性检查：`WindowsSandbox.exe` 不存在；Hyper-V 查询因权限不足失败，因此尚未找到可用的干净测试系统。未更改 Windows 功能、权限或本机运行时。后续仍需在无预装运行时环境完成交互下载、授权拒绝、取消、补装后启动及重装验收，此门禁保持未完成。
+
 ## 不附带运行时的体积候选（2026-09-15）
 
 用户反馈约 70 MB MSIX 仍太大。检查最新 x64 MSIX 的 ZIP 条目压缩长度：应用/NAudio 约 578,274 B，中文资源 467,915 B，其余运行时/载荷约 68,727,632 B；不能靠压缩应用代码解决主要体积。条目分组用于定位占用，不等于可删除清单。
@@ -36,7 +40,7 @@
 
 `test-native-framework-dependency.ps1` 在独立副本要求不存在的 WindowsDesktop 99.0.0，仅允许补丁前滚，实际 apphost 在应用就绪前拒绝启动，原配置哈希不变；证据 `framework-dependency-8ccf7d60af1d4d91ac10e13aaf9c6867/results.json`。这只是注入缺失依赖的负向验证，不是干净 Windows，也没有安装/卸载本机运行时。
 
-现有 EXE 安装器增加报告和实际 runtimeconfig/coreclr 双重门禁：候选及伪造 selfContained 标记均被拒绝；MSIX 原有载荷门禁也拒绝小包。默认自包含 x64 构建与 EXE 编译仍通过，`b0291359c3ef4a01b0240bb0a9c7968d` 下安装器为 53,285,850 B，未签名、未在本轮安装。自动检测/补装/离线说明、可信下载校验、取消和失败恢复、ARM64 实机均待实现或验收，不能发布小包给无运行时用户。
+默认 EXE 安装路径增加报告和实际 runtimeconfig/coreclr 双重门禁：候选及伪造 selfContained 标记均被拒绝；MSIX 原有载荷门禁也拒绝小包。后续新增的显式在线 EXE 候选路径见上节。默认自包含 x64 构建与 EXE 编译仍通过，`b0291359c3ef4a01b0240bb0a9c7968d` 下安装器为 53,285,850 B，未签名、未在该轮安装。自动检测、补装和可信下载校验现已实现，但真实缺失环境、取消和失败恢复、ARM64 实机仍待验收，不能把小包视为已通过首次安装门禁。
 
 分发边界：独立 EXE 引导安装器可以规划运行时依赖安装，但 MSIX/Store 依赖机制不能未经验证就当成 WPF .NET Desktop Runtime 自动安装。Windows App SDK 的共享框架不是该运行时。相关依据：[.NET Windows 安装](https://learn.microsoft.com/en-us/dotnet/core/install/windows)、[Windows App SDK 部署架构](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/deployment-architecture)、[WPF 裁剪限制](https://learn.microsoft.com/en-us/dotnet/core/deploying/trimming/incompatibilities)。本轮未修改 MSIX 的自包含交付策略。
 
