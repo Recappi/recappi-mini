@@ -4,7 +4,7 @@ using Recappi.Core;
 
 internal static class ProcessingTests
 {
-    public static async Task RunAsync(string root)
+    public static async Task RunAsync(string root, bool holdJournal = false)
     {
         var store = new LocalRecordingStore(Path.Combine(root, "processing-audio"));
         var recording = store.Create("Upload retry") with { State = RecordingState.Done, DurationMs = 1000 };
@@ -49,8 +49,21 @@ internal static class ProcessingTests
         var uploadOnlyRoot = Path.Combine(root, "upload-only-state");
         await using (var uploadOnly = new CloudProcessing(uploadOnlyRoot, Client))
         {
-            var synced = await uploadOnly.StartAsync(recording, account, new(Transcribe: false));
-            if (synced.Stage != ProcessingStage.Synced || transcribes != 1) throw new Exception("Upload-only mode unexpectedly transcribed.");
+            Thread? release = null;
+            if (holdJournal) uploadOnly.Changed += entry =>
+            {
+                if (entry.Stage != ProcessingStage.CompletingUpload || !entry.UploadCompleted || release is not null) return;
+                var path = Path.Combine(uploadOnlyRoot, account.Partition, recording.Id + ".json");
+                var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                release = new Thread(() => { Thread.Sleep(50); held.Dispose(); });
+                release.Start();
+            };
+            try
+            {
+                var synced = await uploadOnly.StartAsync(recording, account, new(Transcribe: false));
+                if (synced.Stage != ProcessingStage.Synced || transcribes != 1) throw new Exception($"Upload-only result: stage={synced.Stage}, transcribe requests={transcribes - 1}, uploaded={synced.UploadCompleted}.");
+            }
+            finally { release?.Join(); }
         }
         await using (var resumed = new CloudProcessing(uploadOnlyRoot, Client))
         {
@@ -58,6 +71,33 @@ internal static class ProcessingTests
             if (completed.Stage != ProcessingStage.Completed || transcribes != 2 || creates != 2) throw new Exception("Later transcription duplicated upload or was skipped.");
             await resumed.ForgetRemoteAsync(account.Partition, "upload-1");
             if (resumed.List(account.Partition).Count != 0 || !File.Exists(recording.AudioPath)) throw new Exception("Remote deletion failed to detach journal or removed local audio.");
+        }
+        if (holdJournal)
+        {
+            var deniedRoot = Path.Combine(root, "processing-denied");
+            await using var denied = new CloudProcessing(deniedRoot, Client);
+            FileStream? held = null;
+            byte[]? original = null;
+            var path = Path.Combine(deniedRoot, account.Partition, recording.Id + ".json");
+            void Hold(ProcessingEntry entry)
+            {
+                if (entry.Stage != ProcessingStage.CompletingUpload || !entry.UploadCompleted || held is not null) return;
+                original = File.ReadAllBytes(path);
+                held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            }
+            denied.Changed += Hold;
+            try
+            {
+                await denied.StartAsync(recording, account, new(Transcribe: false));
+                throw new Exception("Persistent journal denial was reported as saved.");
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            finally { held?.Dispose(); denied.Changed -= Hold; }
+            if (original is null || !original.SequenceEqual(File.ReadAllBytes(path)) || Directory.EnumerateFiles(deniedRoot, "*.tmp", SearchOption.AllDirectories).Any())
+                throw new Exception("Denied journal replacement changed the original or leaked temporary files.");
+            var retried = await denied.StartAsync(recording, account, new(Transcribe: false));
+            if (retried.Stage != ProcessingStage.Synced || creates != 3 || transcribes != 2)
+                throw new Exception("Retry after persistent journal denial duplicated cloud work.");
         }
     }
     private static HttpResponseMessage Json(string value) => new(HttpStatusCode.OK) { Content = new StringContent(value, Encoding.UTF8, "application/json") };

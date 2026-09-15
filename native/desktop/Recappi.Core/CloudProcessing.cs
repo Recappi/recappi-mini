@@ -195,8 +195,23 @@ public sealed class CloudProcessing : IAsyncDisposable
     {
         var path = EntryPath(entry.Partition, entry.LocalId);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(entry, Json));
-        File.Move(path + ".tmp", path, true);
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(entry, Json));
+            for (var attempt = 0; ; attempt++)
+            {
+                try { File.Move(temporary, path, true); break; }
+                catch (Exception error) when (attempt < 3 &&
+                    error is IOException or UnauthorizedAccessException && (error.HResult & 0xffff) is 5 or 32 or 33)
+                {
+                    // A short-lived reader must not turn completed upload into failure.
+                    // Permanent denial still propagates with the prior journal intact.
+                    Thread.Sleep(25 << attempt);
+                }
+            }
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
         Notify(entry);
     }
     private void Notify(ProcessingEntry entry)

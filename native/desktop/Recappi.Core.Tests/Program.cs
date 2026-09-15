@@ -4,6 +4,12 @@ using Recappi.Core;
 
 var root = Path.Combine(Path.GetFullPath("build/native-desktop-validation"), "core-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+if (args.SequenceEqual(new[] { "--processing-file-conflict" }))
+{
+    await ProcessingTests.RunAsync(root, holdJournal: true);
+    Console.WriteLine("PASS processing resumes after a real journal replacement conflict: " + root);
+    return;
+}
 if (args.SequenceEqual(new[] { "--caption-export" }))
 {
     await CaptionExportTests.RunAsync(root);
@@ -231,6 +237,7 @@ await Test("Cloud content cache searches all cached recordings, survives reload,
 await Test("Captions resample PCM, bound queues, drain final text, reconnect and preserve bilingual streams", CaptionTests.RunAsync);
 await Test("Preferences persist, recording options stay immutable and caption archives survive partial final lines", () => PreferencesArchiveTests.RunAsync(root));
 await Test("Settings replacement recovers from brief file locks and preserves original on persistent denial", () => PreferencesFileConflictTests.RunAsync(root));
+await Test("Upload-only journal tolerates a brief replacement conflict without repeating cloud requests", () => ProcessingTests.RunAsync(Path.Combine(root, "processing-conflict"), holdJournal: true));
 await Test("Caption export preserves existing files on read/commit failure and protects recording storage", () => CaptionExportTests.RunAsync(root));
 await Test("Recording reminders respect visibility, grace/reset/once rules and native activity enumeration", AttentionTests.RunAsync);
 await Test("Caption failure does not interrupt local recording", async () =>
