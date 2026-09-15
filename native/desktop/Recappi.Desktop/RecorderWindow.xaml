@@ -1,0 +1,75 @@
+<Window x:Class="Recappi.Desktop.RecorderWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+ Title="Recappi Mini" Width="580" SizeToContent="Height" WindowStyle="None" ResizeMode="NoResize" PreviewKeyDown="OptionsKeyDown"
+ ShowActivated="False" ShowInTaskbar="True" Topmost="True" FontFamily="Segoe UI Variable, Microsoft YaHei UI" FontSize="13" Background="{DynamicResource CanvasBrush}" Foreground="{DynamicResource InkBrush}">
+ <Window.Resources><BooleanToVisibilityConverter x:Key="VisibleWhenTrue"/><Style TargetType="Button" BasedOn="{StaticResource ModernButton}"><Setter Property="Margin" Value="2,0"/><Setter Property="Padding" Value="10,7"/></Style></Window.Resources>
+ <shell:WindowChrome.WindowChrome><shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="0" GlassFrameThickness="0" CornerRadius="12" UseAeroCaptionButtons="False"/></shell:WindowChrome.WindowChrome>
+ <Border Background="{DynamicResource CanvasBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="10">
+ <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="18"/><ColumnDefinition/></Grid.ColumnDefinitions>
+ <Thumb x:Name="MoveHandle" Cursor="SizeAll" Focusable="True" PreviewMouseLeftButtonDown="MovePanel" KeyDown="MovePanelKeyDown" ToolTip="拖动面板；聚焦后可用方向键移动" AutomationProperties.Name="移动录音面板">
+  <Thumb.Template><ControlTemplate TargetType="Thumb"><Border x:Name="Grip" Background="Transparent" CornerRadius="4" BorderBrush="Transparent" BorderThickness="1"><UniformGrid Columns="2" Rows="3" Width="8" Height="18" HorizontalAlignment="Left" VerticalAlignment="Center" Opacity="0.5"><Ellipse Width="2" Height="2" Fill="{DynamicResource InkBrush}"/><Ellipse Width="2" Height="2" Fill="{DynamicResource InkBrush}"/><Ellipse Width="2" Height="2" Fill="{DynamicResource InkBrush}"/><Ellipse Width="2" Height="2" Fill="{DynamicResource InkBrush}"/><Ellipse Width="2" Height="2" Fill="{DynamicResource InkBrush}"/><Ellipse Width="2" Height="2" Fill="{DynamicResource InkBrush}"/></UniformGrid></Border><ControlTemplate.Triggers><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Grip" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Thumb.Template>
+ </Thumb>
+ <StackPanel Grid.Column="1">
+  <Grid x:Name="SetupPanel" Visibility="{Binding ShowSetup, Converter={StaticResource VisibleWhenTrue}}">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+   <Button Content="录音库" Click="OpenCloud" AutomationProperties.AutomationId="library.open"/>
+   <ComboBox Grid.Column="1" ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" DisplayMemberPath="Label" IsEnabled="{Binding CanConfigure}" Margin="6,0" AutomationProperties.Name="声音来源" AutomationProperties.AutomationId="recording.source"/>
+   <ToggleButton x:Name="OptionsButton" Grid.Column="2" Content="选项" IsEnabled="{Binding CanConfigure}" Padding="10,4" AutomationProperties.AutomationId="recording.options">
+    <ToggleButton.Style><Style TargetType="ToggleButton" BasedOn="{StaticResource ModernToggle}"><Style.Triggers><DataTrigger Binding="{Binding IsOpen, ElementName=OptionsPopup}" Value="True"><Setter Property="IsHitTestVisible" Value="False"/></DataTrigger></Style.Triggers></Style></ToggleButton.Style>
+   </ToggleButton>
+   <Button Grid.Column="3" Content="隐藏" Click="HidePanel" ToolTip="隐藏面板"/>
+   <Button Grid.Column="4" Content="开始录音" Command="{Binding Start}" IsDefault="True" AutomationProperties.AutomationId="recording.start" Style="{StaticResource AccentButton}" Margin="6,0,0,0"/>
+  </Grid>
+  <Popup x:Name="OptionsPopup" IsOpen="{Binding IsChecked, ElementName=OptionsButton, Mode=TwoWay}" PlacementTarget="{Binding ElementName=OptionsButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+   <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="20" Width="360" PreviewKeyDown="OptionsKeyDown">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="500"><StackPanel IsEnabled="{Binding CanConfigure}">
+     <TextBlock Text="录音选项" FontSize="18" Margin="0,0,0,12"/>
+     <TextBlock Text="录音名称（可选）"/><TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" AutomationProperties.AutomationId="recording.title"/>
+     <CheckBox IsChecked="{Binding Microphone}" Content="同时录制麦克风" Margin="0,12,0,6" AutomationProperties.AutomationId="recording.microphone.enabled"/>
+     <ComboBox ItemsSource="{Binding Microphones}" SelectedItem="{Binding SelectedMicrophone}" DisplayMemberPath="Label" IsEnabled="{Binding Microphone}" AutomationProperties.Name="麦克风设备" AutomationProperties.AutomationId="recording.microphone"/>
+     <Button Content="刷新声音来源与设备" Command="{Binding RefreshDevices}" HorizontalAlignment="Left" Margin="0,6,0,12"/>
+     <CheckBox Content="实时字幕（需要登录）" IsChecked="{Binding CaptionsEnabled}"/>
+     <TextBlock Text="原文语言（如 zh / en）" Margin="0,10,0,0"/><TextBox Text="{Binding CaptionLanguage, UpdateSourceTrigger=PropertyChanged}" MaxLength="20"/>
+     <TextBlock Text="翻译语言（留空不翻译）" Margin="0,10,0,0"/><TextBox Text="{Binding TranslationLanguage, UpdateSourceTrigger=PropertyChanged}" MaxLength="20"/>
+     <Separator Margin="0,12"/>
+     <Button Content="设置 · 场景与云处理" Click="OpenSettings"/>
+     <WrapPanel><Button Content="本地录音" Click="OpenLibrary"/><Button Content="账号" Click="OpenAccount" AutomationProperties.AutomationId="account.open"/><Button Content="打开目录" Command="{Binding OpenFolder}"/></WrapPanel>
+     <Separator Margin="0,12"/><Button x:Name="QuitButton" Content="退出应用…" Click="QuitApplication" AutomationProperties.AutomationId="application.quit"/>
+    </StackPanel></ScrollViewer>
+   </Border>
+  </Popup>
+  <StackPanel x:Name="CapturePanel" Visibility="{Binding IsActive, Converter={StaticResource VisibleWhenTrue}}">
+   <DockPanel Margin="0,0,0,8">
+    <Button DockPanel.Dock="Right" Content="隐藏" Click="HidePanel" ToolTip="隐藏面板，录音继续"/>
+    <Button DockPanel.Dock="Right" Content="字幕" Click="OpenCaptions"/>
+    <TextBlock Text="{Binding StateLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+    <TextBlock Text="{Binding Elapsed}" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,0"/>
+    <TextBlock Text="{Binding SourceLabel}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+   </DockPanel>
+   <Grid>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <StackPanel Margin="0,0,12,0" VerticalAlignment="Center">
+     <ProgressBar Minimum="0" Maximum="100" Value="{Binding SystemLevel, Mode=OneWay}" Height="6" Margin="0,0,0,5" AutomationProperties.Name="系统声音电平"/>
+     <ProgressBar Minimum="0" Maximum="100" Value="{Binding MicrophoneLevel, Mode=OneWay}" Height="6" AutomationProperties.Name="麦克风电平"/>
+    </StackPanel>
+    <Button Grid.Column="1" Content="{Binding MicrophoneAction}" Command="{Binding ToggleMicrophone}" AutomationProperties.AutomationId="recording.microphone.toggle"/>
+    <Button Grid.Column="2" Content="更多" Click="ShowMore"><Button.ContextMenu><ContextMenu><MenuItem Header="丢弃录音…" Command="{Binding Discard}" AutomationProperties.AutomationId="recording.discard"/><Separator/><MenuItem x:Name="QuitMenuItem" Header="退出应用…" Click="QuitApplication" AutomationProperties.AutomationId="application.quit"/></ContextMenu></Button.ContextMenu></Button>
+    <Button Grid.Column="3" Content="停止并保存" Command="{Binding Stop}" AutomationProperties.AutomationId="recording.stop"/>
+   </Grid>
+  </StackPanel>
+  <DockPanel x:Name="DonePanel" Visibility="{Binding IsDone, Converter={StaticResource VisibleWhenTrue}}">
+   <Button DockPanel.Dock="Right" Content="新录音" Command="{Binding NewRecording}" AutomationProperties.AutomationId="recording.new"/>
+   <Button x:Name="ViewSavedButton" DockPanel.Dock="Right" Content="查看" Click="OpenSavedRecording" AutomationProperties.AutomationId="recording.view"/>
+   <TextBlock Text="已保存到本机" VerticalAlignment="Center" Margin="0,0,12,0"/>
+   <TextBlock Text="{Binding Elapsed}" VerticalAlignment="Center"/>
+  </DockPanel>
+  <Border Padding="10" Margin="0,10,0,0" BorderBrush="Gray" BorderThickness="1" Visibility="{Binding HasAttention, Converter={StaticResource VisibleWhenTrue}}"><StackPanel><TextBlock Text="{Binding AttentionMessage}" TextWrapping="Wrap"/><WrapPanel Margin="0,8,0,0"><Button Content="继续录音" Command="{Binding KeepRecording}"/><Button Content="停止并保存" Command="{Binding Stop}"/></WrapPanel></StackPanel></Border>
+  <TextBlock Text="{Binding Error}" Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite">
+   <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Margin" Value="0,10,0,0"/><Style.Triggers><DataTrigger Binding="{Binding Error}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+  </TextBlock>
+ </StackPanel>
+ </Grid>
+ </Border>
+</Window>

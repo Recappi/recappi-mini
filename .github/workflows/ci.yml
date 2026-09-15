@@ -11,6 +11,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-desktop:
+    name: Windows native desktop
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run native core regressions
+        run: dotnet run --project native/desktop/Recappi.Core.Tests -c Release
+      - name: Build WPF interaction tests
+        # Actual interactive runs remain a desktop-session validation gate.
+        run: dotnet build native/desktop/Recappi.Desktop.Tests -c Release
+      - name: Publish and verify both native architectures
+        run: ./scripts/publish-native-desktop.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-native-preview
+          path: |
+            build/native-desktop-release/**/*.zip
+            build/native-desktop-release/**/release-report.json
+          if-no-files-found: error
+          retention-days: 7
+
   windows-cli:
     name: Windows CLI
     runs-on: windows-latest

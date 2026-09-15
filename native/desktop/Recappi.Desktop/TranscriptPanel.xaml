@@ -1,0 +1,23 @@
+<UserControl x:Class="Recappi.Desktop.TranscriptPanel"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:Recappi.Desktop">
+ <UserControl.Resources><local:ActiveSegmentConverter x:Key="ActiveSegmentConverter"/></UserControl.Resources>
+ <DockPanel>
+  <StackPanel DockPanel.Dock="Top">
+   <WrapPanel><TextBlock Text="说话人" VerticalAlignment="Center"/><ComboBox x:Name="Speakers" MinWidth="150" DisplayMemberPath="Display" SelectedValuePath="Raw" SelectionChanged="FilterChanged" Margin="8,4" AutomationProperties.Name="筛选说话人"/><Button Content="编辑说话人" Click="EditSpeaker"/><Button Content="复制逐字稿" Click="CopyAll"/><Button Content="复制所选片段" Click="CopySelected"/></WrapPanel>
+   <TextBox x:Name="Query" TextChanged="QueryChanged" Margin="0,4" AutomationProperties.Name="搜索当前逐字稿"/>
+   <TextBlock x:Name="Status" Margin="0,4" TextWrapping="Wrap"/>
+  </StackPanel>
+  <ListBox x:Name="Segments" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.HorizontalScrollBarVisibility="Disabled" MouseDoubleClick="ActivateSegment" KeyDown="SegmentKey">
+   <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem">
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="BorderThickness" Value="3,0,0,0"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="Tag"><Setter.Value><MultiBinding Converter="{StaticResource ActiveSegmentConverter}"><Binding/><Binding Path="ActiveSegment" RelativeSource="{RelativeSource AncestorType={x:Type local:TranscriptPanel}}"/></MultiBinding></Setter.Value></Setter>
+    <Style.Triggers><Trigger Property="Tag" Value="active"><Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/><Setter Property="FontWeight" Value="SemiBold"/></Trigger></Style.Triggers>
+   </Style></ListBox.ItemContainerStyle>
+   <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="8"><TextBlock Text="{Binding Label}" ToolTip="{Binding Profile.Note}" Opacity="0.65"/><TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel></DataTemplate></ListBox.ItemTemplate>
+  </ListBox>
+ </DockPanel>
+</UserControl>

@@ -1,0 +1,11 @@
+<Window x:Class="Recappi.Desktop.CaptionWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="Recappi Mini · 实时字幕" Width="650" Height="420" MinWidth="360" MinHeight="200" Topmost="True" ShowActivated="False" Style="{StaticResource ModernWindow}">
+ <Window.Resources><Style TargetType="Button" BasedOn="{StaticResource AccentButton}"/><Style TargetType="CheckBox" BasedOn="{StaticResource ModernCheckBox}"/></Window.Resources>
+ <DockPanel Margin="20">
+  <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10"><CheckBox x:Name="SourceVisible" Content="原文" IsChecked="True" Checked="OptionsChanged" Unchecked="OptionsChanged" Margin="0,0,15,0"/><CheckBox x:Name="TranslationVisible" Content="译文" IsChecked="True" Checked="OptionsChanged" Unchecked="OptionsChanged" Margin="0,0,15,0"/><CheckBox x:Name="Compact" Content="紧凑模式" Checked="OptionsChanged" Unchecked="OptionsChanged"/></WrapPanel>
+  <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0"><TextBlock x:Name="Status" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/><TextBlock x:Name="ArchiveStatus" TextWrapping="Wrap" Foreground="{DynamicResource AccentBrush}" Visibility="Collapsed" Margin="0,6,0,0" AutomationProperties.LiveSetting="Polite"/><Button x:Name="RetryButton" Content="重新连接字幕" Click="RetryCaptions" Visibility="Collapsed" Margin="0,6,0,0"/></StackPanel>
+  <Border CornerRadius="12" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" Padding="16"><TextBox x:Name="Transcript" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontSize="20" Background="Transparent" Foreground="{DynamicResource InkBrush}" BorderThickness="0" AutomationProperties.Name="实时字幕内容"/></Border>
+ </DockPanel>
+</Window>

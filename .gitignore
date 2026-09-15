@@ -18,6 +18,10 @@ cli/packages/*/node_modules/
 *.tgz
 native/windows/bin/
 native/windows/obj/
+native/desktop-probes/**/bin/
+native/desktop-probes/**/obj/
+native/desktop/**/bin/
+native/desktop/**/obj/
 cli/helpers/win32-*/*.exe
 cli/helpers/win32-*/*.pdb
 cli/helpers/win32-*/*.dll

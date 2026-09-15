@@ -1,0 +1,24 @@
+<UserControl x:Class="Recappi.Desktop.LocalLibraryView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ >
+ <Grid x:Name="LibraryGrid" Margin="20"><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="20"/><ColumnDefinition/></Grid.ColumnDefinitions>
+  <DockPanel><Button Content="刷新本地录音" Click="RefreshClick" DockPanel.Dock="Top" Margin="0,0,0,12"/><ListBox x:Name="Recordings" SelectionChanged="SelectRecording" AutomationProperties.AutomationId="library.recordings" ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True"><ListBox.ItemTemplate><DataTemplate><StackPanel Margin="5,7"><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding StartedAt, StringFormat={}{0:MM-dd HH:mm}}" FontSize="12"/></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox></DockPanel>
+  <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto"><StackPanel><TextBlock x:Name="Heading" Text="本地录音" FontSize="24" TextWrapping="Wrap"/><TextBlock x:Name="Metadata" Margin="0,10" TextWrapping="Wrap"/><TextBlock x:Name="Status" Text="选择一条录音查看。" TextWrapping="Wrap" Margin="0,10"/>
+   <Border x:Name="AudioCard" Visibility="Collapsed" Background="{DynamicResource CanvasBrush}" CornerRadius="10" Padding="20" Margin="0,16,0,24"><StackPanel>
+   <TextBlock Text="录音音频" FontSize="12" Opacity="0.65" Margin="0,0,0,12"/>
+   <WrapPanel><Button x:Name="PlayButton" Content="播放" Click="TogglePlayback" IsEnabled="False" AutomationProperties.AutomationId="playback.toggle"/><Button x:Name="FolderButton" Content="打开文件位置" Click="OpenFolder" IsEnabled="False"/></WrapPanel>
+   <Slider x:Name="Position" Minimum="0" Maximum="1" Value="0" PreviewMouseLeftButtonUp="Seek" PreviewKeyUp="SeekKey" IsEnabled="False" AutomationProperties.Name="播放位置"/>
+   <TextBlock x:Name="PlaybackTime" Margin="0,8"/>
+   </StackPanel></Border>
+   <WrapPanel><Button x:Name="ImportButton" Content="导入音频文件" Click="ImportAudio" AutomationProperties.AutomationId="library.import"/><Button x:Name="CancelImportButton" Content="取消导入" Click="CancelImport" Visibility="Collapsed"/></WrapPanel>
+   <TextBlock x:Name="ImportStatus" TextWrapping="Wrap" Margin="0,6" AutomationProperties.LiveSetting="Polite"/>
+   <StackPanel x:Name="ProcessingActions" Visibility="Collapsed">
+   <TextBlock Text="处理与导出" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,16"/>
+   <TextBlock x:Name="CloudStatus" Text="登录后可将录音上传并转写。" TextWrapping="Wrap" Margin="0,0,0,12" AutomationProperties.LiveSetting="Polite"/>
+   <Button x:Name="UploadButton" Content="上传并转写 / 继续处理" Click="Upload" IsEnabled="False" HorizontalAlignment="Left" AutomationProperties.AutomationId="cloud.upload"/>
+   <Button x:Name="ExportCaptionsButton" Content="导出实时字幕" Click="ExportCaptions" IsEnabled="False" HorizontalAlignment="Left" Margin="0,12,0,0"/>
+   </StackPanel>
+  </StackPanel></ScrollViewer>
+ </Grid>
+</UserControl>
