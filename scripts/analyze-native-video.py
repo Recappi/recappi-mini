@@ -25,18 +25,23 @@ def analyze(video, events_path, output):
     num, den = map(int, stream["avg_frame_rate"].split("/"))
     fps = num / den
     duration = float(info["format"]["duration"])
+    frame_info = json.loads(run("ffprobe", "-v", "error", "-select_streams", "v:0", "-show_frames",
+                                "-show_entries", "frame=best_effort_timestamp_time", "-of", "json", str(video)))
+    timestamps = [float(frame["best_effort_timestamp_time"]) for frame in frame_info["frames"]]
+    if not timestamps or any(b < a for a, b in zip(timestamps, timestamps[1:])):
+        raise ValueError("Missing or non-monotonic video timestamps.")
     timeline = json.loads(events_path.read_text(encoding="utf-8-sig"))
     start = datetime.fromisoformat(timeline["captureProcessStartedAt"].replace("Z", "+00:00"))
     events = [{"event": e["event"], "seconds": (datetime.fromisoformat(e["at"].replace("Z", "+00:00")) - start).total_seconds()}
               for e in timeline["events"]]
     outside = [e for e in events if not 0 <= e["seconds"] < duration]
     # Event times are approximate wall-clock anchors. Keep nearby frames for visual review.
-    anchors = {round(min(duration - 1 / fps, max(0, e["seconds"] + delta)) * fps)
+    anchors = {min(range(len(timestamps)), key=lambda i: abs(timestamps[i] - max(0, e["seconds"] + delta)))
                for e in events if e not in outside for delta in (-0.5, 0.5)}
     width = 320
     height = round(stream["height"] * width / stream["width"])
     process = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(video), "-vf", f"scale={width}:{height}",
-                                "-f", "rawvideo", "-pix_fmt", "gray", "-"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "-"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     reference = None
     previous = None
     kept = []
@@ -62,10 +67,10 @@ def analyze(video, events_path, output):
         changed = changed or fraction > .01 or tile_change > .06
         flash = previous is not None and float(np.mean(np.abs(current - previous) > 60)) > .4
         if flash:
-            anomalies.append({"seconds": index / fps, "kind": "large-frame-transition-review-required"})
+            anomalies.append({"seconds": timestamps[index], "kind": "large-frame-transition-review-required"})
         at_anchor = index in anchors
         # Never use duplicate removal to claim no flashes: retain large transitions separately.
-        gap = not kept or (index - kept[-1]["frame"]) / fps >= .5
+        gap = not kept or timestamps[index] - timestamps[kept[-1]["frame"]] >= .5
         if not kept or flash or (changed and gap) or at_anchor:
             # A button label/time change can be tiny. Event anchors use near-exact
             # comparison instead of the broader scene threshold used between events.
@@ -74,7 +79,7 @@ def analyze(video, events_path, output):
             if similar and not flash:
                 duplicates += 1
             else:
-                kept.append({"frame": index, "seconds": round(index / fps, 3), "eventAnchor": at_anchor,
+                kept.append({"frame": index, "seconds": round(timestamps[index], 3), "eventAnchor": at_anchor,
                              "changedFraction": round(fraction, 5), "maxTileChange": round(tile_change, 5)})
                 reference = current.copy()
         else:
@@ -87,6 +92,8 @@ def analyze(video, events_path, output):
     expected = int(stream.get("nb_frames", index))
     if index != expected:
         raise ValueError(f"Decoded {index} frames, expected {expected}.")
+    if index != len(timestamps):
+        raise ValueError("Decoded frame count does not match frame timestamps.")
     # Decode selected frame indices in one pass. Rounded time seeks can select
     # the following frame, or no frame at all when the retained frame is last.
     selection = output / "selection.filter"

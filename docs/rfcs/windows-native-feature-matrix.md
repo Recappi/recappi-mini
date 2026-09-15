@@ -4,6 +4,8 @@
 
 **当前没有将整个 N01–N26 标为验收完成。** “已有实现”“自动回归通过”“真实 API 测试”“完整桌面操作”分别列出，不能互相替代。N27 是 macOS 占位，不计入已实现功能对齐。整体阶段勾选仍以 [实施计划](windows-native-desktop.md) 为准。
 
+2026-09-16 云端 UI 增量：N16 真实上传完成自动副本关联、N19 默认窗口三段转写可读、N21 真实问答与引用、N20 下载后引用定位已通过限定范围的视频检查；详见 [云端 UI 验证](windows-native-cloud-ui-validation.md)。各行未覆盖的异常/尺寸/完整操作仍保留。
+
 代码定位：核心文件位于 `native/desktop/Recappi.Core`，窗口文件位于 `native/desktop/Recappi.Desktop`；同名测试分别位于 `Recappi.Core.Tests` / `Recappi.Desktop.Tests`。所有测试证据的具体执行范围、日期、样本和报告见验证记录，不把测试文件存在当作通过。
 
 | ID | macOS 功能 / 源码基线 | 当前 Windows 实现 | 已有证据及剩余缺口 |
@@ -23,12 +25,12 @@
 | N13 | 本地完成与失败恢复；DoneState / ErrorState | LocalRecordingStore、LocalLibraryView；启动恢复中断会话的 WAV/时长，保留载荷、标记中断、禁止自动上传 | 完整 App 实际 WASAPI 进程录音强制结束→重启恢复 93.723 秒音频，载荷哈希保持；恢复提示/播放视频通过。合成故障回归与 WPF 媒体打开已验；掉电、混录、云字幕恢复仍待验 |
 | N14 | 双语实时流、连接与重连；LiveRealtimeSessionConnector | LiveCaptions / CaptionConnection / CaptionPcmEncoder；延迟启动屏障、有界队列、手动重连、重新登录续写 | CaptionTests 首条归档、停止/终止、重试、归档故障隔离；新增真实回环 WebSocket 断连/握手等待期间音频增长、重连及双语尾句归档回归；完整 App 受控 WASAPI→真实双语归档已验。回环测试用合成音频/服务；混录、公网断网/过期/账号竞争仍待验 |
 | N15 | 字幕展开/紧凑、显隐、完整句；LiveCaptionFloatingPanel | CaptionWindow 展开独立双栏/紧凑双行、单路占满、至少一路、纯转写配置、各自跟随与历史滚动、隐藏恢复、独立归档警告 | 长句末字几何/360 与 650 宽度/状态组合 WPF 通过；真实 App 视频 5 项通过、3 项证据不足，覆盖双语可见/停止保留/自然重连。历史滚动视频、模式及隐藏连续过程、全部尺寸/焦点/DPI/断网与过期恢复仍待验 |
-| N16 | 库分页、账号隔离与状态；CloudCenterPanel / CloudLibraryStore | CloudLibraryWindow 统一日期列表、本机/云端详情、当前会议、已确认副本关联；单一 App 窗口 | CloudLibraryTests 500 行真实 WPF 容器/分页/选择/隔离；10,000 行合成数据性能；实际本机搜索/选择/播放。真实云合并、离线切换与整套导航待验 |
+| N16 | 库分页、账号隔离与状态；CloudCenterPanel / CloudLibraryStore | CloudLibraryWindow 统一日期列表、本机/云端详情、当前会议、已确认副本关联；单一 App 窗口 | CloudLibraryTests 500 行真实 WPF 容器/分页/选择/隔离；10,000 行合成数据性能；实际本机搜索/选择/播放与真实完成自动云合并视频通过。离线切换与整套导航待验 |
 | N17 | 音频导入、本地副本、浏览器/目录；CloudLibraryStore+Audio | AudioImport 使用 Media Foundation；LocalLibraryView 导入/上传；云音频下载/副本/可信来源浏览器链接 | AudioImportTests 实际 WAV/MP3/M4A 编解码与取消；AudioDownloadTests、WPF 副本/关联测试；完整文件对话框、大文件与可选编解码器待验 |
 | N18 | 全库缓存搜索与说话人过滤；searchCachedRecordings / CloudRecordingDetail | CloudContentCache + 统一搜索；仅搜索本机标题与当前账号已缓存云内容；TranscriptPanel 说话人/文字过滤 | 缓存持久化/隔离/损坏回归、CloudSearchTests、实际本机关键词定位；真实大云库和统一说话人搜索操作待验 |
 | N19 | 摘要/逐字稿/复制/说话人编辑；CloudDetailSummarySection / CloudRecordingDetail | CloudLibraryModels 新旧格式兼容；TranscriptPanel；SpeakerProfileStore / SpeakerEditor 录音内本地显示覆盖 | 10,000 行虚拟化、SpeakerProfileTests 与 WPF 弹窗保存；真实服务内容解码；完整取消、账号变化期间编辑与键鼠复制待验。姓名覆盖不云写入，与 macOS 作用域一致 |
 | N20 | 播放/倍速/seek/活动片段/跨录音；CloudMeetingAudioPlayer / CloudPlayback | AudioPlayer 原生媒体；TranscriptPanel 定位与活动高亮；本机暂停 seek 即时更新时间、选择/结束复位；云详情切换保留独立播放 | AudioDownloadTests、WPF 实际媒体打开/seek/清理、跨录音回归；真实本机播放暂停、拖动/Home/End/结束复位视频通过；完整倍速/引用/高亮/跨录音操作和性能待验 |
-| N21 | 问答历史/建议/流式回答/引用；AskConversationViewModel | AskClient SSE + AskPanel，切会议取消与隔离、停止和引用定位 | AskTests 分片/断流/错误，AskPanelTests 延迟响应；真实 C# Ask 流水线；完整桌面请求/重试/引用边界待验 |
+| N21 | 问答历史/建议/流式回答/引用；AskConversationViewModel | AskClient SSE + AskPanel，切会议取消与隔离、停止和引用定位 | AskTests 分片/断流/错误，AskPanelTests 延迟响应；真实 C# Ask 流水线及完整桌面请求/回答/单一引用定位视频通过；重试、引用边界与所有窗口尺寸待验 |
 | N22 | 重新处理、历史、失败分块重试；CloudLibraryStore+Processing | ReviewPanel / CloudJob，确认、版本选择、处理状态刷新与重复提交抑制 | ReviewPanelTests 取消/重试/历史/隔离；真实服务流水线并不证明所有重处理分支，完整 UI 服务操作待验 |
 | N23 | 删除确认/索引关联/失败恢复；CloudCenterPanel+Detail | 云库删除确认、处理关联清理；云副本删除保留本机录音 | CloudLibraryActionTests 取消/失败/成功/隔离；真实 API 测试记录清理；完整桌面删除与账户变化竞争待验 |
 | N24 | 用量、套餐与管理链接；BillingStatus / CloudCenterPanel+AccountHeader | BillingStatus DTO + BillingPanel 嵌入 AccountWindow；刷新/超额/不限量/周期；POST portal，409 转 plans；只打开可信链接 | BillingTests、BillingPanelTests 覆盖配额/URL/延迟响应/失败/账号隔离/401；真实只读 GET 解析成功，实际窗口用明确测试数据作布局检查。完整 App 真实用量/管理服务、账号状态与键盘实机待验 |

@@ -4,6 +4,17 @@ using Recappi.Core;
 
 var root = Path.Combine(Path.GetFullPath("build/native-desktop-validation"), "core-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+if (args.Length >= 2 && args[0] is "--prepare-desktop-cloud-fixture" or "--clear-desktop-cloud-fixture")
+{
+    try
+    {
+        if (args[0] == "--prepare-desktop-cloud-fixture" && args.Length == 3) await DesktopCloudFixture.PrepareAsync(args[1], args[2]);
+        else if (args[0] == "--clear-desktop-cloud-fixture" && args.Length == 2) await DesktopCloudFixture.ClearAsync(args[1]);
+        else throw new ArgumentException("Invalid fixture arguments.");
+    }
+    catch (Exception error) { Console.Error.WriteLine("Desktop cloud fixture failed: " + error.GetType().Name + ". Identity, credentials and server payloads omitted."); Environment.ExitCode = 1; }
+    return;
+}
 if (args.SequenceEqual(new[] { "--processing-journal-read" }))
 {
     await ProcessingJournalReadTests.RunAsync(root);

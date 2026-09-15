@@ -40,7 +40,7 @@ public partial class CloudLibraryWindow : Window
     public Func<Microsoft.Win32.SaveFileDialog, bool?>? ShowExportDialog { get; set; }
     private bool audioLoading;
     private double? citationSeek;
-    private readonly SpeakerProfileStore speakers = new(SpeakerProfileStore.DefaultRoot);
+    private readonly SpeakerProfileStore speakers;
     private readonly CloudContentCache contentCache;
     private CloudSearchHit? searchHit;
     private AccountState displayedAccountState;
@@ -72,12 +72,13 @@ public partial class CloudLibraryWindow : Window
     }
     private void OpenCurrentMeeting(object sender, RoutedEventArgs e) => showCurrentMeeting?.Invoke();
 
-    public CloudLibraryWindow(AccountSession accounts, Func<ProcessingOptions>? processingOptions = null, Func<CloudAccount, string, Task>? remoteDeleted = null, CloudContentCache? contentCache = null, LocalLibraryView? localLibrary = null, Action? showAccount = null, Func<DateTime>? localToday = null, Func<string, System.Collections.Generic.IReadOnlyList<ProcessingEntry>>? processingEntries = null)
+    public CloudLibraryWindow(AccountSession accounts, Func<ProcessingOptions>? processingOptions = null, Func<CloudAccount, string, Task>? remoteDeleted = null, CloudContentCache? contentCache = null, LocalLibraryView? localLibrary = null, Action? showAccount = null, Func<DateTime>? localToday = null, Func<string, System.Collections.Generic.IReadOnlyList<ProcessingEntry>>? processingEntries = null, SpeakerProfileStore? speakerProfiles = null)
     {
         DesktopTheme.EnsureResources();
         InitializeComponent(); this.accounts = accounts; this.remoteDeleted = remoteDeleted;
         this.processingEntries = processingEntries ?? (_ => []);
         this.contentCache = contentCache ?? new(CloudContentCache.DefaultRoot);
+        speakers = speakerProfiles ?? new(SpeakerProfileStore.DefaultRoot);
         this.localToday = localToday ?? (() => DateTime.Today);
         groupedDay = this.localToday().Date;
         dateRefreshTimer = new() { Interval = TimeSpan.FromMinutes(1) };
@@ -197,6 +198,29 @@ public partial class CloudLibraryWindow : Window
         CopyActions.Visibility = selected is { Local: not null, Cloud: not null } ? Visibility.Visible : Visibility.Collapsed;
         if (previous?.Local?.Id != selected?.Local?.Id || previous?.Cloud?.Id != selected?.Cloud?.Id)
             _ = ShowSelectedAsync(showingLocal && selected?.Local is not null);
+    }
+    public async Task RefreshProcessedRecordingAsync(ProcessingEntry entry)
+    {
+        if (closed || !entry.UploadCompleted || entry.Ticket is not { } ticket ||
+            accounts.Snapshot is not { State: AccountState.SignedIn, Account: { } account } || entry.Partition != account.Partition) return;
+        var version = generation;
+        try
+        {
+            using var client = accounts.Client(account);
+            var item = CloudRecordingItem.Parse(await client.RecordingAsync(ticket.Id, requests.Token));
+            if (!Current(version, account) || accounts.Snapshot.Account?.Token != account.Token || item.Id != ticket.Id ||
+                !ReadProcessingLinks(account.Partition).Any(x => x.LocalId == entry.LocalId && x.Ticket?.Id == ticket.Id && x.UploadCompleted)) return;
+            var existing = items.FirstOrDefault(x => x.Id == item.Id);
+            if (existing is not null) items[items.IndexOf(existing)] = item; else items.Add(item);
+            RebuildLibrary();
+            if (LibraryQuery.Text.Trim().Length > 0) await SearchLibraryAsync();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception)
+        {
+            if (Current(version, account) && SelectedRecording?.Local?.Id == entry.LocalId)
+                Status.Text = "录音已上传；云端列表暂未更新，请点刷新。";
+        }
     }
     private System.Collections.Generic.IReadOnlyList<ProcessingEntry> ReadProcessingLinks(string? accountPartition)
     {

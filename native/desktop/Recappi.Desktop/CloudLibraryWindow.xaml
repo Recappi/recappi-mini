@@ -38,6 +38,9 @@
    </Grid>
    </Grid>
    <Border Grid.Column="2" CornerRadius="14" Background="{DynamicResource SurfaceBrush}" BorderThickness="1" BorderBrush="{DynamicResource StrokeBrush}" Padding="24">
+   <ScrollViewer x:Name="DetailScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+   <Grid Height="{Binding ActualHeight, ElementName=DetailScroll}">
+    <Grid.Style><Style TargetType="Grid"><Setter Property="MinHeight" Value="560"/><Style.Triggers><DataTrigger Binding="{Binding SelectedIndex, ElementName=DetailTabs}" Value="2"><Setter Property="MinHeight" Value="640"/></DataTrigger><DataTrigger Binding="{Binding IsExpanded, ElementName=AudioSection}" Value="True"><Setter Property="MinHeight" Value="760"/></DataTrigger></Style.Triggers></Style></Grid.Style>
    <DockPanel>
    <WrapPanel DockPanel.Dock="Bottom" Margin="0,16,0,0" Visibility="{Binding Visibility, ElementName=CloudDetail}">
     <Button x:Name="BrowserButton" Content="浏览器打开" Click="OpenBrowser" IsEnabled="False"/>
@@ -48,17 +51,19 @@
    <Grid>
    <ContentControl x:Name="LocalDetail" Visibility="Collapsed"/>
    <DockPanel x:Name="CloudDetail">
-    <StackPanel DockPanel.Dock="Bottom"><TextBlock x:Name="PlaybackLabel" TextWrapping="Wrap"/><WrapPanel><Button x:Name="LoadAudioButton" Content="加载所选录音音频" Click="LoadAudio" IsEnabled="False"/><Button x:Name="SaveAudioButton" Content="保存音频副本" Click="SaveAudio" IsEnabled="False"/></WrapPanel><local:AudioPlayer x:Name="Player"/></StackPanel>
-    <TextBlock x:Name="Heading" DockPanel.Dock="Top" Text="选择一条云端录音" FontSize="23" TextWrapping="Wrap" Margin="0,0,0,12"/>
-    <local:ReviewPanel x:Name="Review" DockPanel.Dock="Top"/>
+    <Expander x:Name="AudioSection" DockPanel.Dock="Bottom" Header="音频播放与下载" Margin="0,8,0,0"><StackPanel><TextBlock x:Name="PlaybackLabel" TextWrapping="Wrap"/><WrapPanel><Button x:Name="LoadAudioButton" Content="加载所选录音音频" Click="LoadAudio" IsEnabled="False"/><Button x:Name="SaveAudioButton" Content="保存音频副本" Click="SaveAudio" IsEnabled="False"/></WrapPanel><local:AudioPlayer x:Name="Player"/></StackPanel></Expander>
+    <TextBlock x:Name="Heading" DockPanel.Dock="Top" Text="选择一条云端录音" FontSize="23" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" Margin="0,0,0,12"/>
     <TabControl x:Name="DetailTabs">
      <TabItem Header="转写"><local:TranscriptPanel x:Name="Transcript"/></TabItem>
      <TabItem Header="摘要"><TextBox x:Name="Summary" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" Padding="12"/></TabItem>
      <TabItem Header="问答"><local:AskPanel x:Name="Ask"/></TabItem>
+     <TabItem Header="处理与版本"><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><local:ReviewPanel x:Name="Review" Margin="0,12,0,0"/></ScrollViewer></TabItem>
     </TabControl>
    </DockPanel>
    </Grid>
    </DockPanel>
+   </Grid>
+   </ScrollViewer>
    </Border>
   </Grid>
  </DockPanel>

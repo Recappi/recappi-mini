@@ -31,6 +31,8 @@ public partial class App : Application
     private AccountWindow? accountWindow;
     private AccountSession? accountSession;
     private CloudProcessing? processing;
+    private CloudContentCache? cloudContentCache;
+    private SpeakerProfileStore? speakerProfiles;
     private CloudAccount? recordingAccount;
     private LiveCaptions? captions;
     private LiveCaptions? recordingCaptions;
@@ -111,6 +113,8 @@ public partial class App : Application
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { /* Library access errors remain visible when opening the library. */ }
         accountSession = new AccountSession(new AccountStore(Path.Combine(applicationRoot, "Account")));
         processing = new CloudProcessing(Path.Combine(applicationRoot, "Processing"), account => accountSession.Client(account));
+        cloudContentCache = new CloudContentCache(Path.Combine(applicationRoot, "CloudContent"));
+        speakerProfiles = new SpeakerProfileStore(Path.Combine(applicationRoot, "Speakers"));
         accountSession.Changed += value =>
         {
             var partition = value.Account?.Partition;
@@ -130,7 +134,8 @@ public partial class App : Application
         processing.Changed += entry => Dispatcher.BeginInvoke(() =>
         {
             if (entry.Partition != accountSession.Snapshot.Account?.Partition) return;
-            if (entry.Stage is ProcessingStage.Synced or ProcessingStage.Completed) cloudLibraryWindow?.RebuildLibrary();
+            if (entry.Stage is ProcessingStage.Synced or ProcessingStage.Completed && cloudLibraryWindow is { } library)
+                _ = library.RefreshProcessedRecordingAsync(entry);
             if (entry.Stage == ProcessingStage.Completed) tray?.ShowBalloonTip(3000, "会议处理完成", entry.Title, Forms.ToolTipIcon.Info);
             else if (entry.Stage == ProcessingStage.Synced) tray?.ShowBalloonTip(3000, "录音上传完成", "可在录音库手动转写。", Forms.ToolTipIcon.Info);
             else if (entry.Stage is ProcessingStage.Failed or ProcessingStage.NeedsReconciliation) tray?.ShowBalloonTip(3000, "云端处理未完成", "本地音频已保留，可在录音库继续处理。", Forms.ToolTipIcon.Warning);
@@ -255,7 +260,7 @@ public partial class App : Application
         {
             var localView = new LocalLibraryView(recorder.Store, accountSession, processing, ShowAccount, () => Task.WhenAll(stoppingCaptions.Values.ToArray()));
             cloudLibraryWindow = new CloudLibraryWindow(accountSession!, () => preferences.Processing,
-                (account, id) => processing!.ForgetRemoteAsync(account.Partition, id), localLibrary: localView, showAccount: ShowAccount, processingEntries: partition => processing!.List(partition));
+                (account, id) => processing!.ForgetRemoteAsync(account.Partition, id), contentCache: cloudContentCache, localLibrary: localView, showAccount: ShowAccount, processingEntries: partition => processing!.List(partition), speakerProfiles: speakerProfiles);
             cloudLibraryWindow.Closed += (_, _) => cloudLibraryWindow = null;
         }
         cloudLibraryWindow.RefreshLocalRecordings(recordingId);
