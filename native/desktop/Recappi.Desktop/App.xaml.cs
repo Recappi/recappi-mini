@@ -283,6 +283,7 @@ public partial class App : Application
     private async Task ProcessRecordingAsync(LocalRecording recording, CloudAccount account)
     {
         try { await processing!.StartAsync(recording, account, recording.Processing ?? preferences.Processing); }
+        catch (ProcessingJournalException error) { await Dispatcher.InvokeAsync(() => tray?.ShowBalloonTip(5000, "后台处理无法继续", error.Message, Forms.ToolTipIcon.Warning)); }
         catch { await Dispatcher.InvokeAsync(() => tray?.ShowBalloonTip(3000, "后台处理无法继续", "请从录音库重试；本地音频未删除。", Forms.ToolTipIcon.Warning)); }
     }
 

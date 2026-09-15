@@ -10,6 +10,8 @@ public sealed record ProcessingEntry(string LocalId, string Partition, string Ti
     UploadTicket? Ticket = null, bool UploadCompleted = false, bool TranscriptionAttempted = false, string? JobId = null,
     double Progress = 0, string? Error = null);
 
+public sealed class ProcessingJournalException(string message, Exception inner) : IOException(message, inner);
+
 /// <summary>Account-scoped, resumable uploads. Recording does not wait for this worker.</summary>
 public sealed class CloudProcessing : IAsyncDisposable
 {
@@ -104,6 +106,14 @@ public sealed class CloudProcessing : IAsyncDisposable
         }
         catch (FileNotFoundException) { prior = null; }
         catch (DirectoryNotFoundException) { prior = null; }
+        catch (Exception error) when (error is JsonException or InvalidDataException)
+        {
+            throw new ProcessingJournalException("本地处理记录已损坏，请先在云端录音库核对；本地音频已保留，不会重新上传。", error);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            throw new ProcessingJournalException("暂时无法读取本地处理记录，请稍后重试；本地音频已保留，不会重新上传。", error);
+        }
         var entry = prior ?? new ProcessingEntry(recording.Id, account.Partition, recording.Title, ProcessingStage.Creating);
         if (prior is { Ticket: null, Stage: ProcessingStage.Creating }) entry = entry with { Stage = ProcessingStage.NeedsReconciliation };
         var acquired = false;

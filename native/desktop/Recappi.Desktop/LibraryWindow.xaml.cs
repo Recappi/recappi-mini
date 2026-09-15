@@ -174,7 +174,12 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
         if (account?.State != AccountState.SignedIn || account.Account is null) { showAccount?.Invoke(); return; }
         if (recording is null || processing is null) return;
         try { await processing.StartAsync(recording, account.Account, (recording.Processing ?? new ProcessingOptions()) with { Transcribe = true }); }
-        catch { if (selected?.Id == recording.Id) CloudStatus.Text = "处理无法继续；本地音频已保留。"; }
+        catch (Exception error)
+        {
+            if (!closed && selected?.Id == recording.Id && accountSession?.Snapshot is { State: AccountState.SignedIn, Account: { } current } &&
+                current.Partition == account.Account.Partition && current.Token == account.Account.Token)
+                CloudStatus.Text = error is ProcessingJournalException ? error.Message : "处理无法继续；本地音频已保留。";
+        }
     }
     private async void ExportCaptions(object sender, RoutedEventArgs e)
     {

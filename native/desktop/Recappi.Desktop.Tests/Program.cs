@@ -123,6 +123,7 @@ internal static class Program
                 if (!recoveredPosition.IsEnabled || recoveredPosition.Maximum <= 0) throw new Exception("Native player could not open recovered WAV.");
                 library.Close(); window.Close();
                 await LocalPlaybackTests.RunAsync(root);
+                await ProcessingRecoveryTests.RunAsync(root);
                 await CloudLibraryTests.RunAsync(root, app.Dispatcher);
                 await LibraryProfile.RunAsync(smokeOnly: true);
                 await CloudSearchTests.RunAsync(root, app.Dispatcher);
