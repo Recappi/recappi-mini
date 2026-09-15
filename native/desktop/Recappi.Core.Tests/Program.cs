@@ -71,6 +71,7 @@ async Task Throws(Func<Task> body)
 }
 
 await Test("Native WebSocket handshake preserves rejection status; caption authorization failures do not reconnect", CaptionHandshakeTests.RunAsync);
+await Test("Actual WebSocket reconnect preserves recording PCM, fragmented bilingual captions and stop drainage", () => CaptionTransportTests.RunAsync(root));
 await Test("Current API rejection expires account; delayed old-token rejection cannot expire renewed or signed-out state", () => AccountExpiryTests.RunAsync(root));
 await Test("Billing quota semantics, periods, authenticated portal, safe links and free-plan fallback", BillingTests.RunAsync);
 

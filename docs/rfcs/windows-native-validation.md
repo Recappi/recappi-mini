@@ -1,5 +1,13 @@
 # Windows 原生版验证记录
 
+## 2026-09-15：真实套接字断连与字幕收尾回归
+
+新增 `CaptionTransportTests`，通过本机 TCP listener 完成真实 WebSocket 握手，使用生产 `CaptionConnection`、`LiveCaptions`、`RecordingEngine` 和 `CaptionArchive`。服务端在第一条字幕后直接中断连接，并延迟第二次握手；检查等待重连期间 WAV 继续增长超过 9,600 字节、录音保持 Recording，随后允许握手恢复。转写与双语两条路径均验证两次连接、跨连接相同服务端 item ID 不覆盖归档、音频队列清空，以及停止时最终转写/翻译尾句写入。服务端响应分片，中文分片刻意切在 UTF-8 字符内部。
+
+测试录音使用固定值合成 PCM；逐采样检查 WAV 载荷恒定、头长度/时长吻合、录音时间线没有因断连缩短。它验证实际回环套接字和生产内部链路，**不是**真实 WASAPI、公网服务、账号刷新、系统断网或完整桌面 UI 验收，不新增视频验收通过项。未修改生产代码或发行包。
+
+最终 Release 核心 **26 组全部通过**，报告 `build/native-desktop-validation/core-tests-af834ed471a6404aaa859405d03291d0/results.json`。其下 `transcription-transport/transport-report.json`：3,015 ms、289,490 B WAV、3 条最终归档；`translation-transport/transport-report.json`：333 ms、32,086 B WAV、4 条最终归档。短时长足以验证受控断连顺序，但不能替代长期网络恢复测试。服务端先等待客户端确实收到断连前字幕，再切断连接，不把尚在传输中的字节当作应保留内容。测试结束取消 listener/连接并等待录音及归档完成；不访问现有账号、麦克风或公网。
+
 ## 2026-09-15：真实录音中断恢复视频与暂停跳转修复
 
 使用 x64 自包含包 `93a12b7d689b47f1820d4dec39983618`，独立目录 `build/native-desktop-validation/recovery-real-20260915`，无账号、麦克风/字幕/上传/录音建议关闭。由测试播放器 PID 48480 循环播放 443 Hz，实际 App PID 46640 选择该进程并通过 WASAPI 录音；开始时间 12:24:10 UTC，12:25:44 UTC 仅强制结束本次测试 App，未点击保存。`interruption.json` 核对进程路径及退出，保留当时音频/索引证据。重启 PID 21712 后，原条目从 Recording 变为 Error，明确显示中断说明并开放检查播放。
