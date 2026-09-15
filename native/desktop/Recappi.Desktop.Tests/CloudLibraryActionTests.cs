@@ -90,6 +90,10 @@ internal static class CloudLibraryActionTests
         var linkedWindow = new CloudLibraryWindow(session, localLibrary: localView, processingEntries: _ => [link]) { ShowActivated = false, ConfirmDelete = _ => true };
         linkedWindow.Show(); await Idle();
         var linkedList = (ListBox)linkedWindow.FindName("Recordings");
+        // Dispatcher idle alone doesn't prove the async Loaded refresh has finished.
+        using var linkedDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!linkedList.Items.Cast<LibraryRecording>().Any(x => x.Cloud?.Id == "r1"))
+            await Task.Delay(25, linkedDeadline.Token);
         linkedList.SelectedItem = linkedList.Items.Cast<LibraryRecording>().Single(x => x.Cloud?.Id == "r1"); await Idle();
         ((Button)linkedWindow.FindName("DeleteButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Idle();
         if (linkedList.Items.Count != 2 || linkedList.Items.Cast<LibraryRecording>().Any(x => x.Cloud?.Id == "r1") || linkedList.SelectedItem is not LibraryRecording { Local: not null, Cloud: null } || localStore.List().Count != 1 || !((FrameworkElement)linkedWindow.FindName("LocalDetail")).IsVisible)

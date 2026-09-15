@@ -89,6 +89,17 @@ public partial class App : Application
         }
         catch (WaitHandleCannotBeOpenedException) { }
         var overrideRoot = Environment.GetEnvironmentVariable("RECAPPI_DESKTOP_DATA_DIR");
+        // Packaged activation doesn't inherit the launching shell's environment.
+        // An explicit isolated directory keeps lifecycle validation away from user data.
+        if (e.Args.Length == 2 && e.Args[0] == "--validation-data-dir")
+        {
+            if (!Path.IsPathFullyQualified(e.Args[1]))
+            {
+                MessageBox.Show("验证数据目录必须是绝对路径。", "Recappi Mini");
+                Shutdown(); return;
+            }
+            overrideRoot = e.Args[1];
+        }
         var applicationRoot = Path.GetDirectoryName(Path.GetFullPath(overrideRoot ?? LocalRecordingStore.DefaultRoot))!;
         preferencesStore = new PreferencesStore(applicationRoot);
         try { preferences = preferencesStore.Load(); } catch (Exception) { preferencesLoadFailed = true; }

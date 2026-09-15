@@ -121,3 +121,24 @@ x64 ZIP 减少约 7.82%，解压文件长度减少约 9.31%；ARM64 分别约 8.
 新 MSIX 再次通过 SDK 与全部载荷哈希检查：x64 `build/native-msix/477ce849082a4685b5bfe5b22e866801`，69,817,161 字节，SHA256 `9125d8b28b1fbc4ba70b7ecd198722227b2a08b11c934d8c91c5fd20156f8c73`；ARM64 `build/native-msix/6829ee3ff4fd4413a3e64f59e786e375`，64,851,794 字节，SHA256 `7dd16506e63ec6e1b1f8da6f26d521099df82d4029fc0423b33dc1a9a5bec94e`。均未签名、未安装、非 Store-ready。
 
 实际安装进程的包身份检测、设置外观/键盘/商店打开视频、录音期间更新策略和干净环境仍待验收。注入身份测试不能替代真实 MSIX 行为。参考：[包身份 API](https://learn.microsoft.com/en-us/windows/win32/api/appmodel/nf-appmodel-getcurrentpackagefullname)、[Store URI](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-store-app)。
+
+## 真实包激活与设置视频（2026-09-15）
+
+本机预检：Windows 开发者模式已开启、当前会话未提权、没有 Windows Sandbox。先从干净提交 `07127dd` 发布双架构精简候选 `8be365d0a9f94d8992e4855923275931`（报告 sourceDirty=false），没有把开发机当干净系统。
+
+用 `Add-AppxPackage -Register` 注册独立开发身份；直接运行注册目录的 EXE 后，`GetPackageFullName` 返回 15700（未打包），因此拒绝把该次启动算作 MSIX 验收。改用 `IApplicationActivationManager` 的 AUMID 激活。为避免包激活不继承 shell 环境而读到原有账号，新增显式 `--validation-data-dir <绝对目录>` 和 `scripts/start-native-msix-validation.ps1`：要求无 Recappi 实例、唯一开发注册，创建无账号、无自动上传/字幕/麦克风的独立设置，按 AUMID 激活，再核对实际进程完整包身份。
+
+实际进程 PID 44692，AUMID `Recappi.Mini.Development_j5b8m4d3awvt8!App`，核实完整身份 `Recappi.Mini.Development_1.0.0.0_x64__j5b8m4d3awvt8`。设置目录 UI 同时显示指定隔离目录。证据：`build/native-desktop-validation/msix-launch-bde8588f25904d89b37b2f1d8f2ffb8e/activation.json`。这是开发注册后的真实包身份，仍不是已签名 MSIX 安装或 Store 来源证明。
+
+本次用于激活的 x64 包包含新的隔离目录参数：发布目录 `6cdc8792130242cc81b71385534f5165`，MSIX `build/native-msix/7d2576562d83460ba2a8b15303b7bd73`，69,817,969 字节，SHA256 `e6988cea644bb44edf6de0e902fc3879bf57ae60b69e068dd9ba0105b3216d0e`；后续 ARM64 对应发布 `726f33ee417146039f6c4485c53009c2`，MSIX `66665c7fa07d442c9f64ed15d59f7896`，64,852,616 字节，SHA256 `e305136c7a1c3daeeadc9d2c48109b81c5a0d57e3936b791fee194e2b11407ca`。新增参数后的包 sourceDirty=true；双架构 SDK/内容哈希验证通过，ARM64 未运行。
+
+设置内容区视频 `build/native-desktop-validation/msix-video-20260915/settings.mp4`：53.733 秒 / 15 fps / 806 帧→4 个关键帧，SHA256 `b351ca954abfab6341c53013dbdaf034def4a79258c72801da548a90d6f5efc8`。实际查看全部关键帧及关于页原尺寸图，AI 分析加自动证据门禁报告 `acceptance.html`：
+
+- 通过 3 项：MSIX 说明与 Store/原渠道入口、通用→关于往返保持渠道、当前浅色尺寸的关于页布局与中文换行。没有便携 ZIP 检查/下载/解压提示。
+- 证据不足 2 项：未点击 Store 按钮；未验证签名安装/干净环境生命周期。视频不覆盖窗口边框、启动、录音、升级；停止录制后的末条事件被标为视频外，不用来判通过。
+
+已清理本次开发注册，没有写入或导入系统证书；用户原有录音/账号未用于验收。清理时误把选项弹层的账号入口识别为退出，打开了账号窗口但未登录。随后的进程存活门禁拦住卸载；核对本次 PID/路径、UI 空闲、隔离目录无录音/账号后停止进程并移除精确注册，`cleanup.json` 明确 normalQuitVerified=false。后续弹层底部操作必须先获取可读标签或滚动后的清晰图，不以相近按钮位置推断退出。
+
+本轮完整 WPF 回归曾在本地/云端关联删除用例失败：只等待 Dispatcher Idle 就假定 async Loaded 已载入列表。新增最多 5 秒等待目标录音实际出现，再运行原有严格删除/保留断言；重跑完整 Release 回归通过。不得把一次调度空闲当数据加载完成。
+
+剩余：正式签名安装、真实 Store 打开、包身份下录音/导入/导出、正常退出、升级数据保留/卸载重装、干净系统及 ARM64 实机。开发注册清理不等于安装生命周期通过。
