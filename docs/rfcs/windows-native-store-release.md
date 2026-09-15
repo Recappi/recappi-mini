@@ -87,4 +87,25 @@ x64 ZIP 减少约 7.82%，解压文件长度减少约 9.31%；ARM64 分别约 8.
 
 `measure-native-startup.ps1 -Iterations 5` 顺序测基线及候选，未登录、无录音/联网、隔离数据目录，正常退出均通过。基线中位 818.22 ms（787.53–918.17），候选 783.15 ms（778.03–882.30）。报告分别为 `build/native-desktop-validation/startup-profile-27b6b7d7a7144fbab713fe530f8afd6c/results.json` 和 `startup-profile-b87bd6454d68471994d4bcc92479a8b8/results.json`。开发机暖文件缓存、小样本、顺序测试，不能据此宣称启动性能提升；它只证明本轮就绪和退出未失败。此测量不作 UI 外观验收，没有替代要求中的录像。
 
-仍待：候选双架构完整资源审计、中文/其他系统语言回退及原生对话框视频、录音/托盘功能回归、干净提交重建、MSIX、干净环境和 ARM64 真机。候选尚未替换默认发布配置。
+仍待：中文/其他系统语言回退及原生对话框视频、录音/托盘功能回归、干净提交重建、MSIX 安装生命周期、干净环境和 ARM64 真机。候选尚未替换默认发布配置。
+
+## 首轮 MSIX 构建（2026-09-15）
+
+新增 `native/desktop/packaging/AppxManifest.xml` 和 `scripts/build-native-msix.ps1`。采用 WPF full-trust 桌面入口，声明麦克风，无摄像头/WebView/WinUI 依赖；默认开发身份 `Recappi.Mini.Development`，正式身份需显式传入。脚本接受已发布目录，先执行自包含依赖审计，再生成唯一输出目录，运行 Windows SDK MakeAppx（未跳过校验），逐个核对全部源文件与生成包内的长度和 SHA256。未执行签名、证书信任安装、MSIX 安装或 Store 上传。
+
+复现：`powershell -NoProfile -File scripts/build-native-msix.ps1 -PackageDirectory '<已发布自包含目录>'`。可选 `-IdentityName`、`-Publisher`、`-PublisherDisplayName`、`-PackageVersion`、`-MakeAppxPath`。版本要求 Major.Minor.Patch.0，major >= 1，各分量 <= 65535；自动从已装 Windows SDK 选择 x64 MakeAppx 工具，产物架构从应用 PE 头读取。
+
+输入为上节修正候选 `9c1c4a312d0f43a6a5c42f03bc65e3af`。新增完整审计通过：x64 271 文件、164,185,922 字节；ARM64 270 文件、178,439,480 字节。两者均保留 17 个简体中文 satellite DLL，分别 1,257,128 / 1,257,144 字节。报告 `build/native-package-audit/corrected-x64.json`、`corrected-arm64.json`。
+
+| 架构 | 未签名 MSIX 字节 | 验证载荷文件 | 输出根目录（build/native-msix/ 下） |
+| --- | ---: | ---: | --- |
+| x64 | 69,816,521 | 273 | `1e335e185dd74a80862592da9e5c9df4` |
+| ARM64 | 64,851,151 | 272 | `ea1da338df9a4323bee872739e630e10` |
+
+各目录含 `msix-report.json`、`source-inventory.json`、`makeappx.log`、payload 和 MSIX。SHA256：x64 `e83c7d580ad9c69f5fa87a517b5db679bc6812c048158876334b2888a8c1cbc0`；ARM64 `5bf9faa340173a38fb1b913001b97bc09fbf3bd8464ca4ad0fb9ef9e913e8dbb`。MSIX 文件长度不是实际商店传输、安装占用或优化前后同格式对比。
+
+首次核对把 OPC 包内 `Recappi%20Mini.exe` 当普通 ZIP 文件名，误报 deps.json 缺失。原因是未处理 MSIX part name 的 URL 编码，MakeAppx 本身成功；已解码后核对并拒绝重复映射，两架构所有载荷重新校验通过。后续不可退回以原始 ZIP entry 名对照 Windows 文件名。
+
+此批仍明确 `signed=false`、`installed=false`、`storeReady=false`。manifest 的最低系统 19041 是候选值，必须结合 .NET 支持范围、进程音频限制和干净系统验收再定；当前沿用 256px 品牌图，尚未完成 Store 素材/高 DPI 图标验证。未完成 Store 更新路由、公共符号上传容器、包身份与数据路径、开发签名安装/升级/卸载/重装、Windows App Certification Kit 和正式身份校验，不勾选商店发布总门禁。打包没有 UI 操作，本节不声称通过视频验收。
+
+实现参考：[微软手动生成 MSIX 包组件](https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-manual-conversion)、[MakeAppx 工具](https://learn.microsoft.com/en-us/windows/msix/package/create-app-package-with-makeappx-tool)。
