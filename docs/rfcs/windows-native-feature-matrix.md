@@ -22,7 +22,7 @@
 | N12 | 上传、分块、排队、后台处理；processSession | CloudProcessing 持久任务/上传关联、轮询/取消/重试；App 完成提醒与自动上传 | ProcessingTests 恢复/隔离、真实 C# 上传转写流水线；完整桌面后台处理并录新会、关窗与网络恢复待验 |
 | N13 | 本地完成与失败恢复；DoneState / ErrorState | LocalRecordingStore、LocalLibraryView；启动恢复中断会话的 WAV/时长，保留载荷、标记中断、禁止自动上传 | 完整 App 实际 WASAPI 进程录音强制结束→重启恢复 93.723 秒音频，载荷哈希保持；恢复提示/播放视频通过。合成故障回归与 WPF 媒体打开已验；掉电、混录、云字幕恢复仍待验 |
 | N14 | 双语实时流、连接与重连；LiveRealtimeSessionConnector | LiveCaptions / CaptionConnection / CaptionPcmEncoder；延迟启动屏障、有界队列、手动重连、重新登录续写 | CaptionTests 首条归档、停止/终止、重试、归档故障隔离；新增真实回环 WebSocket 断连/握手等待期间音频增长、重连及双语尾句归档回归；完整 App 受控 WASAPI→真实双语归档已验。回环测试用合成音频/服务；混录、公网断网/过期/账号竞争仍待验 |
-| N15 | 字幕展开/紧凑、显隐、完整句；LiveCaptionFloatingPanel | CaptionWindow 双语/紧凑/显示选项、隐藏恢复、独立持续归档警告 | CaptionWindowTests 通过；所有实窗尺寸、焦点、DPI 与完整 App 重连操作待验 |
+| N15 | 字幕展开/紧凑、显隐、完整句；LiveCaptionFloatingPanel | CaptionWindow 展开独立双栏/紧凑双行、单路占满、至少一路、纯转写配置、各自跟随与历史滚动、隐藏恢复、独立归档警告 | 长句末字几何/360 与 650 宽度/状态组合 WPF 通过；真实 App 视频 5 项通过、3 项证据不足，覆盖双语可见/停止保留/自然重连。历史滚动视频、模式及隐藏连续过程、全部尺寸/焦点/DPI/断网与过期恢复仍待验 |
 | N16 | 库分页、账号隔离与状态；CloudCenterPanel / CloudLibraryStore | CloudLibraryWindow 统一日期列表、本机/云端详情、当前会议、已确认副本关联；单一 App 窗口 | CloudLibraryTests 500 行真实 WPF 容器/分页/选择/隔离；10,000 行合成数据性能；实际本机搜索/选择/播放。真实云合并、离线切换与整套导航待验 |
 | N17 | 音频导入、本地副本、浏览器/目录；CloudLibraryStore+Audio | AudioImport 使用 Media Foundation；LocalLibraryView 导入/上传；云音频下载/副本/可信来源浏览器链接 | AudioImportTests 实际 WAV/MP3/M4A 编解码与取消；AudioDownloadTests、WPF 副本/关联测试；完整文件对话框、大文件与可选编解码器待验 |
 | N18 | 全库缓存搜索与说话人过滤；searchCachedRecordings / CloudRecordingDetail | CloudContentCache + 统一搜索；仅搜索本机标题与当前账号已缓存云内容；TranscriptPanel 说话人/文字过滤 | 缓存持久化/隔离/损坏回归、CloudSearchTests、实际本机关键词定位；真实大云库和统一说话人搜索操作待验 |

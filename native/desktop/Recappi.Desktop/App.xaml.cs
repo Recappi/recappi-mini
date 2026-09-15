@@ -332,6 +332,7 @@ public partial class App : Application
             captionWindow = new CaptionWindow(RetryCaptionsAsync);
             captionWindow.Closing += (_, e) => { if (!quitting) { e.Cancel = true; captionWindow.Hide(); } };
         }
+        captionWindow.ConfigureTranslation(!string.IsNullOrWhiteSpace(recorder?.TranslationLanguage));
         captionWindow.Show();
     }
     private bool CanResumeCaptions() => !quitPending && !quitting && recorder?.Engine.Snapshot.State == RecordingState.Recording && recorder.CaptionsEnabled &&

@@ -87,9 +87,18 @@ def analyze(video, events_path, output):
     expected = int(stream.get("nb_frames", index))
     if index != expected:
         raise ValueError(f"Decoded {index} frames, expected {expected}.")
+    # Decode selected frame indices in one pass. Rounded time seeks can select
+    # the following frame, or no frame at all when the retained frame is last.
+    selection = output / "selection.filter"
+    selection.write_text("select=" + "+".join(f"eq(n\\,{frame['frame']})" for frame in kept), encoding="utf-8")
+    run("ffmpeg", "-v", "error", "-i", str(video), "-filter_script:v", str(selection),
+        "-fps_mode", "vfr", "-start_number", "0", str(output / "selected-%06d.png"))
+    extracted = sorted(output.glob("selected-*.png"))
+    if len(extracted) != len(kept):
+        raise ValueError(f"Extracted {len(extracted)} selected frames, expected {len(kept)}.")
     for number, frame in enumerate(kept):
         name = f"key-{number:03d}-{frame['seconds']:07.3f}.png"
-        run("ffmpeg", "-v", "error", "-ss", str(frame["seconds"]), "-i", str(video), "-frames:v", "1", str(output / name))
+        extracted[number].rename(output / name)
         frame["image"] = name
     with video.open("rb") as source:
         digest = hashlib.file_digest(source, "sha256").hexdigest()
