@@ -19,6 +19,7 @@ internal static class Program
                 if (args.Contains("--idle-profile")) { await IdleProfile.RunAsync(); exit = 0; return; }
                 if (args.Contains("--recording-ui-profile")) { await RecordingUiProfile.RunAsync(args.Contains("--software-rendering")); exit = 0; return; }
                 if (args.Contains("--library-profile")) { await LibraryProfile.RunAsync(); exit = 0; return; }
+                if (args.Contains("--library-lifetime-profile")) { await LibraryLifetimeProfile.RunAsync(args.Contains("--hold-for-dump")); exit = 0; return; }
                 var root = Path.GetFullPath(Path.Combine("build", "native-desktop-validation", "ui-smoke-" + Guid.NewGuid().ToString("N")));
                 if (args.Contains("--onboarding-stress"))
                 {

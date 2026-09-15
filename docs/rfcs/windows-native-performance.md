@@ -219,4 +219,14 @@
 
 完整链路最终保存 323.015 秒音频和双语最终归档，详见验证记录；不代表长时间内存稳定、性能已经合格或字幕准确率评测通过。另观察到启动后窗口截图暂为空白、打开选项后正常，尚需区分捕获与绘制问题；首帧事件就绪不等同完整可见首屏验收。
 
+### 2026-09-16：关闭录音库后的对象生命周期诊断（未通过）
+
+新增独立入口 `dotnet run --project native/desktop/Recappi.Desktop.Tests -c Release -- --library-lifetime-profile`。真实 WPF 录音库连续打开、播放本地合成 WAV、发起搜索并关闭八轮；账号未登录，没有真实云端请求。每轮验证音频文件可独占读写，关闭后继续触发账号恢复通知。宿主窗口保持存活，避免把录音库误设为 Application.MainWindow。默认测试入口不运行该诊断；诊断保留严格失败退出，不能当作通过项。
+
+实际结果：24 个弱引用观察对象中，前七轮的 21 个对象已回收，最后一轮的 CloudLibraryWindow、LocalLibraryView 和 AudioPlayer 仍被观察到。八轮独占音频文件检查均通过。移除逐轮弱引用观察、最后额外等待约 30 秒并执行 30 次强制回收后，结果相同；另开的普通 WPF 窗口已回收。这证明本次音频句柄释放正常，且观察到最后一组对象保留；不能由有限轮次推出长期内存稳定，也不能直接确定保留根因。
+
+30 秒对照原始报告：`build/native-desktop-validation/library-lifetime-666b1061aefe4a4aaa879c61114c8d15/results.json`。最终入口复测报告 `library-lifetime-924ea364874447e091bd955393a597c2/results.json` 记录 .NET 10.0.9 / X64、UTC 起止时间、全部八轮句柄检查及三个保留对象，严格检查退出码为 1。移除逐轮观察、短等待对照：`library-lifetime-cae770035e9845c6bb7c323b39c53c06/results.json`（均为同一父目录）。生产代码未因本次诊断修改。
+
+更早同类运行的完整堆转储与 GC 事件图保存在 `build/native-desktop-validation/library-lifetime-584fb22c1a624adb987e47084197313f/`。事件图路径经过 Dependent Handles、EventHandler、RepeatButton 和 EffectiveValueEntry[] 回到窗口；普通 gcroot 未找到引用根。**依赖句柄只在键存活时保留值，事件图把它列为根不能证明键自身有独立强引用**，因此此路径仅为排查线索，不认定 WPF 按钮事件就是泄漏根因。转储不进入仓库或发布包。
+
 可见窗口空闲 CPU 存在波动，尚未归因；分页及跨日刷新仍有超过一帧的主线程耗时。已有未登录新进程启动样本不证明整体轻量化达标。继续测重启后冷缓存/首次引导/已登录恢复启动、最新产物托盘空闲、真实录音、录音加字幕、长逐字稿、隐藏窗口和长期内存变化；真实磁盘大库/缓存搜索、网络分页、ARM64 也需独立测量。框架基础探针及早期录音面板采样见 [验证记录](windows-native-validation.md)，其范围不能替代本轮或最终验收。
