@@ -1,6 +1,40 @@
 # Windows 商店发布与体积优化
 
-2026-09-15 用户新增交付要求；本文件是主计划阶段 5 的强制验收项。当前完成参考调查和包审计，优化实现、MSIX 和干净环境验收尚未完成。
+2026-09-15 用户新增交付要求；本文件是主计划阶段 5 的强制验收项。当前已有语言/符号精简候选、双架构 MSIX、同一干净提交的体积/启动对照；签名安装、资源回退的完整行为验证及干净环境验收尚未完成。
+
+## 同一干净提交的包与启动对照（2026-09-15）
+
+从 `7b2272a9dbbb138a145def94060bf336eb3e67bc` 分别运行默认 `scripts/publish-native-desktop.ps1` 和 `-ResourceOptimizationCandidate`，两份报告均 `sourceDirty=false`、版本 `0.1.0-preview.1`。基线目录 `build/native-desktop-release/8e17103065be4428ad71e199ffedc0da`，候选目录 `build/native-desktop-release/093416eb1afc414f98a61e560ab5fdb5`。本节取代旧 dirty 构建作为当前包差值依据，旧数据保留为过程记录。
+
+新增可重复门禁 `scripts/compare-native-packages.ps1 -BaselineReleaseDirectory <基线发布根目录> -CandidateReleaseDirectory <候选发布根目录> -OutputDirectory <全新证据目录>`。要求同一干净提交、同版本及准确的双架构配置；重新校验 ZIP 长度/SHA256，调用包审计核对运行时/音频/主题依赖及禁止载荷，比较全部保留文件哈希。只允许移出 PDB 和非 zh-Hans 的 satellite resources，PDB 必须在候选 `symbols/<runtime>` 中保留且哈希一致；任何新增、改写或其他删除均拒绝。不安装或改写发布目录。
+
+当前候选 x64 的 271 个、ARM64 的 270 个保留文件全部与基线相同。每架构移出 204 个其他语言资源文件、2 个 PDB；17 个 zh-Hans 资源保留。解压逻辑减少中，x64 语言资源 16,685,288 B、符号 170,532 B；ARM64 分别 16,685,624 B / 170,540 B。没有删除 WPF/WinForms/NAudio 运行时程序集。这里按文件解释组合优化的逻辑字节；未声称可以把 ZIP/MSIX 压缩差值精确拆分到单项。
+
+| 架构 / 度量（字节） | 基线 | 候选 | 减少 |
+| --- | ---: | ---: | ---: |
+| x64 ZIP | 76,822,806 | 70,962,627 | 5,860,179（7.63%） |
+| ARM64 ZIP | 71,220,896 | 65,360,635 | 5,860,261（8.23%） |
+| x64 发布文件逻辑长度 | 181,052,494 | 164,196,674 | 16,855,820（9.31%） |
+| ARM64 发布文件逻辑长度 | 195,306,396 | 178,450,232 | 16,856,164（8.63%） |
+| x64 未签名 MSIX | 75,818,059 | 69,823,005 | 5,995,054（7.91%） |
+| ARM64 未签名 MSIX | 70,853,042 | 64,857,640 | 5,995,402（8.46%） |
+
+四份 MSIX 使用相同开发身份、版本 `1.0.0.0` 和 SDK 校验流程。基线 x64/ARM64 分别验证 479/478 个载荷文件，候选为 273/272；均未签名、未安装、非 Store-ready。包长度不是实际商店传输或安装分配空间。
+
+| 产物 | 报告所在目录（build/native-msix/ 下） | SHA256 |
+| --- | --- | --- |
+| 基线 x64 | `4ed3764eab594616ad6fa4528feae45a` | `a92251cebee72220cee660ba96e8ca090749ed7acdcd7d284076767e6316839f` |
+| 候选 x64 | `b154682c71c849fd977159f874967a7c` | `7101417e4891f3984431f519c3fb68fe4956f6d047bba01174fc0051556e62b5` |
+| 基线 ARM64 | `5d31cbd822304b64aa6eb4df2213fcb9` | `4f00608294bb147b477b4a445f193f51986a2eeb7400fe90eba335bb8a261c48` |
+| 候选 ARM64 | `bf73b77ed6724b7c80b5e43739a43f8e` | `c081943a76b5b3a84e52aa9192d9f61029618ca65917a5d2a7f399eef6a22950` |
+
+ZIP SHA256 基线 x64 `e68403be192a0e60ff8ad336d1044d7777a6b2c77ebb7e0d377753c814d6a43d`、ARM64 `d39e4151a67ec7ab1506a62995dca4a1ea7afa0a2efb45961d76d439cff9d4ff`；候选 x64 `b8fafdb9c8c2361f6d7b96070be92bb7f1d06868ec0a73ef6834e20739be8c7a`、ARM64 `8654baedd889c7622d95c75c247912827a343c1e3de49bfe80d069e73d54a7c8`。
+
+完整 x64 App 交替顺序运行 5 对新进程启动，10 次都验证 SignedOut/Idle、首帧事件与设备枚举完成、开始命令可用，并正常退出码 0。基线就绪观察中位 **760.16 ms**（749.93–824.42），候选 **779.37 ms**（757.28–816.02），原始逐次值见 [性能报告](windows-native-performance.md)。使用暖文件缓存、隔离预配置数据、无账号/采集/字幕/上传/建议；没有清缓存或重启系统，也没有启动 CPU/内存对照。两组范围重叠、样本少，候选中位多约 19 ms，不据此声称提速或排除稳定回归。
+
+证据根目录 `build/native-desktop-validation/release-ab-20260915`：`verified-comparison-v2/comparison.json` 及四份完整清单、`startup-pairs.json` 链接十份启动报告、`summary.json` 汇总。比较脚本用已知 dirty 候选及相同基线配置作负向检查，均在对应门禁拒绝；另以 `powershell -NoProfile -File` 完整执行通过，结果在 `windows-powershell-comparison`。首次汇总输出的 OrderedDictionary 经 Select-Object 变为 null，已改 PSCustomObject 并在新目录完整重跑，最终汇总字段有效。
+
+本轮生产代码未改，不重述之前的录音/字幕视频为当前两包新增的行为验收。默认发布仍保留完整语言/符号，候选继续单独提供。冷启动、首次安装、实际占用/商店差分、各语言原生对话框/错误信息、ARM64 运行及签名生命周期仍待完成，相关总门禁不勾选。
 
 ## 已核实的 ScreenCam 参考
 
