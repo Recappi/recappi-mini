@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -186,16 +185,11 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
             if (waitForCaptions is not null) await waitForCaptions();
             var dialog = new Microsoft.Win32.SaveFileDialog { Title = "导出实时字幕", FileName = "captions.txt", Filter = "文本文件 (*.txt)|*.txt|字幕归档 (*.jsonl)|*.jsonl", AddExtension = true };
             if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
-            var source = store.CaptionPath(recording);
-            if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(dialog.FileName), StringComparison.OrdinalIgnoreCase)) { Status.Text = "请选择归档原文件以外的导出位置。"; return; }
-            if (dialog.FilterIndex == 2) File.Copy(source, dialog.FileName, true);
-            else
-            {
-                using var output = new StreamWriter(dialog.FileName, false, new UTF8Encoding(false));
-                foreach (var caption in CaptionArchive.Read(source)) output.WriteLine((caption.Stream == "translation" ? "[译文] " : "[原文] ") + caption.Text);
-            }
+            if (closed || selected?.Id != recording.Id) { Status.Text = "录音选择已变化，请重新导出。"; return; }
+            CaptionExport.Save(store, recording, dialog.FileName, dialog.FilterIndex == 2);
             Status.Text = "实时字幕已导出。";
         }
+        catch (InvalidOperationException error) { Status.Text = error.Message; }
         catch (Exception) { Status.Text = "字幕导出失败，请检查目标位置后重试。"; }
     }
 }
