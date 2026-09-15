@@ -58,7 +58,35 @@ internal static class UpdatePanelTests
         var pending = waiting.CheckAsync(); await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
         waitingWindow.Close(); await pending.WaitAsync(TimeSpan.FromSeconds(3));
         if (!canceled) throw new Exception("Closing settings left update request running.");
+        foreach (var mode in new[] { DesktopDistribution.Packaged, DesktopDistribution.Unknown })
+        {
+            var clientCreated = false;
+            Uri? opened = null;
+            var openFails = false;
+            var installed = new UpdatePanel(() => { clientCreated = true; throw new Exception("Installed app must not contact portable feed."); },
+                "1.0.0", "win-x64", mode, uri => { if (openFails) throw new InvalidOperationException(); opened = uri; });
+            var original = Path.Combine(root, "installed-update-target.zip");
+            File.WriteAllText(original, "preserve");
+            await installed.CheckAsync(); await installed.DownloadAsync(original);
+            if (clientCreated || File.ReadAllText(original) != "preserve" ||
+                ((Button)installed.FindName("CheckButton")).Visibility != Visibility.Collapsed ||
+                ((Button)installed.FindName("DownloadButton")).Visibility != Visibility.Collapsed)
+                throw new Exception("Installed or unknown distribution reached portable update behavior.");
+            var storeButton = (Button)installed.FindName("StoreButton");
+            storeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+            if (mode == DesktopDistribution.Packaged)
+            {
+                if (storeButton.Visibility != Visibility.Visible || opened?.Scheme != "ms-windows-store" || opened.Host != "downloadsandupdates")
+                    throw new Exception("Packaged update did not route to Store downloads.");
+                openFails = true; storeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                if (!((TextBlock)installed.FindName("UpdateStatus")).Text.Contains("无法打开 Microsoft Store"))
+                    throw new Exception("Store launch failure omitted recovery instructions.");
+            }
+            else if (opened is not null || storeButton.Visibility != Visibility.Collapsed)
+                throw new Exception("Unknown distribution guessed an update channel.");
+        }
         Console.WriteLine("PASS native update panel explicit check, failure/retry, verified download and close cancellation.");
+        Console.WriteLine("PASS packaged/unknown update isolation, Store routing and launch failure recovery (injected identity).");
     }
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
     {

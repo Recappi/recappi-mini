@@ -109,3 +109,15 @@ x64 ZIP 减少约 7.82%，解压文件长度减少约 9.31%；ARM64 分别约 8.
 此批仍明确 `signed=false`、`installed=false`、`storeReady=false`。manifest 的最低系统 19041 是候选值，必须结合 .NET 支持范围、进程音频限制和干净系统验收再定；当前沿用 256px 品牌图，尚未完成 Store 素材/高 DPI 图标验证。未完成 Store 更新路由、公共符号上传容器、包身份与数据路径、开发签名安装/升级/卸载/重装、Windows App Certification Kit 和正式身份校验，不勾选商店发布总门禁。打包没有 UI 操作，本节不声称通过视频验收。
 
 实现参考：[微软手动生成 MSIX 包组件](https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-manual-conversion)、[MakeAppx 工具](https://learn.microsoft.com/en-us/windows/msix/package/create-app-package-with-makeappx-tool)。
+
+## MSIX 更新渠道隔离（2026-09-15）
+
+应用使用 Windows `GetCurrentPackageFullName` 判断 Portable / Packaged / Unknown。只有明确未打包的应用才使用现有 GitHub ZIP 更新路径；MSIX 版隐藏 ZIP 检查/下载入口，打开 Microsoft Store 下载与更新页，并说明测试/组织分发需使用原安装渠道。包身份不等于已从 Store 安装，故不宣称开发包由 Store 自动更新。无法识别时禁用便携更新并显示恢复说明。
+
+`dotnet run --project native/desktop/Recappi.Desktop.Tests -c Release` 全部通过，新增注入 Packaged/Unknown 的回归证明不会创建 ZIP 更新客户端或修改目标文件；Store 按钮 URI 路由和启动失败提示通过，既有便携检查、下载校验、取消回归仍通过。测试中本地 `Button(string)` 函数遮蔽了 Button 类型导致首次编译失败，已对 RoutedEvent 静态访问使用完整类型名；完整回归重跑成功。后续扩展这些测试时避免与局部帮助函数重名的未限定类型访问。
+
+已重新生成双架构精简候选 `build/native-desktop-release/b377a7d0f140449fbf88d793f7134df7`（`797c908` + dirty，含本次更新路由改动）。x64 ZIP 68,625,280 字节 / 解压 164,187,970；ARM64 ZIP 63,451,377 / 解压 178,441,528。默认发布仍未启用精简。
+
+新 MSIX 再次通过 SDK 与全部载荷哈希检查：x64 `build/native-msix/477ce849082a4685b5bfe5b22e866801`，69,817,161 字节，SHA256 `9125d8b28b1fbc4ba70b7ecd198722227b2a08b11c934d8c91c5fd20156f8c73`；ARM64 `build/native-msix/6829ee3ff4fd4413a3e64f59e786e375`，64,851,794 字节，SHA256 `7dd16506e63ec6e1b1f8da6f26d521099df82d4029fc0423b33dc1a9a5bec94e`。均未签名、未安装、非 Store-ready。
+
+实际安装进程的包身份检测、设置外观/键盘/商店打开视频、录音期间更新策略和干净环境仍待验收。注入身份测试不能替代真实 MSIX 行为。参考：[包身份 API](https://learn.microsoft.com/en-us/windows/win32/api/appmodel/nf-appmodel-getcurrentpackagefullname)、[Store URI](https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-store-app)。

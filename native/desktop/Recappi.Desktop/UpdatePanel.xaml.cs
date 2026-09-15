@@ -17,6 +17,8 @@ public partial class UpdatePanel : UserControl
     private readonly Func<DesktopUpdates> createClient;
     private readonly string currentVersion;
     private readonly string runtime;
+    private readonly DesktopDistribution distribution;
+    private readonly Action<Uri> openUri;
     private CancellationTokenSource? operation;
     private DesktopRelease? available;
     private string? downloaded;
@@ -24,9 +26,24 @@ public partial class UpdatePanel : UserControl
         ?? typeof(UpdatePanel).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     public UpdatePanel() : this(() => new DesktopUpdates(), CurrentVersion, RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64") { }
-    public UpdatePanel(Func<DesktopUpdates> createClient, string currentVersion, string runtime)
+    public UpdatePanel(Func<DesktopUpdates> createClient, string currentVersion, string runtime,
+        DesktopDistribution? distribution = null, Action<Uri>? openUri = null)
     {
         InitializeComponent(); this.createClient = createClient; this.currentVersion = currentVersion; this.runtime = runtime;
+        this.distribution = distribution ?? DesktopDistributionDetector.Detect();
+        this.openUri = openUri ?? (uri => Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }));
+        if (this.distribution != DesktopDistribution.Portable)
+        {
+            CheckButton.Visibility = DownloadButton.Visibility = ReleaseButton.Visibility = Visibility.Collapsed;
+            CheckButton.IsEnabled = DownloadButton.IsEnabled = false;
+            StoreButton.Visibility = this.distribution == DesktopDistribution.Packaged ? Visibility.Visible : Visibility.Collapsed;
+            UpdateDescription.Text = this.distribution == DesktopDistribution.Packaged
+                ? "当前为 MSIX 安装版，更新由原安装渠道管理。"
+                : "暂时无法识别此应用的安装方式。";
+            UpdateStatus.Text = this.distribution == DesktopDistribution.Packaged
+                ? "从 Microsoft Store 安装的版本，请在商店中检查更新；测试或组织分发的版本，请使用原渠道提供的新版安装包。"
+                : "请关闭并重新打开设置后重试，或从原安装渠道获取更新。";
+        }
         Unloaded += (_, _) => operation?.Cancel();
     }
     private void SetBusy(bool value)
@@ -38,7 +55,7 @@ public partial class UpdatePanel : UserControl
     private async void Check(object sender, RoutedEventArgs e) => await CheckAsync();
     public async Task CheckAsync()
     {
-        if (operation is not null) return;
+        if (distribution != DesktopDistribution.Portable || operation is not null) return;
         using var cancellation = new CancellationTokenSource(); operation = cancellation;
         available = null; SetBusy(true); UpdateStatus.Text = "正在检查官方发布…";
         try
@@ -56,13 +73,13 @@ public partial class UpdatePanel : UserControl
     }
     private async void Download(object sender, RoutedEventArgs e)
     {
-        if (available is null || operation is not null) return;
+        if (distribution != DesktopDistribution.Portable || available is null || operation is not null) return;
         var dialog = new SaveFileDialog { Title = "保存 Windows 更新包", FileName = available.FileName, Filter = "ZIP 更新包|*.zip", AddExtension = true, OverwritePrompt = true };
         if (dialog.ShowDialog(Window.GetWindow(this)) == true) await DownloadAsync(dialog.FileName);
     }
     public async Task DownloadAsync(string destination)
     {
-        if (available is null || operation is not null) return;
+        if (distribution != DesktopDistribution.Portable || available is null || operation is not null) return;
         using var cancellation = new CancellationTokenSource(); operation = cancellation;
         SetBusy(true); DownloadProgress.Value = 0; DownloadProgress.Visibility = Visibility.Visible;
         UpdateStatus.Text = "正在下载并验证更新包…";
@@ -81,8 +98,15 @@ public partial class UpdatePanel : UserControl
     private void Cancel(object sender, RoutedEventArgs e) => operation?.Cancel();
     private void OpenRelease(object sender, RoutedEventArgs e)
     {
-        try { Process.Start(new ProcessStartInfo((available?.Page ?? DesktopUpdates.ReleasesPage).AbsoluteUri) { UseShellExecute = true }); }
+        if (distribution != DesktopDistribution.Portable) return;
+        try { openUri(available?.Page ?? DesktopUpdates.ReleasesPage); }
         catch (Exception) { UpdateStatus.Text = "无法打开浏览器，请稍后重试。"; }
+    }
+    private void OpenStore(object sender, RoutedEventArgs e)
+    {
+        if (distribution != DesktopDistribution.Packaged) return;
+        try { openUri(new Uri("ms-windows-store://downloadsandupdates")); }
+        catch (Exception) { UpdateStatus.Text = "无法打开 Microsoft Store。请从开始菜单打开商店，或联系原安装包提供方获取更新。"; }
     }
     private void OpenPackage(object sender, RoutedEventArgs e)
     {
