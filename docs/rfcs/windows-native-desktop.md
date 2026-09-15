@@ -91,6 +91,8 @@
 
 已验证的增量检查点（不替代上述阶段验收）：
 
+- [x] 2026-09-16：完整 x64 App 的一分钟时长提醒→继续录音→手动停止保存实操通过。仅捕获独立 443 Hz 测试播放器进程，未登录/未启用麦克风或云处理；提醒出现后未自动停止，继续操作收起提醒且保持同一录音，随后保存 Done / 117.496875 秒 WAV。视频 `build/native-desktop-validation/duration-reminder-ui-01/acceptance.html` 三项通过，177.7 秒／1777 帧→41 关键帧，零越界事件。`verification.json` 核对 48 kHz 单声道 PCM16、时长/ID、三个时点的 443 Hz，以及排除首尾各 0.5 秒后的 1164 个 100 ms 窗口无整段静音；不证明逐样本无缝或听感。`cleanup.json` 验证应用、播放器与录屏正常退出。复用 1eeaa4a1ceb84bfba1a2a052f56ec627 产物，生产代码未改；隐藏通知、静音提醒、提醒内停止按钮、多屏与真实长会仍待验。
+
 - [x] 2026-09-16：干净 8f40070 的 CLI 类型检查、226 项测试、打包/隔离 consumer 安装、x64 helper 实际启动与 sidecar 握手/音源枚举通过；双架构 helper 构建及 tarball 架构/许可证检查通过。6 项平台/真实服务测试明确跳过；ARM64 未运行。当前原生载荷的双架构 MSIX SDK 与文件哈希复验通过，仍未签名/安装。具体命令、环境和范围见 [验证记录](windows-native-validation.md#2026-09-16当前提交的-cli-兼容与双架构包检查) 与 [MSIX 记录](windows-native-store-release.md#2026-09-16当前代码的-msix-载荷复验)。本轮未改生产代码。
 
 - [x] 2026-09-16：修复本机播放计时超过一小时后省略小时的问题；暂停跳转与播放计时共用总小时格式，一小时内保留分秒。真实 3661 秒 WAV 回归先复现 `3605 → 00:05`，修复后验证 `3599 → 59:59`、`3605 → 01:00:05`、播放计时和回退短时间；完整 WPF 回归通过。完整 x64 App 视频两项通过／一项证据不足，`build/native-desktop-validation/long-playback-ui-01/acceptance.html`：75.3 秒、753 帧→7 关键帧；最后回退操作的事件越界，未判视频通过。样本为隔离库内 61 分 1 秒静音 WAV，不证明真实长时录音或听感。双架构 self-contained 发布报告 `build/native-desktop-release/1eeaa4a1ceb84bfba1a2a052f56ec627/release-report.json`，基于 898c38a 加本轮代码；x64/ARM64 ZIP 70,967,623 / 65,365,618 B。

@@ -20,7 +20,7 @@
 | N08 | idle/starting/recording/processing/done/error；RecordingPanel / States | RecordingEngine 状态机；RecorderViewModel 命令；云任务与录音状态分离 | 核心重复开始/停止、启动失败、处置落盘回归；实际录音→Done/退出保存通过；开始/退出/丢弃多窗口竞争仍待验 |
 | N09 | 计时、电平、停止与丢弃；RecordingState / DotMatrixWaveform | 紧凑计时、电平条、停止、丢弃确认；PcmWaveWriter 持续更新头 | 实际可控音频电平与 WAV 完整保存；核心丢弃边界回归；用电平条替代点阵波形，长时间增长与实际丢弃确认仍待验 |
 | N10 | 活动/会议录音建议与隐藏抑制；AudioActivityMonitor / AppDelegate | RecordingSuggestion + AudioActivity 峰值观察，托盘建议只选择来源、不自动录制 | AttentionTests/策略回归；普通浏览器音频不冒充会议。浏览器会议检测未实现，真实通知操作与长期性能待验 |
-| N11 | 静音/会议结束建议停止、隐藏提醒、时长上限；RecordingAttentionPolicy | RecordingAttention + App 定时检查；原生继续/停止提醒；关闭麦克风的旧电平不再阻止静音判断 | 策略、麦克风静音及 WPF Keep/Stop 回归；真实长时/静音/通知操作待验；不能用普通音频静音证明会议已结束 |
+| N11 | 静音/会议结束建议停止、隐藏提醒、时长上限；RecordingAttentionPolicy | RecordingAttention + App 定时检查；原生继续/停止提醒；关闭麦克风的旧电平不再阻止静音判断 | 策略、麦克风静音及 WPF Keep/Stop 回归；完整 App 独立测试进程录音的一分钟时长提醒→继续→手动保存视频三项通过（duration-reminder-ui-01），同一会话 117.497 秒 PCM 与分段信号检查通过。隐藏通知、静音、提醒内停止按钮及真实长会待验；不能用普通音频静音证明会议已结束 |
 | N12 | 上传、分块、排队、后台处理；processSession | CloudProcessing 持久任务/上传关联、轮询/取消/重试；目标记录不可读时停止，避免重复创建；JSON 有界替换保护 | ProcessingTests / ProcessingJournalReadTests 覆盖恢复、隔离、损坏及真实文件锁下零云请求/原记录保留；既有真实 C# 流水线。完整桌面后台处理并录新会、关窗与网络恢复待验 |
 | N13 | 本地完成与失败恢复；DoneState / ErrorState | LocalRecordingStore、LocalLibraryView；启动恢复中断会话的 WAV/时长，保留载荷、标记中断、禁止自动上传 | 完整 App 实际 WASAPI 进程录音强制结束→重启恢复 93.723 秒音频，载荷哈希保持；恢复提示/播放视频通过。合成故障回归与 WPF 媒体打开已验；掉电、混录、云字幕恢复仍待验 |
 | N14 | 双语实时流、连接与重连；LiveRealtimeSessionConnector | LiveCaptions / CaptionConnection / CaptionPcmEncoder；延迟启动屏障、有界队列、手动重连、重新登录续写 | CaptionTests 首条归档、停止/终止、重试、归档故障隔离；新增真实回环 WebSocket 断连/握手等待期间音频增长、重连及双语尾句归档回归；完整 App 受控 WASAPI→真实双语归档已验。回环测试用合成音频/服务；混录、公网断网/过期/账号竞争仍待验 |
