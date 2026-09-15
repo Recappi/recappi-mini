@@ -10,7 +10,7 @@
 |---|---|---|---|
 | N01 | 托盘、录音指示、普通与非激活窗口；RecappiMiniApp / FloatingPanel | App 托盘、品牌状态图标；RecorderWindow 无标题栏、关闭隐藏；选项/更多及托盘共用退出流程 | 实际隐藏/重复启动恢复、录音中取消退出/继续/保存退出已验；托盘点击、红点录音图标实测、全窗口焦点及退出并发仍待验 |
 | N02 | 单实例、拖动、屏幕与尺寸；ManagedWindowRegistry / FloatingPanelController | App 命名互斥/管道激活；DragMove/键盘手柄；WindowVisibility 依据实际显示器工作区恢复、监听显示/DPI/工作区变化 | WPF 实窗越界/增大/隐藏恢复与无激活回归，完整 App 实际拖动边界和同实例位置保留通过；物理 DPI、多屏、屏幕移除与超大窗口全部控件可达仍待验 |
-| N03 | 首次引导、权限、跳过登录；OnboardingView / PermissionsSettingsPage | OnboardingWindow 四步、进度持久化、跳过/重启；SettingsWindow 权限入口 | OnboardingWindowTests 覆盖导航、保存失败与并发设置；真实免登录引导通过；权限拒绝/设备状态即时反馈及真实登录引导待验 |
+| N03 | 首次引导、权限、跳过登录；OnboardingView / PermissionsSettingsPage | OnboardingWindow 四步、进度持久化、跳过/重启；SettingsWindow 权限入口 | OnboardingWindowTests 覆盖导航、保存失败与并发设置；完整应用免登录四步/返回视频通过，完成标记及重启不再出现已观察；启动/退出过渡视频、权限拒绝/设备状态即时反馈及真实登录引导待验 |
 | N04 | 登录、过期、重连、退出、Keychain；AuthSessionStore / NativeOAuthCoordinator | AccountSession + DeviceLogin 浏览器设备确认；AccountStore DPAPI；业务 HTTP/字幕握手 401 传递过期状态 | AccountExpiryTests、CaptionHandshakeTests、延迟旧凭据隔离；已有真实 C# 服务认证证据；完整 App 过期→登录→恢复与退出竞争仍待验，不把 device auth 称作 macOS OAuth 实现相同 |
 | N05 | 系统/应用声音与活动来源；IdleState / AudioRecorder | RecordingModels / CaptureInput 链接现有 WASAPI helper；含子进程的进程采集 | 既有真实系统/进程隔离记录及完整 App 可控进程录音通过；所有系统版本、活动源交互和最终 CLI 回归仍需汇总 |
 | N06 | 麦克风选择、录音中开关；MicrophoneInputPicker / RecordingState | RecorderViewModel + RecordingEngine 切换麦克风；关闭清除电平、终止清除启用状态；设备消失不静默换成其他来源 | 合成 PCM/重开失败/终止与 WPF 电平回归通过；实际进程音源+Steam 虚拟麦克风开关/重开/保存视频 3 项通过、2 项证据不足。物理非零声音混录、拔插/中断/重新接入与泄漏验收仍待完成 |
@@ -32,7 +32,7 @@
 | N22 | 重新处理、历史、失败分块重试；CloudLibraryStore+Processing | ReviewPanel / CloudJob，确认、版本选择、处理状态刷新与重复提交抑制 | ReviewPanelTests 取消/重试/历史/隔离；真实服务流水线并不证明所有重处理分支，完整 UI 服务操作待验 |
 | N23 | 删除确认/索引关联/失败恢复；CloudCenterPanel+Detail | 云库删除确认、处理关联清理；云副本删除保留本机录音 | CloudLibraryActionTests 取消/失败/成功/隔离；真实 API 测试记录清理；完整桌面删除与账户变化竞争待验 |
 | N24 | 用量、套餐与管理链接；BillingStatus / CloudCenterPanel+AccountHeader | BillingStatus DTO + BillingPanel 嵌入 AccountWindow；刷新/超额/不限量/周期；POST portal，409 转 plans；只打开可信链接 | BillingTests、BillingPanelTests 覆盖配额/URL/延迟响应/失败/账号隔离/401；真实只读 GET 解析成功，实际窗口用明确测试数据作布局检查。完整 App 真实用量/管理服务、账号状态与键盘实机待验 |
-| N25 | 主题、设置、关于、更新；SettingsView / AppUpdater | SettingsWindow 五组配置即时保存；共用现代样式；DesktopUpdates / UpdatePanel 官方发布源、架构/通道/摘要检查；独立安装器 | Settings/Theme/Update 测试、实际浅深色设置；已有 x64 安装升级/回滚/数据保留测试。生产签名/可用更新发布、自动安装、全部窗口视觉/高对比度/ARM64 实机未完成 |
+| N25 | 主题、设置、关于、更新；SettingsView / AppUpdater | SettingsWindow 五组配置即时保存；共用现代样式；DesktopUpdates / UpdatePanel 官方发布源、架构/通道/摘要检查；独立安装器 | Settings/Theme/Update 测试、完整应用主题/提醒保存与重启恢复后画面视频通过；已有 x64 安装升级/回滚/数据保留测试。全部字段、生产签名/可用更新发布、自动安装、全部窗口视觉/高对比度/ARM64 实机未完成 |
 | N26 | 文本/字幕/音频导出；CLI export / macOS 复制与本地副本 | 云文字导出/音频副本；CaptionArchive 和本机 TXT/JSONL 导出；对话框返回后重新核对账号及来源 | WPF 回归覆盖文字/音频内容、取消保留目标文件、对话框期间切换录音/退出账号；回调替代真实对话框。归档恢复和下载内容回归已验；系统对话框实操、全部格式/编码/时间轴仍待验 |
 | N27 | 录音标题重命名；CloudCenterPanel Rename Save TODO | 不提供假成功操作 | 基线 macOS Save 未接后端，排除已实现对齐范围；若后续有真实契约再评估 |
 
