@@ -27,6 +27,8 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Run native core regressions
         run: dotnet run --project native/desktop/Recappi.Core.Tests -c Release
+      - name: Verify native artifact retention safety
+        run: powershell.exe -NoProfile -File scripts/test-native-artifact-retention.ps1
       - name: Build WPF interaction tests
         # Actual interactive runs remain a desktop-session validation gate.
         run: dotnet build native/desktop/Recappi.Desktop.Tests -c Release

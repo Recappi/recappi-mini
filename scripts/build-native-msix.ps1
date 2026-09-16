@@ -4,7 +4,9 @@ param(
     [string]$Publisher = 'CN=Recappi Development',
     [string]$PublisherDisplayName = 'Recappi',
     [string]$PackageVersion = '1.0.0.0',
-    [string]$MakeAppxPath
+    [string]$MakeAppxPath,
+    [ValidateRange(1, 30)][int]$KeepHistory = 3,
+    [switch]$KeepStaging
 )
 $ErrorActionPreference = 'Stop'
 $version = $null
@@ -14,6 +16,9 @@ if (-not [Version]::TryParse($PackageVersion, [ref]$version) -or $version.Major 
 }
 if ([string]::IsNullOrWhiteSpace($Publisher) -or [string]::IsNullOrWhiteSpace($PublisherDisplayName)) { throw 'Publisher values must not be empty.' }
 $repository = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'native-artifact-retention.ps1')
+$artifactLease = Enter-NativeArtifactLock (Join-Path $repository 'build')
+try {
 $source = (Resolve-Path -LiteralPath $PackageDirectory).Path
 if (-not $MakeAppxPath) {
     $sdk = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
@@ -66,11 +71,21 @@ try {
         if ($actual -ne (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash) { throw "MSIX content hash mismatch: $relative" }
     }
 } finally { $zip.Dispose() }
+if (-not $KeepStaging) {
+    $stagePath = (Resolve-Path -LiteralPath $stage).Path
+    $outputPath = (Resolve-Path -LiteralPath $output).Path
+    if (-not $stagePath.Equals((Join-Path $outputPath 'payload'), [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected MSIX staging path.' }
+    [void]@(Get-NativeArtifactFiles $stagePath) # Reject links before recursive removal.
+    Remove-Item -LiteralPath $stagePath -Recurse -Force -ErrorAction Stop
+}
 $report = [ordered]@{ createdAt = [DateTimeOffset]::UtcNow.ToString('O'); sourcePackage = $source;
     identityName = $IdentityName; publisher = $Publisher; packageVersion = $version.ToString(4); architecture = $architecture;
     package = $package; bytes = (Get-Item -LiteralPath $package).Length;
     sha256 = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant();
-    payloadFilesVerified = $expected.Count; signed = $false; installed = $false; storeReady = $false;
+    payloadFilesVerified = $expected.Count; signed = $false; installed = $false; storeReady = $false; retentionPolicyVersion = 1;
+    stagingPayloadRetained = [bool]$KeepStaging;
     limitations = 'Unsigned packaging candidate only; identity, artwork, OS floor, Store update routing, lifecycle and certification require validation.' }
 $report | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'msix-report.json') -Encoding utf8
 $report | ConvertTo-Json -Depth 4
+} finally { $artifactLease.Dispose() }
+Invoke-NativeArtifactAutoRetention -BuildRoot (Join-Path $repository 'build') -KeepLatest $KeepHistory

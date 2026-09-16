@@ -8,6 +8,9 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $repository = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'native-artifact-retention.ps1')
+$artifactLease = Enter-NativeArtifactLock (Join-Path $repository 'build')
+try {
 $compiler = Join-Path $repository 'build/native-installer-tools/inno-7.1.0/ISCC.exe'
 if (-not (Test-Path -LiteralPath $compiler)) { throw 'Run scripts/prepare-native-installer-tools.ps1 first.' }
 $reportPath = (Resolve-Path -LiteralPath $ReleaseReport).Path
@@ -74,3 +77,4 @@ $result.frameworkDependentCandidate = [bool]$FrameworkDependentCandidate
 $result.runtimePrerequisite = $prerequisite
 $result | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'installer-report.json') -Encoding utf8
 Write-Output "Installer report: $(Join-Path $output 'installer-report.json')"
+} finally { $artifactLease.Dispose() }
