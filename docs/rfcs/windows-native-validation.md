@@ -2,6 +2,8 @@
 
 ## 2026-09-16：重新转写 provider 对齐
 
+键盘播放失败追查补证：诊断版专项再次失败于 `ui-smoke-94f1b01f8bb64793abaaaa4cf5d08a04`，local 的位置为按键前 0、按键后立即 0、400 ms 后 0.2340417，前后焦点均保持。这证明本次按键未立即改变滑块，不能沿用原“计时器覆盖跳转”的归因。测试现在分别检查按键立即生效与后续计时器保持，并将位置、焦点、按键 handled、修饰键、范围及云播放器时间写入 `keyboard-playback-observations.json`，不放宽阈值或自动重试。补充修饰键等字段后的单次、连续五次及最终断言版本专项均通过。首个失败未记录修饰键，故仍不能确认根因；[WPF Slider 源码](https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Controls/Slider.cs) 的方向键手势要求无修饰键，仅提示后续排查方向，不证明本次受到了修饰键干扰。生产播放器未改动。
+
 当前 macOS `CloudLibraryStore+Processing.swift` 的 `startTranscription` 显式选择 `gemini`；Windows 先前省略该字段，可能随服务端默认配置变化。现仅在 ReviewPanel 的重新转写中明确选择 Gemini；CloudClient 新增可选 provider，首次 CloudProcessing 调用继续省略。语言、force、上下文提示与取消令牌保持传递。
 
 - 核心 Release 37 组通过：`build/native-desktop-validation/core-tests-63301936c2a845608552718a7ebedeb5`。新增请求体断言验证首次请求省略 provider、重转写携带 Gemini 及其他选项。
