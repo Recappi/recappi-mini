@@ -21,6 +21,7 @@ internal static class Program
                 if (args.Contains("--idle-profile")) { await IdleProfile.RunAsync(); exit = 0; return; }
                 if (args.Contains("--recording-ui-profile")) { await RecordingUiProfile.RunAsync(args.Contains("--software-rendering")); exit = 0; return; }
                 if (args.Contains("--library-profile")) { await LibraryProfile.RunAsync(); exit = 0; return; }
+                if (args.Contains("--local-playback-test")) { await LocalPlaybackTests.RunAsync(Path.Combine("build", "native-desktop-validation", "playback-" + Guid.NewGuid().ToString("N"))); exit = 0; return; }
                 if (args.Contains("--library-lifetime-profile")) { await LibraryLifetimeProfile.RunAsync(args.Contains("--hold-for-dump")); exit = 0; return; }
                 var root = Path.GetFullPath(Path.Combine("build", "native-desktop-validation", "ui-smoke-" + Guid.NewGuid().ToString("N")));
                 if (args.Contains("--ask-draft-preview")) { await AskPanelTests.PreviewAsync(root); exit = 0; return; }
@@ -160,6 +161,15 @@ internal static class Program
                 for (var attempt = 0; attempt < 100 && !audioPlay.IsEnabled; attempt++) await Task.Delay(50);
                 if (!audioPlay.IsEnabled || ((Slider)audio.FindName("Position")).Value < .09) throw new Exception("Native audio did not open/seek downloaded audio.");
                 if (lastPosition is not >= .09) throw new Exception("Native seek did not report playback position.");
+                var audioPosition = (Slider)audio.FindName("Position");
+                foreach (var key in new[] { System.Windows.Input.Key.Tab, System.Windows.Input.Key.LeftShift, System.Windows.Input.Key.Space, System.Windows.Input.Key.A })
+                {
+                    var before = audio.PlaybackSeconds;
+                    audioPosition.Value = .4;
+                    audioPosition.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, PresentationSource.FromVisual(audioWindow), Environment.TickCount, key)
+                        { RoutedEvent = UIElement.PreviewKeyUpEvent });
+                    if (audio.PlaybackSeconds != before) throw new Exception("Unrelated key changed cloud audio playback position: " + key);
+                }
                 audioPlay.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Task.Delay(100);
                 audio.Clear(); audioWindow.Close();

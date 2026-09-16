@@ -53,5 +53,9 @@ public partial class AudioPlayer : UserControl
     }
     private void ChangeSpeed(object sender, SelectionChangedEventArgs e) => player.SpeedRatio = new[] { .75, 1, 1.25, 1.5, 2 }[Math.Clamp(Speed.SelectedIndex, 0, 4)];
     private void SeekMouse(object sender, MouseButtonEventArgs e) => SeekTo(Position.Value);
-    private void SeekKey(object sender, KeyEventArgs e) => SeekTo(Position.Value);
+    private void SeekKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End)
+            SeekTo(Position.Value);
+    }
 }

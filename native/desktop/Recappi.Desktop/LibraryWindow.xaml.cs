@@ -180,7 +180,11 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
         catch (Exception error) { Status.Text = error.Message; }
     }
     private void Seek(object sender, MouseButtonEventArgs e) => SeekToSelectedPosition();
-    private void SeekKey(object sender, KeyEventArgs e) => SeekToSelectedPosition();
+    private void SeekKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End)
+            SeekToSelectedPosition();
+    }
     private static string FormatPlaybackTime(TimeSpan position) => position.TotalHours >= 1
         ? $"{(long)position.TotalHours:00}:{position.Minutes:00}:{position.Seconds:00}"
         : position.ToString(@"mm\:ss");

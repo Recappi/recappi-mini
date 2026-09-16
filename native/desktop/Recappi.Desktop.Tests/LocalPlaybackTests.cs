@@ -35,6 +35,13 @@ internal static class LocalPlaybackTests
             slider.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Left)
                 { RoutedEvent = UIElement.PreviewKeyUpEvent });
             if (time.Text != "00:03") throw new Exception("Paused keyboard seek retained a stale playback time.");
+            foreach (var key in new[] { Key.Tab, Key.LeftShift, Key.Space, Key.A })
+            {
+                slider.Value = 7;
+                slider.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, key)
+                    { RoutedEvent = UIElement.PreviewKeyUpEvent });
+                if (time.Text != "00:03") throw new Exception("Unrelated key changed local playback position: " + key);
+            }
             window.RefreshRecordings(second.Id);
             if (time.Text != "00:00" || slider.Value != 0) throw new Exception("New selection retained the previous playback position.");
             for (var attempt = 0; attempt < 100 && !slider.IsEnabled; attempt++) await Task.Delay(50);

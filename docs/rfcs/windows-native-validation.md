@@ -1,5 +1,13 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：播放进度忽略无关按键
+
+本机和云端播放器原先在所有 `PreviewKeyUp` 上提交进度条位置；当进度条显示值与媒体位置不一致时，Tab、Shift、空格或字母键也会触发跳转。改为仅接受方向键、PageUp/PageDown、Home/End。既有鼠标与方向键定位逻辑保留。
+
+新增回归先在旧实现执行 `dotnet run --project native/desktop/Recappi.Desktop.Tests -c Release -- --local-playback-test`，以 `Unrelated key changed local playback position: Tab` 失败；修复后完整 `dotnet run --project native/desktop/Recappi.Desktop.Tests -c Release` 退出码 0，本机显示时间及云端真实 MediaPlayer 位置均不再因上述四类按键改变。测试使用合成 WAV 与程序触发 WPF 路由事件，不代表真实键盘/焦点视频验收。原有 61 分钟音频定位、播放结束、引用定位和清理回归仍通过。
+
+双架构自包含发布通过，报告 `build/native-desktop-release/40c4e7b6847843be972c942fe2bcbc78/release-report.json`（源码标记 `710679e`、dirty，含本轮修复）。ARM64 未执行。本轮未做 UI 视频；焦点停留时的进度刷新、长按方向键与 Tab 顺序仍待实际验收，不勾选全套键盘验收。
+
 ## 2026-09-16：阶段一构建和框架选型验收
 
 复核阶段一复合验收项后，勾选“最小应用 x64/ARM64 构建和发布、框架选型依据”。本轮没有修改生产代码或重建产物。
