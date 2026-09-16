@@ -43,6 +43,28 @@ internal static class CloudClientTests
         if (!paths.Last().Contains("cursor=cursor%26escape%3D1")) throw new Exception("Cursor was not escaped.");
         try { await client.RecordingAsync("../other"); throw new Exception("Accepted unsafe resource path."); } catch (ArgumentException) { }
 
+        var transcriptionBodies = new List<JsonElement>();
+        using (var transcriptionClient = new CloudClient("https://recappi.test", handler: new Handler(async request =>
+        {
+            if (request.Method != HttpMethod.Post || request.RequestUri!.AbsolutePath != "/api/recordings/recording-1/transcribe")
+                throw new Exception("Transcription used an unexpected route.");
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            transcriptionBodies.Add(body.RootElement.Clone());
+            return Json("{\"jobId\":\"job-1\"}");
+        })))
+        {
+            await transcriptionClient.TranscribeAsync("recording-1", "en", prompt: "initial context");
+            await transcriptionClient.TranscribeAsync("recording-1", "zh", true, "retry context", provider: "gemini");
+        }
+        if (transcriptionBodies.Count != 2 || transcriptionBodies[0].TryGetProperty("provider", out _) ||
+            transcriptionBodies[0].GetProperty("force").GetBoolean() ||
+            transcriptionBodies[0].GetProperty("prompt").GetString() != "initial context" ||
+            transcriptionBodies[1].GetProperty("provider").GetString() != "gemini" ||
+            !transcriptionBodies[1].GetProperty("force").GetBoolean() ||
+            transcriptionBodies[1].GetProperty("language").GetString() != "zh" ||
+            transcriptionBodies[1].GetProperty("prompt").GetString() != "retry context")
+            throw new Exception("Transcription provider selection changed default processing or lost explicit options.");
+
         var attempts = 0;
         using var failed = new CloudClient("https://recappi.test", "fixture-token", new Handler(request =>
         {

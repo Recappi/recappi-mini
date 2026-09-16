@@ -1,5 +1,14 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：重新转写 provider 对齐
+
+当前 macOS `CloudLibraryStore+Processing.swift` 的 `startTranscription` 显式选择 `gemini`；Windows 先前省略该字段，可能随服务端默认配置变化。现仅在 ReviewPanel 的重新转写中明确选择 Gemini；CloudClient 新增可选 provider，首次 CloudProcessing 调用继续省略。语言、force、上下文提示与取消令牌保持传递。
+
+- 核心 Release 37 组通过：`build/native-desktop-validation/core-tests-63301936c2a845608552718a7ebedeb5`。新增请求体断言验证首次请求省略 provider、重转写携带 Gemini 及其他选项。
+- 完整 WPF 首次在既有 `KeyboardPlaybackTests` 的“Playback timer erased a keyboard seek before key release”断言失败，目录 `ui-smoke-5b5d0cdeaea74717bcc9fdd5dee6afe2`；该次尚未运行到 ReviewPanel，不记为通过。代码未修改的键盘专项随后通过；完整套件复跑 `ui-smoke-78b7bb92ed2f4310a4da7d33f869a02e` 通过，包括生产 ReviewPanel 按钮发出的 provider/force/language/prompt、重复提交和选择隔离。失败原因尚未确定，不将复跑成功解释为已修复键盘时序问题。
+- 双架构自包含精简候选发布：`build/native-desktop-release/33ee66cc22dc4c88aeaed82b3768af36/release-report.json`，源码标记 `630c3da` 加本轮改动（dirty）。x64 ZIP 68,533,426 B，ARM64 ZIP 63,450,482 B；架构、运行时及 ZIP 校验通过。
+- 本次未新增真实云请求、完整 App 视频或 ARM64 运行证据。测试验证客户端选择，不证明生产部署 SHA、实际 model 或所有转写失败路径。
+
 ## 2026-09-16：损坏设置保守恢复
 
 - 发现原 App 在设置读取失败后使用 `new DesktopPreferences()`，默认打开自动上传和麦克风；JSON `null` 还会被直接当成有效默认设置。新增回归先在旧实现复现 `null` 静默回退失败，再修复 `PreferencesStore.LoadForStartup`：不存在的文件保留首次使用默认值，损坏/非法/不可读的已有配置进入恢复状态，关闭自动上传、自动转写、字幕、麦克风和录音建议。读取不写文件，明确编辑后可保存恢复；正常有效配置不受影响。

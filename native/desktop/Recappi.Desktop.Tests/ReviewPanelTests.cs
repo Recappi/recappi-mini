@@ -33,7 +33,9 @@ internal static class ReviewPanelTests
             {
                 transcriptions++;
                 using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
-                if (!body.RootElement.GetProperty("force").GetBoolean() || body.RootElement.GetProperty("language").GetString() != "zh") throw new Exception("Retranscription options lost.");
+                if (!body.RootElement.GetProperty("force").GetBoolean() || body.RootElement.GetProperty("language").GetString() != "zh" ||
+                    body.RootElement.GetProperty("prompt").GetString() != "test context" ||
+                    !body.RootElement.TryGetProperty("provider", out var provider) || provider.GetString() != "gemini") throw new Exception("Retranscription options or macOS provider selection lost.");
                 started.TrySetResult(); return await pending.Task;
             }
             throw new Exception("Unexpected review route.");
