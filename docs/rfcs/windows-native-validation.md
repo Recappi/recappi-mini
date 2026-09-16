@@ -1,5 +1,14 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：阶段一构建和框架选型验收
+
+复核阶段一复合验收项后，勾选“最小应用 x64/ARM64 构建和发布、框架选型依据”。本轮没有修改生产代码或重建产物。
+
+- 框架比较的原始报告为 `build/native-desktop-validation/run-765bb7f73d9b4646a7befd614172f4e8/report.json`，两候选均完成普通三窗口探针；数据与下方 ADR 一致。WPF 直接共享现有 C# WASAPI 核心，减少 Windows App SDK 依赖及另一套桥接层的维护；普通多窗口能力已验证，特殊窗口行为仍由单独验收项约束。
+- 双架构发布报告为 `build/native-desktop-release/ca1d27ef64d04b4d9b35656ab2a677d6/release-report.json`，源码标记为 `914b7be`、dirty，包含随后提交的 `3a97747` 修复。报告记录 x64/ARM64 PE 架构及自包含运行时；本轮重新计算两个 ZIP 的 SHA256，均与报告相符。
+- 对两份现有发布目录重新执行 `scripts/inspect-native-package.ps1`，报告位于 `build/native-desktop-validation/framework-acceptance-audit-01/{win-x64,win-arm64}.json`。均具备应用、C# 核心、WPF、NAudio 和自包含 .NET 运行时；未命中脚本禁止的 Node、WebView、Windows App SDK 等文件。x64 为 477 文件、181,082,858 B；ARM64 为 476 文件、195,336,760 B，均为逻辑文件长度。
+- 当前 ZIP 为未签名便携产物。上述构建与文件清单证据不代表 ARM64 执行、干净机器安装、签名/升级、多 DPI、非激活/置顶行为或完整性能门禁通过；对应计划项继续未勾选。
+
 ## 2026-09-16：真实服务双任务上传与推荐解析
 
 生产代码 `3a97747`，仅扩展现有 CloudPipelineSmoke 测试入口：同时启动同一授权账号的两个本地处理任务，一条上传并转写，另一条仅上传；两条均使用既有 9.417 秒合成语音副本。执行 `dotnet run --project native/desktop/Recappi.Core.Tests -c Release -- --cloud-pipeline-smoke <synthetic-wav>`，进程退出码 0。没有修改用户已有录音或持久凭据。
