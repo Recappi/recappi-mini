@@ -4,12 +4,16 @@
 
 ## 后端源码补证与修复
 
+2026-09-16 上传并发修复：进一步读取同一后端提交的 `apps/server/routes/api/recordings/index.ts`，确认 `recordings_one_upload_per_user_idx` 冲突返回 409。Windows 在创建至 complete 之间按账号串行化上传，完成后立即释放，不占用后续转写轮询；仍保留两个整体处理槽位。ProcessingConcurrencyTests 先复现两条上传相撞，修复后验证第二条上传完成时第一条仍在转写，以及整批取消后先恢复原上传再继续第二条。取消回归另复现释放许可期间下一条抢先创建，增加同步取消检查后核心 33 组通过（`core-tests-9abfbf8d53874252a7d1efeb19db3e0a`）。测试使用实现服务端单上传限制的 HTTP 替身，不是线上压力测试。其他客户端已有上传、旧暂停任务占用名额及任意顺序恢复仍可能返回 409，需后续完整恢复体验验收；本修复不自动 abort 或删除云数据。
+
 - [推荐路由](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/apps/server/routes/api/recordings/%5Bid%5D/ask-suggestions.ts) 返回 `suggestions: { question, reason? }[]`，并非 macOS/C# 旧 DTO 的字符串数组。C# 新增对象解析并兼容旧字符串，忽略无问题文本的无效条目，保持顺序。回归先复现 JsonException，修复后核心 32 组通过（`core-tests-589cf127ff9b4411a8b674312e490fd6`）；WPF 另验证对象推荐显示及选择后填入输入框。真实线上推荐 UI 尚未验，不沿用此前只有空推荐的成功路径。
 - [provider 选择](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/apps/server/src/transcription/select.ts) 顺序为请求 provider → 环境默认值 → gemini；model 也可由环境覆盖。因此省略 provider 仅在相应环境默认一致时等价，当前仍未读取生产配置。
 - [推荐语言解析](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/apps/server/src/recordings/ask.ts) 顺序为请求 language → Accept-Language → transcript.language → 分段主导语言 → 通用语言提示。Windows 省略前两者，通常跟随转写；不能说等同 macOS 的显式语言偏好。
 - [上传生命周期说明](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/docs/upload-pipeline.md) 说明每账号一个进行中上传，卡住的上传需恢复或 abort；[parts 路由](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/apps/server/routes/api/recordings/%5Bid%5D/parts/%5BpartNumber%5D.ts) 支持相同 partNumber 覆写。尚未确认具体 R2 生命周期期限。Windows 当前两个处理槽位包含上传阶段，仍需核验同账号并发上传与 409 恢复；不可因分块幂等就判并发流程已通过。
 
 ## 请求与响应依据
+
+上传并发修复的完整 WPF 回归通过；双架构自包含发布报告为 `build/native-desktop-release/ca1d27ef64d04b4d9b35656ab2a677d6/release-report.json`，来源 `914b7be` 加本轮改动（dirty）。本轮未录制真实双上传视频，未重复签名/安装或 ARM64 实机验证。
 
 路径中的 `{id}` 是录音 ID，`{job}` 是作业 ID。C# 路径段拒绝空值、点目录和斜杠，再 URI 编码；cursor/jobId 使用查询参数编码。普通业务请求携带 Bearer，禁止自动重定向及 cookie；401 通知当前 AccountSession，原始错误正文不展示。普通 JSON 请求含正文读取期限，创建请求不做隐式重试。
 

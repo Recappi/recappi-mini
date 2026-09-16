@@ -20,6 +20,7 @@ public sealed class CloudProcessing : IAsyncDisposable
     private readonly Func<CloudAccount, CloudClient> createClient;
     private readonly Func<TimeSpan, CancellationToken, Task> delay;
     private readonly SemaphoreSlim slots = new(2, 2);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> uploadSlots = new();
     private readonly object sync = new();
     private readonly Dictionary<string, Work> active = [];
     private readonly HashSet<string> detaching = [];
@@ -117,6 +118,7 @@ public sealed class CloudProcessing : IAsyncDisposable
         var entry = prior ?? new ProcessingEntry(recording.Id, account.Partition, recording.Title, ProcessingStage.Creating);
         if (prior is { Ticket: null, Stage: ProcessingStage.Creating }) entry = entry with { Stage = ProcessingStage.NeedsReconciliation };
         var acquired = false;
+        SemaphoreSlim? uploadSlot = null;
         try
         {
             await slots.WaitAsync(cancellation); acquired = true;
@@ -125,6 +127,17 @@ public sealed class CloudProcessing : IAsyncDisposable
             {
                 if (entry.UploadCompleted && entry.JobId is null && !entry.TranscriptionAttempted) entry = entry with { Stage = ProcessingStage.Synced };
                 else return entry;
+            }
+            if (!entry.UploadCompleted)
+            {
+                // The service permits one unfinished multipart upload per account.
+                // Release this gate before job polling so transcription can overlap uploads.
+                var pendingSlot = uploadSlots.GetOrAdd(account.Partition, _ => new SemaphoreSlim(1, 1));
+                await pendingSlot.WaitAsync(cancellation);
+                uploadSlot = pendingSlot;
+                // CancelAll marks every queued worker under this lock. A released
+                // gate must not start a request halfway through that cancellation pass.
+                lock (sync) cancellation.ThrowIfCancellationRequested();
             }
             if (entry.Ticket is null)
             {
@@ -160,6 +173,7 @@ public sealed class CloudProcessing : IAsyncDisposable
                     entry = entry with { UploadCompleted = true, Progress = 1 }; Save(entry);
                 }
             }
+            uploadSlot?.Release(); uploadSlot = null;
             if (!options.Transcribe && !entry.TranscriptionAttempted && entry.JobId is null)
             { entry = entry with { Stage = ProcessingStage.Synced, Error = null }; Save(entry); return entry; }
             if (entry.JobId is null)
@@ -205,7 +219,7 @@ public sealed class CloudProcessing : IAsyncDisposable
                 entry = entry with { TranscriptionAttempted = false };
             entry = entry with { Stage = ProcessingStage.Failed, Error = error is CloudException ? error.Message : "处理未完成，本地录音已保留。" };
         }
-        finally { if (acquired) slots.Release(); }
+        finally { uploadSlot?.Release(); if (acquired) slots.Release(); }
         Save(entry);
         return entry;
     }

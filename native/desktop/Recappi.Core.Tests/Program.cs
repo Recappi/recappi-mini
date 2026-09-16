@@ -246,6 +246,7 @@ await Test("Metadata path traversal cannot write or discard outside library", as
 await Test("Desktop updates pin official source, compare channels/architectures and preserve files on invalid or canceled downloads", () => DesktopUpdateTests.RunAsync(root));
 await Test("Cloud multipart upload, account headers, escaped IDs and safe failures follow existing API", () => CloudClientTests.RunAsync(root));
 await Test("Background upload resumes across restart without duplicates or account leakage", () => ProcessingTests.RunAsync(root));
+await Test("Same-account uploads queue while completed uploads continue transcribing", () => ProcessingConcurrencyTests.RunAsync(root));
 await Test("Ask streams split UTF8, CRLF/LF/CR frames, citations and rejects incomplete or oversized events", AskTests.RunAsync);
 await Test("Audio download authenticates, preserves content/type and rejects truncated replacement", () => AudioDownloadTests.RunAsync(root));
 await Test("Native audio import decodes PCM, preserves source and cleans canceled or invalid input", () => AudioImportTests.RunAsync(root));
