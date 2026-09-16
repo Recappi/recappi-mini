@@ -2,6 +2,11 @@
 
 ## 2026-09-16：本机录音库移除
 
+- 实窗发现并修复：系统 MessageBox 出现在录音库右侧、超出库窗口范围。改为 `RemoveLocalRecordingDialog`，CenterOwner、默认“保留在库中”、关闭等同取消；新增实际 ShowDialog 位置与决策断言。此前仅确认委托未覆盖生产确认框，是未提前发现问题的原因。定向与完整 Release WPF 通过，完整执行目录 `ui-smoke-71ec8c97c569471ca01bf8599ba48dab`。
+- 更新后的双架构自包含发布：`build/native-desktop-release/1ec7ab67dded4bc1b8b3397dbaf8f01d/release-report.json`，基于 `10ef836` 加确认窗改动。完整 x64 App 在隔离目录用两个五秒静音样本完成保留、移除、刷新；结束空闲进程 23416 后以新进程 49240 打开相同库，仅保留样本仍可见。未录制启动过渡，不冒充正常退出流程验收。
+- 视频 `build/native-desktop-validation/local-removal-ui-01/acceptance.html` 三项通过、一项证据不足：确认内容可读、目标移除而其他条目保留、新进程列表恢复通过。三段有效视频共 907 帧→5 关键帧、零越界事件；`verification.json` 核对 6 个原文件 SHA256 不变，只有目标新增移除标记。库窗口录制不捕获独立确认窗，故确认布局另录八秒；取消到再次确认的连续视频证据不足。旧 `removal.mp4` 排除验收。自有三个 App 进程和录屏均结束。
+- 当前仍未验真实云处理并行、全部键盘、主题/尺寸/DPI 或 ARM64 实机；不把以上限定成功路径当作整个 N23 完成。
+
 - 统一库补验：`CloudCompletionLayoutTests` 新增实际 WPF 本机/云端合并条目移除流程，验证保留云端条目和选择、本机详情及副本切换入口隐藏、迟到云完成通知与本机刷新不复活本机副本、零 DELETE。`--cloud-completion-test` 定向执行退出 0；服务使用 HTTP 替身，不证明真实云任务并行或新进程恢复。
 - 补验后完整 Release WPF 回归退出 0，执行目录 `build/native-desktop-validation/ui-smoke-9ece28b50ab249209d16bdd82d61fc2c`。本次仅测试和文档变化，未重建相同生产实现的发布包。
 

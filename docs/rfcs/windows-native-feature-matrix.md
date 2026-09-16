@@ -1,5 +1,7 @@
 # Windows 原生版功能矩阵
 
+2026-09-16 N23 实操增量：本机移除确认改为 CenterOwner 原生窗口，实际 ShowDialog 与完整 WPF 回归、双架构发布通过。完整 x64 App 确认布局、移除结果、新进程列表恢复视频三项通过，原六文件哈希不变；取消到再次确认连续录像不足，云并行与其他 DPI 仍待验。证据 `local-removal-ui-01` 见验证记录，优先于下方较早的待验描述。
+
 2026-09-16 N23：macOS `CloudLibraryStore+AuthBilling.deleteSelectedRecording` / `+Selection.removeLocalProcessingRecording` 的本机分支保留音频文件。Windows 现已补充本机移除入口与独立持久标记，保留文件及处理记录，确认框明确已提交云任务继续运行。取消、选择变化、实际读写失败、播放释放、原文件不变、重新实例化存储及迟到保存不复活回归通过；核心 36 组和完整 WPF 通过。实际确认框、新进程恢复与云后台并行待验，未勾选整个 N23；不复用会删除文件的 Discard。
 
 2026-09-16 兼容补验：当前 `9f99fbf` 的 Windows CLI 类型检查、226 项测试、构建、隔离安装后的启动及严格包检查通过；6 项按平台/真实服务开关跳过。x64/ARM64 helper 重建与包内架构/许可证通过，x64 版本执行和无账号 sidecar 握手通过。未新增真实音频/服务/macOS 或 ARM64 实机证据，详见验证记录。

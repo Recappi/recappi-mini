@@ -27,6 +27,29 @@ internal static class LocalRemovalTests
         host.Show();
         try
         {
+            foreach (var approve in new[] { false, true })
+            {
+                var dialog = new RemoveLocalRecordingDialog("移除验证样本") { Owner = host };
+                Exception? failure = null;
+                dialog.ContentRendered += (_, _) =>
+                {
+                    try
+                    {
+                        var keep = (Button)dialog.FindName("KeepButton");
+                        if (!keep.IsDefault || !keep.IsCancel || dialog.WindowStartupLocation != WindowStartupLocation.CenterOwner)
+                            throw new Exception("Removal confirmation lost safe default or owner positioning.");
+                        if (Math.Abs(dialog.Left + dialog.ActualWidth / 2 - host.Left - host.ActualWidth / 2) > 3 ||
+                            Math.Abs(dialog.Top + dialog.ActualHeight / 2 - host.Top - host.ActualHeight / 2) > 3)
+                            throw new Exception("Removal dialog did not center over its actual owner.");
+                        if (approve) ((Button)dialog.FindName("RemoveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        else dialog.Close();
+                    }
+                    catch (Exception error) { failure = error; dialog.Close(); }
+                };
+                var result = dialog.ShowDialog() == true;
+                if (failure is not null) throw failure;
+                if (result != approve) throw new Exception("Removal dialog returned incorrect decision.");
+            }
             view.RefreshRecordings(first.Id);
             var remove = (Button)view.FindName("RemoveButton");
             var play = (Button)view.FindName("PlayButton");

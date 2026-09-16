@@ -96,9 +96,8 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
     private void RemoveRecording(object sender, RoutedEventArgs e)
     {
         if (closed || selected is not { State: RecordingState.Done or RecordingState.Error } recording) return;
-        var approved = ConfirmRemove?.Invoke(recording.Title) ?? MessageBox.Show(Window.GetWindow(this),
-            $"将“{recording.Title}”从本机录音库移除？音频和字幕文件仍保留在原目录，可重新导入音频。已提交的云端处理继续运行，云端副本不会删除。",
-            "从本机录音库移除", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes;
+        var approved = ConfirmRemove?.Invoke(recording.Title) ??
+            new RemoveLocalRecordingDialog(recording.Title) { Owner = Window.GetWindow(this) }.ShowDialog() == true;
         if (!approved || closed || selected?.Id != recording.Id) return;
         try
         {
