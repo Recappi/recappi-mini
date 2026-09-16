@@ -23,6 +23,8 @@ public partial class ReviewPanel : UserControl
     private bool busy;
     private bool rendering;
     private bool summaryPending;
+    private bool needsRefresh;
+    private bool summaryNeedsRefresh;
     private bool historyLoaded;
     private bool hasTranscript;
     private DateTimeOffset pollUntil;
@@ -39,7 +41,7 @@ public partial class ReviewPanel : UserControl
     public void Clear()
     {
         generation++; timer.Stop(); lifetime?.Cancel(); lifetime?.Dispose(); lifetime = null;
-        account = null; recordingId = null; jobs = []; summaryPending = false; busy = false; historyLoaded = false; hasTranscript = false;
+        account = null; recordingId = null; jobs = []; summaryPending = false; needsRefresh = false; summaryNeedsRefresh = false; busy = false; historyLoaded = false; hasTranscript = false;
         rendering = true; Jobs.ItemsSource = null; rendering = false; Status.Text = ""; RenderButtons();
     }
     private bool Current(int version) => generation == version && account is not null && accounts?.Snapshot.State == AccountState.SignedIn && accounts.Snapshot.Account?.Partition == account.Partition;
@@ -47,6 +49,7 @@ public partial class ReviewPanel : UserControl
     {
         var available = recordingId is not null && !busy;
         LatestButton.IsEnabled = RefreshButton.IsEnabled = available;
+        available &= !needsRefresh;
         TranscribeButton.IsEnabled = available && historyLoaded && recordingStatus is not ("uploading" or "aborted") && !jobs.Any(x => x.IsActive);
         SummaryButton.IsEnabled = available && hasTranscript && !summaryPending && !jobs.Any(x => x.IsActive);
         RetryButton.IsEnabled = available && Jobs.SelectedItem is CloudJob { Status: "failed", HasRetryableChunks: true };
@@ -71,16 +74,18 @@ public partial class ReviewPanel : UserControl
         Status.Text = jobs.Length == 0 ? "暂无转写任务。" : string.Join(" · ", jobs.Where(x => x.IsActive).Select(x => x.Display));
         if (priorSelected is not null && priorSelected.Status != "succeeded" && Jobs.SelectedItem is CloudJob { Status: "succeeded" } ready) VersionSelected?.Invoke(ready.Id);
         else if (priorSelected is null && previouslyActive && !jobs.Any(x => x.IsActive)) VersionSelected?.Invoke(null);
-        if (summaryPending)
+        if (summaryPending || summaryNeedsRefresh)
         {
             var transcript = await client.TranscriptAsync(recordingId!, cancellation: cancellation);
             if (!Current(version) || cancellation.IsCancellationRequested) return;
             var summary = CloudTranscript.Parse(transcript);
+            summaryNeedsRefresh = false;
             summaryPending = summary.SummaryStatus is "pending" or "queued" or "running";
             if (!summaryPending && Jobs.SelectedItem is null) VersionSelected?.Invoke(null);
             Status.Text = summaryPending ? "摘要正在生成…" : summary.SummaryStatus == "failed" ? "摘要生成失败，可重试。" : "摘要已更新。";
         }
         if ((jobs.Any(x => x.IsActive) || summaryPending) && DateTimeOffset.UtcNow < pollUntil) timer.Start(); else timer.Stop();
+        needsRefresh = false;
     }
     private void SelectVersion(object sender, SelectionChangedEventArgs e)
     {
@@ -126,9 +131,9 @@ public partial class ReviewPanel : UserControl
     }
     private async Task MutateAsync(Func<CloudClient, Task<System.Text.Json.JsonElement>> mutation, bool summary = false)
     {
-        if (busy || accounts is null || account is null || lifetime is null || !Current(generation)) return;
+        if (busy || needsRefresh || accounts is null || account is null || lifetime is null || !Current(generation)) return;
         var version = generation; var cancellation = lifetime.Token;
-        busy = true; RenderButtons(); Status.Text = "正在提交…";
+        busy = true; needsRefresh = true; summaryNeedsRefresh = summary; RenderButtons(); Status.Text = "正在提交…";
         try
         {
             using var client = accounts.Client(account); await mutation(client);
@@ -136,10 +141,10 @@ public partial class ReviewPanel : UserControl
             summaryPending |= summary; pollUntil = DateTimeOffset.UtcNow.AddMinutes(30);
             await FetchJobsAsync(client, version, cancellation);
         }
-        catch (OperationCanceledException) { if (Current(version)) Status.Text = "请求已取消；服务器可能已接收，请刷新任务历史确认。"; }
+        catch (OperationCanceledException) { if (Current(version)) { timer.Stop(); Status.Text = "请求已取消；服务器可能已接收，请刷新任务历史确认。"; } }
         catch (Exception error)
         {
-            if (Current(version)) Status.Text = error is CloudException { Status: HttpStatusCode.Unauthorized } ? "登录已过期，请重新连接账号。" : "请求未能确认。请刷新任务历史，确认结果后再重试。";
+            if (Current(version)) { timer.Stop(); Status.Text = error is CloudException { Status: HttpStatusCode.Unauthorized } ? "登录已过期，请重新连接账号。" : "请求未能确认。请刷新任务历史，确认结果后再重试。"; }
         }
         finally { if (Current(version)) { busy = false; RenderButtons(); } }
     }

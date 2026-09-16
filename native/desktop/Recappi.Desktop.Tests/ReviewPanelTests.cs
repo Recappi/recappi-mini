@@ -60,6 +60,7 @@ internal static class ReviewPanelTests
         if (jobs.Items.Count != 0) throw new Exception("Old processing response crossed recording selection.");
         panel.Clear(); window.Close();
         await VerifyConfirmationIsolationAsync(root, dispatcher);
+        await ReviewRequestRecoveryTests.RunAsync(root, dispatcher);
         Console.WriteLine("PASS native review history, confirmation cancellation, retry, summary, duplicate submit prevention and recording isolation.");
         void Click(string name) => ((Button)panel.FindName(name)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         async Task Idle() => await dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
