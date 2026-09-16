@@ -509,9 +509,11 @@ public partial class CloudLibraryWindow : Window
     }
     private async void DeleteRecording(object sender, RoutedEventArgs e)
     {
-        if (deleting || SelectedCloud is not { } item || accounts.Snapshot.Account is not { } account) return;
+        if (closed || deleting || SelectedCloud is not { } item || accounts.Snapshot is not { State: AccountState.SignedIn, Account: { } account }) return;
+        var version = generation;
         var approved = ConfirmDelete?.Invoke(item.Title) ?? MessageBox.Show(this, $"删除云端录音“{item.Title}”？此操作无法撤销，本机录音文件仍会保留。", "删除云端录音", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
         if (!approved) return;
+        if (!Current(version, account) || accounts.Snapshot.State != AccountState.SignedIn || SelectedCloud?.Id != item.Id || deleting) return;
         deleting = true; DeleteButton.IsEnabled = false; var cancellation = requests.Token;
         try
         {

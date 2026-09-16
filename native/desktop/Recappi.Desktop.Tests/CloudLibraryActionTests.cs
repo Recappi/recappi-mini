@@ -64,6 +64,10 @@ internal static class CloudLibraryActionTests
         if ((string)play.Content != "暂停" || !((TextBlock)window.FindName("PlaybackLabel")).Text.Contains("First audio")) throw new Exception("Changing details interrupted or mislabelled the original playback.");
         var delete = (Button)window.FindName("DeleteButton"); delete.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (deletes != 0) throw new Exception("Cancelled deletion contacted server.");
+        window.ConfirmDelete = _ => { list.SelectedIndex = 0; return true; };
+        delete.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Idle();
+        if (deletes != 0) throw new Exception("Changing recordings during delete confirmation contacted server.");
+        list.SelectedIndex = 1; await Idle();
         window.ConfirmDelete = _ => true; delete.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Idle();
         if (list.Items.Count != 2 || detached.Length != 0) throw new Exception("Failed deletion removed local UI state.");
         failDelete = false; delete.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Idle();
@@ -81,6 +85,11 @@ internal static class CloudLibraryActionTests
         window.ShowExportDialog = dialog => { dialog.FileName = exportedAudio; SignOutDuringDialog(); return true; };
         saveAudio.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         if (File.ReadAllText(exportedAudio) != "keep prior audio") throw new Exception("Signing out during the audio dialog exported the old account's content.");
+        await RestoreAccount(); list.SelectedIndex = 0; await Idle();
+        var deletesBeforeSignOut = deletes;
+        window.ConfirmDelete = _ => { SignOutDuringDialog(); return true; };
+        delete.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Idle();
+        if (deletes != deletesBeforeSignOut) throw new Exception("Signing out during delete confirmation contacted server.");
         window.Close();
         await RestoreAccount();
         var localStore = new LocalRecordingStore(Path.Combine(root, "linked-delete-library"));
