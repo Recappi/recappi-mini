@@ -1,5 +1,13 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：最小录音库本机详情滚轮修复
+
+新 `LocalDetailScrollingTests` 在实际 800×540 WPF 窗口路由 MouseWheel 输入，修复前失败 `Local detail swallowed mouse wheel instead of scrolling the library.`。本机库嵌入统一录音库时原来保留内层 ScrollViewer，即使内容无需内层滚动也吞掉事件。`UseExternalList` 现在解除该内层包装，由库详情滚动容器承载内容；独立本地库保留原来的 ScrollViewer。重复设置嵌入模式直接返回。
+
+最终完整 `dotnet run --project native/desktop/Recappi.Desktop.Tests` 通过，包括嵌入详情向下/向上、独立本地库向下滚动，以及既有选择、导入、播放和云详情布局回归。双架构自包含发布报告：`build/native-desktop-release/32d5bc9e2d1e4cd99540ba236b5b75e3/release-report.json`，源码 16a8464 加本轮改动，dirty；未签名，ARM64 未执行。
+
+实际 x64 最小窗口在合成样本上用 Computer Use 滚轮向下露出上传/导出入口，再向上返回完整标题；没有拖动滚动条。录像 `build/native-desktop-validation/local-wheel-ui-01/wheel.mp4` 66.667 秒、15 fps、1000 帧全部解码，5 张去重关键帧已查看；`acceptance.html` 两项通过。未登录、无云请求或新录音；仅验浅色本机详情，不扩大为全部云端页签、触控板或多 DPI 通过。此前紧凑布局验收中观察到的本机详情滚轮缺口至此补齐。
+
 ## 2026-09-16：紧凑间距与矢量按钮图标
 
 按用户新的视觉优先级收紧全局按钮（32 px 最小高度、10×5 内边距）、输入、页签与列表行；录音条宽度 580→520，库外边距 24×20→16×12、详情内边距 24→14。设置页去掉叠加的内容留白。常用操作使用共享 24 单位矢量路径，显示为 16 px 并跟随按钮主题前景色；录音条的库/选项/隐藏/更多使用 32 px 图标按钮，保留可访问名称和提示。播放状态改为暂停图标，主要操作仍保留文字。

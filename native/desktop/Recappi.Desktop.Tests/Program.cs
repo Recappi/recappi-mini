@@ -126,6 +126,7 @@ internal static class Program
                 await LocalPlaybackTests.RunAsync(root);
                 await ProcessingRecoveryTests.RunAsync(root);
                 await CloudLibraryTests.RunAsync(root, app.Dispatcher);
+                await LocalDetailScrollingTests.RunAsync(root, app.Dispatcher);
                 await CloudCompletionLayoutTests.RunAsync(root, app.Dispatcher);
                 await ImportLifecycleTests.RunAsync(root, app.Dispatcher);
                 await LibraryProfile.RunAsync(smokeOnly: true);

@@ -57,7 +57,15 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
     }
     public void UseExternalList()
     {
+        if (externalList) return;
         externalList = true;
+        // The hosting library already scrolls the detail. A nested ScrollViewer
+        // consumes wheel events even when all of its own content fits.
+        var detail = (UIElement)LocalDetailScroll.Content;
+        LocalDetailScroll.Content = null;
+        LibraryGrid.Children.Remove(LocalDetailScroll);
+        Grid.SetColumn(detail, 2);
+        LibraryGrid.Children.Add(detail);
         LibraryGrid.Children[0].Visibility = Visibility.Collapsed;
         LibraryGrid.ColumnDefinitions[0].Width = new GridLength(0);
         LibraryGrid.ColumnDefinitions[1].Width = new GridLength(0);
