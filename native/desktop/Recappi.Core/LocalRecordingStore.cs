@@ -32,6 +32,7 @@ public sealed class LocalRecordingStore(string root)
         var result = new List<LocalRecording>();
         foreach (var directory in Directory.EnumerateDirectories(Root))
         {
+            if (File.Exists(Path.Combine(directory, "library-removed.json"))) continue;
             var path = Path.Combine(directory, "desktop-session.json");
             if (!File.Exists(path)) continue;
             try
@@ -45,6 +46,42 @@ public sealed class LocalRecordingStore(string root)
             catch (Exception error) when (error is IOException or JsonException or ArgumentException or UnauthorizedAccessException) { /* A damaged entry must not hide intact recordings. */ }
         }
         return result.OrderByDescending(x => x.StartedAt).ToArray();
+    }
+
+    public void RemoveFromLibrary(LocalRecording recording)
+    {
+        Validate(recording);
+        // Read persisted state instead of trusting a selection captured before a dialog.
+        var current = JsonSerializer.Deserialize<LocalRecording>(File.ReadAllText(Path.Combine(recording.Directory, "desktop-session.json")), Json)
+            ?? throw new InvalidDataException("录音记录无法读取。");
+        Validate(current);
+        if (current.Id != recording.Id || current.State is not (RecordingState.Done or RecordingState.Error))
+            throw new InvalidOperationException("录音尚未结束，无法从库中移除。");
+        // A separate marker survives later metadata saves. Audio, captions and upload
+        // journals remain intact; removing a library entry does not cancel remote work.
+        AtomicJsonFile.Write(Path.Combine(recording.Directory, "library-removed.json"), "{}");
+    }
+
+    public LocalRecording? RestoreRemovedAudio(string audioPath, CancellationToken cancellation = default)
+    {
+        audioPath = Path.GetFullPath(audioPath);
+        var directory = Path.GetDirectoryName(audioPath);
+        if (directory is null || !string.Equals(Path.GetDirectoryName(directory), Path.TrimEndingDirectorySeparator(Root), StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Path.GetFileName(audioPath), "audio.wav", StringComparison.OrdinalIgnoreCase)) return null;
+        var marker = Path.Combine(directory, "library-removed.json");
+        if (!File.Exists(marker)) return null;
+        var recording = JsonSerializer.Deserialize<LocalRecording>(File.ReadAllText(Path.Combine(directory, "desktop-session.json")), Json)
+            ?? throw new InvalidDataException("原录音记录无法读取，无法恢复。");
+        Validate(recording);
+        if (!string.Equals(Path.GetFullPath(recording.AudioPath), audioPath, StringComparison.OrdinalIgnoreCase) ||
+            recording.State is not (RecordingState.Done or RecordingState.Error) ||
+            (File.GetAttributes(audioPath) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidDataException("原录音记录不匹配，无法恢复。");
+        cancellation.ThrowIfCancellationRequested();
+        // Keep the original ID so a resumed upload can reuse its existing ticket.
+        // Commit before returning; a failed removal must not create a duplicate import.
+        File.Delete(marker);
+        return recording;
     }
 
     public void Discard(LocalRecording recording)

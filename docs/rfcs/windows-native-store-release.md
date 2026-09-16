@@ -1,5 +1,30 @@
 # Windows 商店发布与体积优化
 
+## 自包含运行时补丁固定（2026-09-16）
+
+发现本机 SDK 10.0.100 默认发布 .NET 10.0.0，而 CI 使用浮动 `10.0.x` SDK，原有 NuGet locked restore 并未固定这部分运行时载荷。`publish-native-desktop.ps1` 现从在线安装器同一固定清单读取 10.0.12，对自包含发布显式设置 `RuntimeFrameworkVersion`，并拒绝 NETCore/WindowsDesktop 任一版本不符的产物；发布报告增加实际 `includedFrameworks`。不改变 CLI 或全机运行时，不提高 framework-dependent 候选的最低运行时要求。
+
+官方依据：[10.0.12 下载与安全补丁说明](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)、[自包含运行时版本选择](https://learn.microsoft.com/en-us/dotnet/core/versions/selection)。固定补丁必须随清单维护，不能把 NuGet 锁文件或系统自动更新当成自包含包已更新的证明。
+
+工作区验证发布 `build/native-desktop-release/3da434e6e9f744dc9bfe150889a3ccc1/release-report.json` 的 x64/ARM64 均通过，两个 included frameworks 均为 10.0.12。双架构 framework-dependent 精简候选也通过，报告 `6999beb452b14445bf2f25096063e1ed/release-report.json`。这些是含当前脚本修改的 dirty 验证产物，未签名或安装。
+
+x64 自包含包三次就绪及正常退出通过，实际运行 .NET 10.0.12；报告 `build/native-desktop-validation/startup-profile-97769fe17f2d4b8aa293e1483c921909/results.json`，中位 934.64 ms、范围 928.09–1082.96 ms。仅系统 PATH、预配置未登录、暖缓存；不代表冷启动、完整功能或性能改善。
+
+完整 WPF 回归命令 `dotnet run --project native/desktop/Recappi.Desktop.Tests -c Release -r win-x64 --self-contained true -p:RuntimeFrameworkVersion=10.0.12` 退出 0；测试产物 runtimeconfig 中 NETCore/WindowsDesktop 均为 10.0.12。覆盖播放、导入、移除/恢复、字幕、设置和窗口生命周期；服务替身与合成音频仍不替代真实云服务、设备或 ARM64 验收。
+
+## 2026-09-16：本机移除与恢复实现后的干净发布
+
+从干净提交 `92792e61b346952a8b92cab3eb2c93f7c923455e` 重新发布，报告 `build/native-desktop-release/5c0775f6a616480fb280eed0f26a0659/release-report.json` 的 `sourceDirty=false`。这是默认完整资源、自包含包，不是精简候选。
+
+| 架构 | ZIP 字节 | 未签名 MSIX 字节 | MSIX 校验载荷数 | MSIX 报告目录（build/native-msix 下） |
+| --- | ---: | ---: | ---: | --- |
+| x64 | 76,850,370 | 75,854,195 | 479 | `00e3ebdc929347b7bdda2629963ceb7f` |
+| ARM64 | 71,248,448 | 70,889,180 | 478 | `fea4245a593f42e18321d9ba246bb385` |
+
+MSIX SHA256：x64 `861c2a8203991667edcf630208fa2998c0b250258537c89363c92d0bdf425839`；ARM64 `6236ae3459b2dbb528f40f0531d5e5e08cd297ee1ca9ebddf35eb9aa4332934a`。Windows SDK MakeAppx 与逐文件长度/哈希校验通过。两包仍为开发身份，未签名、未安装、未上传，`storeReady=false`；不替代签名生命周期、干净 Windows 和 ARM64 实机门禁。
+
+构建和打包结束后，x64 在仅系统 PATH 下三次新进程启动、就绪及正常退出通过，中位 845.57 ms；完整条件与局限见 [性能报告](windows-native-performance.md)。
+
 ## 2026-09-16：当前代码的 MSIX 载荷复验
 
 对 `8f40070` 对应的发布目录 `build/native-desktop-release/1eeaa4a1ceb84bfba1a2a052f56ec627` 运行双架构 `build-native-msix.ps1`。该发布报告为 `898c38a` 加随后提交于 `8f40070` 的长音频时间显示修改；本轮没有重建或改写载荷，也不将其标成干净提交发布。

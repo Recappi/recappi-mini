@@ -33,6 +33,29 @@ internal static class AudioImportTests
         try { await importer.ImportAsync(damaged); } catch { rejected = true; }
         var after = await File.ReadAllBytesAsync(source);
         if (!rejected || store.List().Count != 1 || !original.SequenceEqual(after)) throw new Exception("Import failure damaged the library or source.");
+        var metadata = Path.Combine(entry.Directory, "desktop-session.json");
+        var preservedMetadata = File.ReadAllBytes(metadata);
+        var preservedAudio = File.ReadAllBytes(entry.AudioPath);
+        store.RemoveFromLibrary(entry);
+        using (var cancelledRestore = new CancellationTokenSource())
+        {
+            cancelledRestore.Cancel();
+            try { await importer.ImportAsync(entry.AudioPath, cancellation: cancelledRestore.Token); throw new Exception("Cancelled restore succeeded."); }
+            catch (OperationCanceledException) { }
+        }
+        var marker = Path.Combine(entry.Directory, "library-removed.json");
+        if (!File.Exists(marker) || store.List().Count != 0) throw new Exception("Cancelled restore changed library.");
+        using (var lockedMarker = new FileStream(marker, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var restoreFailed = false;
+            try { await importer.ImportAsync(entry.AudioPath); } catch (IOException) { restoreFailed = true; }
+            if (!restoreFailed || store.List().Count != 0 || Directory.GetDirectories(store.Root).Length != 1)
+                throw new Exception("Failed restore created a duplicate or lost removal state.");
+        }
+        var restored = await new AudioImport(new LocalRecordingStore(store.Root)).ImportAsync(entry.AudioPath);
+        if (restored.Id != entry.Id || store.List().Single().Id != entry.Id || Directory.GetDirectories(store.Root).Length != 1 ||
+            !File.ReadAllBytes(metadata).SequenceEqual(preservedMetadata) || !File.ReadAllBytes(entry.AudioPath).SequenceEqual(preservedAudio))
+            throw new Exception("Reimport did not restore original ID/files for upload reconciliation.");
         foreach (var format in new[] { "mp3", "m4a" })
         {
             var compressed = Path.Combine(root, "import-source." + format);

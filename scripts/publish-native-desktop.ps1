@@ -15,6 +15,9 @@ $sourceStatus = @(& git -C $repository status --porcelain)
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect release source changes.' }
 $sourceDirty = $sourceStatus.Count -gt 0
 $project = Join-Path $repository 'native/desktop/Recappi.Desktop/Recappi.Desktop.csproj'
+$runtimeManifest = Get-Content -LiteralPath (Join-Path $repository 'native/desktop/installer/dotnet-prerequisites.json') -Raw | ConvertFrom-Json
+$pinnedRuntimeVersion = [string]$runtimeManifest.version
+if ($pinnedRuntimeVersion -notmatch '^10\.0\.\d+$') { throw 'Expected a pinned stable .NET 10 runtime version.' }
 $destination = Join-Path $repository ('build/native-desktop-release/' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($destination) | Out-Null
 $artifacts = @()
@@ -24,7 +27,9 @@ foreach ($runtime in $Runtimes) {
     # .NET Desktop ships simplified Chinese under zh-Hans; English is neutral.
     if ($ResourceOptimizationCandidate) { $optimizationArguments += '-p:SatelliteResourceLanguages=zh-Hans' }
     $selfContained = (-not $FrameworkDependentCandidate).ToString().ToLowerInvariant()
-    & dotnet publish $project --configuration Release --runtime $runtime --self-contained $selfContained --output $output -p:RestoreLockedMode=true "-p:Version=$Version" @optimizationArguments
+    $runtimeArguments = @()
+    if (-not $FrameworkDependentCandidate) { $runtimeArguments += "-p:RuntimeFrameworkVersion=$pinnedRuntimeVersion" }
+    & dotnet publish $project --configuration Release --runtime $runtime --self-contained $selfContained --output $output -p:RestoreLockedMode=true "-p:Version=$Version" @optimizationArguments @runtimeArguments
     if ($LASTEXITCODE -ne 0) { throw "Native publish failed for $runtime." }
     if ($ResourceOptimizationCandidate) {
         if (-not $FrameworkDependentCandidate -and -not (Test-Path -LiteralPath (Join-Path $output 'zh-Hans/PresentationFramework.resources.dll'))) {
@@ -44,6 +49,7 @@ foreach ($runtime in $Runtimes) {
     if ($machine -ne $expected) { throw "Unexpected executable architecture for $runtime." }
     $configuration = Get-Content -LiteralPath (Join-Path $output 'Recappi Mini.runtimeconfig.json') -Raw | ConvertFrom-Json
     $requiredFrameworks = @()
+    $includedFrameworks = @()
     if ($FrameworkDependentCandidate) {
         $requiredFrameworks = @($configuration.runtimeOptions.frameworks)
         if ($configuration.runtimeOptions.includedFrameworks -or
@@ -51,7 +57,13 @@ foreach ($runtime in $Runtimes) {
             @($requiredFrameworks | Where-Object name -eq 'Microsoft.NETCore.App').Count -ne 1 -or
             (Test-Path -LiteralPath (Join-Path $output 'coreclr.dll'))) { throw 'Invalid framework-dependent candidate runtime metadata.' }
     } else {
-        if (-not $configuration.runtimeOptions.includedFrameworks) { throw 'Publish output is not self-contained.' }
+        $includedFrameworks = @($configuration.runtimeOptions.includedFrameworks)
+        foreach ($frameworkName in @('Microsoft.NETCore.App', 'Microsoft.WindowsDesktop.App')) {
+            $matchingFramework = @($includedFrameworks | Where-Object name -eq $frameworkName)
+            if ($matchingFramework.Count -ne 1 -or $matchingFramework[0].version -ne $pinnedRuntimeVersion) {
+                throw "Published $frameworkName does not match pinned runtime $pinnedRuntimeVersion."
+            }
+        }
         if (-not (Test-Path -LiteralPath (Join-Path $output 'PresentationFramework.Fluent.dll'))) { throw 'Native theme runtime is missing.' }
     }
     if ((Test-Path -LiteralPath (Join-Path $output 'node.exe')) -or (Test-Path -LiteralPath (Join-Path $output 'node.dll'))) { throw 'Unexpected Node runtime in native release.' }
@@ -74,6 +86,7 @@ foreach ($runtime in $Runtimes) {
         selfContained = -not [bool]$FrameworkDependentCandidate
         frameworkDependentCandidate = [bool]$FrameworkDependentCandidate
         requiredFrameworks = $requiredFrameworks
+        includedFrameworks = $includedFrameworks
         fileCount = $files.Count
         publishedBytes = ($files | Measure-Object -Property Length -Sum).Sum
         archive = $archive

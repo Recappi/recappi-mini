@@ -1,5 +1,13 @@
 # Windows 原生版功能矩阵
 
+2026-09-16 N25 设置恢复：损坏、非法或不可读的已有配置不再启用首次安装的自动上传/麦克风默认值；保守关闭五项录音/云选项，原文件在读取、打开/关闭窗口时保持。核心 37 组、完整 WPF 和双架构发布通过；完整 x64 App 恢复提示与五项默认状态视频两项通过，真实登录录音恢复、其他主题/DPI/ARM64 仍待验，见验证记录。
+
+2026-09-16 N17/N23 恢复增量：重新导入原目录的已移除音频保留原 ID 和处理关联；取消/文件锁失败不创建副本，WPF 恢复并选中原条目、失败上传继续原 ticket 且仅创建一次云录音回归通过。最终完整 WPF 和双架构发布通过；后端为 HTTP 替身，完整 App/真实服务恢复操作待验，详见验证记录。
+
+2026-09-16 N23 实操增量：本机移除确认改为 CenterOwner 原生窗口，实际 ShowDialog 与完整 WPF 回归、双架构发布通过。完整 x64 App 确认布局、移除结果、新进程列表恢复视频三项通过，原六文件哈希不变；取消到再次确认连续录像不足，云并行与其他 DPI 仍待验。证据 `local-removal-ui-01` 见验证记录，优先于下方较早的待验描述。
+
+2026-09-16 N23：macOS `CloudLibraryStore+AuthBilling.deleteSelectedRecording` / `+Selection.removeLocalProcessingRecording` 的本机分支保留音频文件。Windows 现已补充本机移除入口与独立持久标记，保留文件及处理记录，确认框明确已提交云任务继续运行。取消、选择变化、实际读写失败、播放释放、原文件不变、重新实例化存储及迟到保存不复活回归通过；核心 36 组和完整 WPF 通过。实际确认框、新进程恢复与云后台并行待验，未勾选整个 N23；不复用会删除文件的 Discard。
+
 2026-09-16 兼容补验：当前 `9f99fbf` 的 Windows CLI 类型检查、226 项测试、构建、隔离安装后的启动及严格包检查通过；6 项按平台/真实服务开关跳过。x64/ARM64 helper 重建与包内架构/许可证通过，x64 版本执行和无账号 sidecar 握手通过。未新增真实音频/服务/macOS 或 ARM64 实机证据，详见验证记录。
 
 2026-09-16 N14/N15：处理单句 input_audio_transcription.failed，清理该句等待/增量状态，不将可用连接重启；失败半句与空结果通过 IsFailed 元数据保留，窗口与 TXT 明确标注。160 次失败后继续、终态幂等、content_index 隔离和停止尾句回归通过，核心增至 36 组；完整 WPF、受控生产字幕窗视频三项及双架构发布通过。视频不连接网络、不录音，不替代完整 App、公网失败或其他 DPI 验收，见验证记录。
@@ -60,7 +68,7 @@
 | N20 | 播放/倍速/seek/活动片段/跨录音；CloudMeetingAudioPlayer / CloudPlayback | AudioPlayer 原生媒体；TranscriptPanel 定位与活动高亮；本机暂停 seek 即时更新时间、超过一小时保留小时、选择/结束复位；云详情切换保留独立播放 | AudioDownloadTests、WPF 实际媒体打开/seek/清理、跨录音回归；真实本机播放暂停、拖动/Home/End/结束复位视频通过。61 分钟 WAV 跨小时与回退回归通过；完整 App 长时间 seek/播放视频两项通过，回退操作视频证据不足（long-playback-ui-01）。完整倍速/引用/高亮/跨录音操作和性能待验 |
 | N21 | 问答历史/建议/流式回答/引用；AskConversationViewModel | AskClient SSE + AskPanel，切会议取消与隔离、停止和引用定位；发送时清空问题，完成保留新草稿，失败/取消仅恢复未编辑的原问题 | AskTests 分片/断流/错误，AskPanelTests 延迟响应及成功/失败/取消 × 未编辑/新草稿/主动清空 9 种输入状态回归；真实 C# Ask 流水线及完整桌面请求/回答/单一引用定位视频通过；本次草稿行为实际云端 UI、重试、引用边界与所有窗口尺寸待验 |
 | N22 | 重新处理、历史、失败分块重试；CloudLibraryStore+Processing | ReviewPanel / CloudJob，确认、版本选择、处理状态刷新与重复提交抑制；确认前后核对录音/账号及最新任务资格 | ReviewPanelTests 取消/重试/历史/隔离；新增嵌套 Dispatcher 回归先复现确认期间切换录音误发 POST，修复后切换/退出/活跃任务更新均零提交且正常请求可恢复。使用测试网络与确认委托；真实服务流水线并不证明所有重处理分支，完整 UI 服务操作待验 |
-| N23 | 删除确认/索引关联/失败恢复；CloudCenterPanel+Detail | 云库删除确认、处理关联清理；云副本删除保留本机录音；确认后重新核对录音、登录状态和页面版本 | CloudLibraryActionTests 取消/失败/成功/隔离，以及确认期间切换录音或退出账号均不发送 DELETE（先复现失败，修复后完整 WPF 套件通过）；真实 API 测试记录清理；完整桌面删除与账户变化竞争待验 |
+| N23 | 删除确认/索引关联/失败恢复；CloudCenterPanel+Detail、CloudLibraryStore+AuthBilling / +Selection；本机条目仅移除库记录并保留文件 | 云库删除确认、处理关联清理；云副本删除保留本机录音；确认后核对录音/账号/页面。本机移除使用独立标记，保留文件和云处理记录 | CloudLibraryActionTests 云删除取消/失败/成功/隔离；LocalRemovalTests 本机取消、选择变化、读写失败保留、播放释放、文件不变、重新实例化存储与迟到保存不复活通过；实际确认框、新进程恢复、云后台并行和账户变化竞争待验 |
 | N24 | 用量、套餐与管理链接；BillingStatus / CloudCenterPanel+AccountHeader | BillingStatus DTO + BillingPanel 嵌入 AccountWindow；刷新/超额/不限量/周期；POST portal，409 转 plans；只打开可信链接 | BillingTests、BillingPanelTests 覆盖配额/URL/延迟响应/失败/账号隔离/401；真实只读 GET 解析成功，实际窗口用明确测试数据作布局检查。完整 App 真实用量/管理服务、账号状态与键盘实机待验 |
 | N25 | 主题、设置、关于、更新；SettingsView / AppUpdater | SettingsWindow 五组配置即时保存；共用现代样式；DesktopUpdates / UpdatePanel 官方发布源、架构/通道/摘要检查；独立安装器 | Settings/Theme/Update 测试、完整应用主题/提醒保存与重启恢复后画面视频通过；已有 x64 安装升级/回滚/数据保留测试。全部字段、生产签名/可用更新发布、自动安装、全部窗口视觉/高对比度/ARM64 实机未完成 |
 | N26 | 文本/字幕/音频导出；CLI export / macOS 复制与本地副本 | 云文字导出/音频副本；CaptionArchive 和本机 TXT/JSONL 导出；对话框返回后核对来源，字幕完整写入后替换并拒绝录音库内目标 | WPF 文字/音频取消与来源变化回归；CaptionExportTests 验证失败保留原文件。完整 App 合成双语 TXT 保存、Escape 取消、目录拒绝视频 3 项通过/2 项证据不足；完整布局、JSONL/覆盖确认、全部编码/时间轴仍待验 |
@@ -68,7 +76,7 @@
 
 ## 验证入口与证据边界
 
-- 核心：`dotnet run --project native/desktop/Recappi.Core.Tests/Recappi.Core.Tests.csproj -c Release`。最近全量 36 组通过（`core-tests-2ad9d13099854e17997d55621a4e9467`）；网络场景含测试 handler 和真实回环 WebSocket，部分文件/媒体/Windows API 为实际执行，不能统一称为真实后端测试。本轮 CLI 兼容补验没有重跑该套件。
+- 核心：`dotnet run --project native/desktop/Recappi.Core.Tests/Recappi.Core.Tests.csproj -c Release`。设置恢复增量全量 37 组通过（`core-tests-199238e044bb44af9a617d07a013b4fd`）；网络场景含测试 handler 和真实回环 WebSocket，部分文件/媒体/Windows API 为实际执行，不能统一称为真实后端测试。随后同名设置目录冲突由 `--preferences-recovery` 定向通过。
 - 原生控件：`dotnet run --project native/desktop/Recappi.Desktop.Tests/Recappi.Desktop.Tests.csproj`。持续扩充，最近完整 Release 执行范围见验证记录；实际 WPF 控件与媒体运行，账号/网络数据主要为测试替身。
 - 实际服务：`CloudSmoke` / `CloudPipelineSmoke` 的原始记录见验证文档。它们不是完整 App 的人工交互验收，禁止因为既有服务样本成功而勾选所有 UI 路径。
 - 实际桌面：验证文档分别记录受控进程录音、本机库/播放、设置/引导、隐藏恢复、取消退出和最终保存等已观察操作。

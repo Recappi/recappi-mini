@@ -104,7 +104,7 @@ public partial class App : Application
         }
         var applicationRoot = Path.GetDirectoryName(Path.GetFullPath(overrideRoot ?? LocalRecordingStore.DefaultRoot))!;
         preferencesStore = new PreferencesStore(applicationRoot);
-        try { preferences = preferencesStore.Load(); } catch (Exception) { preferencesLoadFailed = true; }
+        (preferences, preferencesLoadFailed) = preferencesStore.LoadForStartup();
         DesktopTheme.Apply(preferences.Theme);
         var dataRoot = overrideRoot ?? preferences.RecordingsRoot;
         var store = new LocalRecordingStore(dataRoot);
@@ -295,7 +295,7 @@ public partial class App : Application
                 value = value with { OnboardingCompleted = preferences.OnboardingCompleted, OnboardingStep = preferences.OnboardingStep };
                 preferencesStore!.Save(value); preferences = value; preferencesLoadFailed = false; recorder?.ApplyPreferences(value);
                 DesktopTheme.Apply(value.Theme);
-            }, ShowAccount, preferencesLoadFailed ? "设置读取失败，当前使用默认值。修改设置后可重建设置文件。" : null, RestartOnboarding, () => recorder?.Preferences ?? preferences);
+            }, ShowAccount, preferencesLoadFailed ? "设置读取失败。已暂时关闭自动上传、自动转写、实时字幕、麦克风和录音建议。原设置文件尚未修改；请检查各项设置，修改后可重新保存。" : null, RestartOnboarding, () => recorder?.Preferences ?? preferences);
             settingsWindow.Closed += (_, _) => settingsWindow = null;
         }
         settingsWindow.Show(); settingsWindow.Activate();

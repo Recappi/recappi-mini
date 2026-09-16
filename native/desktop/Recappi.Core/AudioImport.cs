@@ -11,6 +11,11 @@ public sealed class AudioImport(LocalRecordingStore store)
         cancellation.ThrowIfCancellationRequested();
         source = Path.GetFullPath(source);
         if (!File.Exists(source)) throw new FileNotFoundException("找不到要导入的音频。", source);
+        if (store.RestoreRemovedAudio(source, cancellation) is { } restored)
+        {
+            progress?.Report(1);
+            return restored;
+        }
         using var reader = new MediaFoundationReader(source);
         using var converter = new MediaFoundationResampler(reader, new WaveFormat(48000, 16, 1));
         var recording = store.Create(Path.GetFileNameWithoutExtension(source), options);

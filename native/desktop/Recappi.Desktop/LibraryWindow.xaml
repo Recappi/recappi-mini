@@ -19,6 +19,7 @@
    <TextBlock x:Name="CloudStatus" Text="登录后可将录音上传并转写。" TextWrapping="Wrap" Margin="0,0,0,12" AutomationProperties.LiveSetting="Polite"/>
    <Button local:ButtonIcon.Geometry="{StaticResource Icon.Cloud}" x:Name="UploadButton" Content="上传并转写 / 继续处理" Click="Upload" IsEnabled="False" HorizontalAlignment="Left" AutomationProperties.AutomationId="cloud.upload"/>
    <Button local:ButtonIcon.Geometry="{StaticResource Icon.Import}" x:Name="ExportCaptionsButton" Content="导出实时字幕" Click="ExportCaptions" IsEnabled="False" HorizontalAlignment="Left" Margin="0,12,0,0"/>
+   <Button x:Name="RemoveButton" Content="从本机录音库移除" Click="RemoveRecording" IsEnabled="False" HorizontalAlignment="Left" Margin="0,12,0,0" AutomationProperties.AutomationId="library.remove"/>
    </StackPanel>
   </StackPanel></ScrollViewer>
  </Grid>

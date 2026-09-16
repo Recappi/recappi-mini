@@ -1,5 +1,37 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：损坏设置保守恢复
+
+- 发现原 App 在设置读取失败后使用 `new DesktopPreferences()`，默认打开自动上传和麦克风；JSON `null` 还会被直接当成有效默认设置。新增回归先在旧实现复现 `null` 静默回退失败，再修复 `PreferencesStore.LoadForStartup`：不存在的文件保留首次使用默认值，损坏/非法/不可读的已有配置进入恢复状态，关闭自动上传、自动转写、字幕、麦克风和录音建议。读取不写文件，明确编辑后可保存恢复；正常有效配置不受影响。
+- 核心完整 **37 组**通过，目录 `build/native-desktop-validation/core-tests-199238e044bb44af9a617d07a013b4fd`。涵盖损坏 JSON/null/非法主题或路径、真实排他文件锁、原字节保持、释放锁后读取原选项、修改主题不重新开启录音/上传、用户明确开启后持久化。后补同名目录冲突由定向 `--preferences-recovery` 验证。
+- 完整自包含 .NET 10.0.12 WPF 回归通过：`dotnet run --project native/desktop/Recappi.Desktop.Tests -c Release -r win-x64 --self-contained true -p:RuntimeFrameworkVersion=10.0.12`，目录 `ui-smoke-0a25af3208244a91aa5d373f91045254`。实际窗口开关初始关闭，打开/等待/关闭不改损坏文件，主题修改保持保守选项，分别明确启用后保存正确。
+- 双架构自包含发布通过：`build/native-desktop-release/eaba5fb9331b499d9a18562da13aa58d/release-report.json`，基于 `227e2b6` 加本轮恢复修改，`sourceDirty=true`；两个运行时框架均固定 10.0.12。不是干净提交或已签名安装产物。
+- 完整 x64 App 使用隔离损坏配置启动，自动打开恢复设置。`build/native-desktop-validation/settings-recovery-ui-01/acceptance.html` 的通用/转写两段各八秒录像共 160 帧→3 关键帧，两项通过：恢复提示可读，五个保守选项未勾选。未开始录音或登录；切标签、关闭设置后经录音条“退出应用”结束，原 12 字节设置 SHA256 `B8A9F6AEDEBF715F38DC2AF28BF23D8D7704F31A468D44CB0F6AB505876D4247` 保持，数据目录未新增文件，见 `verification.json`。
+- 局限：录像是已显示页面，不覆盖启动/关闭/退出过渡；不代表已登录后的实际录音与上传、其他主题/DPI、长期恢复或 ARM64 实机验收。保持整个 N25 和阶段 4 未完成。
+
+## 2026-09-16：本机录音库移除
+
+- 完整 App 重新导入补验：以自包含包 `199a4c24f1a44860935a622ab47a2bf1` 启动隔离目录，通过系统文件选择框选取原 `audio.wav`；原条目恢复并自动选中，原标题及五秒时长可读。`local-removal-ui-01/reimport.mp4` 139.3 秒、1393 帧→4 关键帧，恢复结果一项通过，文件选择/播放连续过程一项证据不足；该目录累计验收为 4 通过、2 证据不足。
+- `reimport-verification.json` 核对两个原 ID、两个录音目录、6 个文件 SHA256 保持，只清除目标标记；未生成新录音或新音频。验证使用此前移除样本，因此旧 `verification.json` 表示移除后时点，新的报告表示恢复后时点。自有 App 29248 和录屏均结束，无账号、无上传。文件名控件的 UIA 焦点报告不准确且 set_value 不支持，改用可见插入光标核对焦点后输入，结果及文件路径由实际恢复核对；不宣称 UIA 故障是应用问题。
+
+- 恢复路径补齐：重新导入仍位于原录音目录的已移除 `audio.wav` 时，恢复原条目而非转码生成新 ID，保留标题、字幕、处理选项及原上传关联。确认文案明确该路径；复制到其他目录的音频仍走普通导入。验证取消、标记文件独占锁失败不新增条目、原音频/元数据不变与 WPF 自动选中恢复条目。
+- 核心完整 36 组通过（`core-tests-8b81db1f352c460d811252bf0b36cfaf`）；随后处理回归加入“失败上传→移除→新存储实例重新导入→继续原 ticket”，定向 `--processing-file-conflict` 通过（`core-tests-b2b714108b11467e95d9bcfaa63f0aeb`），断言只创建一次云录音。服务为 HTTP 替身，不声称真实服务重试已验。双架构发布报告 `build/native-desktop-release/199a4c24f1a44860935a622ab47a2bf1/release-report.json`，基于 `62ef100` 加恢复实现；旧 UI 视频不覆盖新文案和恢复操作。
+- 本轮 WPF 首次因成功提示改文案而命中旧断言，已同步断言并保留选择/条目数量/导入状态检查。第二次遇到键盘播放测试的合并错误条件；拆开焦点丢失与进度停滞诊断后定向通过，未确定那次瞬态失败原因，不归因于焦点或宣称已修复播放器问题。
+- 最终完整 Release WPF 回归退出 0：`build/native-desktop-validation/ui-smoke-e19eb4eaca114acc83fd461b4ffb62bc`，包含恢复原条目、普通导入生命周期和上述键盘播放检查。
+
+- 实窗发现并修复：系统 MessageBox 出现在录音库右侧、超出库窗口范围。改为 `RemoveLocalRecordingDialog`，CenterOwner、默认“保留在库中”、关闭等同取消；新增实际 ShowDialog 位置与决策断言。此前仅确认委托未覆盖生产确认框，是未提前发现问题的原因。定向与完整 Release WPF 通过，完整执行目录 `ui-smoke-71ec8c97c569471ca01bf8599ba48dab`。
+- 更新后的双架构自包含发布：`build/native-desktop-release/1ec7ab67dded4bc1b8b3397dbaf8f01d/release-report.json`，基于 `10ef836` 加确认窗改动。完整 x64 App 在隔离目录用两个五秒静音样本完成保留、移除、刷新；结束空闲进程 23416 后以新进程 49240 打开相同库，仅保留样本仍可见。未录制启动过渡，不冒充正常退出流程验收。
+- 视频 `build/native-desktop-validation/local-removal-ui-01/acceptance.html` 三项通过、一项证据不足：确认内容可读、目标移除而其他条目保留、新进程列表恢复通过。三段有效视频共 907 帧→5 关键帧、零越界事件；`verification.json` 核对 6 个原文件 SHA256 不变，只有目标新增移除标记。库窗口录制不捕获独立确认窗，故确认布局另录八秒；取消到再次确认的连续视频证据不足。旧 `removal.mp4` 排除验收。自有三个 App 进程和录屏均结束。
+- 当前仍未验真实云处理并行、全部键盘、主题/尺寸/DPI 或 ARM64 实机；不把以上限定成功路径当作整个 N23 完成。
+
+- 统一库补验：`CloudCompletionLayoutTests` 新增实际 WPF 本机/云端合并条目移除流程，验证保留云端条目和选择、本机详情及副本切换入口隐藏、迟到云完成通知与本机刷新不复活本机副本、零 DELETE。`--cloud-completion-test` 定向执行退出 0；服务使用 HTTP 替身，不证明真实云任务并行或新进程恢复。
+- 补验后完整 Release WPF 回归退出 0，执行目录 `build/native-desktop-validation/ui-smoke-9ece28b50ab249209d16bdd82d61fc2c`。本次仅测试和文档变化，未重建相同生产实现的发布包。
+
+- 源码对齐：macOS 本机分支仅清理库记录/缓存。Windows 新增原生确认和 `LocalRecordingStore.RemoveFromLibrary`，完成或错误会话才能移除；单独标记不改音频、字幕、原元数据，也不发送云 DELETE 或取消已提交处理。迟到元数据保存不覆盖标记。录音库可以重新导入保留的音频。
+- `LocalRemovalTests` 实际 WPF/媒体回归通过：取消、确认期间选择变化、元数据独占锁读失败、目标目录阻止标记提交、失败保留列表/播放、成功释放音频句柄、两个录音原文件逐字节保持、重新实例化存储仍隐藏、迟到保存不复活、伪造完成状态不能移除持久化活动录音。完整 WPF 执行目录 `build/native-desktop-validation/ui-smoke-e94a1054100345e086f84af5032f6bc4`；最终异常处理范围调整后定向复验目录 `ui-smoke-cc99c2bb2532480f9533487231274591`，均退出 0。
+- 完整核心 36 组通过：`build/native-desktop-validation/core-tests-20525a03615846c7a36556ea500f94c5`。双架构自包含发布通过：`build/native-desktop-release/264a9d61444a4086a78680628e217d02/release-report.json`，源码基于 `b19846e` 加本轮工作树改动。
+- 限制：确认决策使用测试委托，未录制完整 App 确认框操作；重新实例化存储不等于新进程重启验收。真实云后台并行、统一库移除后的关联展示、键盘/尺寸/DPI、ARM64 实机仍待验。未将整个 N23 或阶段 4 标为完成。
+
 ## 2026-09-16：当前源码 Windows CLI 兼容与 helper 发布补验
 
 在 `9f99fbfdc77234af616bffbd652eb06fdcd1ac27` 干净工作树执行，Node v22.16.0 / pnpm 11.0.9 / Windows x64。本轮不修改生产代码，以下结果不能代替新的真实音频、云服务或 macOS 验收。
