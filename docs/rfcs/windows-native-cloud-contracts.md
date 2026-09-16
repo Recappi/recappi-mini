@@ -1,6 +1,13 @@
 # Windows 原生云接口核对
 
-2026-09-16，核对源码提交 `43eb550`。这是仓库内 macOS、CLI、C# 客户端的协议对照，不是服务端路由实现或部署契约审计。本轮未调用真实服务、未改生产代码；真实成功路径的范围见 [云端 UI 验证](windows-native-cloud-ui-validation.md)。不能据本表勾选全部账号、云处理或异常恢复验收。
+2026-09-16，首轮核对客户端提交 `43eb550`；随后读取后端固定提交 `4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c`，发现并修复推荐问题响应格式不兼容。后端源码不证明线上部署版本。真实成功路径的范围见 [云端 UI 验证](windows-native-cloud-ui-validation.md)，不能据本表勾选全部账号、云处理或异常恢复验收。
+
+## 后端源码补证与修复
+
+- [推荐路由](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/apps/server/routes/api/recordings/%5Bid%5D/ask-suggestions.ts) 返回 `suggestions: { question, reason? }[]`，并非 macOS/C# 旧 DTO 的字符串数组。C# 新增对象解析并兼容旧字符串，忽略无问题文本的无效条目，保持顺序。回归先复现 JsonException，修复后核心 32 组通过（`core-tests-589cf127ff9b4411a8b674312e490fd6`）；WPF 另验证对象推荐显示及选择后填入输入框。真实线上推荐 UI 尚未验，不沿用此前只有空推荐的成功路径。
+- [provider 选择](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/apps/server/src/transcription/select.ts) 顺序为请求 provider → 环境默认值 → gemini；model 也可由环境覆盖。因此省略 provider 仅在相应环境默认一致时等价，当前仍未读取生产配置。
+- [推荐语言解析](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/apps/server/src/recordings/ask.ts) 顺序为请求 language → Accept-Language → transcript.language → 分段主导语言 → 通用语言提示。Windows 省略前两者，通常跟随转写；不能说等同 macOS 的显式语言偏好。
+- [上传生命周期说明](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/docs/upload-pipeline.md) 说明每账号一个进行中上传，卡住的上传需恢复或 abort；[parts 路由](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/apps/server/routes/api/recordings/%5Bid%5D/parts/%5BpartNumber%5D.ts) 支持相同 partNumber 覆写。尚未确认具体 R2 生命周期期限。Windows 当前两个处理槽位包含上传阶段，仍需核验同账号并发上传与 409 恢复；不可因分块幂等就判并发流程已通过。
 
 ## 请求与响应依据
 
@@ -27,8 +34,8 @@
 ## 关键差异与后续门禁
 
 1. 上传中止与恢复：须确认服务端 ticket 保留期和过期表现，再决定恢复提示/显式清理；不能自动 abort 正在保留供恢复的上传。
-2. 转写 provider 默认值、推荐 language 默认值尚无服务端依据。当前客户端省略这些字段是已验证事实，默认结果一致是未证实推断。
+2. 转写 provider 与推荐语言的源码回退规则已有上文依据；生产环境覆盖值、实际部署版本及与 macOS 一致性仍未确认。
 3. 现有测试中的 HTTP handler 是协议样本，不是后端实现；真实成功路径也不能证明 401/402/409/429/5xx、断网或响应丢失的全部行为。
 4. 完整契约验收仍需部署侧文档/源码或针对已授权测试样本的服务证据，以及实际设备登录、过期、失败分块与网络恢复操作。保留主计划“核对后端契约”为未完成。
 
-核对入口：`native/desktop/Recappi.Core/{CloudClient,CloudProcessing,DeviceLogin,AskClient,CaptionConnection,LiveCaptions,CloudLibraryModels,BillingStatus}.cs`；`RecappiMini/Services/RecappiAPIClient.swift`、`RecappiAPIClient+Ask.swift`、`SessionProcessor.swift`、`Cloud/CloudLibraryStore+Processing.swift`；`cli/recappi/src/api.ts`、`auth-login.ts`。本轮只新增审计记录，不重复运行未变化代码的测试。最近核心 32 组实际执行记录为 `core-tests-cda8848e46204e748648c99cefa55589`。
+核对入口：`native/desktop/Recappi.Core/{CloudClient,CloudProcessing,DeviceLogin,AskClient,CaptionConnection,LiveCaptions,CloudLibraryModels,BillingStatus}.cs`；`RecappiMini/Services/RecappiAPIClient.swift`、`RecappiAPIClient+Ask.swift`、`SessionProcessor.swift`、`Cloud/CloudLibraryStore+Processing.swift`；`cli/recappi/src/api.ts`、`auth-login.ts`。下表保留首轮客户端差异；推荐响应以顶部后端补证及修复为准。

@@ -65,6 +65,8 @@ macOS 参考测试保留：
 
 ## 云接口核对范围
 
+后端 `4c3eeb7` 源码补证：推荐问题返回对象数组；C# 已修复解析并保留旧字符串格式，核心与 WPF 回归验证显示/选择输入。真实推荐 UI 仍待验。另确认每账号单个进行中上传限制，客户端并发处理与冲突恢复待专项核验。
+
 逐接口请求、响应、源码依据及未确认差异见 [云契约核对](windows-native-cloud-contracts.md)。C# **未实现 abort 请求**，暂停上传保留 ticket 供恢复；下面的接口范围包含跨客户端基线，不表示 Windows 每条都已实现。
 
 - 认证：`/api/auth/get-session`、`/api/auth/sign-out`、Windows device-auth start/poll；macOS native OAuth bridge 保留自己的流程。

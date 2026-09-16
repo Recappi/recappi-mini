@@ -7,6 +7,21 @@ internal static class AskTests
 {
     public static async Task RunAsync()
     {
+        foreach (var suggestions in new[]
+        {
+            """{"suggestions":[{"question":"总结决定","reason":"会议结论"},{"question":"列出行动项"}]}""",
+            """{"suggestions":["总结决定","列出行动项"]}""",
+            """{"suggestions":[null,{},42,{"question":false},"  ",{"question":" 总结决定 "},"列出行动项"]}"""
+        })
+        {
+            using var suggestionsClient = new CloudClient("https://example.test", handler: new Handler(request =>
+            {
+                if (request.Method != HttpMethod.Get || request.RequestUri!.AbsolutePath != "/api/recordings/r1/ask-suggestions") throw new Exception("Suggestions route incorrect.");
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(suggestions, Encoding.UTF8, "application/json") });
+            }));
+            if (!(await suggestionsClient.AskSuggestionsAsync("r1")).SequenceEqual(new[] { "总结决定", "列出行动项" }))
+                throw new Exception("Server object suggestions or legacy strings lost question text/order.");
+        }
         var posts = 0;
         var body = ": heartbeat\r\nevent: answer_delta\r\ndata: {\"delta\":\"你好\"}\r\n\r\nevent: citation\ndata: {\"citation\":{\"segmentId\":\"seg-1\",\"startMs\":1200,\"snippet\":\"原文\"}}\n\nevent: done\rdata: {\"content\":\"你好，会议\",\rdata: \"citations\":[]}\r\r";
         using var client = new CloudClient("https://example.test", "test-token", new Handler(async request =>

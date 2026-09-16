@@ -51,13 +51,17 @@ internal static class AskPanelTests
             var path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("get-session")) return Task.FromResult(Json("""{"session":{},"user":{"id":"a"}}"""));
             if (path.EndsWith("messages")) { started.TrySetResult(); return response.Task; }
-            if (path.EndsWith("ask-suggestions")) return Task.FromResult(Json("""{"suggestions":["What next?"]}"""));
+            if (path.EndsWith("ask-suggestions")) return Task.FromResult(Json("""{"suggestions":[{"question":"What next?","reason":"Next steps"}]}"""));
             return Task.FromResult(Json("""{"messages":[{"id":"m1","role":"assistant","content":"History","citations":[]}]}"""));
         })));
         await session.RestoreAsync();
         var panel = new AskPanel(); var window = new Window { Content = panel, ShowActivated = false }; window.Show();
         await panel.SelectAsync(session, account, "r1");
         if (((TextBox)panel.FindName("Conversation")).Text != "Recappi：\nHistory") throw new Exception("Ask history not rendered.");
+        var suggestions = (ComboBox)panel.FindName("Suggestions");
+        if (suggestions.Items.Count != 1 || (string)suggestions.Items[0] != "What next?") throw new Exception("Backend object suggestion was not displayed.");
+        suggestions.SelectedIndex = 0;
+        if (((TextBox)panel.FindName("Question")).Text != "What next?") throw new Exception("Selecting a backend suggestion did not fill the question.");
         ((TextBox)panel.FindName("Question")).Text = "Question for r1";
         ((Button)panel.FindName("SendButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5));

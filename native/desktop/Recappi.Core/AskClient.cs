@@ -22,7 +22,10 @@ public sealed partial class CloudClient
     public async Task<string[]> AskSuggestionsAsync(string id, CancellationToken cancellation = default)
     {
         var value = await SendJsonAsync(HttpMethod.Get, RecordingPath(id) + "/ask-suggestions", null, cancellation);
-        return value.GetProperty("suggestions").Deserialize<string[]>(Json) ?? [];
+        return value.GetProperty("suggestions").EnumerateArray()
+            .Select(item => item.ValueKind == JsonValueKind.String ? item.GetString() : CloudFields.Text(item, "question"))
+            .Where(question => !string.IsNullOrWhiteSpace(question))
+            .Select(question => question!.Trim()).ToArray();
     }
     public async IAsyncEnumerable<AskEvent> AskAsync(string id, string question, bool webSearch = false, string? model = null, [EnumeratorCancellation] CancellationToken cancellation = default)
     {
