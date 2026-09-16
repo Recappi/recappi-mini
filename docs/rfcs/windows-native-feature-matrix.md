@@ -1,5 +1,7 @@
 # Windows 原生版功能矩阵
 
+2026-09-16 N08/N09：迟到丢弃停止/删除替换录音的竞争已复现并修复；确认前后及引擎锁内核对目标会话，取消/失败/替换/已保存原录音回归通过。完整发布 App 确认布局、保留继续、确认恢复空闲视频三项通过，磁盘核对仅目标删除、其他五文件不变。核心 34 组、完整 WPF、双架构发布通过；真实字幕排空竞争、多屏/DPI 和完整键盘仍待验，见验证记录。
+
 2026-09-16 N04：取消登录后迟到授权仍保存凭据的竞争已复现并修复；四种取消组合验证原身份/加密文件不变和后续登录可用，核心 34 组、完整 WPF 与双架构发布通过。真实浏览器认证/取消仍待验。N19 另补默认资料保存、重新打开取消、新进程恢复图标三项视频通过（`speaker-save-cloud-ui-01`）；实际文字修改仍证据不足，详情见验证记录。
 
 2026-09-16 N19：完整 x64 App 真实转写后的说话人弹窗布局、未修改取消返回视频两项通过；输入工具未能写入姓名，保存/重启保持仍证据不足。新增实际 ShowDialog 的修改后取消、账号/录音变化、清空与校验重试五类回归，反向移除隔离检查可复现失败，最终完整 WPF 通过。范围见 [验证记录](windows-native-validation.md)。N20 另已补齐生产播放器控件独立窗口的 Tab/Home 与焦点下进度刷新视频，物理长按仍待验。
@@ -34,7 +36,7 @@
 | N06 | 麦克风选择、录音中开关；MicrophoneInputPicker / RecordingState | RecorderViewModel + RecordingEngine 切换麦克风；关闭清除电平、终止清除启用状态；设备消失不静默换成其他来源 | 合成 PCM/重开失败/终止与 WPF 电平回归通过；实际进程音源+Steam 虚拟麦克风开关/重开/保存视频 3 项通过、2 项证据不足。物理非零声音混录、拔插/中断/重新接入与泄漏验收仍待完成 |
 | N07 | 语言、翻译、场景与上下文；RecordingTemplateDrawer | DesktopPreferences 持久化、每会话不可变处理选项；录音条和设置配置 | PreferencesArchiveTests、SettingsWindowTests；云请求选项契约及字幕真实服务记录；所有配置组合实际操作仍待验 |
 | N08 | idle/starting/recording/processing/done/error；RecordingPanel / States | RecordingEngine 状态机；RecorderViewModel 命令；云任务与录音状态分离 | 核心重复开始/停止、启动失败、处置落盘回归；实际录音→Done/退出保存通过；开始/退出/丢弃多窗口竞争仍待验 |
-| N09 | 计时、电平、停止与丢弃；RecordingState / DotMatrixWaveform | 紧凑计时、电平条、停止、丢弃确认；PcmWaveWriter 持续更新头 | 实际可控音频电平与 WAV 完整保存；核心丢弃边界回归；用电平条替代点阵波形，长时间增长与实际丢弃确认仍待验 |
+| N09 | 计时、电平、停止与丢弃；RecordingState / DotMatrixWaveform | 紧凑计时、电平条、停止、原生丢弃确认默认保留；会话 ID 与状态隔离；PcmWaveWriter 持续更新头 | 实际可控音频电平与 WAV 完整保存；丢弃取消/失败/迟到会话回归；完整 App 保留继续与只删除当前样本视频/磁盘通过（discard-ui-01）。用电平条替代点阵波形，长时间增长、真实字幕丢弃及完整键盘/DPI 仍待验 |
 | N10 | 活动/会议录音建议与隐藏抑制；AudioActivityMonitor / AppDelegate | RecordingSuggestion + AudioActivity 峰值观察，托盘建议只选择来源、不自动录制；RecordingNotifications 隔离普通通知与旧建议、丢弃失效刷新 | AttentionTests/策略与 RecordingNotificationTests 来源控件回归；真实独立音源触发 Windows 建议、应用保持空闲视频通过（notification-ui-01），实际系统点击/替换证据不足。普通浏览器音频不冒充会议；浏览器会议检测未实现，历史通知行为与长期性能待验 |
 | N11 | 静音/会议结束建议停止、隐藏提醒、时长上限；RecordingAttentionPolicy | RecordingAttention + App 定时检查；原生继续/停止提醒；关闭麦克风的旧电平不再阻止静音判断 | 策略、麦克风静音及 WPF Keep/Stop 回归；完整 App 独立测试进程录音的一分钟时长提醒→继续→手动保存视频三项通过（duration-reminder-ui-01），同一会话 117.497 秒 PCM 与分段信号检查通过。隐藏通知、静音、提醒内停止按钮及真实长会待验；不能用普通音频静音证明会议已结束 |
 | N12 | 上传、分块、排队、后台处理；processSession | CloudProcessing 持久任务/上传关联、轮询/取消/重试；目标记录不可读时停止，避免重复创建；JSON 有界替换保护 | ProcessingTests / ProcessingJournalReadTests 覆盖恢复、隔离、损坏及真实文件锁下零云请求/原记录保留；既有真实 C# 流水线。完整桌面后台处理并录新会、关窗与网络恢复待验 |

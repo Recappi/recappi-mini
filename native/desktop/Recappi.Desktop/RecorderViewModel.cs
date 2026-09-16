@@ -93,6 +93,7 @@ public sealed class RecorderViewModel : INotifyPropertyChanged
     public event Action? Starting;
     public event Action<LocalRecording>? Saved;
     public Func<Task>? BeforeDiscard { get; set; }
+    public Func<bool> ConfirmDiscard { get; set; } = () => MessageBox.Show("丢弃当前录音？本地音频将被删除。", "丢弃录音", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
     public DesktopPreferences Preferences => preferences with { CaptionsEnabled = CaptionsEnabled, CaptionLanguage = CaptionLanguage, TranslationLanguage = TranslationLanguage, IncludeMicrophone = Microphone, SourceId = SelectedSource?.Id ?? preferences.SourceId, MicrophoneId = SelectedMicrophone?.Id ?? preferences.MicrophoneId };
     public void ApplyPreferences(DesktopPreferences value)
     {
@@ -109,7 +110,7 @@ public sealed class RecorderViewModel : INotifyPropertyChanged
         {
             snapshot = new(RecordingState.Idle, null); error = null; Title = ""; Refresh();
             return Task.CompletedTask;
-        }, () => !IsActive);
+        }, () => !IsActive && !busy);
         this.discoverDevices = discoverDevices ?? (() => (AudioDevices.ListSources(), AudioDevices.ListMicrophones()));
         KeepRecording = new(() => { attentionMessage = null; Notify(nameof(AttentionMessage)); Notify(nameof(HasAttention)); return Task.CompletedTask; });
         Start = new(() => Guard(async () =>
@@ -123,23 +124,27 @@ public sealed class RecorderViewModel : INotifyPropertyChanged
         {
             var recording = await Engine.StopAsync();
             if (recording is { State: RecordingState.Done }) Saved?.Invoke(recording);
-        }), () => snapshot.State == RecordingState.Recording);
+        }), () => !busy && snapshot.State == RecordingState.Recording);
         Discard = new(() => Guard(async () =>
         {
-            if (MessageBox.Show("丢弃当前录音？本地音频将被删除。", "丢弃录音", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes)
+            var target = Engine.Snapshot.Recording?.Id;
+            if (target is null) return;
+            if (ConfirmDiscard())
             {
+                if (Engine.Snapshot.Recording?.Id != target || Engine.Snapshot.State != RecordingState.Recording)
+                    throw new InvalidOperationException("录音状态已变化，未执行丢弃。请检查当前录音。");
                 if (BeforeDiscard is not null) await BeforeDiscard();
-                await Engine.DiscardAsync();
+                await Engine.DiscardAsync(target);
             }
-        }), () => snapshot.State == RecordingState.Recording);
-        ToggleMicrophone = new(() => Guard(async () => { await Engine.SetMicrophoneEnabledAsync(!Engine.MicrophoneEnabled); Notify(nameof(MicrophoneAction)); }), () => snapshot.State == RecordingState.Recording);
+        }), () => !busy && snapshot.State == RecordingState.Recording);
+        ToggleMicrophone = new(() => Guard(async () => { await Engine.SetMicrophoneEnabledAsync(!Engine.MicrophoneEnabled); Notify(nameof(MicrophoneAction)); }), () => !busy && snapshot.State == RecordingState.Recording);
         RefreshDevices = new(RefreshDevicesAsync, () => CanConfigure);
         OpenFolder = new(() => Guard(() =>
         {
             System.IO.Directory.CreateDirectory(Store.Root);
             Process.Start(new ProcessStartInfo(snapshot.Recording?.Directory ?? Store.Root) { UseShellExecute = true });
             return Task.CompletedTask;
-        }));
+        }), () => !busy);
         Engine.Changed += value => dispatcher.BeginInvoke(() => { snapshot = value; Refresh(); });
         Engine.Level += value =>
         {

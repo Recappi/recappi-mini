@@ -22,9 +22,15 @@ public partial class RecorderWindow : Window
         InitializeComponent(); DataContext = recorder; this.showLibrary = showLibrary; this.showAccount = showAccount; this.showCaptions = showCaptions; this.showSettings = showSettings;
         this.recorder = recorder; this.showCloud = showCloud ?? showLibrary; this.showRecording = showRecording;
         this.requestQuit = requestQuit;
+        Func<bool> confirmDiscard = () => new DiscardRecordingDialog { Owner = this }.ShowDialog() == true;
+        recorder.ConfirmDiscard = confirmDiscard;
         WindowVisibility.SetEnabled(this, true);
         recorder.PropertyChanged += RecorderChanged;
-        Closed += (_, _) => recorder.PropertyChanged -= RecorderChanged;
+        Closed += (_, _) =>
+        {
+            recorder.PropertyChanged -= RecorderChanged;
+            if (recorder.ConfirmDiscard == confirmDiscard) recorder.ConfirmDiscard = () => false;
+        };
         IsVisibleChanged += (_, _) => { if (!IsVisible) OptionsPopup.IsOpen = false; };
         var positioned = false;
         Loaded += (_, _) => { if (!positioned) { positioned = true; WindowVisibility.PlaceTopRight(this, 24); } };
