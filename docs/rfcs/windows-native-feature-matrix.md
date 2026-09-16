@@ -65,6 +65,8 @@ macOS 参考测试保留：
 
 ## 云接口核对范围
 
+逐接口请求、响应、源码依据及未确认差异见 [云契约核对](windows-native-cloud-contracts.md)。C# **未实现 abort 请求**，暂停上传保留 ticket 供恢复；下面的接口范围包含跨客户端基线，不表示 Windows 每条都已实现。
+
 - 认证：`/api/auth/get-session`、`/api/auth/sign-out`、Windows device-auth start/poll；macOS native OAuth bridge 保留自己的流程。
 - 录音：创建、parts PUT、complete、列表/详情/删除、audio、abort；处理：transcribe、summarize、jobs、retry-failed-chunks、带 jobId 的 transcript。
 - 实时：`POST /api/openai/realtime/sessions` 的连接声明与实际音频格式。
