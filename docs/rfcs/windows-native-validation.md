@@ -1,5 +1,12 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：本机录音库移除
+
+- 源码对齐：macOS 本机分支仅清理库记录/缓存。Windows 新增原生确认和 `LocalRecordingStore.RemoveFromLibrary`，完成或错误会话才能移除；单独标记不改音频、字幕、原元数据，也不发送云 DELETE 或取消已提交处理。迟到元数据保存不覆盖标记。录音库可以重新导入保留的音频。
+- `LocalRemovalTests` 实际 WPF/媒体回归通过：取消、确认期间选择变化、元数据独占锁读失败、目标目录阻止标记提交、失败保留列表/播放、成功释放音频句柄、两个录音原文件逐字节保持、重新实例化存储仍隐藏、迟到保存不复活、伪造完成状态不能移除持久化活动录音。完整 WPF 执行目录 `build/native-desktop-validation/ui-smoke-e94a1054100345e086f84af5032f6bc4`；最终异常处理范围调整后定向复验目录 `ui-smoke-cc99c2bb2532480f9533487231274591`，均退出 0。
+- 完整核心 36 组通过：`build/native-desktop-validation/core-tests-20525a03615846c7a36556ea500f94c5`。双架构自包含发布通过：`build/native-desktop-release/264a9d61444a4086a78680628e217d02/release-report.json`，源码基于 `b19846e` 加本轮工作树改动。
+- 限制：确认决策使用测试委托，未录制完整 App 确认框操作；重新实例化存储不等于新进程重启验收。真实云后台并行、统一库移除后的关联展示、键盘/尺寸/DPI、ARM64 实机仍待验。未将整个 N23 或阶段 4 标为完成。
+
 ## 2026-09-16：当前源码 Windows CLI 兼容与 helper 发布补验
 
 在 `9f99fbfdc77234af616bffbd652eb06fdcd1ac27` 干净工作树执行，Node v22.16.0 / pnpm 11.0.9 / Windows x64。本轮不修改生产代码，以下结果不能代替新的真实音频、云服务或 macOS 验收。

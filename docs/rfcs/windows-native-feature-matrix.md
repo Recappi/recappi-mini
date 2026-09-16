@@ -1,5 +1,7 @@
 # Windows 原生版功能矩阵
 
+2026-09-16 N23：macOS `CloudLibraryStore+AuthBilling.deleteSelectedRecording` / `+Selection.removeLocalProcessingRecording` 的本机分支保留音频文件。Windows 现已补充本机移除入口与独立持久标记，保留文件及处理记录，确认框明确已提交云任务继续运行。取消、选择变化、实际读写失败、播放释放、原文件不变、重新实例化存储及迟到保存不复活回归通过；核心 36 组和完整 WPF 通过。实际确认框、新进程恢复与云后台并行待验，未勾选整个 N23；不复用会删除文件的 Discard。
+
 2026-09-16 兼容补验：当前 `9f99fbf` 的 Windows CLI 类型检查、226 项测试、构建、隔离安装后的启动及严格包检查通过；6 项按平台/真实服务开关跳过。x64/ARM64 helper 重建与包内架构/许可证通过，x64 版本执行和无账号 sidecar 握手通过。未新增真实音频/服务/macOS 或 ARM64 实机证据，详见验证记录。
 
 2026-09-16 N14/N15：处理单句 input_audio_transcription.failed，清理该句等待/增量状态，不将可用连接重启；失败半句与空结果通过 IsFailed 元数据保留，窗口与 TXT 明确标注。160 次失败后继续、终态幂等、content_index 隔离和停止尾句回归通过，核心增至 36 组；完整 WPF、受控生产字幕窗视频三项及双架构发布通过。视频不连接网络、不录音，不替代完整 App、公网失败或其他 DPI 验收，见验证记录。
@@ -60,7 +62,7 @@
 | N20 | 播放/倍速/seek/活动片段/跨录音；CloudMeetingAudioPlayer / CloudPlayback | AudioPlayer 原生媒体；TranscriptPanel 定位与活动高亮；本机暂停 seek 即时更新时间、超过一小时保留小时、选择/结束复位；云详情切换保留独立播放 | AudioDownloadTests、WPF 实际媒体打开/seek/清理、跨录音回归；真实本机播放暂停、拖动/Home/End/结束复位视频通过。61 分钟 WAV 跨小时与回退回归通过；完整 App 长时间 seek/播放视频两项通过，回退操作视频证据不足（long-playback-ui-01）。完整倍速/引用/高亮/跨录音操作和性能待验 |
 | N21 | 问答历史/建议/流式回答/引用；AskConversationViewModel | AskClient SSE + AskPanel，切会议取消与隔离、停止和引用定位；发送时清空问题，完成保留新草稿，失败/取消仅恢复未编辑的原问题 | AskTests 分片/断流/错误，AskPanelTests 延迟响应及成功/失败/取消 × 未编辑/新草稿/主动清空 9 种输入状态回归；真实 C# Ask 流水线及完整桌面请求/回答/单一引用定位视频通过；本次草稿行为实际云端 UI、重试、引用边界与所有窗口尺寸待验 |
 | N22 | 重新处理、历史、失败分块重试；CloudLibraryStore+Processing | ReviewPanel / CloudJob，确认、版本选择、处理状态刷新与重复提交抑制；确认前后核对录音/账号及最新任务资格 | ReviewPanelTests 取消/重试/历史/隔离；新增嵌套 Dispatcher 回归先复现确认期间切换录音误发 POST，修复后切换/退出/活跃任务更新均零提交且正常请求可恢复。使用测试网络与确认委托；真实服务流水线并不证明所有重处理分支，完整 UI 服务操作待验 |
-| N23 | 删除确认/索引关联/失败恢复；CloudCenterPanel+Detail | 云库删除确认、处理关联清理；云副本删除保留本机录音；确认后重新核对录音、登录状态和页面版本 | CloudLibraryActionTests 取消/失败/成功/隔离，以及确认期间切换录音或退出账号均不发送 DELETE（先复现失败，修复后完整 WPF 套件通过）；真实 API 测试记录清理；完整桌面删除与账户变化竞争待验 |
+| N23 | 删除确认/索引关联/失败恢复；CloudCenterPanel+Detail、CloudLibraryStore+AuthBilling / +Selection；本机条目仅移除库记录并保留文件 | 云库删除确认、处理关联清理；云副本删除保留本机录音；确认后核对录音/账号/页面。本机移除使用独立标记，保留文件和云处理记录 | CloudLibraryActionTests 云删除取消/失败/成功/隔离；LocalRemovalTests 本机取消、选择变化、读写失败保留、播放释放、文件不变、重新实例化存储与迟到保存不复活通过；实际确认框、新进程恢复、云后台并行和账户变化竞争待验 |
 | N24 | 用量、套餐与管理链接；BillingStatus / CloudCenterPanel+AccountHeader | BillingStatus DTO + BillingPanel 嵌入 AccountWindow；刷新/超额/不限量/周期；POST portal，409 转 plans；只打开可信链接 | BillingTests、BillingPanelTests 覆盖配额/URL/延迟响应/失败/账号隔离/401；真实只读 GET 解析成功，实际窗口用明确测试数据作布局检查。完整 App 真实用量/管理服务、账号状态与键盘实机待验 |
 | N25 | 主题、设置、关于、更新；SettingsView / AppUpdater | SettingsWindow 五组配置即时保存；共用现代样式；DesktopUpdates / UpdatePanel 官方发布源、架构/通道/摘要检查；独立安装器 | Settings/Theme/Update 测试、完整应用主题/提醒保存与重启恢复后画面视频通过；已有 x64 安装升级/回滚/数据保留测试。全部字段、生产签名/可用更新发布、自动安装、全部窗口视觉/高对比度/ARM64 实机未完成 |
 | N26 | 文本/字幕/音频导出；CLI export / macOS 复制与本地副本 | 云文字导出/音频副本；CaptionArchive 和本机 TXT/JSONL 导出；对话框返回后核对来源，字幕完整写入后替换并拒绝录音库内目标 | WPF 文字/音频取消与来源变化回归；CaptionExportTests 验证失败保留原文件。完整 App 合成双语 TXT 保存、Escape 取消、目录拒绝视频 3 项通过/2 项证据不足；完整布局、JSONL/覆盖确认、全部编码/时间轴仍待验 |

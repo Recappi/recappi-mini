@@ -36,6 +36,7 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
     public bool CanImport => !closed && !choosingImportFile && !IsImporting;
     public string ImportMessage => ImportStatus.Text;
     public Func<Microsoft.Win32.OpenFileDialog, bool?>? ShowImportDialog { get; set; }
+    public Func<string, bool>? ConfirmRemove { get; set; }
     public System.Collections.Generic.IReadOnlyList<LocalRecording> Entries => Recordings.Items.Cast<LocalRecording>().ToArray();
     public LocalLibraryView(LocalRecordingStore store, AccountSession? accountSession = null, CloudProcessing? processing = null, Action? showAccount = null, Func<Task>? waitForCaptions = null, Func<string, IProgress<double>, CancellationToken, Task<LocalRecording>>? importAudio = null)
     {
@@ -92,6 +93,23 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
         catch (Exception error) { Status.Text = error.Message; }
     }
     private void RefreshClick(object sender, RoutedEventArgs e) => RefreshRecordings();
+    private void RemoveRecording(object sender, RoutedEventArgs e)
+    {
+        if (closed || selected is not { State: RecordingState.Done or RecordingState.Error } recording) return;
+        var approved = ConfirmRemove?.Invoke(recording.Title) ?? MessageBox.Show(Window.GetWindow(this),
+            $"将“{recording.Title}”从本机录音库移除？音频和字幕文件仍保留在原目录，可重新导入音频。已提交的云端处理继续运行，云端副本不会删除。",
+            "从本机录音库移除", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes;
+        if (!approved || closed || selected?.Id != recording.Id) return;
+        try
+        {
+            store.RemoveFromLibrary(recording);
+        }
+        catch (Exception) { Status.Text = "移除失败，录音与文件已保留，请刷新后重试。"; return; }
+        // Commit the marker first: a failed write must retain selection/playback.
+        player.Close(); playing = false; playbackTimer.Stop();
+        RefreshRecordings();
+        Status.Text = "已从本机录音库移除，原音频和字幕文件已保留。";
+    }
     private void CancelImport(object sender, RoutedEventArgs e) => CancelPendingImport();
     public void CancelPendingImport() => importCancellation?.Cancel();
     private void RenderImport(string? message = null)
@@ -148,7 +166,7 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
         if (selected is null)
         {
             Heading.Text = "选择一条录音"; Metadata.Text = ""; Status.Text = "从左侧选择录音，或导入音频开始回顾。"; PlaybackTime.Text = "";
-            PlayButton.IsEnabled = false; FolderButton.IsEnabled = false; UploadButton.IsEnabled = false; ExportCaptionsButton.IsEnabled = false; return;
+            PlayButton.IsEnabled = false; FolderButton.IsEnabled = false; UploadButton.IsEnabled = false; ExportCaptionsButton.IsEnabled = false; RemoveButton.IsEnabled = false; return;
         }
         Heading.Text = selected.Title;
         Metadata.Text = selected.StartedAt.ToString("yyyy-MM-dd HH:mm") + " · " + TimeSpan.FromMilliseconds(selected.DurationMs).ToString(@"hh\:mm\:ss");
@@ -158,6 +176,7 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
         FolderButton.IsEnabled = true;
         UploadButton.IsEnabled = selected.State == RecordingState.Done && processing is not null;
         ExportCaptionsButton.IsEnabled = !active && File.Exists(store.CaptionPath(selected));
+        RemoveButton.IsEnabled = selected.State is RecordingState.Done or RecordingState.Error;
         RefreshCloudStatus();
         if (PlayButton.IsEnabled) player.Open(new Uri(selected.AudioPath));
     }
