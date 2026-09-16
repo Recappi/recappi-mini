@@ -6,7 +6,7 @@
  <StackPanel Margin="20">
   <TextBlock Text="从本机录音库移除？" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,12"/>
   <TextBlock x:Name="RecordingTitle" TextWrapping="Wrap" MaxHeight="100" Margin="0,0,0,12"/>
-  <TextBlock Text="音频和字幕文件仍保留在原目录，可重新导入音频。已提交的云端处理继续运行，云端副本不会删除。" TextWrapping="Wrap" Margin="0,0,0,20"/>
+  <TextBlock Text="音频和字幕文件仍保留在原目录。重新导入原目录中的音频可恢复这条录音及处理关联。已提交的云端处理继续运行，云端副本不会删除。" TextWrapping="Wrap" Margin="0,0,0,20"/>
   <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
    <Button x:Name="KeepButton" Content="保留在库中" IsCancel="True" IsDefault="True"/>
    <Button x:Name="RemoveButton" Content="从库中移除" Click="Remove"/>

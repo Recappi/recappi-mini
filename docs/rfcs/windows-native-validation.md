@@ -2,6 +2,11 @@
 
 ## 2026-09-16：本机录音库移除
 
+- 恢复路径补齐：重新导入仍位于原录音目录的已移除 `audio.wav` 时，恢复原条目而非转码生成新 ID，保留标题、字幕、处理选项及原上传关联。确认文案明确该路径；复制到其他目录的音频仍走普通导入。验证取消、标记文件独占锁失败不新增条目、原音频/元数据不变与 WPF 自动选中恢复条目。
+- 核心完整 36 组通过（`core-tests-8b81db1f352c460d811252bf0b36cfaf`）；随后处理回归加入“失败上传→移除→新存储实例重新导入→继续原 ticket”，定向 `--processing-file-conflict` 通过（`core-tests-b2b714108b11467e95d9bcfaa63f0aeb`），断言只创建一次云录音。服务为 HTTP 替身，不声称真实服务重试已验。双架构发布报告 `build/native-desktop-release/199a4c24f1a44860935a622ab47a2bf1/release-report.json`，基于 `62ef100` 加恢复实现；旧 UI 视频不覆盖新文案和恢复操作。
+- 本轮 WPF 首次因成功提示改文案而命中旧断言，已同步断言并保留选择/条目数量/导入状态检查。第二次遇到键盘播放测试的合并错误条件；拆开焦点丢失与进度停滞诊断后定向通过，未确定那次瞬态失败原因，不归因于焦点或宣称已修复播放器问题。
+- 最终完整 Release WPF 回归退出 0：`build/native-desktop-validation/ui-smoke-e19eb4eaca114acc83fd461b4ffb62bc`，包含恢复原条目、普通导入生命周期和上述键盘播放检查。
+
 - 实窗发现并修复：系统 MessageBox 出现在录音库右侧、超出库窗口范围。改为 `RemoveLocalRecordingDialog`，CenterOwner、默认“保留在库中”、关闭等同取消；新增实际 ShowDialog 位置与决策断言。此前仅确认委托未覆盖生产确认框，是未提前发现问题的原因。定向与完整 Release WPF 通过，完整执行目录 `ui-smoke-71ec8c97c569471ca01bf8599ba48dab`。
 - 更新后的双架构自包含发布：`build/native-desktop-release/1ec7ab67dded4bc1b8b3397dbaf8f01d/release-report.json`，基于 `10ef836` 加确认窗改动。完整 x64 App 在隔离目录用两个五秒静音样本完成保留、移除、刷新；结束空闲进程 23416 后以新进程 49240 打开相同库，仅保留样本仍可见。未录制启动过渡，不冒充正常退出流程验收。
 - 视频 `build/native-desktop-validation/local-removal-ui-01/acceptance.html` 三项通过、一项证据不足：确认内容可读、目标移除而其他条目保留、新进程列表恢复通过。三段有效视频共 907 帧→5 关键帧、零越界事件；`verification.json` 核对 6 个原文件 SHA256 不变，只有目标新增移除标记。库窗口录制不捕获独立确认窗，故确认布局另录八秒；取消到再次确认的连续视频证据不足。旧 `removal.mp4` 排除验收。自有三个 App 进程和录屏均结束。

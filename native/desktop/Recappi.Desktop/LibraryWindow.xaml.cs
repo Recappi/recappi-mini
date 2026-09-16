@@ -145,7 +145,7 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
             if (closed) return;
             RefreshRecordings();
             Recordings.SelectedItem = Recordings.Items.Cast<LocalRecording>().FirstOrDefault(x => x.Id == entry.Id);
-            RenderImport("已导入本地副本，可播放或上传转写。");
+            RenderImport("录音已加入本机录音库，可播放或继续云处理。");
         }
         catch (OperationCanceledException) { if (!closed) RenderImport("已取消导入。"); }
         catch (Exception) { if (!closed) RenderImport("导入失败。请检查文件是否有效及 Windows 是否支持此音频格式，然后重试。"); }

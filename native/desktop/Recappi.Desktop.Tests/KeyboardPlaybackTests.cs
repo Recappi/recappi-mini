@@ -54,8 +54,10 @@ internal static class KeyboardPlaybackTests
                     }
                     var focusedPosition = slider.Value;
                     await Task.Delay(800);
-                    if (!slider.IsKeyboardFocusWithin || slider.Value < focusedPosition + .3)
-                        throw new Exception("Playback progress froze while the slider retained keyboard focus.");
+                    if (!slider.IsKeyboardFocusWithin)
+                        throw new Exception($"Playback test lost keyboard focus: player={(slider == localSlider ? "local" : "cloud")}, before={focusedPosition:F3}, after={slider.Value:F3}.");
+                    if (slider.Value < focusedPosition + .3)
+                        throw new Exception($"Playback progress froze with slider focus: player={(slider == localSlider ? "local" : "cloud")}, before={focusedPosition:F3}, after={slider.Value:F3}.");
                 }
                 finally { play.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
             }

@@ -37,7 +37,10 @@ internal static class ProcessingTests
         }
         await using (var resumed = new CloudProcessing(stateRoot, Client))
         {
-            var completed = await resumed.StartAsync(recording, account, new());
+            store.RemoveFromLibrary(recording);
+            var restored = await new AudioImport(new LocalRecordingStore(store.Root)).ImportAsync(recording.AudioPath);
+            if (restored.Id != recording.Id) throw new Exception("Restoring removed recording changed upload identity.");
+            var completed = await resumed.StartAsync(restored, account, new());
             if (completed.Stage != ProcessingStage.Completed || creates != 1 || transcribes != 1) throw new Exception("Retry duplicated creation or failed to resume.");
             await resumed.StartAsync(recording, account, new());
             if (creates != 1 || transcribes != 1) throw new Exception("Completed task ran again.");

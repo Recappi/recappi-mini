@@ -62,6 +62,28 @@ public sealed class LocalRecordingStore(string root)
         AtomicJsonFile.Write(Path.Combine(recording.Directory, "library-removed.json"), "{}");
     }
 
+    public LocalRecording? RestoreRemovedAudio(string audioPath, CancellationToken cancellation = default)
+    {
+        audioPath = Path.GetFullPath(audioPath);
+        var directory = Path.GetDirectoryName(audioPath);
+        if (directory is null || !string.Equals(Path.GetDirectoryName(directory), Path.TrimEndingDirectorySeparator(Root), StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Path.GetFileName(audioPath), "audio.wav", StringComparison.OrdinalIgnoreCase)) return null;
+        var marker = Path.Combine(directory, "library-removed.json");
+        if (!File.Exists(marker)) return null;
+        var recording = JsonSerializer.Deserialize<LocalRecording>(File.ReadAllText(Path.Combine(directory, "desktop-session.json")), Json)
+            ?? throw new InvalidDataException("原录音记录无法读取，无法恢复。");
+        Validate(recording);
+        if (!string.Equals(Path.GetFullPath(recording.AudioPath), audioPath, StringComparison.OrdinalIgnoreCase) ||
+            recording.State is not (RecordingState.Done or RecordingState.Error) ||
+            (File.GetAttributes(audioPath) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidDataException("原录音记录不匹配，无法恢复。");
+        cancellation.ThrowIfCancellationRequested();
+        // Keep the original ID so a resumed upload can reuse its existing ticket.
+        // Commit before returning; a failed removal must not create a duplicate import.
+        File.Delete(marker);
+        return recording;
+    }
+
     public void Discard(LocalRecording recording)
     {
         Validate(recording);

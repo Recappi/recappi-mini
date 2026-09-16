@@ -85,6 +85,10 @@ internal static class LocalRemovalTests
             store.Save(first); // A late metadata update must not resurrect the entry.
             var reopened = new LocalRecordingStore(store.Root);
             if (reopened.List().Single().Id != other.Id) throw new Exception("Removal did not persist independently of metadata.");
+            await view.ImportFileAsync(first.AudioPath);
+            if (view.Entries.Count != 2 || !view.Entries.Any(x => x.Id == first.Id) ||
+                ((TextBlock)view.FindName("Heading")).Text != first.Title)
+                throw new Exception("Reimport did not restore and select the original removed recording.");
             var active = store.Create("Active");
             var rejected = false;
             try { store.RemoveFromLibrary(active with { State = RecordingState.Done }); }

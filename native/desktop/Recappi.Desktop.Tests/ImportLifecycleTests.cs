@@ -86,7 +86,7 @@ internal static class ImportLifecycleTests
             actualImport = true;
             await local.ImportFileAsync(source);
             await dispatcher.InvokeAsync(window.UpdateLayout, DispatcherPriority.ApplicationIdle);
-            if (!importButton.IsEnabled || cancelButton.IsVisible || !status.Text.Contains("已导入") ||
+            if (!importButton.IsEnabled || cancelButton.IsVisible || !status.Text.Contains("已加入本机录音库") ||
                 list.SelectedItem is not LibraryRecording { Local.State: RecordingState.Done } || store.List().Count != 1)
                 throw new Exception("Successful real decode did not select the imported local recording and restore import.");
             if (!sourceHash.SequenceEqual(SHA256.HashData(File.ReadAllBytes(source)))) throw new Exception("Import changed the source file.");
