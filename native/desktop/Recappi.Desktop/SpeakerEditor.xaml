@@ -1,14 +1,15 @@
 <Window x:Class="Recappi.Desktop.SpeakerEditor"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:Recappi.Desktop"
  Title="编辑说话人" Width="440" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Style="{StaticResource ModernWindow}">
- <StackPanel Margin="20">
+ <StackPanel Margin="16">
   <TextBlock Text="说话人信息" FontSize="24" FontWeight="SemiBold" Margin="0,0,0,16"/>
   <TextBlock Text="仅修改这条录音在本机显示的说话人信息。" TextWrapping="Wrap" Margin="0,0,0,12"/>
   <TextBlock Text="姓名"/><TextBox x:Name="SpeakerName" MaxLength="100" Margin="0,4,0,12" AutomationProperties.Name="说话人姓名"/>
   <TextBlock Text="图标"/><TextBox x:Name="Emoji" MaxLength="16" Margin="0,4,0,12" AutomationProperties.Name="说话人图标"/>
   <TextBlock Text="备注"/><TextBox x:Name="Note" MaxLength="1000" AcceptsReturn="True" TextWrapping="Wrap" Height="90" VerticalScrollBarVisibility="Auto" Margin="0,4,0,12" AutomationProperties.Name="说话人备注"/>
   <TextBlock x:Name="Error" TextWrapping="Wrap" Margin="0,0,0,8"/>
-  <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="取消" IsCancel="True"/><Button x:Name="SaveButton" Content="保存" IsDefault="True" Click="Save" Style="{StaticResource AccentButton}"/></StackPanel>
+  <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button local:ButtonIcon.Geometry="{StaticResource Icon.Close}" Content="取消" IsCancel="True"/><Button local:ButtonIcon.Geometry="{StaticResource Icon.Save}" x:Name="SaveButton" Content="保存" IsDefault="True" Click="Save" Style="{StaticResource AccentButton}"/></StackPanel>
  </StackPanel>
 </Window>

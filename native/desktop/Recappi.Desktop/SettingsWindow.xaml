@@ -9,34 +9,34 @@
   <Style TargetType="TabItem" BasedOn="{StaticResource ModernTab}"/>
   <Style TargetType="CheckBox" BasedOn="{StaticResource ModernCheckBox}"/>
  </Window.Resources>
- <DockPanel Margin="24">
-  <StackPanel DockPanel.Dock="Top" Margin="0,0,0,24"><TextBlock Text="偏好设置" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="让录音和回顾适合你的工作方式。" Opacity="0.65" Margin="0,6,0,0"/></StackPanel>
-  <StackPanel DockPanel.Dock="Bottom"><TextBlock x:Name="Status" Text="更改会自动保存。" TextWrapping="Wrap" Margin="0,10" AutomationProperties.LiveSetting="Polite"/><WrapPanel><Button x:Name="SaveButton" Content="重试保存" Click="Save" Visibility="Collapsed"/><Button x:Name="DiscardEditsButton" Content="放弃未保存修改并关闭" Click="DiscardEdits" Visibility="Collapsed"/><Button Content="关闭" Click="Cancel"/></WrapPanel></StackPanel>
-  <TabControl x:Name="SettingsTabs" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource StrokeBrush}" Padding="12">
-   <TabItem Header="通用"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="12">
-   <TextBlock x:Name="Introduction" Text="本地录音无需登录。登录后可上传、转写和使用实时字幕。关闭录音面板后，录音仍会继续；可从系统托盘恢复。" TextWrapping="Wrap" Margin="0,0,0,18"/>
-   <TextBlock Text="外观" FontSize="18"/><ComboBox x:Name="Theme" SelectedValuePath="Tag" Margin="0,8,0,16"><ComboBoxItem Tag="system" Content="跟随系统"/><ComboBoxItem Tag="light" Content="浅色"/><ComboBoxItem Tag="dark" Content="深色"/></ComboBox>
-   <TextBlock Text="音频与存储" FontSize="18" Margin="0,18,0,8"/><CheckBox x:Name="IncludeMicrophone" Content="默认同时录制麦克风"/>
-   <TextBlock Text="录音提醒" FontSize="18" Margin="0,18,0,8"/><CheckBox x:Name="InactivityReminders" Content="声音来源不活跃时提醒停止"/>
+ <DockPanel Margin="16">
+  <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12"><TextBlock Text="偏好设置" FontSize="24" FontWeight="SemiBold"/><TextBlock Text="让录音和回顾适合你的工作方式。" Opacity="0.65" Margin="0,6,0,0"/></StackPanel>
+  <StackPanel DockPanel.Dock="Bottom"><TextBlock x:Name="Status" Text="更改会自动保存。" TextWrapping="Wrap" Margin="0,10" AutomationProperties.LiveSetting="Polite"/><WrapPanel><Button local:ButtonIcon.Geometry="{StaticResource Icon.Save}" x:Name="SaveButton" Content="重试保存" Click="Save" Visibility="Collapsed"/><Button x:Name="DiscardEditsButton" Content="放弃未保存修改并关闭" Click="DiscardEdits" Visibility="Collapsed"/><Button local:ButtonIcon.Geometry="{StaticResource Icon.Close}" Content="关闭" Click="Cancel"/></WrapPanel></StackPanel>
+  <TabControl x:Name="SettingsTabs" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource StrokeBrush}" Padding="8">
+   <TabItem Header="通用"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="4">
+   <TextBlock x:Name="Introduction" Text="本地录音无需登录。登录后可上传、转写和使用实时字幕。关闭录音面板后，录音仍会继续；可从系统托盘恢复。" TextWrapping="Wrap" Margin="0,0,0,12"/>
+   <TextBlock Text="外观" FontSize="18"/><ComboBox x:Name="Theme" SelectedValuePath="Tag" Margin="0,6,0,8"><ComboBoxItem Tag="system" Content="跟随系统"/><ComboBoxItem Tag="light" Content="浅色"/><ComboBoxItem Tag="dark" Content="深色"/></ComboBox>
+   <TextBlock Text="音频与存储" FontSize="18" Margin="0,12,0,6"/><CheckBox x:Name="IncludeMicrophone" Content="默认同时录制麦克风"/>
+   <TextBlock Text="录音提醒" FontSize="18" Margin="0,12,0,6"/><CheckBox x:Name="InactivityReminders" Content="声音来源不活跃时提醒停止"/>
    <CheckBox x:Name="RecordingSuggestions" Content="应用持续播放声音时建议录音" Margin="0,8,0,0"/>
    <TextBlock Text="隐藏面板后的提醒间隔（分钟，0 关闭）" Margin="0,10,0,5"/><TextBox x:Name="LongReminderMinutes" MaxLength="5"/>
    <TextBlock Text="时长上限提醒（分钟，0 关闭）" Margin="0,10,0,5"/><TextBox x:Name="MaxDurationMinutes" MaxLength="5"/>
    <TextBlock Text="达到上限时提示停止或继续，不自动丢弃录音。" TextWrapping="Wrap"/>
-   <TextBlock Text="本地录音目录" Margin="0,12,0,5"/><TextBox x:Name="RecordingsRoot"/><Button Content="选择目录" Click="Browse" HorizontalAlignment="Left" Margin="0,5,0,5"/>
+   <TextBlock Text="本地录音目录" Margin="0,12,0,5"/><TextBox x:Name="RecordingsRoot"/><Button local:ButtonIcon.Geometry="{StaticResource Icon.Folder}" Content="选择目录" Click="Browse" HorizontalAlignment="Left" Margin="0,5,0,5"/>
    <TextBlock Text="新设置用于下一次录音。目录更改在重启应用后生效，已有文件保留在原目录。" TextWrapping="Wrap"/>
-   <Button x:Name="RestartOnboardingButton" Content="重新开始使用引导" Click="RestartOnboarding" HorizontalAlignment="Left" Margin="0,16,0,0"/>
+   <Button local:ButtonIcon.Geometry="{StaticResource Icon.Refresh}" x:Name="RestartOnboardingButton" Content="重新开始使用引导" Click="RestartOnboarding" HorizontalAlignment="Left" Margin="0,16,0,0"/>
    </StackPanel></ScrollViewer></TabItem>
-   <TabItem Header="账号"><StackPanel Margin="12">
+   <TabItem Header="账号"><StackPanel Margin="4">
     <TextBlock Text="账号" FontSize="18"/>
     <TextBlock Text="本地录音无需登录。登录后可上传录音、转写和使用实时字幕。" TextWrapping="Wrap" Margin="0,12"/>
-    <Button Content="管理账号 / 登录" Click="Account" HorizontalAlignment="Left"/>
+    <Button local:ButtonIcon.Geometry="{StaticResource Icon.Account}" Content="管理账号 / 登录" Click="Account" HorizontalAlignment="Left"/>
    </StackPanel></TabItem>
-   <TabItem Header="权限"><StackPanel Margin="12">
+   <TabItem Header="权限"><StackPanel Margin="4">
     <TextBlock Text="麦克风权限" FontSize="18"/>
     <TextBlock Text="在 Windows 中允许桌面应用访问麦克风；也可关闭麦克风，仅录系统声音。" TextWrapping="Wrap" Margin="0,12"/>
-    <Button Content="打开 Windows 麦克风隐私设置" Click="MicrophonePrivacy" HorizontalAlignment="Left"/>
+    <Button local:ButtonIcon.Geometry="{StaticResource Icon.Mic}" Content="打开 Windows 麦克风隐私设置" Click="MicrophonePrivacy" HorizontalAlignment="Left"/>
    </StackPanel></TabItem>
-   <TabItem Header="转写"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="12">
+   <TabItem Header="转写"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="4">
    <TextBlock Text="云处理" FontSize="18"/>
    <CheckBox x:Name="AutoUpload" Content="录音保存后自动上传（需要登录）" Margin="0,10,0,5"/>
    <CheckBox x:Name="AutoTranscribe" Content="上传后自动转写" Margin="0,0,0,12"/>
@@ -44,11 +44,11 @@
    <TextBlock Text="场景" Margin="0,12,0,5"/>
    <ComboBox x:Name="Scene" SelectedValuePath="Tag"><ComboBoxItem Tag="meeting" Content="会议"/><ComboBoxItem Tag="podcast" Content="播客"/><ComboBoxItem Tag="interview" Content="访谈"/><ComboBoxItem Tag="casual" Content="随意交流"/><ComboBoxItem Tag="lecture" Content="课程"/></ComboBox>
    <TextBlock Text="额外上下文 / 术语（用于结束后的转写和摘要）" Margin="0,12,0,5"/><TextBox x:Name="ExtraContext" MaxLength="4000" AcceptsReturn="True" TextWrapping="Wrap" Height="90" VerticalScrollBarVisibility="Auto"/>
-   <TextBlock Text="实时字幕" FontSize="18" Margin="0,18,0,8"/><CheckBox x:Name="CaptionsEnabled" Content="默认开启实时字幕"/>
+   <TextBlock Text="实时字幕" FontSize="18" Margin="0,12,0,6"/><CheckBox x:Name="CaptionsEnabled" Content="默认开启实时字幕"/>
    <TextBlock Text="原文语言（如 zh / en）" Margin="0,10,0,5"/><TextBox x:Name="CaptionLanguage" MaxLength="20"/>
    <TextBlock Text="翻译语言（留空不翻译）" Margin="0,10,0,5"/><TextBox x:Name="TranslationLanguage" MaxLength="20"/>
    </StackPanel></ScrollViewer></TabItem>
-   <TabItem Header="关于"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="12">
+   <TabItem Header="关于"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="4">
    <TextBlock Text="关于 Recappi Mini" FontSize="18" Margin="0,20,0,8"/><TextBlock x:Name="About" TextWrapping="Wrap"/>
    <local:UpdatePanel/>
    </StackPanel></ScrollViewer></TabItem>

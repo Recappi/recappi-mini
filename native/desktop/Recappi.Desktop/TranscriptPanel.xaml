@@ -5,7 +5,7 @@
  <UserControl.Resources><local:ActiveSegmentConverter x:Key="ActiveSegmentConverter"/></UserControl.Resources>
  <DockPanel>
   <StackPanel DockPanel.Dock="Top">
-   <WrapPanel><TextBlock Text="说话人" VerticalAlignment="Center"/><ComboBox x:Name="Speakers" MinWidth="150" DisplayMemberPath="Display" SelectedValuePath="Raw" SelectionChanged="FilterChanged" Margin="8,4" AutomationProperties.Name="筛选说话人"/><Button Content="编辑说话人" Click="EditSpeaker"/><Button Content="复制逐字稿" Click="CopyAll"/><Button Content="复制所选片段" Click="CopySelected"/></WrapPanel>
+   <WrapPanel><TextBlock Text="说话人" VerticalAlignment="Center"/><ComboBox x:Name="Speakers" MinWidth="150" DisplayMemberPath="Display" SelectedValuePath="Raw" SelectionChanged="FilterChanged" Margin="8,4" AutomationProperties.Name="筛选说话人"/><Button local:ButtonIcon.Geometry="{StaticResource Icon.Account}" Content="编辑说话人" Click="EditSpeaker"/><Button local:ButtonIcon.Geometry="{StaticResource Icon.Copy}" Content="复制逐字稿" Click="CopyAll"/><Button local:ButtonIcon.Geometry="{StaticResource Icon.Copy}" Content="复制所选片段" Click="CopySelected"/></WrapPanel>
    <TextBox x:Name="Query" TextChanged="QueryChanged" Margin="0,4" AutomationProperties.Name="搜索当前逐字稿"/>
    <TextBlock x:Name="Status" Margin="0,4" TextWrapping="Wrap"/>
   </StackPanel>

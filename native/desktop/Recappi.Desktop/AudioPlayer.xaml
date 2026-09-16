@@ -1,8 +1,9 @@
 <UserControl x:Class="Recappi.Desktop.AudioPlayer"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
- xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:Recappi.Desktop">
  <StackPanel Margin="0,8">
-  <WrapPanel><Button x:Name="PlayButton" Content="播放" Click="Toggle" IsEnabled="False"/><TextBlock x:Name="Time" Text="00:00:00" VerticalAlignment="Center" Margin="10,0"/><ComboBox x:Name="Speed" SelectedIndex="1" SelectionChanged="ChangeSpeed" Width="75" AutomationProperties.Name="播放速度"><ComboBoxItem Content="0.75×"/><ComboBoxItem Content="1×"/><ComboBoxItem Content="1.25×"/><ComboBoxItem Content="1.5×"/><ComboBoxItem Content="2×"/></ComboBox></WrapPanel>
+  <WrapPanel><Button local:ButtonIcon.Geometry="{StaticResource Icon.Play}" x:Name="PlayButton" Content="播放" Click="Toggle" IsEnabled="False"/><TextBlock x:Name="Time" Text="00:00:00" VerticalAlignment="Center" Margin="10,0"/><ComboBox x:Name="Speed" SelectedIndex="1" SelectionChanged="ChangeSpeed" Width="75" AutomationProperties.Name="播放速度"><ComboBoxItem Content="0.75×"/><ComboBoxItem Content="1×"/><ComboBoxItem Content="1.25×"/><ComboBoxItem Content="1.5×"/><ComboBoxItem Content="2×"/></ComboBox></WrapPanel>
   <Slider x:Name="Position" Minimum="0" Maximum="1" PreviewMouseLeftButtonUp="SeekMouse" PreviewKeyUp="SeekKey" IsEnabled="False" AutomationProperties.Name="云端音频播放位置"/>
   <TextBlock x:Name="Status" TextWrapping="Wrap"/>
  </StackPanel>

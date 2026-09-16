@@ -1,16 +1,52 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Recappi.Desktop">
+ <Geometry x:Key="Icon.Refresh">M20 7A8 8 0 1 0 20 17 M20 3V7H16</Geometry>
+ <Geometry x:Key="Icon.Import">M12 3V15 M8 11L12 15 16 11 M4 15V21H20V15</Geometry>
+ <Geometry x:Key="Icon.Close">M6 6L18 18 M18 6L6 18</Geometry>
+ <Geometry x:Key="Icon.Library">M4 4V20H8V4Z M11 4V20H15V4Z M18 4L22 19</Geometry>
+ <Geometry x:Key="Icon.Record">M20 12A8 8 0 1 1 4 12A8 8 0 1 1 20 12</Geometry>
+ <Geometry x:Key="Icon.Stop">M5 5H19V19H5Z</Geometry>
+ <Geometry x:Key="Icon.Play">M7 4L20 12 7 20Z</Geometry>
+ <Geometry x:Key="Icon.Pause">M8 5V19 M16 5V19</Geometry>
+ <Geometry x:Key="Icon.More">M4 11H5V12H4Z M11 11H12V12H11Z M18 11H19V12H18Z</Geometry>
+ <Geometry x:Key="Icon.Settings">M4 7H20 M4 17H20 M8 4V10 M16 14V20</Geometry>
+ <Geometry x:Key="Icon.Folder">M3 6H10L12 9H21V20H3Z</Geometry>
+ <Geometry x:Key="Icon.Account">M16 7A4 4 0 1 1 8 7A4 4 0 1 1 16 7 M4 21V19A8 6 0 0 1 20 19V21</Geometry>
+ <Geometry x:Key="Icon.External">M14 3H21V10 M21 3L11 13 M10 5H4V21H20V15</Geometry>
+ <Geometry x:Key="Icon.Trash">M3 6H21 M9 6V3H15V6 M6 6L7 21H17L18 6 M10 10V17 M14 10V17</Geometry>
+ <Geometry x:Key="Icon.Copy">M8 8H21V21H8Z M16 8V3H3V16H8</Geometry>
+ <Geometry x:Key="Icon.Search">M17 10A7 7 0 1 1 3 10A7 7 0 1 1 17 10 M15 15L22 22</Geometry>
+ <Geometry x:Key="Icon.Captions">M3 4H21V18H8L3 22Z M7 9H10 M14 9H17 M7 13H17</Geometry>
+ <Geometry x:Key="Icon.Cloud">M6 18A5 5 0 0 1 5 8A7 7 0 0 1 18 8A5 5 0 0 1 18 18Z</Geometry>
+ <Geometry x:Key="Icon.Mic">M9 4A3 3 0 0 1 15 4V11A3 3 0 0 1 9 11Z M5 10V12A7 7 0 0 0 19 12V10 M12 19V22 M8 22H16</Geometry>
+ <Geometry x:Key="Icon.Plus">M12 4V20 M4 12H20</Geometry>
+ <Geometry x:Key="Icon.Hide">M5 12H19</Geometry>
+ <Geometry x:Key="Icon.Save">M4 3H17L21 7V21H3V3Z M8 3V9H16V3 M7 21V14H17V21</Geometry>
+ <Geometry x:Key="Icon.Send">M3 3L22 12 3 21 7 12Z M7 12H22</Geometry>
+ <Geometry x:Key="Icon.Back">M14 5L7 12 14 19</Geometry>
+ <Geometry x:Key="Icon.Exit">M10 3H3V21H10 M9 12H22 M17 7L22 12 17 17</Geometry>
+ <ControlTemplate x:Key="IconLabel" TargetType="ContentControl">
+  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+   <Viewbox x:Name="Icon" Width="16" Height="16" Margin="0,0,6,0" VerticalAlignment="Center"><Canvas Width="24" Height="24"><Path x:Name="Glyph" Data="{Binding (local:ButtonIcon.Geometry), RelativeSource={RelativeSource AncestorType=ButtonBase}}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ButtonBase}}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/></Canvas></Viewbox>
+   <ContentPresenter x:Name="Label" Grid.Column="1" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+  </Grid>
+  <ControlTemplate.Triggers>
+   <DataTrigger Binding="{Binding Content, RelativeSource={RelativeSource AncestorType=ButtonBase}}" Value="暂停"><Setter TargetName="Glyph" Property="Data" Value="{StaticResource Icon.Pause}"/></DataTrigger>
+   <DataTrigger Binding="{Binding (local:ButtonIcon.Geometry), RelativeSource={RelativeSource AncestorType=ButtonBase}}" Value="{x:Null}"><Setter TargetName="Icon" Property="Visibility" Value="Collapsed"/></DataTrigger>
+   <DataTrigger Binding="{Binding (local:ButtonIcon.IconOnly), RelativeSource={RelativeSource AncestorType=ButtonBase}}" Value="True"><Setter TargetName="Label" Property="Visibility" Value="Collapsed"/><Setter TargetName="Icon" Property="Margin" Value="0"/></DataTrigger>
+  </ControlTemplate.Triggers>
+ </ControlTemplate>
  <Style x:Key="ModernWindow" TargetType="Window">
   <Setter Property="local:WindowVisibility.Enabled" Value="True"/>
   <Setter Property="Icon" Value="/Recappi Mini;component/Assets/Recappi.ico"/>
   <Setter Property="Background" Value="{DynamicResource CanvasBrush}"/><Setter Property="Foreground" Value="{DynamicResource InkBrush}"/><Setter Property="FontFamily" Value="Segoe UI Variable, Microsoft YaHei UI"/><Setter Property="FontSize" Value="14"/><Setter Property="UseLayoutRounding" Value="True"/>
  </Style>
  <Style x:Key="ModernTab" TargetType="TabItem">
-  <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/><Setter Property="Padding" Value="16,10"/><Setter Property="Margin" Value="0,0,6,8"/>
+  <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/><Setter Property="Padding" Value="10,6"/><Setter Property="Margin" Value="0,0,4,6"/>
   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabItem"><Border x:Name="Pill" Background="Transparent" CornerRadius="7" BorderBrush="Transparent" BorderThickness="1" Padding="{TemplateBinding Padding}"><ContentPresenter x:Name="Label" ContentSource="Header" RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Pill" Property="Background" Value="{DynamicResource HoverBrush}"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="Pill" Property="Background" Value="{DynamicResource SelectionBrush}"/><Setter TargetName="Label" Property="TextElement.FontWeight" Value="SemiBold"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Pill" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="Pill" Property="Opacity" Value="0.4"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
  </Style>
  <Style x:Key="ModernInput" TargetType="TextBox">
   <Setter Property="BorderThickness" Value="1"/>
-  <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/><Setter Property="Foreground" Value="{DynamicResource InkBrush}"/><Setter Property="CaretBrush" Value="{DynamicResource InkBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}"/><Setter Property="Padding" Value="12,10"/>
+  <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/><Setter Property="Foreground" Value="{DynamicResource InkBrush}"/><Setter Property="CaretBrush" Value="{DynamicResource InkBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}"/><Setter Property="Padding" Value="8,6"/>
   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox"><Border x:Name="Field" CornerRadius="7" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"><ScrollViewer x:Name="PART_ContentHost"/></Border><ControlTemplate.Triggers><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="Field" Property="Opacity" Value="0.5"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
  </Style>
  <Style x:Key="ModernCheckBox" TargetType="CheckBox">
@@ -31,36 +67,37 @@
   </ControlTemplate></Setter.Value></Setter>
  </Style>
  <Style x:Key="ModernToggle" TargetType="ToggleButton">
-  <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/><Setter Property="Foreground" Value="{DynamicResource InkBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}"/><Setter Property="Padding" Value="10,7"/>
-  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToggleButton"><Border x:Name="Field" CornerRadius="7" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/></Border><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Field" Property="Background" Value="{DynamicResource SelectionBrush}"/></Trigger><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="Field" Property="Opacity" Value="0.4"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+  <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/><Setter Property="Foreground" Value="{DynamicResource InkBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}"/><Setter Property="Padding" Value="8,5"/>
+  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToggleButton"><Border x:Name="Field" CornerRadius="7" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}"><ContentControl Focusable="False" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Template="{StaticResource IconLabel}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Field" Property="Background" Value="{DynamicResource SelectionBrush}"/></Trigger><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Field" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="Field" Property="Opacity" Value="0.4"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
  </Style>
  <Style x:Key="ModernButton" TargetType="Button">
   <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
   <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
   <Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}"/>
   <Setter Property="BorderThickness" Value="1"/>
-  <Setter Property="Padding" Value="14,8"/>
-  <Setter Property="MinHeight" Value="36"/>
-  <Setter Property="Margin" Value="0,0,8,8"/>
+  <Setter Property="Padding" Value="10,5"/>
+  <Setter Property="MinHeight" Value="32"/>
+  <Setter Property="Margin" Value="0,0,6,6"/>
   <Setter Property="VerticalContentAlignment" Value="Center"/>
   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
    <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7" Padding="{TemplateBinding Padding}">
-    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/>
+    <ContentControl Focusable="False" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" Template="{StaticResource IconLabel}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
    </Border>
    <ControlTemplate.Triggers>
     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.82"/><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.65"/></Trigger>
-    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/><Setter TargetName="Chrome" Property="BorderThickness" Value="2"/><Setter TargetName="Chrome" Property="Padding" Value="13,7"/></Trigger>
+    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/></Trigger>
     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.4"/></Trigger>
    </ControlTemplate.Triggers>
   </ControlTemplate></Setter.Value></Setter>
  </Style>
+ <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource ModernButton}"><Setter Property="local:ButtonIcon.IconOnly" Value="True"/><Setter Property="Width" Value="32"/><Setter Property="Height" Value="32"/><Setter Property="Padding" Value="6"/><Setter Property="ToolTip" Value="{Binding Content, RelativeSource={RelativeSource Self}}"/></Style>
  <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource ModernButton}">
   <Setter Property="Background" Value="{DynamicResource AccentBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/><Setter Property="Foreground" Value="{DynamicResource AccentInkBrush}"/><Setter Property="FontWeight" Value="SemiBold"/>
  </Style>
  <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource ModernButton}"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/></Style>
  <Style x:Key="ModernListItem" TargetType="ListBoxItem">
-  <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="14,12"/><Setter Property="Margin" Value="0,3"/>
+  <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="10,8"/><Setter Property="Margin" Value="0,2"/>
   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
    <Border x:Name="Row" CornerRadius="8" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" Padding="{TemplateBinding Padding}"><ContentPresenter/></Border>
    <ControlTemplate.Triggers>

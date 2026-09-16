@@ -1,14 +1,15 @@
 <Window x:Class="Recappi.Desktop.OnboardingWindow"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:Recappi.Desktop"
  Title="欢迎使用 Recappi Mini" Width="560" Height="480" ResizeMode="CanMinimize"
  AutomationProperties.AutomationId="onboarding.window" Style="{StaticResource ModernWindow}">
  <DockPanel>
   <Grid DockPanel.Dock="Bottom" Margin="24,16">
    <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions>
-   <Button x:Name="BackButton" Content="返回" Click="Back" HorizontalAlignment="Left" AutomationProperties.AutomationId="onboarding.back"/>
+   <Button local:ButtonIcon.Geometry="{StaticResource Icon.Back}" x:Name="BackButton" Content="返回" Click="Back" HorizontalAlignment="Left" AutomationProperties.AutomationId="onboarding.back"/>
    <TextBlock x:Name="Progress" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-   <Button x:Name="NextButton" Grid.Column="2" Content="继续" Click="Next" HorizontalAlignment="Right" AutomationProperties.AutomationId="onboarding.next" Style="{StaticResource AccentButton}"/>
+   <Button local:ButtonIcon.Geometry="{StaticResource Icon.Send}" x:Name="NextButton" Grid.Column="2" Content="继续" Click="Next" HorizontalAlignment="Right" AutomationProperties.AutomationId="onboarding.next" Style="{StaticResource AccentButton}"/>
   </Grid>
   <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Margin="24,0" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
   <Grid Margin="32">
@@ -22,13 +23,13 @@
    <StackPanel x:Name="PermissionsPage" VerticalAlignment="Center" Visibility="Collapsed">
     <TextBlock Text="音频访问" FontSize="24" Margin="0,0,0,18"/>
     <TextBlock Text="麦克风用于录制你的声音。可在 Windows 设置中允许桌面应用访问麦克风，也可稍后设置。" TextWrapping="Wrap"/>
-    <Button Content="打开麦克风隐私设置" Click="MicrophonePrivacy" HorizontalAlignment="Left" Margin="0,12"/>
+    <Button local:ButtonIcon.Geometry="{StaticResource Icon.Mic}" Content="打开麦克风隐私设置" Click="MicrophonePrivacy" HorizontalAlignment="Left" Margin="0,12"/>
     <TextBlock Text="系统声音通过 Windows 音频接口录制，无需屏幕录制权限。开始前可以选择应用，并决定是否包含麦克风。" TextWrapping="Wrap" Margin="0,12,0,0"/>
    </StackPanel>
    <StackPanel x:Name="SignInPage" VerticalAlignment="Center" Visibility="Collapsed">
     <TextBlock Text="连接 Recappi Cloud" FontSize="24" TextAlignment="Center" Margin="0,0,0,18"/>
     <TextBlock Text="登录后可上传音频、转写、生成摘要和使用实时字幕。也可以跳过，先在本机录音。" TextWrapping="Wrap" TextAlignment="Center"/>
-    <Button Content="登录 Recappi" Click="SignIn" HorizontalAlignment="Center" Margin="0,20"/>
+    <Button local:ButtonIcon.Geometry="{StaticResource Icon.Account}" Content="登录 Recappi" Click="SignIn" HorizontalAlignment="Center" Margin="0,20"/>
    </StackPanel>
    <StackPanel x:Name="DonePage" VerticalAlignment="Center" Visibility="Collapsed">
     <TextBlock Text="准备就绪" FontSize="24" TextAlignment="Center" Margin="0,0,0,18"/>

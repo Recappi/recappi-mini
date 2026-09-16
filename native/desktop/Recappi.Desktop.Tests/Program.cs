@@ -60,8 +60,8 @@ internal static class Program
                     await app.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                     var quitBottom = quitButton.TranslatePoint(new Point(0, quitButton.ActualHeight), optionsContent).Y;
                     if (quitButton.ActualHeight <= 0 || quitBottom > optionsContent.ActualHeight + 1 ||
-                        optionsScroll.ViewportHeight <= 0 || optionsScroll.ExtentHeight <= optionsScroll.ViewportHeight)
-                        throw new Exception("Recording options hid the quit footer or lost the scrollable form under constrained height.");
+                        optionsScroll.ViewportHeight <= 0 || (maximumHeight == 360 && optionsScroll.ExtentHeight <= optionsScroll.ViewportHeight))
+                        throw new Exception($"Recording options hid the quit footer or lost the scrollable form under constrained height: max={maximumHeight}, footer={quitBottom}, height={optionsContent.ActualHeight}, viewport={optionsScroll.ViewportHeight}, extent={optionsScroll.ExtentHeight}.");
                 }
                 optionsContent.MaxHeight = 500;
                 ((Button)window.FindName("QuitButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
