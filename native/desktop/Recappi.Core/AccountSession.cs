@@ -79,6 +79,9 @@ public sealed class AccountSession(AccountStore store, Func<string, string?, Clo
             Publish(new(AccountState.SigningIn, previous.Account));
             using var client = createClient?.Invoke(origin, null) ?? new CloudClient(origin);
             var account = await new DeviceLogin(client).SignInAsync(prompt, pending.Token);
+            // Cancellation can arrive after the response body was parsed. Do not
+            // let that late response replace credentials after cancel/close.
+            pending.Token.ThrowIfCancellationRequested();
             store.Save(account);
             Publish(new(AccountState.SignedIn, account));
         }

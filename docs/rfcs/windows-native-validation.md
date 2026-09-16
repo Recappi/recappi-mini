@@ -1,5 +1,13 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：取消登录后拒绝迟到授权
+
+新增回归确定性复现：设备授权 JSON 已解析完成、响应流处置时触发取消，原 AccountSession 仍保存新凭据并发布 SignedIn。现在在设备登录返回与保存凭据之间重新检查本次登录的取消状态。修复前专项失败为 `A cancelled login accepted a late authorized response`；修复后覆盖首次登录/已有账号 × CancelLogin/外部 CancellationToken 四种组合，验证没有新账号 SignedIn 通知、原状态/身份保留、已有加密文件逐字节不变、首次取消不创建账号目录，并确认随后新的登录能成功。
+
+专项证据 `core-tests-a119086029d04fd894c2876b66024f4f`；完整 Release 核心 34 组通过，结果 `core-tests-355df0413a35429cbadb83a3cf4df4de`；完整 Release WPF 回归退出码 0。测试使用本机 HTTP handler 与响应流处置钩子，不是实际浏览器认证或完整 App 取消登录视频，不补勾整个账号阶段。
+
+双架构自包含 ZIP 已重建，报告 `build/native-desktop-release/caae465177984f6da72f2f5768d2c2ca/release-report.json`（`d937860` 加本轮生产改动，dirty）：x64 76,836,808 B、ARM64 71,234,901 B。架构、运行时、无 Node 载荷和压缩包文件数/长度校验通过；未签名，未重新进行安装/ARM64 实机或本轮真实登录验收。
+
 ## 2026-09-16：说话人默认资料保存与重启恢复实操
 
 完整 x64 App 产物 `b29714de665a42d79125f995efe856c0`（包含 `2b13575` 生产代码）再次使用独立合成语音，实际上传并完成三段 Speaker 1 转写。保存弹窗默认资料后，三个标签均新增麦克风图标；重新打开显示原字段，取消返回后标签保留。正常退出 PID 24856 后确认进程消失，再以同一隔离目录启动 PID 29584；重新选择该录音后，三个带图标标签恢复。

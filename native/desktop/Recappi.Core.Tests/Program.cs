@@ -4,6 +4,12 @@ using Recappi.Core;
 
 var root = Path.Combine(Path.GetFullPath("build/native-desktop-validation"), "core-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+if (args.SequenceEqual(new[] { "--account-login-cancellation" }))
+{
+    await AccountLoginCancellationTests.RunAsync(root);
+    Console.WriteLine("PASS cancelled login rejects late authorization and preserves credentials: " + root);
+    return;
+}
 if (args.Length >= 2 && args[0] is "--prepare-desktop-cloud-fixture" or "--clear-desktop-cloud-fixture")
 {
     try
@@ -126,6 +132,7 @@ async Task Throws(Func<Task> body)
 await Test("Native WebSocket handshake preserves rejection status; caption authorization failures do not reconnect", CaptionHandshakeTests.RunAsync);
 await Test("Actual WebSocket reconnect preserves recording PCM, fragmented bilingual captions and stop drainage", () => CaptionTransportTests.RunAsync(root));
 await Test("Current API rejection expires account; delayed old-token rejection cannot expire renewed or signed-out state", () => AccountExpiryTests.RunAsync(root));
+await Test("Cancelled login rejects late authorization and preserves credentials", () => AccountLoginCancellationTests.RunAsync(root));
 await Test("Billing quota semantics, periods, authenticated portal, safe links and free-plan fallback", BillingTests.RunAsync);
 
 await Test("Library copies merge only confirmed unambiguous account-scoped upload links", () =>

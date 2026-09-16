@@ -4,6 +4,8 @@
 
 ## 后端源码补证与修复
 
+2026-09-16 客户端取消语义修复：授权响应解析完成与保存凭据之间取消时，AccountSession 现在在持久化前重新检查取消状态。AccountLoginCancellationTests 使用响应流处置钩子复现旧代码仍保存账号，覆盖首次/已有账号及 CancelLogin/外部取消四种组合，要求原受保护文件不变并可再次登录。核心 34 组及完整 WPF 通过；这是客户端竞争回归，不是设备登录 denied/slow_down 全分支或实际浏览器认证验收。
+
 真实服务补验：`3a97747` 上同账号同时启动两条本地处理任务均上传成功；一条完成真实转写/下载/问答，推荐解析为 4 条非空问题，两条测试云录音已清理。报告 `core-tests-72b9576f519b4836a5bacaa1b0fa7c5b/cloud-pipeline-smoke.json`，范围见 [验证记录](windows-native-validation.md)。这证实该次部署的推荐响应可被当前解析器接受，不据此推断具体部署 SHA，也不替代推荐 UI 或跨客户端冲突验收。
 
 2026-09-16 上传并发修复：进一步读取同一后端提交的 `apps/server/routes/api/recordings/index.ts`，确认 `recordings_one_upload_per_user_idx` 冲突返回 409。Windows 在创建至 complete 之间按账号串行化上传，完成后立即释放，不占用后续转写轮询；仍保留两个整体处理槽位。ProcessingConcurrencyTests 先复现两条上传相撞，修复后验证第二条上传完成时第一条仍在转写，以及整批取消后先恢复原上传再继续第二条。取消回归另复现释放许可期间下一条抢先创建，增加同步取消检查后核心 33 组通过（`core-tests-9abfbf8d53874252a7d1efeb19db3e0a`）。测试使用实现服务端单上传限制的 HTTP 替身，不是线上压力测试。其他客户端已有上传、旧暂停任务占用名额及任意顺序恢复仍可能返回 409，需后续完整恢复体验验收；本修复不自动 abort 或删除云数据。
