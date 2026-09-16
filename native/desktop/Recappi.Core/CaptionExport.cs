@@ -24,7 +24,7 @@ public static class CaptionExport
                 {
                     using var writer = new StreamWriter(output, new UTF8Encoding(false), leaveOpen: true);
                     foreach (var caption in CaptionArchiveOrder.Read(source))
-                        writer.WriteLine((caption.Stream == "translation" ? "[译文] " : "[原文] ") + caption.Text);
+                        writer.WriteLine((caption.Stream == "translation" ? "[译文] " : "[原文] ") + CaptionText.Format(caption.Text, caption.IsFailed));
                     writer.Flush();
                 }
                 output.Flush(true);

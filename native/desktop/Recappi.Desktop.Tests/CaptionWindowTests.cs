@@ -10,6 +10,7 @@ internal static class CaptionWindowTests
         await DelayedRetryCannotReplaceStateAsync();
         await BothStreamsRemainReadableAsync();
         await SubmittedOrderAsync();
+        await FailedItemsAsync();
         var retryCount = 0;
         var retryCompletion = new TaskCompletionSource<bool>();
         var window = new CaptionWindow(() => { retryCount++; return retryCompletion.Task; }) { ShowActivated = false }; window.Show(); window.Reset();
@@ -54,6 +55,38 @@ internal static class CaptionWindowTests
         if (archiveStatus.IsVisible || transcript.Text.Length != 0 || translation.Text.Length != 0) throw new Exception("A new recording inherited the old archive warning.");
         window.Close();
         Console.WriteLine("PASS native caption bilingual/compact/visibility toggles and hide/restore.");
+    }
+
+    private static async Task FailedItemsAsync()
+    {
+        var window = new CaptionWindow { ShowActivated = false };
+        try
+        {
+            window.Show(); window.Reset();
+            window.Update(new("partial", "source", "Incomplete words", false, new("session", 1)));
+            await Task.Delay(180);
+            window.Update(new("partial", "source", "Incomplete words", false, new("session", 1), IsFailed: true));
+            await Task.Delay(180);
+            var text = (TextBox)window.FindName("SourceTranscript");
+            if (text.Text != "Incomplete words［字幕未完成］") throw new Exception("Failed partial caption remained indistinguishable from ordinary transcript text.");
+            ((CheckBox)window.FindName("Compact")).IsChecked = true;
+            window.Update(new("next", "source", "Next words", false, new("session", 2)));
+            await Task.Delay(180);
+            if (text.Text != "Incomplete words［字幕未完成］ Next words") throw new Exception("Failed caption remained pending and displaced the actual current sentence.");
+            window.Hide();
+            window.Update(new("next", "source", "", false, new("session", 2), IsFailed: true));
+            window.Show(); await Task.Delay(180);
+            if (text.Text != "［此段字幕未能识别］") throw new Exception("Empty failed caption disappeared or retained stale text after restore.");
+            window.Update(new("success", "source", "Later success", true, new("session", 3)));
+            await Task.Delay(180);
+            if (text.Text != "Later success") throw new Exception("Later successful captions could not follow a failed item.");
+            ((CheckBox)window.FindName("Compact")).IsChecked = false;
+            if (!text.Text.Contains("字幕未完成") || !text.Text.Contains("此段字幕未能识别")) throw new Exception("Expanded history silently lost earlier caption gaps.");
+            window.Reset();
+            if (text.Text.Length != 0) throw new Exception("New recording retained an old caption failure marker.");
+        }
+        finally { window.Close(); }
+        Console.WriteLine("PASS partial/empty failed caption markers, compact terminal state, later success, restore and reset.");
     }
 
     private static async Task SubmittedOrderAsync()

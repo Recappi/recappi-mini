@@ -90,8 +90,8 @@ public partial class CaptionWindow : Window
     {
         var ordered = segments.Values.Where(x => x.Stream == stream).OrderBy(x => x.Position?.Sequence ?? 0).ThenBy(x => x.Position?.ContentIndex ?? 0);
         IEnumerable<CaptionDelta> visible = ordered;
-        if (compactMode) visible = ordered.Where(x => x.IsFinal).TakeLast(1).Concat(ordered.Where(x => !x.IsFinal).TakeLast(1));
-        var text = string.Join(compactMode ? " " : "\n\n", visible.Select(x => x.Text));
+        if (compactMode) visible = ordered.Where(x => x.IsFinal || x.IsFailed).TakeLast(1).Concat(ordered.Where(x => !x.IsFinal && !x.IsFailed).TakeLast(1));
+        var text = string.Join(compactMode ? " " : "\n\n", visible.Select(x => CaptionText.Format(x.Text, x.IsFailed)));
         if (target.Text == text) return;
         var offset = target.VerticalOffset;
         var follow = compactMode || followTail.GetValueOrDefault(target, true);

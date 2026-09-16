@@ -6,7 +6,7 @@ using System.Threading.Channels;
 namespace Recappi.Core;
 
 public sealed record CaptionPosition(string Session, long Sequence, int ContentIndex = 0);
-public sealed record CaptionDelta(string SegmentId, string Stream, string Text, bool IsFinal, CaptionPosition? Position = null);
+public sealed record CaptionDelta(string SegmentId, string Stream, string Text, bool IsFinal, CaptionPosition? Position = null, bool IsFailed = false);
 public sealed record CaptionStatus(string State, string? Message = null);
 
 /// <summary>Independent, bounded best-effort audio consumer. Never blocks the WAV writer.</summary>
@@ -148,6 +148,13 @@ public sealed class LiveCaptions : IAsyncDisposable
         public Dictionary<string, long> Positions { get; } = [];
         public HashSet<string> Finals { get; } = [];
         public Queue<string> FinalOrder { get; } = [];
+        public bool Finish(string key)
+        {
+            if (!Finals.Add(key)) return false;
+            FinalOrder.Enqueue(key);
+            while (FinalOrder.Count > 256) Finals.Remove(FinalOrder.Dequeue());
+            return true;
+        }
         public string Source = "";
         public string Translation = "";
         public int TranslationSegment;
@@ -216,11 +223,17 @@ public sealed class LiveCaptions : IAsyncDisposable
             }
             else if (type == "conversation.item.input_audio_transcription.completed")
             {
-                if (!state.Finals.Add(key)) continue;
-                state.FinalOrder.Enqueue(key);
-                while (state.FinalOrder.Count > 256) state.Finals.Remove(state.FinalOrder.Dequeue());
+                if (!state.Finish(key)) continue;
                 Interlocked.Exchange(ref retries, 0);
                 Emit(new(key, "source", Limit(CloudFields.Text(value, "transcript") ?? state.Segments.GetValueOrDefault(key, ""), 16000), true, Position()));
+                state.Segments.Remove(key); state.Awaiting.TryRemove(itemKey, out _); CheckDrained(state);
+            }
+            else if (type == "conversation.item.input_audio_transcription.failed")
+            {
+                if (!state.Finish(key)) continue;
+                // This item is terminal, but the connection and later audio remain usable.
+                // Preserve partial text with an explicit failure marker, never as a final transcript.
+                Emit(new(key, "source", state.Segments.GetValueOrDefault(key, ""), false, Position(), IsFailed: true));
                 state.Segments.Remove(key); state.Awaiting.TryRemove(itemKey, out _); CheckDrained(state);
             }
             else if (type is "session.input_transcript.delta" or "session.output_transcript.delta")
@@ -247,7 +260,7 @@ public sealed class LiveCaptions : IAsyncDisposable
     private void CheckDrained(ConnectionState state) { if (Volatile.Read(ref state.SenderDone) != 0 && Volatile.Read(ref state.PendingCommits) <= 0 && state.Awaiting.IsEmpty) state.Drained.TrySetResult(); }
     private void Emit(CaptionDelta value)
     {
-        if (string.IsNullOrEmpty(value.Text)) return;
+        if (string.IsNullOrEmpty(value.Text) && !value.IsFailed) return;
         value = value with { SegmentId = streamId + "/" + value.SegmentId };
         foreach (Action<CaptionDelta> observer in Delta?.GetInvocationList() ?? []) try { observer(value); } catch (Exception) { }
     }

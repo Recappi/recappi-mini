@@ -4,7 +4,7 @@ using System.Threading.Channels;
 
 namespace Recappi.Core;
 
-public sealed record ArchivedCaption(string SegmentId, string Stream, string Text, DateTimeOffset ReceivedAt, CaptionPosition? Position = null);
+public sealed record ArchivedCaption(string SegmentId, string Stream, string Text, DateTimeOffset ReceivedAt, CaptionPosition? Position = null, bool IsFailed = false);
 
 public sealed class CaptionArchive : IAsyncDisposable
 {
@@ -39,8 +39,8 @@ public sealed class CaptionArchive : IAsyncDisposable
     }
     public void Append(CaptionDelta value)
     {
-        if (!value.IsFinal || string.IsNullOrWhiteSpace(value.Text)) return;
-        if (!pending.Writer.TryWrite(new(value.SegmentId, value.Stream, value.Text, DateTimeOffset.UtcNow, value.Position)))
+        if (!value.IsFailed && (!value.IsFinal || string.IsNullOrWhiteSpace(value.Text))) return;
+        if (!pending.Writer.TryWrite(new(value.SegmentId, value.Stream, value.Text, DateTimeOffset.UtcNow, value.Position, value.IsFailed)))
             ReportError("字幕归档未能保存全部内容；本地音频仍会保留。");
     }
     private void ReportError(string message)

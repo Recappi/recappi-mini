@@ -4,6 +4,12 @@ using Recappi.Core;
 
 var root = Path.Combine(Path.GetFullPath("build/native-desktop-validation"), "core-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+if (args.SequenceEqual(new[] { "--caption-item-failure" }))
+{
+    await CaptionFailureTests.RunAsync(root);
+    Console.WriteLine("PASS per-item caption failure isolation: " + root);
+    return;
+}
 if (args.SequenceEqual(new[] { "--device-login" }))
 {
     await DeviceLoginTests.RunAsync();
@@ -267,6 +273,7 @@ await Test("Native audio import decodes PCM, preserves source and cleans cancele
 await Test("Speaker profiles persist protected, isolate account/recording and preserve prior value on invalid save", () => SpeakerProfileTests.RunAsync(root));
 await Test("Cloud content cache searches all cached recordings, survives reload, isolates accounts and tolerates damage", () => CloudContentCacheTests.RunAsync(root));
 await Test("Captions resample PCM, bound queues, drain final text, reconnect and preserve bilingual streams", CaptionTests.RunAsync);
+await Test("Failed caption items release capacity without interrupting recording or later sentences", () => CaptionFailureTests.RunAsync(root));
 await Test("Preferences persist, recording options stay immutable and caption archives survive partial final lines", () => PreferencesArchiveTests.RunAsync(root));
 await Test("Settings replacement recovers from brief file locks and preserves original on persistent denial", () => PreferencesFileConflictTests.RunAsync(root));
 await Test("Upload-only journal tolerates a brief replacement conflict without repeating cloud requests", () => ProcessingTests.RunAsync(Path.Combine(root, "processing-conflict"), holdJournal: true));

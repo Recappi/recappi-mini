@@ -1,5 +1,22 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：单句字幕失败、后续继续与缺失提示
+
+旧接收逻辑只处理 delta/completed，忽略 conversation.item.input_audio_transcription.failed。确定性回归在连续失败后复现 `Failed transcription items retained waiting capacity and interrupted the healthy connection`：等待名额未释放，达到上限后结束可用连接。现将失败记为该分段终态，清理等待和增量，继续接收后续句子；近期 256 个终态对重复 failure、迟到 delta/completed 及成功后的 failure 保持幂等。单句失败本身不改变 live 连接状态。
+
+新增 CaptionDelta / ArchivedCaption 可选 IsFailed，默认 false 保持旧数据兼容；失败不是 IsFinal 成功转写。保留已有半句并追加“字幕未完成”，没有文字时显示“此段字幕未能识别”。窗口与 TXT 共用 CaptionText，JSONL 保留原始文本、位置和失败标志；错误正文不存储/展示。紧凑模式将失败当作已终止句，允许后一条真实增量继续；展开历史保留缺失记录。
+
+验证：
+
+- `--caption-item-failure` 先在旧逻辑复现等待容量错误，修复后通过；最终专项 `core-tests-25abca5d3c3c4567b96dadf0cae83cdc`。覆盖 160 次失败后不重连且下一句成功、合成输入录音保持并保存 WAV、失败半句/空失败、重复/迟到终态、同 item 不同 content_index、完整排序归档/TXT/raw JSONL，以及最后提交失败到达后停止不再等待 1.5 秒兜底。
+- 完整 Release 核心 **36 组通过**，`build/native-desktop-validation/core-tests-2ad9d13099854e17997d55621a4e9467/results.json`；完整 Release WPF 套件退出码 0，新增失败标识、紧凑终态、后续成功、隐藏恢复、展开历史及 Reset 回归。没有重跑未改动的 CLI/macOS 套件。
+- 新增 `--caption-failure-preview` 使用生产 LiveCaptions/CaptionWindow/归档/导出及独立原生协议控制面板。没有网络、账号或音频录制。两个运行目录 `ui-smoke-56241ddcd4ed4968b2b351d5c3467aac`、`ui-smoke-02586ebf097c4a9f817044ab3fbcabd1` 的预览报告均确认三条归档、两条失败且无写入错误；TXT 按顺序保留失败半句、后续成功句、空失败提示。
+- `build/native-desktop-validation/caption-failure-ui-01/acceptance.html` / `acceptance.json`：AI 复核原始关键帧，加自动哈希/时间/引用门禁，**三项通过**。展开片 172.5 秒、954×574、10 fps、1,725 帧→7 关键帧，SHA256 `031ad4a5cd132ed9e67d9ef8da7aa9cc638f7f518f5571c68c6ec90cfb2653c1`；固定紧凑补片 158.8 秒、954×316、10 fps、1,588 帧→6 关键帧，SHA256 `4ac05faec4541d6504e7cccb79e97f0a61c8f79702a2a0ef422432e303f8cc74`。展开 40.8/158.8 秒、紧凑 69.8/100.1/134.9 秒原始帧确认标记、继续、成功和空失败可读；事件全部落在片段内。
+
+录制限制：gdigrab title 捕获在首片窗口缩小时保留启动尺寸，底部出现旧面板残影；实窗截图无此残影，首片该区段不计紧凑布局通过。已先固定紧凑尺寸再补录，补片原始帧无该残影。两片均只录客户端区域、无声、浅色、150% 缩放、默认宽度；不覆盖标题栏、真实公网失败、完整 App 生命周期、其他 DPI/语言/长文本或亚帧闪烁。
+
+最终双架构自包含发布报告 `build/native-desktop-release/5807c262a5e2402398f88afdbbca6bc4/release-report.json`（`1a5000c` 加本轮改动，dirty），架构/运行时/无 Node/ZIP 内容及 SHA256 校验通过。该批未新增完整发布 App 实操、签名/安装或 ARM64 实机验证，不补勾完整字幕与桌面阶段。
+
 ## 2026-09-16：字幕完成乱序、窗口保留与长文本导出
 
 修复前普通转写的窗口和 TXT 导出均跟随完成事件到达顺序。现在提交确认时记录句序，文本增量和最终结果携带可选 CaptionPosition（会话/句序/content_index）；同一连接保留最多 256 个近期位置并保留尚未完成的提交位置。最近 256 个已完成分段拒绝重复 final 和迟到 delta。窗口按句序显示并保留最新 200 段，隐藏期间最多 256 项待刷新队列也按句序淘汰；紧凑模式选择按句序最新的完成句和未完成句。
