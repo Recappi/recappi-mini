@@ -4,6 +4,8 @@
 
 ## 后端源码补证与修复
 
+2026-09-16 设备登录期限修复：轮询响应返回后重新核对取消及验证码本地期限，确定性回归复现并阻止迟到授权。DeviceLoginTests 补齐轮询状态与非法响应分支；完整 Release 核心 35 组和 WPF 回归通过，范围见验证记录，未进行真实浏览器认证。
+
 2026-09-16 客户端取消语义修复：授权响应解析完成与保存凭据之间取消时，AccountSession 现在在持久化前重新检查取消状态。AccountLoginCancellationTests 使用响应流处置钩子复现旧代码仍保存账号，覆盖首次/已有账号及 CancelLogin/外部取消四种组合，要求原受保护文件不变并可再次登录。核心 34 组及完整 WPF 通过；这是客户端竞争回归，不是设备登录 denied/slow_down 全分支或实际浏览器认证验收。
 
 真实服务补验：`3a97747` 上同账号同时启动两条本地处理任务均上传成功；一条完成真实转写/下载/问答，推荐解析为 4 条非空问题，两条测试云录音已清理。报告 `core-tests-72b9576f519b4836a5bacaa1b0fa7c5b/cloud-pipeline-smoke.json`，范围见 [验证记录](windows-native-validation.md)。这证实该次部署的推荐响应可被当前解析器接受，不据此推断具体部署 SHA，也不替代推荐 UI 或跨客户端冲突验收。
@@ -24,7 +26,7 @@
 | 能力 | C# 请求及关键响应 | 仓库基线与核对结论 | 证据边界 |
 | --- | --- | --- | --- |
 | 账号恢复/退出 | GET `/api/auth/get-session`；POST `/api/auth/sign-out`。恢复要求 session/user 对象及匹配的 user.id，读取 `set-auth-token` 更新凭据 | `CloudClient.ValidateAccountAsync` 对照 `RecappiAPIClient.getSession`、CLI `authStatus`；C# 更严格验证保存账号身份 | AccountExpiryTests、CloudClientTests；完整过期→再次登录仍待实操 |
-| 设备登录 | POST `/api/device-auth/start`；POST `/api/device-auth/poll`，正文 `device_code`。start 读取 code、同源完整验证链接、expires_in、interval；poll 支持 pending/slow_down/denied/expired/authorized | `DeviceLogin` 对照 `cli/recappi/src/auth-login.ts`；macOS 使用自己的 NativeOAuthCoordinator，不能声称流程相同 | 现有 CloudClientTests 只实际覆盖 pending→authorized，不能冒称覆盖全部分支 |
+| 设备登录 | POST `/api/device-auth/start`；POST `/api/device-auth/poll`，正文 `device_code`。start 读取 code、同源完整验证链接、expires_in、interval；poll 支持 pending/slow_down/denied/expired/authorized；响应返回后重验取消与本地期限 | `DeviceLogin` 对照 `cli/recappi/src/auth-login.ts`；macOS 使用自己的 NativeOAuthCoordinator，不能声称流程相同 | DeviceLoginTests 用受控时钟/HTTP 验证 pending 间隔、slow_down 回退/显式值/上限、denied、expired、未知状态、本地期限、迟到授权、取消及 URL/时序拒绝；完整浏览器认证与网络故障实操仍待验 |
 | 创建与分块上传 | POST `/api/recordings`，`title/contentType/durationMs`；响应 `id/partSize/maxPartBytes`。PUT `/{id}/parts/{n}` 二进制，响应 `partNumber/etag`；POST `/{id}/complete`，`parts` 数组 | `CloudClient` 对照 macOS `createRecording/uploadRecording/completeRecording`；C# 验证分块上限和回执，CLI 创建 DTO 仅声明 id/partSize | CloudClientTests 验证字节拼接、完成描述符及认证；真实合成 WAV 流水线已验，不代表全部尺寸/断网情况 |
 | 暂停/中断上传 | C# CancelAll 取消本地等待并持久化 Paused；后续 GET `/{id}` 核对 ready 后继续，保留 ticket；没有 POST abort | macOS `SessionProcessor` 失败路径调用 `abortRecordingIfNeeded`，Windows 的可恢复上传设计不同 | 不将 abort 写成 C# 已支持；服务端未完成上传的保留期、过期 ticket 恢复和垃圾回收契约仍待确认 |
 | 列表/详情/删除 | GET `/api/recordings?limit=50&cursor=…`，`items/nextCursor`；GET/DELETE `/api/recordings/{id}` | macOS 同路径，默认页大小不同；C# 204/空响应可接受，删除确认后重验账号和选择 | CloudLibraryTests、CloudLibraryActionTests；真实样本清理不等于全部删除 UI 验收 |
@@ -33,7 +35,7 @@
 | 历史/失败分块 | GET `/{id}/jobs?limit=10`；GET `/{id}/transcript?jobId=…`；POST `/api/jobs/{job}/retry-failed-chunks` | 对照 macOS `listRecordingJobs/getRecordingTranscript/retryFailedChunks`。C# 响应丢失后先核对任务，不直接重复提交 | WPF 历史/重试替身回归；真实两版选择已验，真实失败分块仍待验 |
 | 正文与兼容格式 | GET `/{id}/transcript`；C# CloudTranscript 接受结构化字段与旧 JSON 字符串字段，保留分段时间/说话人 | 对照 CLI mapTranscript、macOS transcript DTO；客户端兼容解码不是后端新旧格式均在线的证明 | CloudLibraryTests 和真实三段样本；损坏字段及长内容另有验收范围 |
 | 搜索/说话人 | CloudContentCache 搜索当前账号已缓存标题/摘要/正文；SpeakerProfileStore 保存本机显示覆盖 | 对照 macOS `CloudLibraryStore+Cache.searchCachedRecordings`。CLI 列表存在 search 参数，但 Windows 不请求全服务端搜索 | 缓存未覆盖内容不会出现在结果；说话人编辑不云同步 |
-| 问答 | GET `/{id}/ask-thread` 返回 messages；GET `/{id}/ask-suggestions` 返回字符串数组；POST `/{id}/ask-thread/messages` 传 question/webSearch/可选 model，Accept SSE | 对照 `RecappiAPIClient+Ask.swift`；识别 metadata/answer_delta/citation/done/error。C# 要求 done，否则标断流；支持分片 UTF-8 与 CR/LF | AskTests 与真实回答已验。macOS 推荐可传 language，C# 当前省略；CLI 另兼容对象建议，不代表当前服务已改成对象格式 |
+| 问答 | GET `/{id}/ask-thread` 返回 messages；GET `/{id}/ask-suggestions` 返回 question/reason 对象数组，C# 也兼容旧字符串数组；POST `/{id}/ask-thread/messages` 传 question/webSearch/可选 model，Accept SSE | 对照后端推荐路由与 `RecappiAPIClient+Ask.swift`；识别 metadata/answer_delta/citation/done/error。C# 要求 done，否则标断流；支持分片 UTF-8 与 CR/LF | AskTests、真实回答及完整 App 四条推荐显示/选择/发送视频已验。macOS 推荐可传 language，C# 当前省略；生产部署 SHA 和语言偏好一致性未确认 |
 | 实时字幕 | POST `/api/openai/realtime/sessions` 携带 Origin；mode、language、delay=low、expiresAfterSeconds=60；翻译含 targetLanguage/includeSourceTranscript，普通转写 turnDetection.type=none | 对照 macOS 两种会话请求。返回 websocketUrl/tokenType/token，WebSocket 携带声明令牌和 Origin；48 kHz float 输入转 24 kHz PCM16 | CaptionHandshake/Transport/Tests 及真实双语样本；公网断网/过期恢复仍待验 |
 | 音频与导出 | GET `/{id}/audio`；C# 依据音频 Content-Type 选扩展名，临时文件完整后替换，限制 4 GiB；文字/字幕导出在本机完成 | 对照 macOS downloadRecordingAudio、CLI downloadRecordingAudio。不存在统一“服务端导出”调用 | AudioDownloadTests、导出回归及实际 TXT；超过 4 GiB 云音频不受支持，不能以本机大文件导入证明可云下载 |
 | 用量/管理 | GET `/api/billing/status`；POST `/api/billing/portal` 正文 `{}`，读取 url；409 转 `/plans` | 对照 macOS Billing API；C# 只接受可信 HTTPS 管理链接，不调用 checkout | BillingTests 及真实只读用量；真实 portal 操作未验，不执行订阅变更 |
@@ -46,4 +48,4 @@
 3. 现有测试中的 HTTP handler 是协议样本，不是后端实现；真实成功路径也不能证明 401/402/409/429/5xx、断网或响应丢失的全部行为。
 4. 完整契约验收仍需部署侧文档/源码或针对已授权测试样本的服务证据，以及实际设备登录、过期、失败分块与网络恢复操作。保留主计划“核对后端契约”为未完成。
 
-核对入口：`native/desktop/Recappi.Core/{CloudClient,CloudProcessing,DeviceLogin,AskClient,CaptionConnection,LiveCaptions,CloudLibraryModels,BillingStatus}.cs`；`RecappiMini/Services/RecappiAPIClient.swift`、`RecappiAPIClient+Ask.swift`、`SessionProcessor.swift`、`Cloud/CloudLibraryStore+Processing.swift`；`cli/recappi/src/api.ts`、`auth-login.ts`。下表保留首轮客户端差异；推荐响应以顶部后端补证及修复为准。
+核对入口：`native/desktop/Recappi.Core/{CloudClient,CloudProcessing,DeviceLogin,AskClient,CaptionConnection,LiveCaptions,CloudLibraryModels,BillingStatus}.cs`；`RecappiMini/Services/RecappiAPIClient.swift`、`RecappiAPIClient+Ask.swift`、`SessionProcessor.swift`、`Cloud/CloudLibraryStore+Processing.swift`；`cli/recappi/src/api.ts`、`auth-login.ts`。上表随实现及证据更新；历史样本不能替代未覆盖分支。

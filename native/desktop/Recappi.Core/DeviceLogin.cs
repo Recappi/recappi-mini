@@ -4,8 +4,9 @@ namespace Recappi.Core;
 
 public sealed record LoginPrompt(string Code, Uri VerificationUri, DateTimeOffset ExpiresAt);
 
-public sealed class DeviceLogin(CloudClient client, Func<TimeSpan, CancellationToken, Task>? delay = null)
+public sealed class DeviceLogin(CloudClient client, Func<TimeSpan, CancellationToken, Task>? delay = null, TimeProvider? timeProvider = null)
 {
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     public async Task<CloudAccount> SignInAsync(Action<LoginPrompt> showPrompt, CancellationToken cancellation = default)
     {
         var begin = await client.BeginDeviceLoginAsync(cancellation);
@@ -16,15 +17,18 @@ public sealed class DeviceLogin(CloudClient client, Func<TimeSpan, CancellationT
             throw new InvalidDataException("Unexpected sign-in verification origin.");
         var expires = PositiveNumber(begin, "expires_in", 3600);
         var interval = PositiveNumber(begin, "interval", 60);
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(expires);
+        var deadline = clock.GetUtcNow().AddSeconds(expires);
         showPrompt(new(userCode, verify, deadline));
-        while (DateTimeOffset.UtcNow < deadline)
+        while (clock.GetUtcNow() < deadline)
         {
             cancellation.ThrowIfCancellationRequested();
-            var wait = TimeSpan.FromSeconds(Math.Min(interval, Math.Max(0, (deadline - DateTimeOffset.UtcNow).TotalSeconds)));
-            await (delay?.Invoke(wait, cancellation) ?? Task.Delay(wait, cancellation));
-            if (DateTimeOffset.UtcNow >= deadline) break;
+            var wait = TimeSpan.FromSeconds(Math.Min(interval, Math.Max(0, (deadline - clock.GetUtcNow()).TotalSeconds)));
+            await (delay?.Invoke(wait, cancellation) ?? Task.Delay(wait, clock, cancellation));
+            cancellation.ThrowIfCancellationRequested();
+            if (clock.GetUtcNow() >= deadline) break;
             var poll = await client.PollDeviceLoginAsync(deviceCode, cancellation);
+            cancellation.ThrowIfCancellationRequested();
+            if (clock.GetUtcNow() >= deadline) break;
             switch (Required(poll, "status"))
             {
                 case "pending":

@@ -1,5 +1,15 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：设备登录过期边界与轮询状态
+
+新增 `DeviceLoginTests` 先复现验证码尚未过期时发出 poll、授权响应返回时已经过期，原实现仍返回账号。通过可注入 `TimeProvider` 推进受控时钟而不实际等待验证码时长；默认生产路径仍使用系统时钟。修复前专项失败为 `Accepted authorization after the code expired`，现在等待和响应返回后均重新核对取消状态，响应返回后核对本地期限，过期则不返回账号。
+
+回归还覆盖 pending 更新间隔、slow_down 默认增加五秒/显式间隔/60 秒上限、denied、expired、未知状态、持续 pending 本地到期后不再请求、提示时取消、不同来源/带 userinfo 的验证链接、非法起始/后续间隔和空授权 token。测试用 HTTP handler 与受控时钟，不打开浏览器、不访问真实账号，不替代完整浏览器认证、网络中断或生产配置验证。既有 AccountLoginCancellationTests 继续验证首次/已有账号取消后凭据不变及后续登录恢复。
+
+专项通过证据 `core-tests-700c27feefd844f8b36eb33d3d1ff89e`；补充降频上限与非法 poll 后，完整 Release 核心 **35 组通过**，结果 `build/native-desktop-validation/core-tests-60b6f5810f124f9ab992584e0b3804cf/results.json`；完整 Release WPF 回归退出码 0。未改桌面布局，未新增 UI 视频通过项。
+
+双架构自包含 ZIP 重建成功，报告 `build/native-desktop-release/ba81c6e1294740529390daece749149e/release-report.json`（`a0b19c1` 加本轮生产改动，dirty），包含此前丢弃修复；架构、运行时、无 Node、压缩包数量/长度与 SHA256 校验通过。该批没有新的完整 App 实操、安装或 ARM64 实机证据，仍未签名。
+
 ## 2026-09-16：丢弃录音的会话隔离与实际确认流程
 
 确定性回归先复现：丢弃等待字幕清理时，原录音已停止并开始另一条，旧调用会停止并删除新录音。现在确认前捕获目标 ID，确认后先核对会话，清理后由 RecordingEngine 在同一互斥锁内再次核对 ID 和 Recording 状态，再取消采集和删除。已保存原录音也不会被迟到的丢弃删除。等待期间禁用竞争命令，避免其他命令提前重置 busy。

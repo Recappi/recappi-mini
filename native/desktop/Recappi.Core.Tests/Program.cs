@@ -4,6 +4,12 @@ using Recappi.Core;
 
 var root = Path.Combine(Path.GetFullPath("build/native-desktop-validation"), "core-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+if (args.SequenceEqual(new[] { "--device-login" }))
+{
+    await DeviceLoginTests.RunAsync();
+    Console.WriteLine("PASS device login protocol: " + root);
+    return;
+}
 if (args.SequenceEqual(new[] { "--account-login-cancellation" }))
 {
     await AccountLoginCancellationTests.RunAsync(root);
@@ -133,6 +139,7 @@ await Test("Native WebSocket handshake preserves rejection status; caption autho
 await Test("Actual WebSocket reconnect preserves recording PCM, fragmented bilingual captions and stop drainage", () => CaptionTransportTests.RunAsync(root));
 await Test("Current API rejection expires account; delayed old-token rejection cannot expire renewed or signed-out state", () => AccountExpiryTests.RunAsync(root));
 await Test("Cancelled login rejects late authorization and preserves credentials", () => AccountLoginCancellationTests.RunAsync(root));
+await Test("Device login validates polling, terminal states and local authorization deadline", DeviceLoginTests.RunAsync);
 await Test("Billing quota semantics, periods, authenticated portal, safe links and free-plan fallback", BillingTests.RunAsync);
 
 await Test("Library copies merge only confirmed unambiguous account-scoped upload links", () =>
