@@ -5,7 +5,8 @@ using System.Threading.Channels;
 
 namespace Recappi.Core;
 
-public sealed record CaptionDelta(string SegmentId, string Stream, string Text, bool IsFinal);
+public sealed record CaptionPosition(string Session, long Sequence, int ContentIndex = 0);
+public sealed record CaptionDelta(string SegmentId, string Stream, string Text, bool IsFinal, CaptionPosition? Position = null);
 public sealed record CaptionStatus(string State, string? Message = null);
 
 /// <summary>Independent, bounded best-effort audio consumer. Never blocks the WAV writer.</summary>
@@ -26,6 +27,7 @@ public sealed class LiveCaptions : IAsyncDisposable
     private int disposed;
     private int retries;
     private int generation;
+    private static long nextSequence;
     private Task? finish;
     private TaskCompletionSource<bool>? pendingRetry;
     private CaptionStatus status = new("connecting");
@@ -143,6 +145,9 @@ public sealed class LiveCaptions : IAsyncDisposable
         public int SenderDone;
         public ConcurrentDictionary<string, byte> Awaiting { get; } = new();
         public Dictionary<string, string> Segments { get; } = [];
+        public Dictionary<string, long> Positions { get; } = [];
+        public HashSet<string> Finals { get; } = [];
+        public Queue<string> FinalOrder { get; } = [];
         public string Source = "";
         public string Translation = "";
         public int TranslationSegment;
@@ -178,25 +183,45 @@ public sealed class LiveCaptions : IAsyncDisposable
         while (await connection.ReceiveAsync(cancellation) is { } value)
         {
             var type = CloudFields.Text(value, "type");
-            var key = current + ":" + (CloudFields.Text(value, "item_id") ?? "current") + (value.TryGetProperty("content_index", out var index) && index.ValueKind == JsonValueKind.Number && index.TryGetInt32(out var contentIndex) && contentIndex != 0 ? "#" + contentIndex : "");
+            var itemKey = current + ":" + (CloudFields.Text(value, "item_id") ?? "current");
+            var contentIndex = value.TryGetProperty("content_index", out var index) && index.ValueKind == JsonValueKind.Number && index.TryGetInt32(out var number) ? number : 0;
+            var key = itemKey + (contentIndex != 0 ? "#" + contentIndex : "");
+            CaptionPosition Position()
+            {
+                if (!state.Positions.TryGetValue(itemKey, out var sequence))
+                    state.Positions[itemKey] = sequence = Interlocked.Increment(ref nextSequence);
+                // Retain unresolved items even when many later turns finish first.
+                while (state.Positions.Count > 256)
+                {
+                    var expired = state.Positions.Keys.FirstOrDefault(x => !state.Awaiting.ContainsKey(x) && x != itemKey);
+                    if (expired is null) break;
+                    state.Positions.Remove(expired);
+                }
+                return new(streamId, sequence, contentIndex);
+            }
             var delta = value.TryGetProperty("delta", out var raw) && raw.ValueKind == JsonValueKind.String ? raw.GetString() ?? "" : "";
             if (type == "input_audio_buffer.committed")
             {
                 state.Awaiting[key] = 0; Interlocked.Decrement(ref state.PendingCommits);
+                Position(); // Commit acknowledgements follow our appended audio; completions may overtake them.
                 if (state.Awaiting.Count > 128) throw new IOException("字幕服务未响应。");
             }
             else if (type == "conversation.item.input_audio_transcription.delta")
             {
+                if (state.Finals.Contains(key)) continue;
                 Interlocked.Exchange(ref retries, 0);
                 var text = Limit(state.Segments.GetValueOrDefault(key, "") + delta, 16000);
-                state.Segments[key] = text; Emit(new(key, "source", text, false));
+                state.Segments[key] = text; Emit(new(key, "source", text, false, Position()));
                 if (state.Segments.Count > 128) state.Segments.Remove(state.Segments.Keys.First());
             }
             else if (type == "conversation.item.input_audio_transcription.completed")
             {
+                if (!state.Finals.Add(key)) continue;
+                state.FinalOrder.Enqueue(key);
+                while (state.FinalOrder.Count > 256) state.Finals.Remove(state.FinalOrder.Dequeue());
                 Interlocked.Exchange(ref retries, 0);
-                Emit(new(key, "source", Limit(CloudFields.Text(value, "transcript") ?? state.Segments.GetValueOrDefault(key, ""), 16000), true));
-                state.Segments.Remove(key); state.Awaiting.TryRemove(key, out _); CheckDrained(state);
+                Emit(new(key, "source", Limit(CloudFields.Text(value, "transcript") ?? state.Segments.GetValueOrDefault(key, ""), 16000), true, Position()));
+                state.Segments.Remove(key); state.Awaiting.TryRemove(itemKey, out _); CheckDrained(state);
             }
             else if (type is "session.input_transcript.delta" or "session.output_transcript.delta")
             {

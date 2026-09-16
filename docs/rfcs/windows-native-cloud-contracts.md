@@ -4,6 +4,8 @@
 
 ## 后端源码补证与修复
 
+2026-09-16 字幕顺序：[OpenAI 实时转写文档](https://developers.openai.com/api/docs/guides/realtime-transcription) 明确不同语音轮次的完成事件不保证有序。Windows 现在在 input_audio_buffer.committed 时按当前顺序追加音频链记录句序，completed/delta 带上同一位置和 content_index；没有提交事件的兼容输入仍按首次出现记录。重连保留单个消费者的 session，重新创建消费者使用新 session，避免归档恢复后序号重置导致跨会话排序。窗口与 TXT 导出使用位置，JSONL 原始事件顺序不变。受控测试覆盖完成逆序和重复/迟到事件；没有证明任意前驱回填、插入式会话修改或公网服务端所有时序，不能据此宣称已完全等价 macOS 的 previous_item_id 时间线。
+
 2026-09-16 设备登录期限修复：轮询响应返回后重新核对取消及验证码本地期限，确定性回归复现并阻止迟到授权。DeviceLoginTests 补齐轮询状态与非法响应分支；完整 Release 核心 35 组和 WPF 回归通过，范围见验证记录，未进行真实浏览器认证。
 
 2026-09-16 客户端取消语义修复：授权响应解析完成与保存凭据之间取消时，AccountSession 现在在持久化前重新检查取消状态。AccountLoginCancellationTests 使用响应流处置钩子复现旧代码仍保存账号，覆盖首次/已有账号及 CancelLogin/外部取消四种组合，要求原受保护文件不变并可再次登录。核心 34 组及完整 WPF 通过；这是客户端竞争回归，不是设备登录 denied/slow_down 全分支或实际浏览器认证验收。

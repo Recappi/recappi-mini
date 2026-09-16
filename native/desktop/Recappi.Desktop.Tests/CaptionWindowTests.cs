@@ -9,6 +9,7 @@ internal static class CaptionWindowTests
     {
         await DelayedRetryCannotReplaceStateAsync();
         await BothStreamsRemainReadableAsync();
+        await SubmittedOrderAsync();
         var retryCount = 0;
         var retryCompletion = new TaskCompletionSource<bool>();
         var window = new CaptionWindow(() => { retryCount++; return retryCompletion.Task; }) { ShowActivated = false }; window.Show(); window.Reset();
@@ -53,6 +54,37 @@ internal static class CaptionWindowTests
         if (archiveStatus.IsVisible || transcript.Text.Length != 0 || translation.Text.Length != 0) throw new Exception("A new recording inherited the old archive warning.");
         window.Close();
         Console.WriteLine("PASS native caption bilingual/compact/visibility toggles and hide/restore.");
+    }
+
+    private static async Task SubmittedOrderAsync()
+    {
+        var window = new CaptionWindow { ShowActivated = false };
+        try
+        {
+            window.Show(); window.Reset();
+            window.Update(new("third", "source", "Third", true, new("session", 3)));
+            await Task.Delay(180);
+            window.Update(new("first", "source", "First", true, new("session", 1)));
+            window.Update(new("second", "source", "Second", true, new("session", 2)));
+            await Task.Delay(180);
+            var text = (TextBox)window.FindName("SourceTranscript");
+            if (text.Text != "First\n\nSecond\n\nThird") throw new Exception("Expanded captions used completion arrival order.");
+            ((CheckBox)window.FindName("Compact")).IsChecked = true;
+            if (text.Text != "Third") throw new Exception("Compact captions showed an older late completion.");
+            window.Hide();
+            window.Update(new("fourth", "source", "Fourth", false, new("session", 4)));
+            window.Show(); await Task.Delay(180);
+            if (text.Text != "Third Fourth") throw new Exception("Ordered compact captions lost the current pending sentence after restore.");
+            window.Reset(); window.Hide();
+            ((CheckBox)window.FindName("Compact")).IsChecked = false;
+            for (var i = 300; i >= 1; i--)
+                window.Update(new("bulk-" + i, "source", "Sentence " + i, true, new("bulk", i)));
+            window.Show(); await Task.Delay(180);
+            if (text.Text != string.Join("\n\n", Enumerable.Range(101, 200).Select(i => "Sentence " + i)))
+                throw new Exception("Caption buffer eviction retained old late sentences instead of the latest 200.");
+        }
+        finally { window.Close(); }
+        Console.WriteLine("PASS caption window preserves submitted sentence order across delayed completion, compact mode and hide/restore.");
     }
 
     private static async Task DelayedRetryCannotReplaceStateAsync()

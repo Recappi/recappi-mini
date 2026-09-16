@@ -39,6 +39,26 @@ internal static class CaptionExportTests
         try { CaptionExport.Save(store, recording, target, false); throw new Exception("Missing source accepted."); }
         catch (FileNotFoundException) { }
         if (!before.SequenceEqual(File.ReadAllBytes(target))) throw new Exception("Missing source destroyed destination.");
+        var entries = new List<ArchivedCaption> { new("legacy", "source", "Legacy first", DateTimeOffset.UtcNow) };
+        // More than sixteen batches exercises multiple external merge levels. A resumed
+        // process may restart its numeric sequence and must still follow the old session.
+        foreach (var session in new[] { "first", "resumed" })
+            for (var i = 2050; i >= 0; i--)
+                entries.Add(new(session + i, "source", session + " " + i, DateTimeOffset.UtcNow, new(session, i)));
+        entries.Add(new("legacy-last", "translation", "Legacy last", DateTimeOffset.UtcNow));
+        await File.WriteAllLinesAsync(source, entries.Select(x => System.Text.Json.JsonSerializer.Serialize(x)));
+        await File.AppendAllTextAsync(source, "{\"partial\":");
+        var scratchBefore = Directory.GetDirectories(Path.GetTempPath(), "recappi-caption-sort-*").Order().ToArray();
+        CaptionExport.Save(store, recording, target, false);
+        var expected = new[] { "[原文] Legacy first" }
+            .Concat(new[] { "first", "resumed" }.SelectMany(session => Enumerable.Range(0, 2051).Select(i => "[原文] " + session + " " + i)))
+            .Append("[译文] Legacy last");
+        if (!File.ReadLines(target).SequenceEqual(expected)) throw new Exception("Long caption export lost commit/session order or intact captions before a partial line.");
+        if (!CaptionArchiveOrder.Read(source).Take(1).Select(x => x.Text).SequenceEqual(new[] { "Legacy first" })) throw new Exception("Early reader disposal changed the first caption.");
+        if (!scratchBefore.SequenceEqual(Directory.GetDirectories(Path.GetTempPath(), "recappi-caption-sort-*").Order()))
+            throw new Exception("Caption external sort leaked temporary files after completion or early disposal.");
+        CaptionExport.Save(store, recording, target, true);
+        if (!File.ReadAllBytes(target).SequenceEqual(File.ReadAllBytes(source))) throw new Exception("Ordered caption metadata changed raw archive export.");
         await Task.CompletedTask;
     }
 }

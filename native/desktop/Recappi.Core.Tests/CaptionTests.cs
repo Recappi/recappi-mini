@@ -11,6 +11,7 @@ internal static class CaptionTests
     public static async Task RunAsync()
     {
         await DeferredStartupAsync();
+        await CompletionOrderingAsync();
         var encoder = new CaptionPcmEncoder();
         if (encoder.Encode([1]).Length != 0) throw new Exception("Odd input must carry to next chunk.");
         var encoded = encoder.Encode([1, float.NaN, 0, -2, -1]);
@@ -86,6 +87,35 @@ internal static class CaptionTests
             if (!translated.Any(x => x.Stream == "source" && x.IsFinal && x.Text == "你好") || !translated.Any(x => x.Stream == "translation" && x.IsFinal && x.Text == "Hello")) throw new Exception("Independent translation/source streams were lost.");
         }
     }
+    private static async Task CompletionOrderingAsync()
+    {
+        var socket = new FakeConnection();
+        var observed = new ConcurrentQueue<CaptionDelta>();
+        var path = Path.GetFullPath(Path.Combine("build/native-desktop-validation", "ordered-captions-" + Guid.NewGuid().ToString("N") + ".jsonl"));
+        await using (var archive = new CaptionArchive(path))
+        await using (var captions = new LiveCaptions(new(), _ => Task.FromResult<ICaptionConnection>(socket), autoStart: false))
+        {
+            captions.Delta += observed.Enqueue;
+            captions.Delta += archive.Append;
+            captions.Start();
+            for (var i = 0; i < 4; i++)
+                socket.Push(new { type = "input_audio_buffer.committed", item_id = "item-" + i, previous_item_id = i == 0 ? null : "item-" + (i - 1) });
+            foreach (var (item, content) in new[] { (2, 1), (0, 0), (2, 0), (1, 0) })
+                socket.Push(new { type = "conversation.item.input_audio_transcription.completed", item_id = "item-" + item, content_index = content, transcript = $"Sentence {item}.{content}" });
+            socket.Push(new { type = "conversation.item.input_audio_transcription.delta", item_id = "item-0", delta = "Stale delta" });
+            socket.Push(new { type = "conversation.item.input_audio_transcription.completed", item_id = "item-0", transcript = "Duplicate final" });
+            socket.Push(new { type = "conversation.item.input_audio_transcription.completed", item_id = "item-3", transcript = "Sentence 3.0" });
+            await WaitAsync(() => observed.Any(x => x.Text == "Sentence 3.0"));
+            await captions.AbortAsync();
+        }
+        if (observed.Count != 5 || observed.Any(x => x.Position is null)) throw new Exception("Caption ordering metadata or final idempotency was lost.");
+        var expected = new[] { "Sentence 0.0", "Sentence 1.0", "Sentence 2.0", "Sentence 2.1", "Sentence 3.0" };
+        if (!observed.OrderBy(x => x.Position!.Sequence).ThenBy(x => x.Position!.ContentIndex).Select(x => x.Text).SequenceEqual(expected) ||
+            !CaptionArchiveOrder.Read(path).Select(x => x.Text).SequenceEqual(expected))
+            throw new Exception("Out-of-order completion changed submitted audio order in live or archived captions.");
+        if (CaptionArchive.Read(path).First().Text != "Sentence 2.1") throw new Exception("Raw archive no longer preserves received event order.");
+    }
+
     private static async Task DeferredStartupAsync()
     {
         var directory = Path.GetFullPath(Path.Combine("build/native-desktop-validation", "caption-startup-" + Guid.NewGuid().ToString("N")));

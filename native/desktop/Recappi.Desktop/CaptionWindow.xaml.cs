@@ -47,7 +47,8 @@ public partial class CaptionWindow : Window
         lock (sync)
         {
             pending[value.SegmentId + ":" + value.Stream] = value;
-            while (pending.Count > 256) pending.Remove(pending.Keys.First());
+            while (pending.Count > 256)
+                pending.Remove(pending.OrderBy(x => x.Value.Position?.Sequence ?? 0).ThenBy(x => x.Value.Position?.ContentIndex ?? 0).First().Key);
             dirty = true;
         }
     }
@@ -68,7 +69,9 @@ public partial class CaptionWindow : Window
         {
             if (!dirty) return;
             foreach (var pair in pending) segments[pair.Key] = pair.Value;
-            pending.Clear(); while (segments.Count > 200) segments.Remove(segments.Keys.First());
+            pending.Clear();
+            while (segments.Count > 200)
+                segments.Remove(segments.OrderBy(x => x.Value.Position?.Sequence ?? 0).ThenBy(x => x.Value.Position?.ContentIndex ?? 0).First().Key);
             Status.Text = state.Message ?? state.State switch { "connecting" => "正在连接字幕…", "live" => "实时字幕已连接", "reconnecting" => "正在重连字幕…", "failed" => "字幕不可用，本地录音继续", _ => "字幕已停止" };
             RetryButton.Visibility = state.State == "failed" && retryCaptions is not null ? Visibility.Visible : Visibility.Collapsed;
             ArchiveStatus.Text = archiveError ?? "";
@@ -85,8 +88,9 @@ public partial class CaptionWindow : Window
     }
     private void UpdateText(TextBox target, string stream)
     {
-        var visible = segments.Values.Where(x => x.Stream == stream);
-        if (compactMode) visible = visible.Where(x => x.IsFinal).TakeLast(1).Concat(segments.Values.Where(x => x.Stream == stream && !x.IsFinal).TakeLast(1));
+        var ordered = segments.Values.Where(x => x.Stream == stream).OrderBy(x => x.Position?.Sequence ?? 0).ThenBy(x => x.Position?.ContentIndex ?? 0);
+        IEnumerable<CaptionDelta> visible = ordered;
+        if (compactMode) visible = ordered.Where(x => x.IsFinal).TakeLast(1).Concat(ordered.Where(x => !x.IsFinal).TakeLast(1));
         var text = string.Join(compactMode ? " " : "\n\n", visible.Select(x => x.Text));
         if (target.Text == text) return;
         var offset = target.VerticalOffset;
