@@ -1,5 +1,11 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：关闭录音库释放与诊断初始化
+
+独立生命周期诊断补齐真实应用的主题初始化，避免新图标资源依赖被测试执行顺序掩盖。实际转储定位到 WPF 缓存分组视图经日期回调闭包持有整个窗口；将回调改为独立时钟委托后，八轮真实打开/播放/搜索/关闭的 24 个弱引用对象全部释放，音频独占访问全部通过。新增默认缓存视图回归（不展示窗口，排除 UI Automation COM 客户端持有）在还原旧回调时确实失败，最终 Release WPF 全量通过，跨日刷新仍正确。
+
+证据、转储边界及一次可见窗口回归的 COM 引用干扰见 [性能报告](windows-native-performance.md)。最新 x64/ARM64 自包含发布为 `b09dd062b1a04436a996508487fbcfdb`，x64 隔离无 Node PATH 启动与正常退出通过，单次 871.206 ms；ARM64 未执行。本轮没有可见布局变更或新的 UI 视频验收，不把 GC 诊断当完整产品交互验收。
+
 ## 2026-09-16：最小录音库本机详情滚轮修复
 
 新 `LocalDetailScrollingTests` 在实际 800×540 WPF 窗口路由 MouseWheel 输入，修复前失败 `Local detail swallowed mouse wheel instead of scrolling the library.`。本机库嵌入统一录音库时原来保留内层 ScrollViewer，即使内容无需内层滚动也吞掉事件。`UseExternalList` 现在解除该内层包装，由库详情滚动容器承载内容；独立本地库保留原来的 ScrollViewer。重复设置嵌入模式直接返回。

@@ -201,7 +201,9 @@ public partial class CloudLibraryWindow : Window
         rebuildingLibrary = true;
         try
         {
-            Recordings.ItemsSource = RecordingDateGroups.Create(rows, nameof(LibraryRecording.CreatedAt), () => groupedDay);
+            // WPF can cache collection views beyond the window's lifetime. Do not
+            // capture this window in the date converter retained by that view.
+            Recordings.ItemsSource = RecordingDateGroups.Create(rows, nameof(LibraryRecording.CreatedAt), localToday);
             Recordings.SelectedItem = selected;
         }
         finally { rebuildingLibrary = false; }

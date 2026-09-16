@@ -2,6 +2,8 @@
 
 ## 当前结论
 
+2026-09-16 已定位并修复录音库关闭后被日期分组回调保留的问题。真实 WPF 八轮打开/播放/搜索/关闭后，24 个观察对象全部回收，八轮音频独占访问均通过；新增默认回归覆盖缓存视图与窗口解耦。此结论针对已找到的引用链，不替代长期进程内存、全部账号/云任务状态或 ARM64 性能验收。
+
 最近补测完整 x64 App 的录音库打开/关闭空闲：同一进程三段各约 25.6 秒，CPU 为单核的 0% / 0.061% / 0%。关闭后私有内存未回到打开前水平；不同场景之间重新连接过 UI 检查工具，不能据此判断泄漏或将差值归因录音库。方法与范围见下节。
 
 此前干净提交 `dcb3bca` 的精简自包含 x64 包三次新进程启动中位 790.58 ms，均就绪并正常退出。未登录、建议关闭的完整 App 可见/隐藏各约 38 秒采样 CPU 为单核的 0.041% / 0%；仅代表短时空闲，没有证明长期、录音/字幕或冷启动达标。
@@ -219,7 +221,7 @@
 
 完整链路最终保存 323.015 秒音频和双语最终归档，详见验证记录；不代表长时间内存稳定、性能已经合格或字幕准确率评测通过。另观察到启动后窗口截图暂为空白、打开选项后正常，尚需区分捕获与绘制问题；首帧事件就绪不等同完整可见首屏验收。
 
-### 2026-09-16：关闭录音库后的对象生命周期诊断（未通过）
+### 2026-09-16：关闭录音库后的对象生命周期诊断（修复前未通过）
 
 新增独立入口 `dotnet run --project native/desktop/Recappi.Desktop.Tests -c Release -- --library-lifetime-profile`。真实 WPF 录音库连续打开、播放本地合成 WAV、发起搜索并关闭八轮；账号未登录，没有真实云端请求。每轮验证音频文件可独占读写，关闭后继续触发账号恢复通知。宿主窗口保持存活，避免把录音库误设为 Application.MainWindow。默认测试入口不运行该诊断；诊断保留严格失败退出，不能当作通过项。
 
@@ -228,5 +230,19 @@
 30 秒对照原始报告：`build/native-desktop-validation/library-lifetime-666b1061aefe4a4aaa879c61114c8d15/results.json`。最终入口复测报告 `library-lifetime-924ea364874447e091bd955393a597c2/results.json` 记录 .NET 10.0.9 / X64、UTC 起止时间、全部八轮句柄检查及三个保留对象，严格检查退出码为 1。移除逐轮观察、短等待对照：`library-lifetime-cae770035e9845c6bb7c323b39c53c06/results.json`（均为同一父目录）。生产代码未因本次诊断修改。
 
 更早同类运行的完整堆转储与 GC 事件图保存在 `build/native-desktop-validation/library-lifetime-584fb22c1a624adb987e47084197313f/`。事件图路径经过 Dependent Handles、EventHandler、RepeatButton 和 EffectiveValueEntry[] 回到窗口；普通 gcroot 未找到引用根。**依赖句柄只在键存活时保留值，事件图把它列为根不能证明键自身有独立强引用**，因此此路径仅为排查线索，不认定 WPF 按钮事件就是泄漏根因。转储不进入仓库或发布包。
+
+### 2026-09-16：日期分组引用链修复与复核
+
+先恢复独立诊断的主题初始化：测试入口现在和实际 App 一样调用 `DesktopTheme.Apply("system")`，否则图标增加后 `--library-lifetime-profile` 在 `Icon.Refresh` 静态资源加载阶段就失败，不能作为对象释放证据。主题初始化后的基线仍失败，报告 `library-lifetime-3170cae1aecc4b7e9026e1938f68ed28/results.json`。
+
+新转储 `library-lifetime-f9fb4900f2a14da5b8e9bbe58d55cc59/after-gc.dmp` 与 `strong-root.txt` 给出实际强引用路径：存活 Dispatcher 的 DataBindEngine → ViewManager → 缓存 ListCollectionView → PropertyGroupDescription → RecordingDateGroups → 日期回调闭包 → CloudLibraryWindow。`RebuildLibrary` 的 `() => groupedDay` 捕获了窗口。改为直接传入独立 `localToday` 委托，仍由原定时器/激活通知触发跨日刷新；没有靠清空界面、关闭可访问性或修改 GC 行为规避引用。
+
+修复后同一严格诊断通过：`library-lifetime-28b55d8955b64c40bae5d9a55a9dedef/results.json`，UTC 03:13:22–03:14:04，.NET 10.0.9 / X64。八轮真实窗口和两个 MediaPlayer 控件打开合成 WAV、播放、搜索、关闭，全部音频可独占访问，24 个弱引用对象均释放，普通对照窗口也释放。仍使用强制 GC，这不是长期自然回收/私有内存曲线或真实云端播放验收。
+
+新增 `LibraryViewRetentionTests` 默认回归主动保留分组视图后检查关闭窗口、本地视图、播放器三个对象释放。该回归不显示原生窗口，专门隔离托管缓存引用；还原旧回调后实际失败，恢复修复后整套 Release WPF 回归通过。跨日分组、选择保持、滚轮、导入、播放等既有回归保持通过。
+
+测试隔离原因：最初显示此窗口的回归单独通过、整套内失败；`view-retention-suite-01/automation-root.txt` 证明该次强根是 ref-counted `MS.Internal.Automation.ElementProxy` → ListBoxItemAutomationPeer → 列表/窗口，未确定具体 COM 客户端进程。不能把该路径误认成已修日期回调仍失效，也不能把它证明为所有资源问题的根因。默认缓存回归避免展示窗口，实际八轮窗口诊断单独保留。两份转储均仅包含隔离测试，不提交仓库或发布包。
+
+最新双架构自包含包 `build/native-desktop-release/b09dd062b1a04436a996508487fbcfdb/release-report.json`（3e83ec6 加本轮修改、dirty）发布通过，x64/ARM64 ZIP 分别 68,638,181 / 63,464,276 B，未签名、ARM64 未执行。x64 在仅含 Windows 系统目录的 PATH 中实际启动、就绪并正常退出，单次观察 871.206 ms；证据 `startup-profile-ea544b2cc51a463a917158d822466e76/results.json`。不把单次启动或不同压缩环境体积视为性能收益。
 
 可见窗口空闲 CPU 存在波动，尚未归因；分页及跨日刷新仍有超过一帧的主线程耗时。已有未登录新进程启动样本不证明整体轻量化达标。继续测重启后冷缓存/首次引导/已登录恢复启动、最新产物托盘空闲、真实录音、录音加字幕、长逐字稿、隐藏窗口和长期内存变化；真实磁盘大库/缓存搜索、网络分页、ARM64 也需独立测量。框架基础探针及早期录音面板采样见 [验证记录](windows-native-validation.md)，其范围不能替代本轮或最终验收。

@@ -16,11 +16,14 @@ internal static class Program
         {
             try
             {
+                // Match App startup before any isolated diagnostic constructs controls.
+                DesktopTheme.Apply("system");
                 if (args.Contains("--idle-profile")) { await IdleProfile.RunAsync(); exit = 0; return; }
                 if (args.Contains("--recording-ui-profile")) { await RecordingUiProfile.RunAsync(args.Contains("--software-rendering")); exit = 0; return; }
                 if (args.Contains("--library-profile")) { await LibraryProfile.RunAsync(); exit = 0; return; }
                 if (args.Contains("--library-lifetime-profile")) { await LibraryLifetimeProfile.RunAsync(args.Contains("--hold-for-dump")); exit = 0; return; }
                 var root = Path.GetFullPath(Path.Combine("build", "native-desktop-validation", "ui-smoke-" + Guid.NewGuid().ToString("N")));
+                if (args.Contains("--view-retention-profile")) { await LibraryViewRetentionTests.RunAsync(root, app.Dispatcher, holdForDump: args.Contains("--hold-for-dump")); exit = 0; return; }
                 if (args.Contains("--onboarding-stress"))
                 {
                     for (var attempt = 0; attempt < 50; attempt++)
@@ -126,6 +129,7 @@ internal static class Program
                 await LocalPlaybackTests.RunAsync(root);
                 await ProcessingRecoveryTests.RunAsync(root);
                 await CloudLibraryTests.RunAsync(root, app.Dispatcher);
+                await LibraryViewRetentionTests.RunAsync(root, app.Dispatcher, holdForDump: args.Contains("--hold-for-dump"));
                 await LocalDetailScrollingTests.RunAsync(root, app.Dispatcher);
                 await CloudCompletionLayoutTests.RunAsync(root, app.Dispatcher);
                 await ImportLifecycleTests.RunAsync(root, app.Dispatcher);
