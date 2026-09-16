@@ -1,5 +1,7 @@
 # Windows 原生版功能矩阵
 
+2026-09-16 兼容补验：当前 `9f99fbf` 的 Windows CLI 类型检查、226 项测试、构建、隔离安装后的启动及严格包检查通过；6 项按平台/真实服务开关跳过。x64/ARM64 helper 重建与包内架构/许可证通过，x64 版本执行和无账号 sidecar 握手通过。未新增真实音频/服务/macOS 或 ARM64 实机证据，详见验证记录。
+
 2026-09-16 N14/N15：处理单句 input_audio_transcription.failed，清理该句等待/增量状态，不将可用连接重启；失败半句与空结果通过 IsFailed 元数据保留，窗口与 TXT 明确标注。160 次失败后继续、终态幂等、content_index 隔离和停止尾句回归通过，核心增至 36 组；完整 WPF、受控生产字幕窗视频三项及双架构发布通过。视频不连接网络、不录音，不替代完整 App、公网失败或其他 DPI 验收，见验证记录。
 
 2026-09-16 N14/N15：普通转写按提交确认分配句序及 content_index；窗口、紧凑显示、隐藏期间缓存淘汰和 TXT 导出按此顺序处理迟到完成。JSONL 仍保留接收顺序并增加可选 Position；旧归档兼容。核心 35 组、实际 WPF 回归、4,102 条有序导出及双架构发布通过。当前顺序源是正常追加的提交确认，未实现 macOS 任意 previous_item_id 回填/插入重排，真实乱序服务视频未验，不将整个字幕功能勾为完成。
@@ -66,13 +68,13 @@
 
 ## 验证入口与证据边界
 
-- 核心：`dotnet run --project native/desktop/Recappi.Core.Tests/Recappi.Core.Tests.csproj`。最近全量 32 组通过（`core-tests-c994b138343345359db53705efe1a175`）；网络场景含测试 handler 和真实回环 WebSocket，部分文件/媒体/Windows API 为实际执行，不能统一称为真实后端测试。
+- 核心：`dotnet run --project native/desktop/Recappi.Core.Tests/Recappi.Core.Tests.csproj -c Release`。最近全量 36 组通过（`core-tests-2ad9d13099854e17997d55621a4e9467`）；网络场景含测试 handler 和真实回环 WebSocket，部分文件/媒体/Windows API 为实际执行，不能统一称为真实后端测试。本轮 CLI 兼容补验没有重跑该套件。
 - 原生控件：`dotnet run --project native/desktop/Recappi.Desktop.Tests/Recappi.Desktop.Tests.csproj`。持续扩充，最近完整 Release 执行范围见验证记录；实际 WPF 控件与媒体运行，账号/网络数据主要为测试替身。
 - 实际服务：`CloudSmoke` / `CloudPipelineSmoke` 的原始记录见验证文档。它们不是完整 App 的人工交互验收，禁止因为既有服务样本成功而勾选所有 UI 路径。
 - 实际桌面：验证文档分别记录受控进程录音、本机库/播放、设置/引导、隐藏恢复、取消退出和最终保存等已观察操作。
 - 性能：见 [性能报告](windows-native-performance.md)，区分探针、测试宿主和完整自包含 App；录音/字幕长期、冷启动全流程和 ARM64 仍有缺口。
 - 发布：`scripts/publish-native-desktop.ps1` 为 x64/ARM64 自包含 ZIP；`scripts/build-native-installer.ps1` 为安装器。必须把报告对应源码批次写清楚，不把旧包当最新实现。
-- 兼容：核心通过源码链接复用 `native/windows`；CLI 与 macOS 仍有独立验证范围，原生测试不能代替最终 CLI 检查，Windows 不能执行 macOS XCTest。
+- 兼容：核心通过源码链接复用 `native/windows`；当前 Windows `pnpm cli:check` 与 `pnpm cli:pack:check` 已独立通过，226 项通过/6 项跳过及双架构 helper 包检查范围见验证记录。原生测试不替代 CLI 检查，Windows 不能执行 macOS XCTest。
 
 macOS 参考测试保留：
 `RecappiMiniLaunchSmokeUITests.swift`（建议、字幕、隐藏、录音状态），

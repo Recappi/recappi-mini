@@ -1,5 +1,18 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：当前源码 Windows CLI 兼容与 helper 发布补验
+
+在 `9f99fbfdc77234af616bffbd652eb06fdcd1ac27` 干净工作树执行，Node v22.16.0 / pnpm 11.0.9 / Windows x64。本轮不修改生产代码，以下结果不能代替新的真实音频、云服务或 macOS 验收。
+
+- `pnpm cli:check`：类型检查、12 个测试文件的 **226 项通过**、6 项跳过、TS 构建通过，退出码 0。跳过项分别是两项 macOS helper 安装/签名刷新、两项 POSIX 权限错误语义、两项需显式开启的真实字幕服务测试；不能将这六项记为通过。平台不匹配的 darwin-arm64 / win32-arm64 可选包警告未影响当前 x64 检查。
+- `pnpm cli:pack:check`：构建、tarball 内容/版本检查、临时消费者安装、安装后 `--json` 无命令返回约定错误、严格 publint 与类型打包检查通过，退出码 0。CLI 包不含类型声明为既有设计，检查报告未报错；没有发布 npm 包。
+- `scripts/build-windows-cli-helper.ps1 -Architecture x64` 与 `-Architecture arm64` 均成功。分别进入对应 helper 目录执行 `node ../check-helper-pack.mjs RecappiAudioCapture.exe`，包内 PE 架构、可执行文件及 .NET/NAudio 许可证检查均通过。x64 实际执行 `--version` 返回 `recappi-windows-capture/1`；ARM64 仅构建与静态包装检查，未在硬件运行。
+- 当前构建的 `windows-sidecar.js` 使用独立录音目录、无账号参数，实际 JSON-RPC handshake 返回 protocolVersion 1、recappi-windows-recorder/0.1.0 和约定三项能力，退出码 0。此操作验证入口/原生 helper 查找和协议握手，不开始采集，也不证明设备或真实字幕能力。
+
+当前 CLI 两个入口与双架构 helper 的大小/SHA256 和工具版本保存在 `build/native-desktop-validation/cli-compatibility-9f99fbf/artifact-report.json`；该文件是产物指纹报告，执行结果范围以上述记录为准。没有重建未修改的桌面包，沿用 `5807c262a5e2402398f88afdbbca6bc4`；本轮也未重跑桌面核心/WPF，最近完整结果仍是核心 36 组及单句失败增量记录中的 WPF 套件。
+
+另核对字幕归档交接源码：重新登录后 RetryCaptionsAsync 在创建新消费者/续写归档前等待 stoppingCaptions，并再次核对录音 ID、账号和 token；本次未证实预想的归档占用缺陷，因此不为此改动实现。该源码核对不替代快速切账号、真实连接排空与文件故障的实际恢复验收。
+
 ## 2026-09-16：单句字幕失败、后续继续与缺失提示
 
 旧接收逻辑只处理 delta/completed，忽略 conversation.item.input_audio_transcription.failed。确定性回归在连续失败后复现 `Failed transcription items retained waiting capacity and interrupted the healthy connection`：等待名额未释放，达到上限后结束可用连接。现将失败记为该分段终态，清理等待和增量，继续接收后续句子；近期 256 个终态对重复 failure、迟到 delta/completed 及成功后的 failure 保持幂等。单句失败本身不改变 live 连接状态。
