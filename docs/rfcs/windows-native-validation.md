@@ -1,5 +1,14 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：损坏设置保守恢复
+
+- 发现原 App 在设置读取失败后使用 `new DesktopPreferences()`，默认打开自动上传和麦克风；JSON `null` 还会被直接当成有效默认设置。新增回归先在旧实现复现 `null` 静默回退失败，再修复 `PreferencesStore.LoadForStartup`：不存在的文件保留首次使用默认值，损坏/非法/不可读的已有配置进入恢复状态，关闭自动上传、自动转写、字幕、麦克风和录音建议。读取不写文件，明确编辑后可保存恢复；正常有效配置不受影响。
+- 核心完整 **37 组**通过，目录 `build/native-desktop-validation/core-tests-199238e044bb44af9a617d07a013b4fd`。涵盖损坏 JSON/null/非法主题或路径、真实排他文件锁、原字节保持、释放锁后读取原选项、修改主题不重新开启录音/上传、用户明确开启后持久化。后补同名目录冲突由定向 `--preferences-recovery` 验证。
+- 完整自包含 .NET 10.0.12 WPF 回归通过：`dotnet run --project native/desktop/Recappi.Desktop.Tests -c Release -r win-x64 --self-contained true -p:RuntimeFrameworkVersion=10.0.12`，目录 `ui-smoke-0a25af3208244a91aa5d373f91045254`。实际窗口开关初始关闭，打开/等待/关闭不改损坏文件，主题修改保持保守选项，分别明确启用后保存正确。
+- 双架构自包含发布通过：`build/native-desktop-release/eaba5fb9331b499d9a18562da13aa58d/release-report.json`，基于 `227e2b6` 加本轮恢复修改，`sourceDirty=true`；两个运行时框架均固定 10.0.12。不是干净提交或已签名安装产物。
+- 完整 x64 App 使用隔离损坏配置启动，自动打开恢复设置。`build/native-desktop-validation/settings-recovery-ui-01/acceptance.html` 的通用/转写两段各八秒录像共 160 帧→3 关键帧，两项通过：恢复提示可读，五个保守选项未勾选。未开始录音或登录；切标签、关闭设置后经录音条“退出应用”结束，原 12 字节设置 SHA256 `B8A9F6AEDEBF715F38DC2AF28BF23D8D7704F31A468D44CB0F6AB505876D4247` 保持，数据目录未新增文件，见 `verification.json`。
+- 局限：录像是已显示页面，不覆盖启动/关闭/退出过渡；不代表已登录后的实际录音与上传、其他主题/DPI、长期恢复或 ARM64 实机验收。保持整个 N25 和阶段 4 未完成。
+
 ## 2026-09-16：本机录音库移除
 
 - 完整 App 重新导入补验：以自包含包 `199a4c24f1a44860935a622ab47a2bf1` 启动隔离目录，通过系统文件选择框选取原 `audio.wav`；原条目恢复并自动选中，原标题及五秒时长可读。`local-removal-ui-01/reimport.mp4` 139.3 秒、1393 帧→4 关键帧，恢复结果一项通过，文件选择/播放连续过程一项证据不足；该目录累计验收为 4 通过、2 证据不足。

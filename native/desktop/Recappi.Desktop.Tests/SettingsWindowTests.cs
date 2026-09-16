@@ -45,6 +45,41 @@ internal static class SettingsWindowTests
         ((TextBox)window.FindName("ExtraContext")).Text = "Saved on close";
         window.Close();
         if (window.IsVisible || store.Load().ExtraContext != "Saved on close") throw new Exception("Closing before debounce lost the final input.");
+        await RecoveryAsync(root);
         Console.WriteLine("PASS native settings autosave, validation, retry, closing flush and preservation of concurrent source/onboarding changes.");
+    }
+
+    private static async Task RecoveryAsync(string root)
+    {
+        var directory = Path.Combine(root, "settings-recovery-ui");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "settings.json");
+        File.WriteAllText(path, "{incomplete");
+        var original = File.ReadAllBytes(path);
+        var store = new PreferencesStore(directory);
+        var result = store.LoadForStartup();
+        var applied = result.Preferences;
+        var saves = 0;
+        SettingsWindow Open() => new(applied, value => { store.Save(value); applied = value; saves++; }, () => { }, current: () => applied) { ShowActivated = false };
+        var untouched = Open();
+        untouched.Show(); untouched.UpdateLayout();
+        foreach (var name in new[] { "AutoUpload", "AutoTranscribe", "CaptionsEnabled", "IncludeMicrophone", "RecordingSuggestions" })
+            if (((CheckBox)untouched.FindName(name)).IsChecked != false) throw new Exception("Recovery UI enabled " + name);
+        await Task.Delay(450);
+        untouched.Close();
+        if (saves != 0 || !original.SequenceEqual(File.ReadAllBytes(path)))
+            throw new Exception("Opening or closing recovery settings silently replaced the unreadable file.");
+        var edited = Open();
+        edited.Show(); edited.UpdateLayout();
+        ((ComboBox)edited.FindName("Theme")).SelectedValue = "dark";
+        var persisted = store.LoadForStartup();
+        if (persisted.RecoveryRequired || persisted.Preferences.AutoUpload || persisted.Preferences.IncludeMicrophone || persisted.Preferences.Theme != "dark")
+            throw new Exception("Changing appearance in recovery re-enabled capture or cloud upload.");
+        ((CheckBox)edited.FindName("IncludeMicrophone")).IsChecked = true;
+        ((CheckBox)edited.FindName("AutoUpload")).IsChecked = true;
+        edited.Close();
+        if (!store.Load().IncludeMicrophone || !store.Load().AutoUpload || store.Load().CaptionsEnabled)
+            throw new Exception("Explicit recovery settings did not persist independently.");
+        Console.WriteLine("PASS recovery settings display disabled capture/cloud defaults, preserve corrupt bytes until editing and allow explicit opt-in.");
     }
 }

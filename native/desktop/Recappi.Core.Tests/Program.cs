@@ -4,6 +4,12 @@ using Recappi.Core;
 
 var root = Path.Combine(Path.GetFullPath("build/native-desktop-validation"), "core-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
+if (args.SequenceEqual(new[] { "--preferences-recovery" }))
+{
+    await PreferencesRecoveryTests.RunAsync(root);
+    Console.WriteLine("PASS settings startup recovery: " + root);
+    return;
+}
 if (args.SequenceEqual(new[] { "--caption-item-failure" }))
 {
     await CaptionFailureTests.RunAsync(root);
@@ -276,6 +282,7 @@ await Test("Captions resample PCM, bound queues, drain final text, reconnect and
 await Test("Failed caption items release capacity without interrupting recording or later sentences", () => CaptionFailureTests.RunAsync(root));
 await Test("Preferences persist, recording options stay immutable and caption archives survive partial final lines", () => PreferencesArchiveTests.RunAsync(root));
 await Test("Settings replacement recovers from brief file locks and preserves original on persistent denial", () => PreferencesFileConflictTests.RunAsync(root));
+await Test("Unreadable settings preserve original bytes and disable implicit microphone/cloud actions until explicit edits", () => PreferencesRecoveryTests.RunAsync(root));
 await Test("Upload-only journal tolerates a brief replacement conflict without repeating cloud requests", () => ProcessingTests.RunAsync(Path.Combine(root, "processing-conflict"), holdJournal: true));
 await Test("Unreadable or mismatched processing journals never restart cloud requests", () => ProcessingJournalReadTests.RunAsync(root));
 await Test("Caption export preserves existing files on read/commit failure and protects recording storage", () => CaptionExportTests.RunAsync(root));

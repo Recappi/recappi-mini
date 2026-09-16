@@ -56,7 +56,32 @@ public sealed class PreferencesStore(string directory)
 {
     private readonly string path = Path.Combine(Path.GetFullPath(directory), "settings.json");
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
-    public DesktopPreferences Load() => File.Exists(path) ? (JsonSerializer.Deserialize<DesktopPreferences>(File.ReadAllText(path), Json) ?? new()).Validate() : new();
+    public DesktopPreferences Load()
+    {
+        string contents;
+        try { contents = File.ReadAllText(path); }
+        catch (FileNotFoundException) { return new(); }
+        catch (DirectoryNotFoundException) { return new(); }
+        return (JsonSerializer.Deserialize<DesktopPreferences>(contents, Json)
+            ?? throw new JsonException("Settings document is null.")).Validate();
+    }
+    public (DesktopPreferences Preferences, bool RecoveryRequired) LoadForStartup()
+    {
+        try { return (Load(), false); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or ArgumentException or NotSupportedException)
+        {
+            // Missing settings use first-run defaults; unreadable existing settings must
+            // not silently re-enable capture or cloud actions that the user disabled.
+            return (new DesktopPreferences
+            {
+                AutoUpload = false,
+                AutoTranscribe = false,
+                CaptionsEnabled = false,
+                IncludeMicrophone = false,
+                RecordingSuggestions = false
+            }, true);
+        }
+    }
     public void Save(DesktopPreferences preferences)
     {
         preferences = preferences.Validate(); Directory.CreateDirectory(Path.GetDirectoryName(path)!);

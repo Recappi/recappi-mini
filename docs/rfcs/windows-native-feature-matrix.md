@@ -1,5 +1,7 @@
 # Windows 原生版功能矩阵
 
+2026-09-16 N25 设置恢复：损坏、非法或不可读的已有配置不再启用首次安装的自动上传/麦克风默认值；保守关闭五项录音/云选项，原文件在读取、打开/关闭窗口时保持。核心 37 组、完整 WPF 和双架构发布通过；完整 x64 App 恢复提示与五项默认状态视频两项通过，真实登录录音恢复、其他主题/DPI/ARM64 仍待验，见验证记录。
+
 2026-09-16 N17/N23 恢复增量：重新导入原目录的已移除音频保留原 ID 和处理关联；取消/文件锁失败不创建副本，WPF 恢复并选中原条目、失败上传继续原 ticket 且仅创建一次云录音回归通过。最终完整 WPF 和双架构发布通过；后端为 HTTP 替身，完整 App/真实服务恢复操作待验，详见验证记录。
 
 2026-09-16 N23 实操增量：本机移除确认改为 CenterOwner 原生窗口，实际 ShowDialog 与完整 WPF 回归、双架构发布通过。完整 x64 App 确认布局、移除结果、新进程列表恢复视频三项通过，原六文件哈希不变；取消到再次确认连续录像不足，云并行与其他 DPI 仍待验。证据 `local-removal-ui-01` 见验证记录，优先于下方较早的待验描述。
@@ -74,7 +76,7 @@
 
 ## 验证入口与证据边界
 
-- 核心：`dotnet run --project native/desktop/Recappi.Core.Tests/Recappi.Core.Tests.csproj -c Release`。最近全量 36 组通过（`core-tests-2ad9d13099854e17997d55621a4e9467`）；网络场景含测试 handler 和真实回环 WebSocket，部分文件/媒体/Windows API 为实际执行，不能统一称为真实后端测试。本轮 CLI 兼容补验没有重跑该套件。
+- 核心：`dotnet run --project native/desktop/Recappi.Core.Tests/Recappi.Core.Tests.csproj -c Release`。设置恢复增量全量 37 组通过（`core-tests-199238e044bb44af9a617d07a013b4fd`）；网络场景含测试 handler 和真实回环 WebSocket，部分文件/媒体/Windows API 为实际执行，不能统一称为真实后端测试。随后同名设置目录冲突由 `--preferences-recovery` 定向通过。
 - 原生控件：`dotnet run --project native/desktop/Recappi.Desktop.Tests/Recappi.Desktop.Tests.csproj`。持续扩充，最近完整 Release 执行范围见验证记录；实际 WPF 控件与媒体运行，账号/网络数据主要为测试替身。
 - 实际服务：`CloudSmoke` / `CloudPipelineSmoke` 的原始记录见验证文档。它们不是完整 App 的人工交互验收，禁止因为既有服务样本成功而勾选所有 UI 路径。
 - 实际桌面：验证文档分别记录受控进程录音、本机库/播放、设置/引导、隐藏恢复、取消退出和最终保存等已观察操作。
