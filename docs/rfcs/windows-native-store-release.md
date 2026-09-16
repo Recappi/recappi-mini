@@ -1,5 +1,9 @@
 # Windows 商店发布与体积优化
 
+## 历史产物保留（2026-09-16）
+
+发布与 MSIX 新增最近 3 组完整产物保留规则、显式历史清理预览、固定保留、文件锁和路径保护；旧报告原位保留并标记二进制已清理。MSIX 校验成功后默认移除本次临时 payload，开发注册使用 `-KeepStaging`。历史目录尚未执行清理，详见 [保留规则与验证](../native-artifact-retention.md)。
+
 ## 自包含运行时补丁固定（2026-09-16）
 
 发现本机 SDK 10.0.100 默认发布 .NET 10.0.0，而 CI 使用浮动 `10.0.x` SDK，原有 NuGet locked restore 并未固定这部分运行时载荷。`publish-native-desktop.ps1` 现从在线安装器同一固定清单读取 10.0.12，对自包含发布显式设置 `RuntimeFrameworkVersion`，并拒绝 NETCore/WindowsDesktop 任一版本不符的产物；发布报告增加实际 `includedFrameworks`。不改变 CLI 或全机运行时，不提高 framework-dependent 候选的最低运行时要求。

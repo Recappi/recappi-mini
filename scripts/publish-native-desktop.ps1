@@ -4,11 +4,15 @@ param(
     [ValidateSet('win-x64', 'win-arm64')]
     [string[]]$Runtimes = @('win-x64', 'win-arm64'),
     [switch]$ResourceOptimizationCandidate,
-    [switch]$FrameworkDependentCandidate
+    [switch]$FrameworkDependentCandidate,
+    [ValidateRange(1, 30)][int]$KeepHistory = 3
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $repository = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'native-artifact-retention.ps1')
+$artifactLease = Enter-NativeArtifactLock (Join-Path $repository 'build')
+try {
 $sourceCommit = (& git -C $repository rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Could not identify release source revision.' }
 $sourceStatus = @(& git -C $repository status --porcelain)
@@ -97,5 +101,7 @@ foreach ($runtime in $Runtimes) {
 }
 $report = Join-Path $destination 'release-report.json'
 $packageType = if ($FrameworkDependentCandidate) { 'framework-dependent-candidate-zip' } else { 'portable-zip' }
-[ordered]@{ createdAt = [DateTimeOffset]::UtcNow.ToString('O'); sourceCommit = $sourceCommit; sourceDirty = $sourceDirty; artifacts = $artifacts; packageType = $packageType; signed = $false } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $report -Encoding utf8
+[ordered]@{ createdAt = [DateTimeOffset]::UtcNow.ToString('O'); sourceCommit = $sourceCommit; sourceDirty = $sourceDirty; artifacts = $artifacts; packageType = $packageType; signed = $false; retentionPolicyVersion = 1 } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $report -Encoding utf8
 Write-Output "Release report: $report"
+} finally { $artifactLease.Dispose() }
+Invoke-NativeArtifactAutoRetention -BuildRoot (Join-Path $repository 'build') -KeepLatest $KeepHistory
