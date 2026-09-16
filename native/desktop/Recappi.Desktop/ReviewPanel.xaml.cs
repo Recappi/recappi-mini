@@ -100,15 +100,22 @@ public partial class ReviewPanel : UserControl
     private void Latest(object sender, RoutedEventArgs e) { Jobs.SelectedItem = null; VersionSelected?.Invoke(null); }
     private async void Refresh(object sender, RoutedEventArgs e) => await RefreshAsync();
     private bool Approve(string text) => Confirm?.Invoke(text) ?? MessageBox.Show(Window.GetWindow(this), text, "云端处理", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes;
+    private bool ApproveCurrent(Button action, string text)
+    {
+        var version = generation;
+        // A modal dialog pumps dispatcher work. Account/selection changes and
+        // refreshed jobs can invalidate the action before the user answers.
+        return action.IsEnabled && Current(version) && Approve(text) && Current(version) && action.IsEnabled;
+    }
     private async void Transcribe(object sender, RoutedEventArgs e)
     {
-        if (!TranscribeButton.IsEnabled || !Approve("重新转写会创建新版本，并使用当前设置的语言和上下文。继续？")) return;
+        if (!ApproveCurrent(TranscribeButton, "重新转写会创建新版本，并使用当前设置的语言和上下文。继续？")) return;
         var options = ProcessingOptions();
         await MutateAsync(client => client.TranscribeAsync(recordingId!, options.Language, true, options.Prompt, lifetime!.Token));
     }
     private async void Summarize(object sender, RoutedEventArgs e)
     {
-        if (!SummaryButton.IsEnabled || !Approve("重新生成当前转写的摘要？完成后将更新当前摘要。")) return;
+        if (!ApproveCurrent(SummaryButton, "重新生成当前转写的摘要？完成后将更新当前摘要。")) return;
         var options = ProcessingOptions();
         await MutateAsync(client => client.SummarizeAsync(recordingId!, options.Prompt, lifetime!.Token), true);
     }
@@ -119,7 +126,7 @@ public partial class ReviewPanel : UserControl
     }
     private async Task MutateAsync(Func<CloudClient, Task<System.Text.Json.JsonElement>> mutation, bool summary = false)
     {
-        if (busy || accounts is null || account is null || lifetime is null) return;
+        if (busy || accounts is null || account is null || lifetime is null || !Current(generation)) return;
         var version = generation; var cancellation = lifetime.Token;
         busy = true; RenderButtons(); Status.Text = "正在提交…";
         try

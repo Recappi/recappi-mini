@@ -1,5 +1,15 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：云端处理确认的目标隔离
+
+`ReviewPanelTests` 新增嵌套 Dispatcher 场景，模拟确认框开放期间完成后台状态变化。修复前完整 WPF 回归实际失败：`TranscribeButton submitted to a changed recording after confirmation: /api/recordings/r2/transcribe`。原目标为 r1，确认返回后代码读取了变更后的 recordingId。
+
+`ReviewPanel` 现在在确认前后检查选择代次、已登录账号分区及按钮最新资格；处理提交入口同时拒绝已失效的账号状态。最终 `dotnet run --project native/desktop/Recappi.Desktop.Tests -c Release` 全量通过，覆盖转写/摘要两个操作在切换录音、退出账号、刷新出现活跃任务三种情况下零 POST，并验证随后合法确认仍分别提交到 r1。既有历史选择、分块重试、重复提交和旧响应隔离回归保持通过。网络和确认使用测试替身，窗口及嵌套 Dispatcher 实际运行；没有把它记为真实确认框视频或后端重新处理验收。
+
+双架构自包含发布通过：`build/native-desktop-release/d6b11aeaf9be463fb100612b9919d306/release-report.json`，源码标记 `36e9a44` 加本轮修复（dirty）；x64 / ARM64 ZIP 为 68,634,500 / 63,460,592 B，PE 架构、运行时、ZIP 计数/长度与 SHA256 已校验。资源精简候选保留中英资源，未签名；不能把本次压缩体积与其他压缩环境直接比较为产品优化收益。
+
+该 x64 产物在隔离无 Node PATH、未登录目录实际启动并正常退出，单次就绪观察为 897.149 ms，报告 `build/native-desktop-validation/startup-profile-e03fac8641cb46e7858a6873158a4e0c/results.json`。这是单次开发机启动检查，不是冷缓存基线或完整 UI 验收；ARM64 未执行。
+
 ## 2026-09-16：真实进程录音与大文件导入并行
 
 完整 x64 自包含 App，未登录、麦克风/字幕/自动上传/建议关闭；隔离目录 `build/native-desktop-validation/import-recording-ui-01`。复用发布 `1089045cc2fd49cd9851993f1cadf0ec`（发布报告源码标记 `10f0bd6`、dirty，包含此前通知修复；并非本轮提交重新构建），本轮无生产改动。

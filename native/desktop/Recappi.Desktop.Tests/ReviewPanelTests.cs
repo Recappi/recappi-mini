@@ -59,9 +59,110 @@ internal static class ReviewPanelTests
         pending.SetResult(Json("""{"jobId":"new","status":"queued"}""")); await Idle();
         if (jobs.Items.Count != 0) throw new Exception("Old processing response crossed recording selection.");
         panel.Clear(); window.Close();
+        await VerifyConfirmationIsolationAsync(root, dispatcher);
         Console.WriteLine("PASS native review history, confirmation cancellation, retry, summary, duplicate submit prevention and recording isolation.");
         void Click(string name) => ((Button)panel.FindName(name)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         async Task Idle() => await dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+    }
+    private static async Task VerifyConfirmationIsolationAsync(string root, Dispatcher dispatcher)
+    {
+        var store = new AccountStore(Path.Combine(root, "review-confirmation-account"));
+        var account = new CloudAccount("https://example.test", "confirmation-user", null, "test-token");
+        store.Save(account);
+        var mutations = new List<string>();
+        var activeJob = false;
+        var session = new AccountSession(store, (origin, token) => new CloudClient(origin, token, new Handler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("get-session")) return Task.FromResult(Json("""{"session":{},"user":{"id":"confirmation-user"}}"""));
+            if (path.EndsWith("sign-out")) return Task.FromResult(Json("{}"));
+            if (path.EndsWith("/jobs")) return Task.FromResult(Json(activeJob ? """{"items":[{"id":"new-job","status":"queued"}]}""" : """{"items":[]}"""));
+            if (request.Method == HttpMethod.Post)
+            {
+                mutations.Add(path);
+                return Task.FromResult(Json("{}"));
+            }
+            if (path.EndsWith("/transcript")) return Task.FromResult(Json("""{"id":"t","text":"Transcript","summaryStatus":"succeeded"}"""));
+            throw new Exception("Unexpected confirmation route: " + path);
+        })));
+        await session.RestoreAsync();
+        var panel = new ReviewPanel();
+        var window = new Window { Content = panel, ShowActivated = false };
+        window.Show();
+        try
+        {
+            foreach (var button in new[] { "TranscribeButton", "SummaryButton" })
+            {
+                await panel.SelectAsync(session, account, new("r1", "Original meeting", "ready", 1000));
+                panel.UpdateSummaryStatus("succeeded");
+                panel.Confirm = _ =>
+                {
+                    // MessageBox runs a nested dispatcher: selection/account events can
+                    // finish while confirmation is open, before it returns Yes.
+                    DuringConfirmation(() => panel.SelectAsync(session, account, new("r2", "Another meeting", "ready", 1000)));
+                    return true;
+                };
+                ((Button)panel.FindName(button)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                if (mutations.Count != 0) throw new Exception(button + " submitted to a changed recording after confirmation: " + string.Join(", ", mutations));
+            }
+            foreach (var button in new[] { "TranscribeButton", "SummaryButton" })
+            {
+                store.Save(account); await session.RestoreAsync();
+                await panel.SelectAsync(session, account, new("r1", "Original meeting", "ready", 1000));
+                panel.UpdateSummaryStatus("succeeded");
+                panel.Confirm = _ => { DuringConfirmation(() => session.SignOutAsync()); return true; };
+                ((Button)panel.FindName(button)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                if (mutations.Count != 0) throw new Exception(button + " submitted after sign-out during confirmation.");
+            }
+            store.Save(account); await session.RestoreAsync();
+            foreach (var button in new[] { "TranscribeButton", "SummaryButton" })
+            {
+                activeJob = false;
+                await panel.SelectAsync(session, account, new("r1", "Original meeting", "ready", 1000));
+                panel.UpdateSummaryStatus("succeeded");
+                panel.Confirm = _ =>
+                {
+                    activeJob = true;
+                    DuringConfirmation(async () =>
+                    {
+                        ((Button)panel.FindName("RefreshButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        await dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                    });
+                    if (((Button)panel.FindName(button)).IsEnabled) throw new Exception("Active job did not invalidate the pending action.");
+                    return true;
+                };
+                ((Button)panel.FindName(button)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                if (mutations.Count != 0) throw new Exception(button + " ignored refreshed active work during confirmation.");
+            }
+            activeJob = false;
+            await panel.SelectAsync(session, account, new("r1", "Original meeting", "ready", 1000));
+            panel.UpdateSummaryStatus("succeeded"); panel.Confirm = _ => true;
+            foreach (var button in new[] { "TranscribeButton", "SummaryButton" })
+            {
+                ((Button)panel.FindName(button)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+            }
+            if (!mutations.SequenceEqual(new[] { "/api/recordings/r1/transcribe", "/api/recordings/r1/summarize" }))
+                throw new Exception("Valid confirmation failed to recover after invalidated actions.");
+            Console.WriteLine("PASS review confirmation rejects changed recordings, sign-out and newly active jobs, then permits valid requests.");
+        }
+        finally { panel.Clear(); window.Close(); }
+        void DuringConfirmation(Func<Task> change)
+        {
+            var frame = new DispatcherFrame();
+            Exception? failure = null;
+            dispatcher.BeginInvoke(new Action(async () =>
+            {
+                try { await change(); }
+                catch (Exception error) { failure = error; }
+                finally { frame.Continue = false; }
+            }));
+            Dispatcher.PushFrame(frame);
+            if (failure is not null) throw failure;
+        }
     }
     private static HttpResponseMessage Json(string body) => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
     private sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> send) : HttpMessageHandler
