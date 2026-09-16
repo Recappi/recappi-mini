@@ -2,6 +2,9 @@
 
 ## 2026-09-16：本机录音库移除
 
+- 统一库补验：`CloudCompletionLayoutTests` 新增实际 WPF 本机/云端合并条目移除流程，验证保留云端条目和选择、本机详情及副本切换入口隐藏、迟到云完成通知与本机刷新不复活本机副本、零 DELETE。`--cloud-completion-test` 定向执行退出 0；服务使用 HTTP 替身，不证明真实云任务并行或新进程恢复。
+- 补验后完整 Release WPF 回归退出 0，执行目录 `build/native-desktop-validation/ui-smoke-9ece28b50ab249209d16bdd82d61fc2c`。本次仅测试和文档变化，未重建相同生产实现的发布包。
+
 - 源码对齐：macOS 本机分支仅清理库记录/缓存。Windows 新增原生确认和 `LocalRecordingStore.RemoveFromLibrary`，完成或错误会话才能移除；单独标记不改音频、字幕、原元数据，也不发送云 DELETE 或取消已提交处理。迟到元数据保存不覆盖标记。录音库可以重新导入保留的音频。
 - `LocalRemovalTests` 实际 WPF/媒体回归通过：取消、确认期间选择变化、元数据独占锁读失败、目标目录阻止标记提交、失败保留列表/播放、成功释放音频句柄、两个录音原文件逐字节保持、重新实例化存储仍隐藏、迟到保存不复活、伪造完成状态不能移除持久化活动录音。完整 WPF 执行目录 `build/native-desktop-validation/ui-smoke-e94a1054100345e086f84af5032f6bc4`；最终异常处理范围调整后定向复验目录 `ui-smoke-cc99c2bb2532480f9533487231274591`，均退出 0。
 - 完整核心 36 组通过：`build/native-desktop-validation/core-tests-20525a03615846c7a36556ea500f94c5`。双架构自包含发布通过：`build/native-desktop-release/264a9d61444a4086a78680628e217d02/release-report.json`，源码基于 `b19846e` 加本轮工作树改动。

@@ -15,10 +15,12 @@ internal static class CloudCompletionLayoutTests
         var accountStore = new AccountStore(Path.Combine(root, "completion-account"));
         accountStore.Save(new("https://example.test", "completion-user", null, "test-token"));
         var delayRecording = false;
+        var deleteRequests = 0;
         var pending = new TaskCompletionSource<HttpResponseMessage>();
         var started = new TaskCompletionSource();
         var session = new AccountSession(accountStore, (origin, token) => new CloudClient(origin, token, new Handler(async request =>
         {
+            if (request.Method == HttpMethod.Delete) deleteRequests++;
             var path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("get-session")) return Json("""{"user":{"id":"completion-user"},"session":{}}""");
             if (path.EndsWith("sign-out")) return Json("{}");
@@ -36,7 +38,8 @@ internal static class CloudCompletionLayoutTests
         var recording = store.Create("Local synthetic recording") with { State = RecordingState.Done };
         store.Save(recording);
         var entry = new ProcessingEntry(recording.Id, session.Snapshot.Account!.Partition, recording.Title, ProcessingStage.Completed, new("cloud-complete", 1, 1), UploadCompleted: true);
-        var window = new CloudLibraryWindow(session, localLibrary: new LocalLibraryView(store, session), contentCache: new(Path.Combine(root, "completion-cache")), processingEntries: _ => [entry]) { ShowActivated = false };
+        var local = new LocalLibraryView(store, session);
+        var window = new CloudLibraryWindow(session, localLibrary: local, contentCache: new(Path.Combine(root, "completion-cache")), processingEntries: _ => [entry]) { ShowActivated = false };
         try
         {
             window.RefreshLocalRecordings(recording.Id); window.Show();
@@ -73,6 +76,18 @@ internal static class CloudCompletionLayoutTests
                 if (footer.TranslatePoint(new Point(0, footer.ActualHeight), scroll).Y > scroll.ActualHeight + 1)
                     throw new Exception("Cloud footer remains clipped after scrolling.");
             }
+            ((Button)window.FindName("LocalCopyButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            local.ConfirmRemove = _ => true;
+            ((Button)local.FindName("RemoveButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await dispatcher.InvokeAsync(window.UpdateLayout, DispatcherPriority.ApplicationIdle);
+            if (list.Items.Count != 1 || list.SelectedItem is not LibraryRecording { Local: null, Cloud.Id: "cloud-complete" } ||
+                ((FrameworkElement)window.FindName("CopyActions")).IsVisible || ((FrameworkElement)window.FindName("LocalDetail")).IsVisible)
+                throw new Exception("Removing local copy lost cloud selection or retained local detail/copy actions.");
+            await window.RefreshProcessedRecordingAsync(entry);
+            window.RefreshLocalRecordings();
+            if (list.Items.Count != 1 || list.Items.Cast<LibraryRecording>().Any(x => x.Local is not null) || deleteRequests != 0)
+                throw new Exception("Late cloud completion resurrected removed local copy or sent DELETE.");
+            Console.WriteLine("PASS unified library removal retains cloud copy/selection and ignores stale local association without DELETE.");
             delayRecording = true;
             var delayed = window.RefreshProcessedRecordingAsync(entry);
             await started.Task.WaitAsync(TimeSpan.FromSeconds(5));

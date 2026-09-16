@@ -26,6 +26,7 @@ internal static class Program
                 if (args.Contains("--library-lifetime-profile")) { await LibraryLifetimeProfile.RunAsync(args.Contains("--hold-for-dump")); exit = 0; return; }
                 var root = Path.GetFullPath(Path.Combine("build", "native-desktop-validation", "ui-smoke-" + Guid.NewGuid().ToString("N")));
                 if (args.Contains("--local-removal-test")) { await LocalRemovalTests.RunAsync(root); exit = 0; return; }
+                if (args.Contains("--cloud-completion-test")) { await CloudCompletionLayoutTests.RunAsync(root, app.Dispatcher); exit = 0; return; }
                 if (args.Contains("--caption-failure-preview")) { await CaptionFailurePreview.RunAsync(root); exit = 0; return; }
                 if (args.Contains("--discard-lifecycle-test")) { await DiscardLifecycleTests.RunAsync(root, app.Dispatcher); exit = 0; return; }
                 if (args.Contains("--speaker-editor-test")) { await TranscriptPanelTests.RunAsync(root, app.Dispatcher); exit = 0; return; }
