@@ -4,6 +4,8 @@
 
 ## 后端源码补证与修复
 
+真实服务补验：`3a97747` 上同账号同时启动两条本地处理任务均上传成功；一条完成真实转写/下载/问答，推荐解析为 4 条非空问题，两条测试云录音已清理。报告 `core-tests-72b9576f519b4836a5bacaa1b0fa7c5b/cloud-pipeline-smoke.json`，范围见 [验证记录](windows-native-validation.md)。这证实该次部署的推荐响应可被当前解析器接受，不据此推断具体部署 SHA，也不替代推荐 UI 或跨客户端冲突验收。
+
 2026-09-16 上传并发修复：进一步读取同一后端提交的 `apps/server/routes/api/recordings/index.ts`，确认 `recordings_one_upload_per_user_idx` 冲突返回 409。Windows 在创建至 complete 之间按账号串行化上传，完成后立即释放，不占用后续转写轮询；仍保留两个整体处理槽位。ProcessingConcurrencyTests 先复现两条上传相撞，修复后验证第二条上传完成时第一条仍在转写，以及整批取消后先恢复原上传再继续第二条。取消回归另复现释放许可期间下一条抢先创建，增加同步取消检查后核心 33 组通过（`core-tests-9abfbf8d53874252a7d1efeb19db3e0a`）。测试使用实现服务端单上传限制的 HTTP 替身，不是线上压力测试。其他客户端已有上传、旧暂停任务占用名额及任意顺序恢复仍可能返回 409，需后续完整恢复体验验收；本修复不自动 abort 或删除云数据。
 
 - [推荐路由](https://github.com/Recappi/recappi-monorepo/blob/4c3eeb7c8cc6f463e30dca6086551bc8080f4e9c/apps/server/routes/api/recordings/%5Bid%5D/ask-suggestions.ts) 返回 `suggestions: { question, reason? }[]`，并非 macOS/C# 旧 DTO 的字符串数组。C# 新增对象解析并兼容旧字符串，忽略无问题文本的无效条目，保持顺序。回归先复现 JsonException，修复后核心 32 组通过（`core-tests-589cf127ff9b4411a8b674312e490fd6`）；WPF 另验证对象推荐显示及选择后填入输入框。真实线上推荐 UI 尚未验，不沿用此前只有空推荐的成功路径。

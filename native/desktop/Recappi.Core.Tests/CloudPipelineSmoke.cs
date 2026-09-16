@@ -15,13 +15,22 @@ internal static class CloudPipelineSmoke
         using var source = new WaveFileReader(audioPath);
         var recording = store.Create("Recappi native validation · synthetic speech") with { State = RecordingState.Done, DurationMs = (long)source.TotalTime.TotalMilliseconds };
         File.Copy(audioPath, recording.AudioPath); store.Save(recording);
+        var second = store.Create("Recappi native validation · concurrent synthetic upload") with { State = RecordingState.Done, DurationMs = recording.DurationMs };
+        File.Copy(audioPath, second.AudioPath); store.Save(second);
         await using var processing = new CloudProcessing(Path.Combine(root, "processing"));
         ProcessingStage? last = null;
         processing.Changed += entry => { if (entry.Stage != last) { last = entry.Stage; Console.WriteLine("Cloud test stage: " + entry.Stage); } };
-        string? remoteId = null; var deleted = false; var completed = false; var downloaded = false; var askDone = false; var transcriptCharacters = 0; var answerCharacters = 0; int? failureStatus = null;
+        string? remoteId = null; var deleted = false; var completed = false; var secondUploaded = false; var suggestionsCount = 0; var downloaded = false; var askDone = false; var transcriptCharacters = 0; var answerCharacters = 0; int? failureStatus = null;
+        var cleanedIds = new List<string>();
         try
         {
-            var result = await processing.StartAsync(recording, account, new("en", "This recording contains synthetic speech for native client validation."));
+            var results = await Task.WhenAll(
+                processing.StartAsync(recording, account, new("en", "This recording contains synthetic speech for native client validation.")),
+                processing.StartAsync(second, account, new(Transcribe: false)));
+            var result = results[0];
+            secondUploaded = results[1].Stage == ProcessingStage.Synced && results[1].UploadCompleted;
+            if (!secondUploaded) throw new Exception("Concurrent synthetic upload did not complete.");
+            Console.WriteLine("PASS two concurrent local processing requests completed their real uploads.");
             remoteId = result.Ticket?.Id;
             if (result.Stage != ProcessingStage.Completed || remoteId is null) throw new Exception("Synthetic recording processing did not complete.");
             completed = true;
@@ -39,17 +48,24 @@ internal static class CloudPipelineSmoke
             }
             if (!askDone || answerCharacters == 0) throw new Exception("Real Ask response did not complete.");
             Console.WriteLine("PASS real native Ask stream completed.");
+            var suggestions = await client.AskSuggestionsAsync(remoteId, timeout.Token);
+            suggestionsCount = suggestions.Length;
+            if (suggestionsCount == 0 || suggestions.Any(string.IsNullOrWhiteSpace)) throw new Exception("Real Ask suggestions were empty.");
+            Console.WriteLine("PASS real Ask suggestions decoded into non-empty questions.");
         }
         catch (CloudException error) { failureStatus = (int)error.Status; throw; }
         finally
         {
-            remoteId ??= processing.List(account.Partition).FirstOrDefault()?.Ticket?.Id;
-            if (remoteId is not null)
+            var owned = processing.List(account.Partition).Where(entry => entry.LocalId == recording.Id || entry.LocalId == second.Id).ToArray();
+            remoteId ??= owned.FirstOrDefault(entry => entry.LocalId == recording.Id)?.Ticket?.Id;
+            var ownedIds = owned.Select(entry => entry.Ticket?.Id).OfType<string>().Distinct().ToArray();
+            foreach (var ownedId in ownedIds)
             {
-                try { await client.DeleteAsync(remoteId); deleted = true; await processing.ForgetRemoteAsync(account.Partition, remoteId); Console.WriteLine("PASS synthetic cloud test recording cleaned up."); }
+                try { await client.DeleteAsync(ownedId); cleanedIds.Add(ownedId); await processing.ForgetRemoteAsync(account.Partition, ownedId); Console.WriteLine("PASS synthetic cloud test recording cleaned up."); }
                 catch (Exception) { Console.WriteLine("Synthetic cloud test recording cleanup requires follow-up."); }
             }
-            File.WriteAllText(Path.Combine(root, "cloud-pipeline-smoke.json"), JsonSerializer.Serialize(new { remoteId, completed, transcriptCharacters, downloaded, askDone, answerCharacters, failureStatus, deleted }, new JsonSerializerOptions { WriteIndented = true }));
+            deleted = ownedIds.Length == 2 && cleanedIds.Count == ownedIds.Length;
+            File.WriteAllText(Path.Combine(root, "cloud-pipeline-smoke.json"), JsonSerializer.Serialize(new { remoteId, completed, secondUploaded, suggestionsCount, transcriptCharacters, downloaded, askDone, answerCharacters, failureStatus, deleted, cleanedIds }, new JsonSerializerOptions { WriteIndented = true }));
         }
         if (!deleted) throw new Exception("Synthetic cloud test cleanup incomplete.");
     }
