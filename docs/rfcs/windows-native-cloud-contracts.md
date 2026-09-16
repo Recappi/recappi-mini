@@ -4,6 +4,8 @@
 
 ## 后端源码补证与修复
 
+2026-09-16 重新转写 provider 对齐：当前 macOS `CloudLibraryStore+Processing.swift` 的重新转写明确传 `provider: "gemini"`。Windows ReviewPanel 现同样显式传 Gemini，保留 force、语言和上下文提示；首次后台转写继续省略 provider，使用服务端默认值。此项对齐请求选择，不声称固定服务端 model 或证明生产部署版本。
+
 2026-09-16 单句字幕失败：[官方 server events](https://developers.openai.com/api/reference/resources/realtime/server-events) 将 conversation.item.input_audio_transcription.failed 定义为与通用 error 分离的转写失败事件，携带 item_id、content_index 和 error。Windows 不再忽略此事件：释放对应等待状态、结束该分段并保留失败标记，后续输入继续。失败半句不会发为 IsFinal 成功文本；JSONL 新增可选 IsFailed，TXT 与窗口用同一格式标识不完整。错误正文不进入 UI 或归档。受控协议与窗口回归已验，真实服务端失败诱发及重连组合未验。
 
 2026-09-16 字幕顺序：[OpenAI 实时转写文档](https://developers.openai.com/api/docs/guides/realtime-transcription) 明确不同语音轮次的完成事件不保证有序。Windows 现在在 input_audio_buffer.committed 时按当前顺序追加音频链记录句序，completed/delta 带上同一位置和 content_index；没有提交事件的兼容输入仍按首次出现记录。重连保留单个消费者的 session，重新创建消费者使用新 session，避免归档恢复后序号重置导致跨会话排序。窗口与 TXT 导出使用位置，JSONL 原始事件顺序不变。受控测试覆盖完成逆序和重复/迟到事件；没有证明任意前驱回填、插入式会话修改或公网服务端所有时序，不能据此宣称已完全等价 macOS 的 previous_item_id 时间线。
@@ -34,7 +36,7 @@
 | 创建与分块上传 | POST `/api/recordings`，`title/contentType/durationMs`；响应 `id/partSize/maxPartBytes`。PUT `/{id}/parts/{n}` 二进制，响应 `partNumber/etag`；POST `/{id}/complete`，`parts` 数组 | `CloudClient` 对照 macOS `createRecording/uploadRecording/completeRecording`；C# 验证分块上限和回执，CLI 创建 DTO 仅声明 id/partSize | CloudClientTests 验证字节拼接、完成描述符及认证；真实合成 WAV 流水线已验，不代表全部尺寸/断网情况 |
 | 暂停/中断上传 | C# CancelAll 取消本地等待并持久化 Paused；后续 GET `/{id}` 核对 ready 后继续，保留 ticket；没有 POST abort | macOS `SessionProcessor` 失败路径调用 `abortRecordingIfNeeded`，Windows 的可恢复上传设计不同 | 不将 abort 写成 C# 已支持；服务端未完成上传的保留期、过期 ticket 恢复和垃圾回收契约仍待确认 |
 | 列表/详情/删除 | GET `/api/recordings?limit=50&cursor=…`，`items/nextCursor`；GET/DELETE `/api/recordings/{id}` | macOS 同路径，默认页大小不同；C# 204/空响应可接受，删除确认后重验账号和选择 | CloudLibraryTests、CloudLibraryActionTests；真实样本清理不等于全部删除 UI 验收 |
-| 转写 | POST `/{id}/transcribe`，`language/force/prompt`；读取 `jobId`，GET `/api/jobs/{job}`，识别 queued/running/succeeded/failed | macOS 还传可选 provider，重新转写调用显式 `gemini`；C# 不传 provider，使用服务默认值。CLI 也可传 model | 默认 provider 是否与 macOS 一致未获服务端证据，不把真实成功推导为模型完全一致 |
+| 转写 | POST `/{id}/transcribe`，`language/force/prompt` 和可选 provider；读取 `jobId`，GET `/api/jobs/{job}`，识别 queued/running/succeeded/failed | Windows 与 macOS 重新转写均显式 `gemini`；首次后台转写省略 provider。CLI 还可传 model | 请求体与原生 ReviewPanel 回归验证选择；model/生产环境默认值未确认，不把请求一致推导为模型完全一致 |
 | 摘要 | POST `/{id}/summarize`，可选 prompt；随后读取 transcript 的 summaryStatus/summary | 对照 CLI `summarizeRecording`；当前 macOS 独立 API 客户端未暴露此 POST，不能凭 UI 名称断言调用一致 | ReviewPanel 回归及真实生成已验；拒绝/响应丢失路径需分别验收 |
 | 历史/失败分块 | GET `/{id}/jobs?limit=10`；GET `/{id}/transcript?jobId=…`；POST `/api/jobs/{job}/retry-failed-chunks` | 对照 macOS `listRecordingJobs/getRecordingTranscript/retryFailedChunks`。C# 响应丢失后先核对任务，不直接重复提交 | WPF 历史/重试替身回归；真实两版选择已验，真实失败分块仍待验 |
 | 正文与兼容格式 | GET `/{id}/transcript`；C# CloudTranscript 接受结构化字段与旧 JSON 字符串字段，保留分段时间/说话人 | 对照 CLI mapTranscript、macOS transcript DTO；客户端兼容解码不是后端新旧格式均在线的证明 | CloudLibraryTests 和真实三段样本；损坏字段及长内容另有验收范围 |

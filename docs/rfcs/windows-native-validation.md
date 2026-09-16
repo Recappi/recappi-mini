@@ -1,5 +1,18 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：重新转写 provider 对齐
+
+完整应用键盘补验尝试：使用上述发布批次，隔离目录 `build/native-desktop-validation/library-keyboard-ui-01`，预置 3 份 60 秒合成静音录音，无账号、无云处理。computer-use 可读取录音条截图和控件树，但显式激活及后续点击录音库均返回 `failed to activate captured window`；重新选取窗口仍未恢复可靠输入，因此未进入键盘步骤、未开始录像，也不判定 UI 通过。已核对 PID/可执行路径后结束本次测试进程；3 份样本 SHA256 相同、没有账号文件，见该目录 `verification.json`。这属于本轮自动化输入阻塞，不能据此判断产品窗口本身不可操作。
+
+键盘播放失败追查补证：诊断版专项再次失败于 `ui-smoke-94f1b01f8bb64793abaaaa4cf5d08a04`，local 的位置为按键前 0、按键后立即 0、400 ms 后 0.2340417，前后焦点均保持。这证明本次按键未立即改变滑块，不能沿用原“计时器覆盖跳转”的归因。测试现在分别检查按键立即生效与后续计时器保持，并将位置、焦点、按键 handled、修饰键、范围及云播放器时间写入 `keyboard-playback-observations.json`，不放宽阈值或自动重试。补充修饰键等字段后的单次、连续五次及最终断言版本专项均通过。首个失败未记录修饰键，故仍不能确认根因；[WPF Slider 源码](https://github.com/dotnet/wpf/blob/main/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Controls/Slider.cs) 的方向键手势要求无修饰键，仅提示后续排查方向，不证明本次受到了修饰键干扰。生产播放器未改动。
+
+当前 macOS `CloudLibraryStore+Processing.swift` 的 `startTranscription` 显式选择 `gemini`；Windows 先前省略该字段，可能随服务端默认配置变化。现仅在 ReviewPanel 的重新转写中明确选择 Gemini；CloudClient 新增可选 provider，首次 CloudProcessing 调用继续省略。语言、force、上下文提示与取消令牌保持传递。
+
+- 核心 Release 37 组通过：`build/native-desktop-validation/core-tests-63301936c2a845608552718a7ebedeb5`。新增请求体断言验证首次请求省略 provider、重转写携带 Gemini 及其他选项。
+- 完整 WPF 首次在既有 `KeyboardPlaybackTests` 的“Playback timer erased a keyboard seek before key release”断言失败，目录 `ui-smoke-5b5d0cdeaea74717bcc9fdd5dee6afe2`；该次尚未运行到 ReviewPanel，不记为通过。代码未修改的键盘专项随后通过；完整套件复跑 `ui-smoke-78b7bb92ed2f4310a4da7d33f869a02e` 通过，包括生产 ReviewPanel 按钮发出的 provider/force/language/prompt、重复提交和选择隔离。失败原因尚未确定，不将复跑成功解释为已修复键盘时序问题。
+- 双架构自包含精简候选发布：`build/native-desktop-release/33ee66cc22dc4c88aeaed82b3768af36/release-report.json`，源码标记 `630c3da` 加本轮改动（dirty）。x64 ZIP 68,533,426 B，ARM64 ZIP 63,450,482 B；架构、运行时及 ZIP 校验通过。
+- 本次未新增真实云请求、完整 App 视频或 ARM64 运行证据。测试验证客户端选择，不证明生产部署 SHA、实际 model 或所有转写失败路径。
+
 ## 2026-09-16：损坏设置保守恢复
 
 - 发现原 App 在设置读取失败后使用 `new DesktopPreferences()`，默认打开自动上传和麦克风；JSON `null` 还会被直接当成有效默认设置。新增回归先在旧实现复现 `null` 静默回退失败，再修复 `PreferencesStore.LoadForStartup`：不存在的文件保留首次使用默认值，损坏/非法/不可读的已有配置进入恢复状态，关闭自动上传、自动转写、字幕、麦克风和录音建议。读取不写文件，明确编辑后可保存恢复；正常有效配置不受影响。

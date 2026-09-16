@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Text.Json;
 using Recappi.Core;
 using Recappi.Desktop;
 
@@ -27,6 +28,7 @@ internal static class KeyboardPlaybackTests
         Grid.SetColumn(cloudHost, 1); grid.Children.Add(cloudHost);
         var window = new Window { Title = "Recappi keyboard playback validation", Width = 1000, Height = 600, Content = grid };
         var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var observations = new List<object>();
         window.Closed += (_, _) => closed.TrySetResult();
         try
         {
@@ -47,10 +49,22 @@ internal static class KeyboardPlaybackTests
                     for (var repeat = 0; repeat < 3; repeat++)
                     {
                         var before = slider.Value;
-                        slider.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Right)
-                            { RoutedEvent = UIElement.KeyDownEvent });
+                        var modifiers = Keyboard.Modifiers.ToString();
+                        var key = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Right)
+                            { RoutedEvent = UIElement.KeyDownEvent };
+                        slider.RaiseEvent(key);
+                        var immediatelyAfter = slider.Value;
+                        var focusedAfterKey = slider.IsKeyboardFocusWithin;
                         await Task.Delay(400); // Allow the real playback timer to run, without releasing the key.
-                        if (slider.Value < before + .8) throw new Exception("Playback timer erased a keyboard seek before key release.");
+                        observations.Add(new { player = slider == localSlider ? "local" : "cloud", repeat, before,
+                            immediatelyAfter, afterTimer = slider.Value, focusedAfterKey, focusedAfterTimer = slider.IsKeyboardFocusWithin,
+                            modifiers, keyHandled = key.Handled, slider.Maximum, slider.IsEnabled, slider.ActualWidth,
+                            cloudMediaSeconds = slider == cloudSlider ? cloud.PlaybackSeconds : null });
+                        var details = JsonSerializer.Serialize(observations.Last());
+                        if (immediatelyAfter < before + .8)
+                            throw new Exception($"Keyboard input did not advance the slider before the playback timer: {details}");
+                        if (slider.Value < before + .8)
+                            throw new Exception($"Playback timer erased an applied keyboard seek before key release: {details}");
                     }
                     var focusedPosition = slider.Value;
                     await Task.Delay(800);
@@ -63,6 +77,10 @@ internal static class KeyboardPlaybackTests
             }
             Console.WriteLine("PASS local/cloud native media commits repeated key-down seeks before release and progresses while keyboard focus remains on the slider.");
         }
-        finally { local.Dispose(); cloud.Clear(); window.Close(); }
+        finally
+        {
+            local.Dispose(); cloud.Clear(); window.Close();
+            File.WriteAllText(Path.Combine(root, "keyboard-playback-observations.json"), JsonSerializer.Serialize(observations, new JsonSerializerOptions { WriteIndented = true }));
+        }
     }
 }

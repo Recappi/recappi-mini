@@ -116,7 +116,7 @@ public partial class ReviewPanel : UserControl
     {
         if (!ApproveCurrent(TranscribeButton, "重新转写会创建新版本，并使用当前设置的语言和上下文。继续？")) return;
         var options = ProcessingOptions();
-        await MutateAsync(client => client.TranscribeAsync(recordingId!, options.Language, true, options.Prompt, lifetime!.Token));
+        await MutateAsync(client => client.TranscribeAsync(recordingId!, options.Language, true, options.Prompt, lifetime!.Token, provider: "gemini"));
     }
     private async void Summarize(object sender, RoutedEventArgs e)
     {

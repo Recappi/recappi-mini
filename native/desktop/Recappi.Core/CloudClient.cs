@@ -50,7 +50,7 @@ public sealed partial class CloudClient : IDisposable
     public Task<JsonElement> JobAsync(string id, CancellationToken cancellation = default) => SendJsonAsync(HttpMethod.Get, "/api/jobs/" + Segment(id), null, cancellation);
     public Task<JsonElement> DeleteAsync(string id, CancellationToken cancellation = default) => SendJsonAsync(HttpMethod.Delete, RecordingPath(id), null, cancellation);
     public Task<JsonElement> RetryChunksAsync(string jobId, CancellationToken cancellation = default) => SendJsonAsync(HttpMethod.Post, "/api/jobs/" + Segment(jobId) + "/retry-failed-chunks", null, cancellation);
-    public Task<JsonElement> TranscribeAsync(string id, string language, bool force = false, string? prompt = null, CancellationToken cancellation = default) => SendJsonAsync(HttpMethod.Post, RecordingPath(id) + "/transcribe", new { language, force, prompt }, cancellation);
+    public Task<JsonElement> TranscribeAsync(string id, string language, bool force = false, string? prompt = null, CancellationToken cancellation = default, string? provider = null) => SendJsonAsync(HttpMethod.Post, RecordingPath(id) + "/transcribe", new { language, force, prompt, provider }, cancellation);
     public Task<JsonElement> BillingAsync(CancellationToken cancellation = default) => SendJsonAsync(HttpMethod.Get, "/api/billing/status", null, cancellation);
     public Task<JsonElement> SummarizeAsync(string id, string? prompt = null, CancellationToken cancellation = default) => SendJsonAsync(HttpMethod.Post, RecordingPath(id) + "/summarize", new { prompt }, cancellation);
     public Task<JsonElement> BeginDeviceLoginAsync(CancellationToken cancellation = default) => SendJsonAsync(HttpMethod.Post, "/api/device-auth/start", null, cancellation);
