@@ -23,6 +23,7 @@ internal static class Program
                 if (args.Contains("--library-profile")) { await LibraryProfile.RunAsync(); exit = 0; return; }
                 if (args.Contains("--library-lifetime-profile")) { await LibraryLifetimeProfile.RunAsync(args.Contains("--hold-for-dump")); exit = 0; return; }
                 var root = Path.GetFullPath(Path.Combine("build", "native-desktop-validation", "ui-smoke-" + Guid.NewGuid().ToString("N")));
+                if (args.Contains("--ask-draft-preview")) { await AskPanelTests.PreviewAsync(root); exit = 0; return; }
                 if (args.Contains("--view-retention-profile")) { await LibraryViewRetentionTests.RunAsync(root, app.Dispatcher, holdForDump: args.Contains("--hold-for-dump")); exit = 0; return; }
                 if (args.Contains("--onboarding-stress"))
                 {

@@ -16,9 +16,10 @@ public partial class AskPanel : UserControl
     private string? recordingId;
     private CancellationTokenSource? work;
     private int generation;
+    private int draftRevision;
     private readonly ObservableCollection<AskCitation> citations = [];
     public event Action<AskCitation>? CitationSelected;
-    public AskPanel() { InitializeComponent(); Citations.ItemsSource = citations; }
+    public AskPanel() { InitializeComponent(); Citations.ItemsSource = citations; Question.TextChanged += (_, _) => draftRevision++; }
 
     public async Task SelectAsync(AccountSession session, CloudAccount? selectedAccount, string? id)
     {
@@ -71,7 +72,11 @@ public partial class AskPanel : UserControl
     private async void Send(object sender, RoutedEventArgs e)
     {
         if (accounts is null || account is null || recordingId is null || string.IsNullOrWhiteSpace(Question.Text)) return;
-        var question = Question.Text.Trim(); var version = generation; var token = Begin();
+        var originalDraft = Question.Text;
+        var question = originalDraft.Trim(); var version = generation; var token = Begin();
+        Question.Clear();
+        var submittedRevision = draftRevision;
+        var completed = false;
         var prefix = Conversation.Text + (Conversation.Text.Length == 0 ? "" : "\n\n") + "你：\n" + question + "\n\nRecappi：\n";
         var answer = new StringBuilder();
         Conversation.Text = prefix; Status.Text = "正在回答…";
@@ -85,11 +90,18 @@ public partial class AskPanel : UserControl
                 else if (update.Name == "done" && update.Text is not null) { answer.Clear(); answer.Append(update.Text); }
                 foreach (var citation in update.Citations) if (!citations.Contains(citation)) citations.Add(citation);
                 Conversation.Text = prefix + answer; Conversation.ScrollToEnd();
-                if (update.Name == "done") { Status.Text = "回答完成"; Question.Clear(); }
+                if (update.Name == "done") { Status.Text = "回答完成"; completed = true; }
             }
         }
         catch (OperationCanceledException) { if (Current(version)) Status.Text = token.IsCancellationRequested ? "已停止，回答可能不完整。可刷新历史查看服务器保存结果。" : "连接超时，可刷新历史后重试。"; }
         catch (Exception) { if (Current(version)) Status.Text = "回答未完成。已收到的内容保留；请刷新历史确认后重试。"; }
-        finally { if (Current(version)) SetBusy(false); }
+        finally
+        {
+            if (Current(version))
+            {
+                if (!completed && draftRevision == submittedRevision && Question.Text.Length == 0) Question.Text = originalDraft;
+                SetBusy(false);
+            }
+        }
     }
 }
