@@ -16,6 +16,7 @@ public partial class CaptionWindow : Window
     private readonly Dictionary<string, CaptionDelta> pending = [];
     private readonly DispatcherTimer refresh;
     private CaptionStatus state = new("stopped");
+    private long statusVersion;
     private bool dirty;
     private string? archiveError;
     private readonly Func<Task<bool>>? retryCaptions;
@@ -34,11 +35,11 @@ public partial class CaptionWindow : Window
         UpdatePresentation();
         refresh = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background, (_, _) => Flush(), Dispatcher);
         IsVisibleChanged += (_, _) => { if (IsVisible) { refresh.Start(); Flush(); } else refresh.Stop(); };
-        Closed += (_, _) => refresh.Stop();
+        Closed += (_, _) => { lock (sync) statusVersion++; refresh.Stop(); };
     }
     public void Reset()
     {
-        lock (sync) { pending.Clear(); state = new("connecting"); archiveError = null; dirty = true; }
+        lock (sync) { pending.Clear(); state = new("connecting"); statusVersion++; archiveError = null; dirty = true; }
         segments.Clear(); followTail.Clear(); SourceTranscript.Clear(); TranslationTranscript.Clear(); Flush();
     }
     public void Update(CaptionDelta value)
@@ -50,7 +51,7 @@ public partial class CaptionWindow : Window
             dirty = true;
         }
     }
-    public void UpdateStatus(CaptionStatus value) { lock (sync) { state = value; dirty = true; } }
+    public void UpdateStatus(CaptionStatus value) { lock (sync) { state = value; statusVersion++; dirty = true; } }
     public void ConfigureTranslation(bool available)
     {
         if (translationAvailable == available) return;
@@ -168,17 +169,26 @@ public partial class CaptionWindow : Window
     }
     private async void RetryCaptions(object sender, RoutedEventArgs e)
     {
+        long attempt;
         lock (sync)
         {
             if (state.State != "failed") return;
             state = new("reconnecting"); dirty = true;
+            attempt = ++statusVersion;
         }
         Flush();
+        string? failure = null;
         try
         {
-            if (retryCaptions is null || !await retryCaptions()) UpdateStatus(new("failed", "当前无法重连，请确认仍在录音且原账号已连接。"));
+            if (retryCaptions is null || !await retryCaptions()) failure = "当前无法重连，请确认仍在录音且原账号已连接。";
         }
-        catch (Exception) { UpdateStatus(new("failed", "字幕重连未完成，请重试。本机录音继续。")); }
+        catch (Exception) { failure = "字幕重连未完成，请重试。本机录音继续。"; }
+        lock (sync)
+        {
+            // A new stream, external status or closed window supersedes this attempt.
+            if (statusVersion != attempt) return;
+            if (failure is not null) { state = new("failed", failure); statusVersion++; dirty = true; }
+        }
         Flush();
     }
 }

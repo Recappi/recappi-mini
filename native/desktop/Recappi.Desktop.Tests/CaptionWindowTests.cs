@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows.Controls;
 using Recappi.Core;
 using Recappi.Desktop;
@@ -6,6 +7,7 @@ internal static class CaptionWindowTests
 {
     public static async Task RunAsync()
     {
+        await DelayedRetryCannotReplaceStateAsync();
         await BothStreamsRemainReadableAsync();
         var retryCount = 0;
         var retryCompletion = new TaskCompletionSource<bool>();
@@ -51,6 +53,46 @@ internal static class CaptionWindowTests
         if (archiveStatus.IsVisible || transcript.Text.Length != 0 || translation.Text.Length != 0) throw new Exception("A new recording inherited the old archive warning.");
         window.Close();
         Console.WriteLine("PASS native caption bilingual/compact/visibility toggles and hide/restore.");
+    }
+
+    private static async Task DelayedRetryCannotReplaceStateAsync()
+    {
+        foreach (var next in new[] { "reset", "live", "stopped", "failed", "closed", "unchanged" })
+        foreach (var throws in new[] { false, true })
+        {
+            var pending = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var calls = 0;
+            var window = new CaptionWindow(() => { calls++; return pending.Task; }) { ShowActivated = false };
+            try
+            {
+                window.Show();
+                window.UpdateStatus(new("failed", "Original failure"));
+                await Task.Delay(180);
+                var retry = (Button)window.FindName("RetryButton");
+                retry.RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
+                if (calls != 1) throw new Exception("Caption retry fixture did not enter its pending operation.");
+                if (next == "reset") window.Reset();
+                else if (next is not "closed" and not "unchanged") window.UpdateStatus(new(next, "New session status"));
+                window.Update(new("new", "source", "New session caption", true));
+                await Task.Delay(180);
+                if (next == "closed") window.Close();
+                var expected = ((TextBlock)window.FindName("Status")).Text;
+                var expectedRetry = retry.Visibility;
+                if (throws) pending.SetException(new IOException("Controlled old retry failure"));
+                else pending.SetResult(false);
+                await Task.Delay(180);
+                if (next == "unchanged")
+                {
+                    if (!retry.IsVisible || ((TextBlock)window.FindName("Status")).Text == expected)
+                        throw new Exception("A current caption retry failure did not permit retry.");
+                }
+                else if (((TextBlock)window.FindName("Status")).Text != expected || retry.Visibility != expectedRetry ||
+                    !((TextBox)window.FindName("SourceTranscript")).Text.Contains("New session caption"))
+                    throw new Exception("Delayed caption retry replaced a newer state: " + next + "/" + throws);
+            }
+            finally { pending.TrySetResult(false); window.Close(); }
+        }
+        Console.WriteLine("PASS delayed caption retry failure cannot replace reset, connected, stopped, newer failure or closed state; current failure still permits retry.");
     }
 
     private static async Task BothStreamsRemainReadableAsync()

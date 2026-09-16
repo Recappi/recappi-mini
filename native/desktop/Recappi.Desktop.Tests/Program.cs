@@ -18,6 +18,7 @@ internal static class Program
             {
                 // Match App startup before any isolated diagnostic constructs controls.
                 DesktopTheme.Apply("system");
+                if (args.Contains("--caption-window-test")) { await CaptionWindowTests.RunAsync(); exit = 0; return; }
                 if (args.Contains("--idle-profile")) { await IdleProfile.RunAsync(); exit = 0; return; }
                 if (args.Contains("--recording-ui-profile")) { await RecordingUiProfile.RunAsync(args.Contains("--software-rendering")); exit = 0; return; }
                 if (args.Contains("--library-profile")) { await LibraryProfile.RunAsync(); exit = 0; return; }

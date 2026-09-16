@@ -1,5 +1,13 @@
 # Windows 原生版验证记录
 
+## 2026-09-16：字幕重连迟到结果与窗口状态隔离
+
+`CaptionWindow.RetryCaptions` 等待旧重连委托期间，新录音 Reset 或连接事件可能先更新窗口；旧委托随后返回 false/抛错，会覆盖新状态并错误显示重试。新增实际 WPF 回归先复现 `Delayed caption retry replaced a newer state: reset/False`，修复为在开始重连、Reset、外部状态更新及 Closed 时递增状态版本；等待结束后在同一锁内核对版本，只对仍属于本次尝试的状态写入失败。
+
+`CaptionWindowTests` 覆盖 reset、live、stopped、更新的 failed、closed、无状态变化六类 × false/exception，两组共十二种组合；前五类保持新状态/重试入口可见性/已有字幕，当前尝试失败仍恢复重试入口。专项八种初始组合通过，最终十二种组合随完整 Release WPF 回归通过，退出码 0。测试使用生产窗口与受控异步委托，不访问云服务；不替代公网断网、真实账号重连、窗口完整操作视频或新 UI 视觉验收。本轮未改录音核心或 CLI，沿用既有核心 35 组记录，不声称重新运行。
+
+双架构自包含发布报告 `build/native-desktop-release/e5b7c025798f42d6b98f243d9350a7bf/release-report.json`（`6e1e2e0` 加本轮窗口改动，dirty）；x64/ARM64 构建、架构/运行时/无 Node 与归档校验通过。此批未新增完整 App 实操、签名/安装或 ARM64 实机验证。
+
 ## 2026-09-16：完整发布 App 录音性能补测
 
 发布批次 `ba81c6e1294740529390daece749149e` 的 x64 App 真实受控进程录音：可见/隐藏各约 81 秒，CPU 单核均值 2.176% / 1.704%；停止后约 41 秒为 0.077%。228.142 秒 WAV 头部、长度、时长与内部 100 ms 非静音检查通过。三段均先断开界面检查连接；无账号、麦克风、字幕或上传。原始报告、具体环境与限制见 [性能报告](windows-native-performance.md#2026-09-16完整-app-录音可见隐藏及停止后采样)。本轮仅新增性能/磁盘证据和文档，没有生产修改或 UI 视频，不补勾完整性能或 UI 阶段。
