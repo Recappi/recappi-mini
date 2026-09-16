@@ -15,6 +15,7 @@ public partial class AskPanel : UserControl
     private CloudAccount? account;
     private string? recordingId;
     private CancellationTokenSource? work;
+    private CancellationTokenSource? suggestionWork;
     private int generation;
     private int draftRevision;
     private readonly ObservableCollection<AskCitation> citations = [];
@@ -29,6 +30,7 @@ public partial class AskPanel : UserControl
     public void Clear()
     {
         generation++; work?.Cancel(); work?.Dispose(); work = null;
+        suggestionWork?.Cancel(); suggestionWork?.Dispose(); suggestionWork = null;
         account = null; recordingId = null;
         Conversation.Clear(); Question.Clear(); citations.Clear(); Suggestions.ItemsSource = null; Status.Text = "";
         SetBusy(false);
@@ -46,6 +48,7 @@ public partial class AskPanel : UserControl
     {
         if (accounts is null || account is null || recordingId is null) return;
         var version = generation; var token = Begin(); Status.Text = "正在读取问答历史…";
+        _ = LoadSuggestionsAsync();
         try
         {
             using var client = accounts.Client(account);
@@ -54,16 +57,29 @@ public partial class AskPanel : UserControl
             Conversation.Text = string.Join("\n\n", Array.ConvertAll(messages, x => (x.Role == "user" ? "你：\n" : "Recappi：\n") + x.Content + (x.Status is "failed" or "interrupted" ? "\n[回答未完成]" : "")));
             citations.Clear(); foreach (var message in messages) foreach (var citation in message.Citations ?? []) citations.Add(citation);
             Status.Text = messages.Length == 0 ? "可以开始提问。" : "已加载历史";
-            try
-            {
-                var suggestions = await client.AskSuggestionsAsync(recordingId, token);
-                if (Current(version) && !token.IsCancellationRequested) Suggestions.ItemsSource = suggestions;
-            }
-            catch (Exception) { /* Suggestions are optional; history remains usable. */ }
         }
         catch (OperationCanceledException) { if (Current(version)) Status.Text = "读取已停止。"; }
         catch (Exception) { if (Current(version)) Status.Text = "历史读取失败，可刷新重试。"; }
         finally { if (Current(version)) SetBusy(false); }
+    }
+    private async Task LoadSuggestionsAsync()
+    {
+        if (accounts is null || account is null || recordingId is null) return;
+        suggestionWork?.Cancel(); suggestionWork?.Dispose();
+        var source = new CancellationTokenSource(); suggestionWork = source;
+        var token = source.Token; var version = generation;
+        try
+        {
+            using var client = accounts.Client(account);
+            var suggestions = await client.AskSuggestionsAsync(recordingId, token);
+            if (Current(version) && ReferenceEquals(suggestionWork, source) && !token.IsCancellationRequested)
+                Suggestions.ItemsSource = suggestions;
+        }
+        catch (Exception) { /* Optional suggestions never block history or sending. */ }
+        finally
+        {
+            if (ReferenceEquals(suggestionWork, source)) { suggestionWork = null; source.Dispose(); }
+        }
     }
     private async void RefreshHistory(object sender, RoutedEventArgs e) => await LoadHistoryAsync();
     private void Cancel(object sender, RoutedEventArgs e) => work?.Cancel();
