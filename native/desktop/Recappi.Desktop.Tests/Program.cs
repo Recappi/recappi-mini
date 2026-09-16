@@ -24,6 +24,7 @@ internal static class Program
                 if (args.Contains("--local-playback-test")) { await LocalPlaybackTests.RunAsync(Path.Combine("build", "native-desktop-validation", "playback-" + Guid.NewGuid().ToString("N"))); exit = 0; return; }
                 if (args.Contains("--library-lifetime-profile")) { await LibraryLifetimeProfile.RunAsync(args.Contains("--hold-for-dump")); exit = 0; return; }
                 var root = Path.GetFullPath(Path.Combine("build", "native-desktop-validation", "ui-smoke-" + Guid.NewGuid().ToString("N")));
+                if (args.Contains("--speaker-editor-test")) { await TranscriptPanelTests.RunAsync(root, app.Dispatcher); exit = 0; return; }
                 if (args.Contains("--keyboard-playback-test") || args.Contains("--keyboard-playback-preview")) { await KeyboardPlaybackTests.RunAsync(root, preview: args.Contains("--keyboard-playback-preview")); exit = 0; return; }
                 if (args.Contains("--ask-draft-preview")) { await AskPanelTests.PreviewAsync(root); exit = 0; return; }
                 if (args.Contains("--ask-slow-suggestions-preview")) { await AskPanelTests.PreviewAsync(root, slowSuggestions: true); exit = 0; return; }

@@ -58,6 +58,74 @@ internal static class TranscriptPanelTests
             if (list.Items.Count != 0 || panel.Text.Length != 0 || panel.ActiveSegment is not null) throw new Exception("Transcript clear retained account content.");
         }
         finally { window.Close(); }
+        await VerifyDialogBoundariesAsync(root, dispatcher);
         Console.WriteLine("PASS native transcript legacy timing, 10,000-row virtualization, speaker/text filters, citation location and clear.");
+    }
+
+    private static async Task VerifyDialogBoundariesAsync(string root, Dispatcher dispatcher)
+    {
+        var account = new CloudAccount("https://recappi.test", "speaker-dialog-a", null, "fixture");
+        var other = new CloudAccount("https://recappi.test", "speaker-dialog-b", null, "fixture");
+        var transcript = new CloudTranscript("Original segment", "", "")
+            { Segments = [new("Original segment", "Speaker 1", 0, 1000)] };
+        foreach (var scenario in new[] { "cancel", "recording-change", "account-change", "clear", "validation-retry" })
+        {
+            var store = new SpeakerProfileStore(System.IO.Path.Combine(root, "speaker-dialog-" + scenario));
+            var panel = new TranscriptPanel();
+            var owner = new Window { Content = panel, Width = 650, Height = 450, ShowActivated = false };
+            owner.Show();
+            try
+            {
+                panel.SetSpeakerContext(store, account.Partition, "meeting-a"); panel.ShowTranscript(transcript);
+                ((ListBox)panel.FindName("Segments")).SelectedIndex = 0;
+                await dispatcher.InvokeAsync(owner.UpdateLayout, DispatcherPriority.ApplicationIdle);
+                var editButton = Descendants(panel).OfType<Button>().Single(x => Equals(x.Content, "编辑说话人"));
+                var interaction = dispatcher.InvokeAsync(() =>
+                {
+                    var editor = Application.Current.Windows.OfType<SpeakerEditor>().Single(x => x.Owner == owner);
+                    try
+                    {
+                        var name = (TextBox)editor.FindName("SpeakerName");
+                        var save = (Button)editor.FindName("SaveButton");
+                        name.Text = "Local display name";
+                        if (scenario == "cancel") return; // Finally closes an edited dialog without saving.
+                        if (scenario == "recording-change") { panel.SetSpeakerContext(store, account.Partition, "meeting-b"); panel.ShowTranscript(transcript); }
+                        if (scenario == "account-change") { panel.SetSpeakerContext(store, other.Partition, "meeting-a"); panel.ShowTranscript(transcript); }
+                        if (scenario == "clear") panel.Clear();
+                        if (scenario == "validation-retry") name.Text = "   ";
+                        save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        if (!editor.IsVisible || string.IsNullOrWhiteSpace(((TextBlock)editor.FindName("Error")).Text))
+                            throw new Exception("Speaker dialog did not retain an actionable error: " + scenario);
+                        if (store.Load(account.Partition, "meeting-a").Count != 0 || store.Load(account.Partition, "meeting-b").Count != 0 || store.Load(other.Partition, "meeting-a").Count != 0)
+                            throw new Exception("Rejected speaker save wrote profile data: " + scenario);
+                        if (scenario == "validation-retry")
+                        {
+                            name.Text = "Local display name";
+                            save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                            if (editor.IsVisible || store.Load(account.Partition, "meeting-a")["Speaker 1"].Name != name.Text)
+                                throw new Exception("Valid speaker edit could not recover after validation error.");
+                        }
+                    }
+                    finally { if (editor.IsVisible) editor.Close(); }
+                }, DispatcherPriority.ApplicationIdle);
+                // Exercise the production handler and its captured context across ShowDialog's nested dispatcher.
+                editButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await interaction.Task;
+                if (scenario == "cancel" && store.Load(account.Partition, "meeting-a").Count != 0)
+                    throw new Exception("Closing an edited speaker dialog saved the draft.");
+            }
+            finally { owner.Close(); }
+        }
+        Console.WriteLine("PASS production speaker dialog rejects recording/account changes and clear, cancels edited drafts, and permits corrected input after validation failure.");
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        for (var index = 0; index < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, index);
+            yield return child;
+            foreach (var descendant in Descendants(child)) yield return descendant;
+        }
     }
 }

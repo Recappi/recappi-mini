@@ -1,5 +1,7 @@
 # Windows 原生版功能矩阵
 
+2026-09-16 N19：完整 x64 App 真实转写后的说话人弹窗布局、未修改取消返回视频两项通过；输入工具未能写入姓名，保存/重启保持仍证据不足。新增实际 ShowDialog 的修改后取消、账号/录音变化、清空与校验重试五类回归，反向移除隔离检查可复现失败，最终完整 WPF 通过。范围见 [验证记录](windows-native-validation.md)。N20 另已补齐生产播放器控件独立窗口的 Tab/Home 与焦点下进度刷新视频，物理长按仍待验。
+
 2026-09-16 N21 真实推荐 UI 补验：完整 x64 App 显示 4 条真实推荐、选择后填入问题、发送后显示回答及引用；58.8 秒视频三项通过。真实流式期间新草稿仍证据不足，未验失败重试/全部键盘/其他主题尺寸；证据 `ask-suggestions-cloud-ui-01` 见 [云端 UI 验证](windows-native-cloud-ui-validation.md)。
 
 2026-09-16 真实回顾补验：完整 x64 App 以独立合成语音完成真实上传、摘要生成、问答、TXT 导出、重转写保留两版并读取新版本；视频 5 项通过、2 项证据不足，云样本及临时凭据已清理。N19/N21/N22/N26 的上述成功路径新增实操证据；确认框完整布局、真实草稿时序、失败分块/网络异常仍未覆盖，见 [云端回顾验证](windows-native-cloud-ui-validation.md)。
@@ -40,7 +42,7 @@
 | N16 | 库分页、账号隔离与状态；CloudCenterPanel / CloudLibraryStore | CloudLibraryWindow 统一日期列表、本机/云端详情、当前会议、已确认副本关联；单一 App 窗口 | CloudLibraryTests 500 行真实 WPF 容器/分页/选择/隔离；10,000 行合成数据性能；实际本机搜索/选择/播放与真实完成自动云合并视频通过。离线切换与整套导航待验 |
 | N17 | 音频导入、本地副本、浏览器/目录；CloudLibraryStore+Audio | AudioImport 使用 Media Foundation；统一侧栏导入状态/取消、重复操作保护；云音频下载/副本/可信来源浏览器链接 | AudioImportTests 实际 WAV/MP3/M4A 编解码与取消；ImportLifecycleTests 云详情期间取消/失败/重复操作回归；完整 App WAV 导入及无效文件→MP3 重试/播放视频通过（import-ui-01、import-recovery-ui-01）。344.6 MB MP3 转码中取消、临时目录清理/源文件不变、取消后短 MP3 重试视频与磁盘检查通过（import-cancel-ui-01）；同一大 MP3 完整导入及近末尾播放视频/磁盘验证通过（import-complete-ui-01，范围见上文）。云详情期间取消实操、其他格式完整操作与可选编解码器待验 |
 | N18 | 全库缓存搜索与说话人过滤；searchCachedRecordings / CloudRecordingDetail | CloudContentCache + 统一搜索；仅搜索本机标题与当前账号已缓存云内容；TranscriptPanel 说话人/文字过滤 | 缓存持久化/隔离/损坏回归、CloudSearchTests、实际本机关键词定位；真实大云库和统一说话人搜索操作待验 |
-| N19 | 摘要/逐字稿/复制/说话人编辑；CloudDetailSummarySection / CloudRecordingDetail | CloudLibraryModels 新旧格式兼容；TranscriptPanel；SpeakerProfileStore / SpeakerEditor 录音内本地显示覆盖 | 10,000 行虚拟化、SpeakerProfileTests 与 WPF 弹窗保存；真实服务内容解码；完整取消、账号变化期间编辑与键鼠复制待验。姓名覆盖不云写入，与 macOS 作用域一致 |
+| N19 | 摘要/逐字稿/复制/说话人编辑；CloudDetailSummarySection / CloudRecordingDetail | CloudLibraryModels 新旧格式兼容；TranscriptPanel；SpeakerProfileStore / SpeakerEditor 录音内本地显示覆盖 | 10,000 行虚拟化、资料存储与实际 ShowDialog 保存/取消/上下文变化/校验重试回归；完整 App 真实转写弹窗布局、未修改取消视频通过。真实输入保存、账号变化期间编辑及键鼠复制待验。姓名覆盖不云写入，与 macOS 作用域一致 |
 | N20 | 播放/倍速/seek/活动片段/跨录音；CloudMeetingAudioPlayer / CloudPlayback | AudioPlayer 原生媒体；TranscriptPanel 定位与活动高亮；本机暂停 seek 即时更新时间、超过一小时保留小时、选择/结束复位；云详情切换保留独立播放 | AudioDownloadTests、WPF 实际媒体打开/seek/清理、跨录音回归；真实本机播放暂停、拖动/Home/End/结束复位视频通过。61 分钟 WAV 跨小时与回退回归通过；完整 App 长时间 seek/播放视频两项通过，回退操作视频证据不足（long-playback-ui-01）。完整倍速/引用/高亮/跨录音操作和性能待验 |
 | N21 | 问答历史/建议/流式回答/引用；AskConversationViewModel | AskClient SSE + AskPanel，切会议取消与隔离、停止和引用定位；发送时清空问题，完成保留新草稿，失败/取消仅恢复未编辑的原问题 | AskTests 分片/断流/错误，AskPanelTests 延迟响应及成功/失败/取消 × 未编辑/新草稿/主动清空 9 种输入状态回归；真实 C# Ask 流水线及完整桌面请求/回答/单一引用定位视频通过；本次草稿行为实际云端 UI、重试、引用边界与所有窗口尺寸待验 |
 | N22 | 重新处理、历史、失败分块重试；CloudLibraryStore+Processing | ReviewPanel / CloudJob，确认、版本选择、处理状态刷新与重复提交抑制；确认前后核对录音/账号及最新任务资格 | ReviewPanelTests 取消/重试/历史/隔离；新增嵌套 Dispatcher 回归先复现确认期间切换录音误发 POST，修复后切换/退出/活跃任务更新均零提交且正常请求可恢复。使用测试网络与确认委托；真实服务流水线并不证明所有重处理分支，完整 UI 服务操作待验 |
@@ -53,7 +55,7 @@
 ## 验证入口与证据边界
 
 - 核心：`dotnet run --project native/desktop/Recappi.Core.Tests/Recappi.Core.Tests.csproj`。最近全量 32 组通过（`core-tests-c994b138343345359db53705efe1a175`）；网络场景含测试 handler 和真实回环 WebSocket，部分文件/媒体/Windows API 为实际执行，不能统一称为真实后端测试。
-- 原生控件：`dotnet run --project native/desktop/Recappi.Desktop.Tests/Recappi.Desktop.Tests.csproj`。目前 18 组；实际 WPF 控件与媒体运行，账号/网络数据主要为测试替身。
+- 原生控件：`dotnet run --project native/desktop/Recappi.Desktop.Tests/Recappi.Desktop.Tests.csproj`。持续扩充，最近完整 Release 执行范围见验证记录；实际 WPF 控件与媒体运行，账号/网络数据主要为测试替身。
 - 实际服务：`CloudSmoke` / `CloudPipelineSmoke` 的原始记录见验证文档。它们不是完整 App 的人工交互验收，禁止因为既有服务样本成功而勾选所有 UI 路径。
 - 实际桌面：验证文档分别记录受控进程录音、本机库/播放、设置/引导、隐藏恢复、取消退出和最终保存等已观察操作。
 - 性能：见 [性能报告](windows-native-performance.md)，区分探针、测试宿主和完整自包含 App；录音/字幕长期、冷启动全流程和 ARM64 仍有缺口。
@@ -67,7 +69,7 @@ macOS 参考测试保留：
 
 ## 云接口核对范围
 
-后端 `4c3eeb7` 源码补证：推荐问题返回对象数组；C# 已修复解析并保留旧字符串格式，核心与 WPF 回归验证显示/选择输入。真实推荐 UI 仍待验。另确认每账号单个进行中上传限制，客户端并发处理与冲突恢复待专项核验。
+后端 `4c3eeb7` 源码补证：推荐问题返回对象数组；C# 已修复解析并保留旧字符串格式，真实推荐 UI 已补验。每账号单个进行中上传限制已落实为账号内串行上传；并发转写/上传的回归与真实双任务流水线证据见验证记录，其他客户端占用和故障恢复仍需分别验收。
 
 逐接口请求、响应、源码依据及未确认差异见 [云契约核对](windows-native-cloud-contracts.md)。C# **未实现 abort 请求**，暂停上传保留 ticket 供恢复；下面的接口范围包含跨客户端基线，不表示 Windows 每条都已实现。
 
