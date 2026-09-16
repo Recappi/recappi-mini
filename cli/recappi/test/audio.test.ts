@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -56,14 +56,21 @@ describe("recording audio runtime", () => {
     const client = {
       downloadRecordingAudio,
     } as unknown as RecappiApiClient;
-    const runtime = createRecordingAudioRuntime(client);
-
-    await expect(runtime.downloadRecordingAudio("rec_1", { title: "Design review" })).resolves.toBe(
-      "/tmp/design-review.wav",
-    );
-    expect(downloadRecordingAudio).toHaveBeenCalledWith("rec_1", {
-      title: "Design review",
-    });
+    const homeDir = await mkdtemp(path.join(tmpdir(), "recappi-audio-unscoped-"));
+    try {
+      const runtime = createRecordingAudioRuntime(client, { homeDir, env: {} });
+      await expect(runtime.downloadRecordingAudio("rec_1", { title: "Design review" })).resolves.toBe(
+        "/tmp/design-review.wav",
+      );
+      expect(downloadRecordingAudio).toHaveBeenCalledWith("rec_1", {
+        title: "Design review",
+      });
+      await expect(runtime.listDownloads()).resolves.toEqual([]);
+      await expect(runtime.listDownloadedRecordingIds()).resolves.toEqual(new Set());
+      await expect(readdir(homeDir)).resolves.toEqual([]);
+    } finally {
+      await rm(homeDir, { recursive: true, force: true });
+    }
   });
 
   it("reuses account-scoped cached downloads before hitting the network", async () => {

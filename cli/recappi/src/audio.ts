@@ -207,6 +207,8 @@ async function withStore<T>(
   run: (store: CliLocalStore, account: AccountPartition | null) => T | Promise<T>,
   fallback: T,
 ): Promise<T> {
+  // Downloads without an account have no cache partition to read or update.
+  if (!deps.account) return fallback;
   // On runtimes without node:sqlite the download cache is unavailable; degrade to
   // the fallback (no dedup / no artifact) so the cloud download itself still runs.
   const store = deps.store ?? tryOpenCliStore({ homeDir: deps.homeDir, env: deps.env });
