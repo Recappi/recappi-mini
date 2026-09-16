@@ -24,6 +24,7 @@ internal static class Program
                 if (args.Contains("--local-playback-test")) { await LocalPlaybackTests.RunAsync(Path.Combine("build", "native-desktop-validation", "playback-" + Guid.NewGuid().ToString("N"))); exit = 0; return; }
                 if (args.Contains("--library-lifetime-profile")) { await LibraryLifetimeProfile.RunAsync(args.Contains("--hold-for-dump")); exit = 0; return; }
                 var root = Path.GetFullPath(Path.Combine("build", "native-desktop-validation", "ui-smoke-" + Guid.NewGuid().ToString("N")));
+                if (args.Contains("--keyboard-playback-test") || args.Contains("--keyboard-playback-preview")) { await KeyboardPlaybackTests.RunAsync(root, preview: args.Contains("--keyboard-playback-preview")); exit = 0; return; }
                 if (args.Contains("--ask-draft-preview")) { await AskPanelTests.PreviewAsync(root); exit = 0; return; }
                 if (args.Contains("--ask-slow-suggestions-preview")) { await AskPanelTests.PreviewAsync(root, slowSuggestions: true); exit = 0; return; }
                 if (args.Contains("--view-retention-profile")) { await LibraryViewRetentionTests.RunAsync(root, app.Dispatcher, holdForDump: args.Contains("--hold-for-dump")); exit = 0; return; }
@@ -130,6 +131,7 @@ internal static class Program
                 if (!recoveredPosition.IsEnabled || recoveredPosition.Maximum <= 0) throw new Exception("Native player could not open recovered WAV.");
                 library.Close(); window.Close();
                 await LocalPlaybackTests.RunAsync(root);
+                await KeyboardPlaybackTests.RunAsync(root);
                 await ProcessingRecoveryTests.RunAsync(root);
                 await CloudLibraryTests.RunAsync(root, app.Dispatcher);
                 await LibraryViewRetentionTests.RunAsync(root, app.Dispatcher, holdForDump: args.Contains("--hold-for-dump"));
@@ -166,6 +168,8 @@ internal static class Program
                 {
                     var before = audio.PlaybackSeconds;
                     audioPosition.Value = .4;
+                    audioPosition.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, PresentationSource.FromVisual(audioWindow), Environment.TickCount, key)
+                        { RoutedEvent = UIElement.KeyDownEvent });
                     audioPosition.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, PresentationSource.FromVisual(audioWindow), Environment.TickCount, key)
                         { RoutedEvent = UIElement.PreviewKeyUpEvent });
                     if (audio.PlaybackSeconds != before) throw new Exception("Unrelated key changed cloud audio playback position: " + key);

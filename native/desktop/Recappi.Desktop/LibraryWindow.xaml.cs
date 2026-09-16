@@ -40,6 +40,9 @@ public partial class LocalLibraryView : System.Windows.Controls.UserControl, IDi
     public LocalLibraryView(LocalRecordingStore store, AccountSession? accountSession = null, CloudProcessing? processing = null, Action? showAccount = null, Func<Task>? waitForCaptions = null, Func<string, IProgress<double>, CancellationToken, Task<LocalRecording>>? importAudio = null)
     {
         InitializeComponent(); this.store = store; this.accountSession = accountSession; this.processing = processing; this.showAccount = showAccount; this.waitForCaptions = waitForCaptions;
+        // Slider's class command handles KeyDown before this instance handler.
+        // Commit every repeat immediately, before the playback timer can replace it.
+        Position.AddHandler(Keyboard.KeyDownEvent, new KeyEventHandler(SeekKey), handledEventsToo: true);
         this.importAudio = importAudio ?? ((path, progress, cancellation) => new AudioImport(store).ImportAsync(path, progress: progress, cancellation: cancellation));
         if (processing is not null) processing.Changed += ProcessingChanged;
         if (accountSession is not null) accountSession.Changed += AccountChanged;

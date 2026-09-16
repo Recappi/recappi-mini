@@ -27,17 +27,23 @@ internal static class LocalPlaybackTests
             var time = (TextBlock)window.FindName("PlaybackTime");
             for (var attempt = 0; attempt < 100 && !slider.IsEnabled; attempt++) await Task.Delay(50);
             if (!slider.IsEnabled || slider.Maximum < 9) throw new Exception("Local media did not open.");
+            slider.SmallChange = 1;
             slider.Value = 5;
             slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
                 { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent });
             if (time.Text != "00:05") throw new Exception("Paused pointer seek retained a stale playback time.");
-            slider.Value = 3;
+            slider.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Right)
+                { RoutedEvent = UIElement.KeyDownEvent });
+            if (time.Text != "00:06") throw new Exception("Local keyboard seek waits for key release instead of committing each key press.");
+            slider.Value = 4;
             slider.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Left)
-                { RoutedEvent = UIElement.PreviewKeyUpEvent });
+                { RoutedEvent = UIElement.KeyDownEvent });
             if (time.Text != "00:03") throw new Exception("Paused keyboard seek retained a stale playback time.");
             foreach (var key in new[] { Key.Tab, Key.LeftShift, Key.Space, Key.A })
             {
                 slider.Value = 7;
+                slider.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, key)
+                    { RoutedEvent = UIElement.KeyDownEvent });
                 slider.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, key)
                     { RoutedEvent = UIElement.PreviewKeyUpEvent });
                 if (time.Text != "00:03") throw new Exception("Unrelated key changed local playback position: " + key);
@@ -65,9 +71,9 @@ internal static class LocalPlaybackTests
             if (!slider.IsEnabled || slider.Maximum < 3660) throw new Exception("Long local media did not open.");
             void SeekWithKey(double seconds)
             {
-                slider.Value = seconds;
+                slider.Value = seconds - slider.SmallChange;
                 slider.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Right)
-                    { RoutedEvent = UIElement.PreviewKeyUpEvent });
+                    { RoutedEvent = UIElement.KeyDownEvent });
             }
             SeekWithKey(3599);
             if (time.Text != "59:59") throw new Exception("Playback before one hour changed its minute format.");

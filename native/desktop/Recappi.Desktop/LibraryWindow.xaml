@@ -9,7 +9,7 @@
    <Border x:Name="AudioCard" Visibility="Collapsed" Background="{DynamicResource CanvasBrush}" CornerRadius="10" Padding="12" Margin="0,10,0,14"><StackPanel>
    <TextBlock Text="录音音频" FontSize="12" Opacity="0.65" Margin="0,0,0,12"/>
    <WrapPanel><Button local:ButtonIcon.Geometry="{StaticResource Icon.Play}" x:Name="PlayButton" Content="播放" Click="TogglePlayback" IsEnabled="False" AutomationProperties.AutomationId="playback.toggle"/><Button local:ButtonIcon.Geometry="{StaticResource Icon.Folder}" x:Name="FolderButton" Content="打开文件位置" Click="OpenFolder" IsEnabled="False"/></WrapPanel>
-   <Slider x:Name="Position" Minimum="0" Maximum="1" Value="0" PreviewMouseLeftButtonUp="Seek" PreviewKeyUp="SeekKey" IsEnabled="False" AutomationProperties.Name="播放位置"/>
+   <Slider x:Name="Position" Minimum="0" Maximum="1" Value="0" PreviewMouseLeftButtonUp="Seek" IsEnabled="False" AutomationProperties.Name="播放位置"/>
    <TextBlock x:Name="PlaybackTime" Margin="0,8"/>
    </StackPanel></Border>
    <WrapPanel><Button local:ButtonIcon.Geometry="{StaticResource Icon.Import}" x:Name="ImportButton" Content="导入音频文件" Click="ImportAudio" AutomationProperties.AutomationId="library.import"/><Button local:ButtonIcon.Geometry="{StaticResource Icon.Close}" x:Name="CancelImportButton" Content="取消导入" Click="CancelImport" Visibility="Collapsed"/></WrapPanel>

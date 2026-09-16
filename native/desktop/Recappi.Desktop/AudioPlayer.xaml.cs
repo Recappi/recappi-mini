@@ -18,6 +18,7 @@ public partial class AudioPlayer : UserControl
     public AudioPlayer()
     {
         InitializeComponent();
+        Position.AddHandler(Keyboard.KeyDownEvent, new KeyEventHandler(SeekKey), handledEventsToo: true);
         player.MediaOpened += (_, _) =>
         {
             Position.Maximum = player.NaturalDuration.HasTimeSpan ? player.NaturalDuration.TimeSpan.TotalSeconds : 1;
@@ -27,7 +28,7 @@ public partial class AudioPlayer : UserControl
         };
         player.MediaEnded += (_, _) => { Pause(); PlaybackPositionChanged?.Invoke(null); };
         player.MediaFailed += (_, _) => { Pause(); PlayButton.IsEnabled = false; Position.IsEnabled = false; PlaybackPositionChanged?.Invoke(null); Status.Text = "无法播放此音频格式。"; };
-        timer.Tick += (_, _) => { if (!Position.IsMouseCaptureWithin && !Position.IsKeyboardFocusWithin) Position.Value = player.Position.TotalSeconds; Time.Text = player.Position.ToString(@"hh\:mm\:ss"); PlaybackPositionChanged?.Invoke(PlaybackSeconds); };
+        timer.Tick += (_, _) => { if (!Position.IsMouseCaptureWithin) Position.Value = player.Position.TotalSeconds; Time.Text = player.Position.ToString(@"hh\:mm\:ss"); PlaybackPositionChanged?.Invoke(PlaybackSeconds); };
     }
     public void Open(string path, double? seconds = null)
     {
