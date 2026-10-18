@@ -24,10 +24,11 @@ internal sealed class CaptionWindow : DesktopWindow
     private bool closed;
     public CaptionWindow(Func<Task> retry) : base("Recappi Mini · 实时字幕", 540, 140)
     {
-        Body.Padding = new Thickness(10, 8, 14, 14); Body.Spacing = 10; CompactChrome("移动字幕面板", 600);
-        status.FontSize = 12;
-        status.Opacity = 0.7; status.VerticalAlignment = VerticalAlignment.Center;
-        translation.Opacity = 0.78;
+        Body.Padding = new Thickness(6, 8, 12, 14); Body.Spacing = 8; CompactChrome("移动字幕面板", 600, "RecappiSurfaceLiveCaption");
+        Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 11.5;
+        status.Style = RecappiTheme.Style("RecappiLabelSecondary"); status.IsTextSelectionEnabled = false;
+        original.Style = RecappiTheme.Style("RecappiBody"); translation.Style = RecappiTheme.Style("RecappiBodySecondary");
+        archiveError.Style = RecappiTheme.Style("RecappiError");
         expand = Ui.IconButton("展开字幕历史", "\uE740", () => { compact.IsChecked = compact.IsChecked != true; return Task.CompletedTask; }, this);
         var option = Ui.IconButton("字幕选项", "\uE713", () => Task.CompletedTask, this);
         var settings = new StackPanel { Spacing = 8 }; foreach (var control in new UIElement[] { showOriginal, showTranslation, follow, Ui.Button("重新连接", retry, this) }) settings.Children.Add(control);
@@ -35,9 +36,12 @@ internal sealed class CaptionWindow : DesktopWindow
         var toolbar = new Grid { ColumnSpacing = 8 };
         toolbar.ColumnDefinitions.Add(new ColumnDefinition());
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        toolbar.Children.Add(status);
-        var actions = Ui.Row(expand, option, Ui.IconButton("隐藏字幕", "\uE8A7", () => { Hide(); return Task.CompletedTask; }, this));
-        foreach (var button in actions.Children.OfType<Button>()) { button.Width = button.Height = button.MinHeight = 28; button.Padding = new Thickness(5); }
+        var live = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7, VerticalAlignment = VerticalAlignment.Center };
+        live.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 6, Height = 6, Style = RecappiTheme.Style("RecappiDotAccent"), VerticalAlignment = VerticalAlignment.Center });
+        live.Children.Add(status);
+        toolbar.Children.Add(live);
+        var actions = Ui.Row(expand, option, Ui.IconButton("隐藏字幕", "\uE921", () => { Hide(); return Task.CompletedTask; }, this));
+        foreach (var button in actions.Children.OfType<Button>()) { button.Width = button.Height = 28; ((FontIcon)button.Content).FontSize = 12; }
         Grid.SetColumn(actions, 1); toolbar.Children.Add(actions);
         Body.Children.Add(toolbar);
         archiveError.Visibility = Visibility.Collapsed; Body.Children.Add(archiveError);
@@ -85,7 +89,7 @@ internal sealed class CaptionWindow : DesktopWindow
         Grid.SetColumn(translationScroll, isCompact ? 0 : 1); Grid.SetRow(translationScroll, isCompact ? 1 : 0);
         columns.ColumnDefinitions[0].Width = isCompact || sourceVisible ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         columns.ColumnDefinitions[1].Width = !isCompact && translationVisible ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        original.FontSize = 17; translation.FontSize = 15;
+        original.FontSize = 17; translation.FontSize = 15; original.TextWrapping = translation.TextWrapping = TextWrapping.Wrap; original.VerticalAlignment = translation.VerticalAlignment = VerticalAlignment.Top;
         original.FontWeight = translation.FontWeight = Microsoft.UI.Text.FontWeights.Normal;
         original.LineHeight = 26; translation.LineHeight = 23;
         originalScroll.MaxHeight = translationScroll.MaxHeight = isCompact ? 120 : 350;

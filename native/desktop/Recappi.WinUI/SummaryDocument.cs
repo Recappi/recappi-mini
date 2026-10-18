@@ -19,6 +19,7 @@ internal sealed class SummaryDocument : UserControl
     public SummaryDocument()
     {
         Content = document;
+        RecappiTheme.Bind(this, "RecappiLabel", brush => document.Foreground = brush);
         MaxWidth = 760; HorizontalAlignment = HorizontalAlignment.Left;
         Margin = new Thickness(4, 20, 16, 20);
     }
@@ -33,7 +34,7 @@ internal sealed class SummaryDocument : UserControl
             var body = heading ? line.TrimStart('#', ' ') : line;
             if (body.StartsWith("- ", StringComparison.Ordinal) || body.StartsWith("* ", StringComparison.Ordinal)) body = "• " + body[2..];
             var paragraph = new Paragraph { Margin = new Thickness(0, heading && document.Blocks.Count > 0 ? 18 : 0, 0, heading ? 8 : 12),
-                FontSize = heading ? 18 : 14, FontWeight = heading ? FontWeights.SemiBold : FontWeights.Normal };
+                FontSize = heading ? 16 : 14, FontWeight = heading ? FontWeights.SemiBold : FontWeights.Normal };
             var position = 0;
             while (position < body.Length)
             {

@@ -7,10 +7,10 @@ using Microsoft.UI.Xaml.Shapes;
 
 namespace Recappi.WinUI;
 
-// Recorder pill design tokens and control templates. Colors mirror the macOS
-// palette (RecappiMini/Views/Theme/ThemePalette.swift) so both apps share one
-// brand; light/dark values switch through ThemeResource with the window theme.
-internal static class RecorderTheme
+// App-wide design tokens and control templates. Colors mirror the macOS palette
+// (RecappiMini/Views/Theme/ThemePalette.swift) so both apps share one brand;
+// light/dark values switch through ThemeResource with each window's theme.
+internal static class RecappiTheme
 {
     private static readonly (string Key, uint Light, uint Dark)[] Tokens =
     [
@@ -41,14 +41,59 @@ internal static class RecorderTheme
         ("RecappiDangerStroke", 0x38FF453A, 0x47FF453A),
         ("RecappiWarning", 0xFFC2410C, 0xFFF2754F),
         ("RecappiWaveUnlit", 0x38111827, 0x33FFFFFF),
+        // Page windows (library, settings, account, onboarding).
+        ("RecappiSurfaceWindow", 0xFFF7F7F8, 0xFF1C1C1C),
+        ("RecappiSurfaceCard", 0xFFFFFFFF, 0xFF262626),
+        ("RecappiSurfaceLiveCaption", 0xFFF2F2F4, 0xFF333333),
+        ("RecappiCardSubtle", 0x06000000, 0x05FFFFFF),
+        ("RecappiCardSubtleActive", 0x0C000000, 0x0FFFFFFF),
+        ("RecappiLabel", 0xEB000000, 0xEBFFFFFF),
+        ("RecappiLabelSecondary", 0x99000000, 0x9EFFFFFF),
+        ("RecappiLabelTertiary", 0x66000000, 0x61FFFFFF),
+        ("RecappiButtonFill", 0xFFFFFFFF, 0x0FFFFFFF),
+        ("RecappiButtonHover", 0xFFF4F4F6, 0x17FFFFFF),
+        ("RecappiButtonPress", 0xFFECECEF, 0x0AFFFFFF),
+        ("RecappiAccentHover", 0xFF065F46, 0xFF6EE7B7),
+        ("RecappiOnAccent", 0xFFFFFFFF, 0xFF052E1F),
+        // NavigationView lightweight styling: the pane sits on the window surface.
+        ("NavigationViewDefaultPaneBackground", 0x00000000, 0x00000000),
+        ("NavigationViewExpandedPaneBackground", 0x00000000, 0x00000000),
+        ("NavigationViewTopPaneBackground", 0x00000000, 0x00000000),
+        ("NavigationViewContentBackground", 0xFFFFFFFF, 0xFF262626),
+        ("NavigationViewContentGridBorderBrush", 0x1A000000, 0x0FFFFFFF),
     ];
+    // WinUI's own controls (TextBox focus, ToggleSwitch, SelectorBar, ListView,
+    // NavigationView indicators) read these keys; override them with the brand.
+    private static readonly (string Key, uint Light, uint Dark)[] SystemColors =
+    [
+        ("SystemAccentColor", 0xFF059669, 0xFF10B981),
+        ("SystemAccentColorLight1", 0xFF10B981, 0xFF34D399),
+        ("SystemAccentColorLight2", 0xFF34D399, 0xFF34D399),
+        ("SystemAccentColorLight3", 0xFF6EE7B7, 0xFF6EE7B7),
+        ("SystemAccentColorDark1", 0xFF047857, 0xFF059669),
+        ("SystemAccentColorDark2", 0xFF065F46, 0xFF047857),
+        ("SystemAccentColorDark3", 0xFF064E3B, 0xFF065F46),
+    ];
+    private static ResourceDictionary? dictionary;
     private static bool merged;
 
     public static void Ensure()
     {
         if (merged) return;
-        Application.Current.Resources.MergedDictionaries.Add((ResourceDictionary)Microsoft.UI.Xaml.Markup.XamlReader.Load(Build()));
+        dictionary = (ResourceDictionary)Microsoft.UI.Xaml.Markup.XamlReader.Load(Build());
+        Application.Current.Resources.MergedDictionaries.Add(dictionary);
         merged = true;
+    }
+    // Code-built elements cannot use ThemeResource markup; follow the element's theme instead.
+    public static Brush Brush(string key, ElementTheme theme)
+    {
+        Ensure();
+        return (Brush)((ResourceDictionary)dictionary!.ThemeDictionaries[theme == ElementTheme.Light ? "Light" : "Dark"])[key];
+    }
+    public static void Bind(FrameworkElement element, string key, Action<Brush> apply)
+    {
+        apply(Brush(key, element.ActualTheme));
+        element.ActualThemeChanged += (sender, _) => apply(Brush(key, sender.ActualTheme));
     }
     public static Style Style(string key) { Ensure(); return (Style)Application.Current.Resources[key]; }
 
@@ -60,9 +105,11 @@ internal static class RecorderTheme
         {
             xaml.Append($"<ResourceDictionary x:Key='{theme}'>");
             foreach (var token in Tokens) xaml.Append($"<SolidColorBrush x:Key='{token.Key}' Color='#{(light ? token.Light : token.Dark):X8}'/>");
+            foreach (var token in SystemColors) xaml.Append($"<Color x:Key='{token.Key}'>#{(light ? token.Light : token.Dark):X8}</Color>");
             xaml.Append("</ResourceDictionary>");
         }
         xaml.Append("</ResourceDictionary.ThemeDictionaries>");
+        xaml.Append("<CornerRadius x:Key='ControlCornerRadius'>6</CornerRadius><CornerRadius x:Key='OverlayCornerRadius'>10</CornerRadius>");
         xaml.Append(Styles);
         return xaml.Append("</ResourceDictionary>").ToString();
     }
@@ -193,7 +240,38 @@ internal static class RecorderTheme
         Text("RecappiError", "RecappiDanger", 11.5, "<Setter Property='TextWrapping' Value='Wrap'/>") +
         Icon("RecappiIconAccent", "RecappiAccent") + Icon("RecappiIconWarning", "RecappiWarning") +
         Icon("RecappiIconNeutral", "RecappiTextSecondary") + Icon("RecappiIconDanger", "RecappiDanger") +
-        Fill("RecappiDotAccent", "RecappiAccent") + Fill("RecappiDotUnlit", "RecappiWaveUnlit");
+        Fill("RecappiDotAccent", "RecappiAccent") + Fill("RecappiDotUnlit", "RecappiWaveUnlit") +
+        ButtonStyle("RecappiButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiButtonFill}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderSubtle}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='MinHeight' Value='32'/><Setter Property='Padding' Value='12,0'/><Setter Property='FontSize' Value='13'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiButtonHover}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiButtonPress}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiLabelSecondary}'/>") +
+        ButtonStyle("RecappiPrimaryButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiOnAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccent}'/><Setter Property='MinHeight' Value='32'/><Setter Property='Padding' Value='14,0'/><Setter Property='FontSize' Value='13'/><Setter Property='FontWeight' Value='SemiBold'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/><Setter Target='Root.Opacity' Value='0.85'/>",
+            "<Setter Target='Root.Opacity' Value='0.35'/>") +
+        ButtonStyle("RecappiSubtleButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='MinHeight' Value='32'/><Setter Property='Padding' Value='10,0'/><Setter Property='FontSize' Value='13'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlHover}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
+        ButtonStyle("RecappiCitationButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiAccentSoftFill}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiAccentStroke}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='MinHeight' Value='30'/><Setter Property='Padding' Value='10,4'/><Setter Property='FontSize' Value='12.5'/><Setter Property='HorizontalContentAlignment' Value='Left'/><Setter Property='CornerRadius' Value='8'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>") +
+        ButtonStyle("RecappiTimestampButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccentSoftFill}'/><Setter Property='Height' Value='22'/><Setter Property='Padding' Value='8,0'/><Setter Property='FontSize' Value='11.5'/><Setter Property='FontFamily' Value='Cascadia Mono, Consolas'/><Setter Property='CornerRadius' Value='11'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>", "<Setter Target='Root.Opacity' Value='0.5'/>") +
+        ButtonStyle("RecappiPlayButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiOnAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccent}'/><Setter Property='Width' Value='34'/><Setter Property='Height' Value='34'/><Setter Property='CornerRadius' Value='17'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/><Setter Target='Root.Opacity' Value='0.85'/>") +
+        Text("RecappiPageTitle", "RecappiLabel", 22, "<Setter Property='FontWeight' Value='SemiBold'/><Setter Property='TextWrapping' Value='Wrap'/>") +
+        Text("RecappiSectionTitle", "RecappiLabel", 15, "<Setter Property='FontWeight' Value='SemiBold'/>") +
+        Text("RecappiBody", "RecappiLabel", 14, "<Setter Property='TextWrapping' Value='Wrap'/><Setter Property='LineHeight' Value='23'/>") +
+        Text("RecappiBodySecondary", "RecappiLabelSecondary", 13, "<Setter Property='TextWrapping' Value='Wrap'/>") +
+        Text("RecappiCaption", "RecappiLabelTertiary", 12) +
+        Text("RecappiEyebrow", "RecappiLabelSecondary", 12, "<Setter Property='FontWeight' Value='SemiBold'/>");
 
     private const string CheckedSetters = "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentSoftFill}'/><Setter Target='Root.BorderBrush' Value='{ThemeResource RecappiAccentStroke}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiAccent}'/><Setter Target='LiveDot.Visibility' Value='Visible'/>";
 
@@ -272,8 +350,8 @@ internal sealed class DotMatrixMeter : Canvas
             var cells = new (Ellipse, Ellipse)[Rows];
             for (var row = 0; row < Rows; row++)
             {
-                var unlit = new Ellipse { Width = dot, Height = dot, Style = RecorderTheme.Style("RecappiDotUnlit") };
-                var lit = new Ellipse { Width = dot, Height = dot, Style = RecorderTheme.Style("RecappiDotAccent"), Opacity = 0 };
+                var unlit = new Ellipse { Width = dot, Height = dot, Style = RecappiTheme.Style("RecappiDotUnlit") };
+                var lit = new Ellipse { Width = dot, Height = dot, Style = RecappiTheme.Style("RecappiDotAccent"), Opacity = 0 };
                 var x = offset + column * ColumnStep + (ColumnStep - dot) / 2; var y = row * rowStep + (rowStep - dot) / 2;
                 foreach (var cell in new[] { unlit, lit }) { SetLeft(cell, x); SetTop(cell, y); Children.Add(cell); }
                 cells[row] = (unlit, lit);

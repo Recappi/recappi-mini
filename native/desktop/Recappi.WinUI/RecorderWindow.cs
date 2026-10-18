@@ -12,12 +12,12 @@ internal sealed class RecorderWindow : DesktopWindow
 {
     private const double RowHeight = 28;
     private readonly IDesktopHost app;
-    private readonly TextBlock state = RecorderTheme.Label("准备录音", "RecappiLabelPrimary");
-    private readonly TextBlock elapsed = RecorderTheme.Label("00:00", "RecappiTimer");
-    private readonly TextBlock activeSource = RecorderTheme.Label("", "RecappiLabelSecondary");
+    private readonly TextBlock state = RecappiTheme.Label("准备录音", "RecappiLabelPrimary");
+    private readonly TextBlock elapsed = RecappiTheme.Label("00:00", "RecappiTimer");
+    private readonly TextBlock activeSource = RecappiTheme.Label("", "RecappiLabelSecondary");
     private readonly TextBox title = new() { Header = "录音标题", PlaceholderText = "未命名录音" };
     private readonly Button source;
-    private readonly TextBlock sourceLabel = RecorderTheme.Label("声音来源", "RecappiLabelPrimary");
+    private readonly TextBlock sourceLabel = RecappiTheme.Label("声音来源", "RecappiLabelPrimary");
     private readonly MenuFlyout sourceMenu = new() { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
     private IReadOnlyList<AudioSource> sources = [];
     private AudioSource? selectedSource;
@@ -37,14 +37,14 @@ internal sealed class RecorderWindow : DesktopWindow
     private readonly Flyout options = new() { ShouldConstrainToRootBounds = false };
     private readonly Flyout recordingMenu = new() { ShouldConstrainToRootBounds = false };
     private readonly Grid donePanel = Row();
-    private readonly FontIcon savedIcon = RecorderTheme.Glyph("", 13);
-    private readonly TextBlock savedStatus = RecorderTheme.Label("已保存到本机", "RecappiStatusAccent");
-    private readonly TextBlock savedDuration = RecorderTheme.Label("", "RecappiDuration");
-    private readonly TextBlock savedDetail = RecorderTheme.Label("", "RecappiLabelSecondary");
+    private readonly FontIcon savedIcon = RecappiTheme.Glyph("", 13);
+    private readonly TextBlock savedStatus = RecappiTheme.Label("已保存到本机", "RecappiStatusAccent");
+    private readonly TextBlock savedDuration = RecappiTheme.Label("", "RecappiDuration");
+    private readonly TextBlock savedDetail = RecappiTheme.Label("", "RecappiLabelSecondary");
     private ProcessingEntry? savedProcessing;
     private readonly Button newRecording;
     private bool dismissedDone;
-    private readonly TextBlock attention = RecorderTheme.Label("", "RecappiLabelPrimary");
+    private readonly TextBlock attention = RecappiTheme.Label("", "RecappiLabelPrimary");
     private readonly Grid attentionActions = Row();
     private readonly Button start;
     private readonly Button stop;
@@ -66,12 +66,12 @@ internal sealed class RecorderWindow : DesktopWindow
         (selected.Id != "microphone-only" || includeMicrophone.IsChecked == true) && (includeMicrophone.IsChecked != true || microphone.SelectedItem is MicrophoneDevice);
     public RecorderWindow(IDesktopHost app, Func<(IReadOnlyList<AudioSource> Sources, IReadOnlyList<MicrophoneDevice> Microphones)>? discover = null) : base("Recappi Mini", 384, 70)
     {
-        RecorderTheme.Ensure();
+        RecappiTheme.Ensure();
         this.app = app;
         this.discover = discover ?? (() => (AudioDevices.ListSources(), AudioDevices.ListMicrophones()));
         Body.Padding = new Thickness(4, 10, 10, 10); Body.Spacing = 6;
         CompactChrome("移动录音面板", 300, "RecappiSurfacePanel");
-        Error.Style = RecorderTheme.Style("RecappiError"); Error.FontSize = 11.5; Error.IsTextSelectionEnabled = false; Error.Margin = new Thickness(8, 0, 4, 0);
+        Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 11.5; Error.IsTextSelectionEnabled = false; Error.Margin = new Thickness(8, 0, 4, 0);
         PlaceAtTopRight();
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) { presenter.IsAlwaysOnTop = true; presenter.IsMaximizable = false; }
 
@@ -88,18 +88,18 @@ internal sealed class RecorderWindow : DesktopWindow
         options.Content = new ScrollViewer { Content = setup, MaxHeight = 480, Width = 310 };
 
         // Idle: brand tile · source · microphone · options · hide · record.
-        var library = Action("录音库", RecorderTheme.LogoTile(RowHeight), "RecappiIconButton", () => { app.ShowLibrary(); Hide(); return Task.CompletedTask; }, "打开录音库");
+        var library = Action("录音库", RecappiTheme.LogoTile(RowHeight), "RecappiIconButton", () => { app.ShowLibrary(); Hide(); return Task.CompletedTask; }, "打开录音库");
         library.Width = library.Height = RowHeight; library.Background = null;
         var sourceContent = new Grid { ColumnSpacing = 6 };
         sourceContent.ColumnDefinitions.Add(new ColumnDefinition()); sourceContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var chevron = RecorderTheme.Glyph("", 9); chevron.Style = RecorderTheme.Style("RecappiIconNeutral");
+        var chevron = RecappiTheme.Glyph("", 9); chevron.Style = RecappiTheme.Style("RecappiIconNeutral");
         Grid.SetColumn(chevron, 1); sourceContent.Children.Add(sourceLabel); sourceContent.Children.Add(chevron);
         source = Action("声音来源", sourceContent, "RecappiChipButton", () => Task.CompletedTask);
         source.HorizontalAlignment = HorizontalAlignment.Stretch; source.HorizontalContentAlignment = HorizontalAlignment.Stretch; source.Padding = new Thickness(10, 0, 9, 0);
         source.Flyout = sourceMenu;
         idleMicrophone = Toggle("录制麦克风", () => { includeMicrophone.IsChecked = idleMicrophone!.IsChecked == true; Render(); return Task.CompletedTask; });
-        var optionButton = Action("录音选项", RecorderTheme.Glyph(""), "RecappiIconButton", () => Task.CompletedTask); optionButton.Flyout = options;
-        var hideIdle = Action("隐藏", RecorderTheme.Glyph("", 10), "RecappiIconButton", () => { options.Hide(); Hide(); return Task.CompletedTask; }, "隐藏面板");
+        var optionButton = Action("录音选项", RecappiTheme.Glyph(""), "RecappiIconButton", () => Task.CompletedTask); optionButton.Flyout = options;
+        var hideIdle = Action("隐藏", RecappiTheme.Glyph("", 10), "RecappiIconButton", () => { options.Hide(); Hide(); return Task.CompletedTask; }, "隐藏面板");
         hideIdle.Width = 24;
         var startContent = new Grid();
         startContent.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 10, Height = 10, Fill = startProgress.Foreground });
@@ -112,9 +112,9 @@ internal sealed class RecorderWindow : DesktopWindow
         newRecording = Action("新录音", new TextBlock { Text = "新录音" }, "RecappiQuietButton", () => { dismissedDone = true; title.Text = ""; Render(); return Task.CompletedTask; }, "开始新的录音");
         var viewContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
         viewContent.Children.Add(new TextBlock { Text = "查看录音", VerticalAlignment = VerticalAlignment.Center });
-        viewContent.Children.Add(RecorderTheme.Glyph("", 9));
+        viewContent.Children.Add(RecappiTheme.Glyph("", 9));
         var view = Action("查看录音", viewContent, "RecappiAccentChipButton", () => { if (app.Engine.Snapshot.Recording is { } recording) { app.ShowRecording(recording.Id); Hide(); } return Task.CompletedTask; });
-        var hideDone = Action("隐藏", RecorderTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板");
+        var hideDone = Action("隐藏", RecappiTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板");
         hideDone.Width = 24;
         savedIcon.Margin = new Thickness(8, 0, 0, 0); savedIcon.VerticalAlignment = VerticalAlignment.Center;
         savedStatus.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -125,10 +125,10 @@ internal sealed class RecorderWindow : DesktopWindow
         Body.Children.Add(savedDetail);
 
         // Recording: live header above waveform · microphone · more · stop.
-        var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 6, Height = 6, Style = RecorderTheme.Style("RecappiDotAccent"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
-        recordingDot = dot; recordingPulse = RecorderTheme.Pulse(dot);
-        var captionButton = Action("字幕", RecorderTheme.Glyph("", 12), "RecappiIconButton", () => { app.ShowCaptions(); return Task.CompletedTask; }, "显示实时字幕");
-        var hideRecording = Action("隐藏", RecorderTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板 · 录音在后台继续");
+        var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 6, Height = 6, Style = RecappiTheme.Style("RecappiDotAccent"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        recordingDot = dot; recordingPulse = RecappiTheme.Pulse(dot);
+        var captionButton = Action("字幕", RecappiTheme.Glyph("", 12), "RecappiIconButton", () => { app.ShowCaptions(); return Task.CompletedTask; }, "显示实时字幕");
+        var hideRecording = Action("隐藏", RecappiTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板 · 录音在后台继续");
         captionButton.Width = captionButton.Height = hideRecording.Width = hideRecording.Height = 20;
         var header = Row(); header.Height = 20;
         Place(header, (dot, false), (elapsed, false), (state, false), (Separator(), false), (activeSource, true), (captionButton, false), (hideRecording, false));
@@ -144,13 +144,13 @@ internal sealed class RecorderWindow : DesktopWindow
             await app.StopCaptions(true);
             await app.Engine.DiscardAsync(target);
         }));
-        ((FontIcon)((StackPanel)discard.Content).Children[0]).Style = RecorderTheme.Style("RecappiIconDanger");
+        ((FontIcon)((StackPanel)discard.Content).Children[0]).Style = RecappiTheme.Style("RecappiIconDanger");
         var moreMenu = new StackPanel { Spacing = 2, MinWidth = 160 };
         moreMenu.Children.Add(Menu("录音库", "", () => { recordingMenu.Hide(); app.ShowLibrary(); return Task.CompletedTask; }));
         moreMenu.Children.Add(discard);
         moreMenu.Children.Add(Menu("退出", "", () => { recordingMenu.Hide(); return app.Quit(); }));
         recordingMenu.Content = moreMenu;
-        var moreButton = Action("更多操作", RecorderTheme.Glyph("", 14), "RecappiIconButton", () => Task.CompletedTask); moreButton.Flyout = recordingMenu;
+        var moreButton = Action("更多操作", RecappiTheme.Glyph("", 14), "RecappiIconButton", () => Task.CompletedTask); moreButton.Flyout = recordingMenu;
         var stopContent = new Border { Width = 9, Height = 9, CornerRadius = new CornerRadius(2), Background = startProgress.Foreground };
         stop = Action("停止并保存", stopContent, "RecappiRecordButton", () => Guard(app.StopRecording));
         waveform.Margin = new Thickness(6, 0, 4, 0);
@@ -158,7 +158,7 @@ internal sealed class RecorderWindow : DesktopWindow
         activePanel.Children.Add(recordingControls);
 
         // Reminders replace the control row until the user chooses.
-        var attentionIcon = RecorderTheme.Glyph("", 12); attentionIcon.Style = RecorderTheme.Style("RecappiIconAccent"); attentionIcon.Margin = new Thickness(8, 0, 0, 0);
+        var attentionIcon = RecappiTheme.Glyph("", 12); attentionIcon.Style = RecappiTheme.Style("RecappiIconAccent"); attentionIcon.Margin = new Thickness(8, 0, 0, 0);
         attention.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         var keep = Action("继续录音", new TextBlock { Text = "继续" }, "RecappiChipButton", () => { ClearAttention(); return Task.CompletedTask; });
         keep.Height = 24; keep.Padding = new Thickness(9, 0, 9, 0);
@@ -197,10 +197,10 @@ internal sealed class RecorderWindow : DesktopWindow
             Grid.SetColumn(items[i].Element, i); row.Children.Add(items[i].Element);
         }
     }
-    private static TextBlock Separator() => RecorderTheme.Label("·", "RecappiLabelTertiary");
+    private static TextBlock Separator() => RecappiTheme.Label("·", "RecappiLabelTertiary");
     private Button Action(string name, object content, string style, Func<Task> action, string? tip = null)
     {
-        var button = new Button { Content = content, Style = RecorderTheme.Style(style) };
+        var button = new Button { Content = content, Style = RecappiTheme.Style(style) };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, name);
         ToolTipService.SetToolTip(button, tip ?? name);
         var running = false;
@@ -216,13 +216,13 @@ internal sealed class RecorderWindow : DesktopWindow
     private Button Menu(string label, string glyph, Func<Task> action)
     {
         var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        var icon = RecorderTheme.Glyph(glyph, 14); icon.Style = RecorderTheme.Style("RecappiIconNeutral");
+        var icon = RecappiTheme.Glyph(glyph, 14); icon.Style = RecappiTheme.Style("RecappiIconNeutral");
         content.Children.Add(icon); content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
         return Action(label, content, "RecappiMenuButton", action, label);
     }
     private ToggleButton Toggle(string name, Func<Task> action)
     {
-        var button = new ToggleButton { Content = RecorderTheme.Glyph("", 13), Style = RecorderTheme.Style("RecappiToggleButton") };
+        var button = new ToggleButton { Content = RecappiTheme.Glyph("", 13), Style = RecappiTheme.Style("RecappiToggleButton") };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, name);
         button.Click += async (_, _) => await Run(action);
         return button;
@@ -370,7 +370,7 @@ internal sealed class RecorderWindow : DesktopWindow
         var next = visible ? Visibility.Visible : Visibility.Collapsed;
         if (element.Visibility == next) return;
         element.Visibility = next;
-        if (visible) RecorderTheme.FadeIn(element);
+        if (visible) RecappiTheme.FadeIn(element);
     }
     private void RenderSavedState(RecordingSnapshot snapshot, bool visible)
     {
@@ -403,8 +403,8 @@ internal sealed class RecorderWindow : DesktopWindow
             _ => ("", "Accent")
         };
         savedIcon.Glyph = glyph;
-        savedIcon.Style = RecorderTheme.Style("RecappiIcon" + tone);
-        savedStatus.Style = RecorderTheme.Style("RecappiStatus" + tone);
+        savedIcon.Style = RecappiTheme.Style("RecappiIcon" + tone);
+        savedStatus.Style = RecappiTheme.Style("RecappiStatus" + tone);
         savedDetail.Text = entry?.Stage switch
         {
             ProcessingStage.Failed or ProcessingStage.Paused or ProcessingStage.NeedsReconciliation => "本机音频已保留。打开录音查看状态并继续处理。",

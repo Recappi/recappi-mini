@@ -13,6 +13,7 @@ internal sealed class SettingsWindow : DesktopWindow
     private readonly TextBlock saved = Ui.Text("");
     private readonly Button retrySave;
     private StackPanel section = null!;
+    private StackPanel? group;
     private readonly NavigationView navigation = new() { IsSettingsVisible = false, IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed, PaneDisplayMode = NavigationViewPaneDisplayMode.Left, OpenPaneLength = 170, CompactModeThresholdWidth = 480, ExpandedModeThresholdWidth = 640 };
     private readonly Dictionary<string, StackPanel> sections = [];
     private readonly ScrollViewer sectionViewer = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -36,13 +37,16 @@ internal sealed class SettingsWindow : DesktopWindow
         timer = DispatcherQueue.CreateTimer(); timer.Interval = TimeSpan.FromMilliseconds(350); timer.Tick += (_, _) => Flush();
         retrySave = Ui.Button("重新保存设置", () => { Flush(); return Task.CompletedTask; }, this);
         retrySave.Visibility = Visibility.Collapsed;
-        var heading = new Grid(); heading.ColumnDefinitions.Add(new ColumnDefinition()); heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        heading.Children.Add(Ui.Text("设置", 24)); Grid.SetColumn(retrySave, 1); heading.Children.Add(retrySave);
-        Body.Spacing = 6; Body.Children.Add(heading);
-        saved.Visibility = Visibility.Collapsed; Body.Children.Add(saved);
+        // Save status sits above the navigation and collapses when there is nothing to report.
+        var heading = new Grid { ColumnSpacing = 12 }; heading.ColumnDefinitions.Add(new ColumnDefinition()); heading.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        saved.Style = RecappiTheme.Style("RecappiBodySecondary"); saved.FontSize = 12.5; saved.VerticalAlignment = VerticalAlignment.Center;
+        heading.Children.Add(saved); Grid.SetColumn(retrySave, 1); heading.Children.Add(retrySave);
+        Body.Padding = new Thickness(20, 0, 20, 4); Body.Spacing = 6; Body.Children.Add(heading);
+        Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 12;
+        saved.Visibility = Visibility.Collapsed;
         ((ScrollViewer)Content).Content = null;
         var layout = new Grid(); layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); layout.RowDefinitions.Add(new RowDefinition());
-        layout.Children.Add(Body); Grid.SetRow(navigation, 1); layout.Children.Add(navigation); Content = layout;
+        layout.Children.Add(Body); Grid.SetRow(navigation, 1); layout.Children.Add(navigation); Content = PageFrame(layout, "设置");
         navigation.Content = sectionViewer;
         navigation.SelectionChanged += (_, args) =>
         {
@@ -76,7 +80,15 @@ internal sealed class SettingsWindow : DesktopWindow
         Field("录音时长提醒（分钟，0 关闭）", app.Preferences.MaxDurationMinutes.ToString(), (p, v) => p with { MaxDurationMinutes = Minutes(v) });
         Section("存储与关于", Symbol.Folder);
         Field("本地录音目录（重启后生效）", app.Preferences.RecordingsRoot, (p, v) => p with { RecordingsRoot = v.Trim() });
-        section.Children.Add(Ui.Text("Recappi Mini · " + CurrentVersion.Split('+')[0] + "\nWindows 原生桌面版 · WinUI 3"));
+        var about = new Grid { ColumnSpacing = 14 };
+        about.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); about.ColumnDefinitions.Add(new ColumnDefinition());
+        about.Children.Add(RecappiTheme.LogoTile(44));
+        var version = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        version.Children.Add(new TextBlock { Text = "Recappi Mini", Style = RecappiTheme.Style("RecappiSectionTitle") });
+        version.Children.Add(new TextBlock { Text = CurrentVersion.Split('+')[0] + " · Windows 原生桌面版 · WinUI 3", Style = RecappiTheme.Style("RecappiCaption") });
+        Grid.SetColumn(version, 1); about.Children.Add(version);
+        section.Children.Add(about);
+        updateStatus.Style = RecappiTheme.Style("RecappiBodySecondary");
         section.Children.Add(updateStatus);
         var checkUpdate = Ui.Button("检查更新", CheckUpdate, this);
         downloadUpdate = Ui.Button("下载已验证更新", DownloadUpdate, this); downloadUpdate.IsEnabled = false;
@@ -155,21 +167,38 @@ internal sealed class SettingsWindow : DesktopWindow
     }
     private void Section(string name, Symbol icon)
     {
-        section = new StackPanel { Spacing = 14, Padding = new Thickness(20) };
-        section.Children.Add(Ui.Text(name, 20)); sections[name] = section;
+        section = new StackPanel { Spacing = 14, Padding = new Thickness(28, 22, 28, 28), MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Stretch };
+        section.Children.Add(new TextBlock { Text = name, Style = RecappiTheme.Style("RecappiPageTitle"), FontSize = 20 }); sections[name] = section;
+        group = null;
         navigation.MenuItems.Add(new NavigationViewItem { Content = name, Tag = name, Icon = new SymbolIcon(icon) });
     }
     private static int Minutes(string text) => int.TryParse(text, out var value) ? value : throw new ArgumentException("提醒时间请填写整数分钟。");
     private void Edited(Control control, Func<DesktopPreferences, DesktopPreferences> edit) { pending[control] = edit; timer.Stop(); timer.Start(); }
+    // Settings rows share one card per section: label on the left, control on the right.
+    private void AddRow(string label, FrameworkElement control)
+    {
+        if (group is null)
+        {
+            group = new StackPanel();
+            section.Children.Add(Ui.Surface(group, new Thickness(0)));
+        }
+        var row = new Grid { ColumnSpacing = 16, Padding = new Thickness(16, 10, 12, 10), MinHeight = 52, BorderThickness = new Thickness(0, group.Children.Count == 0 ? 0 : 1, 0, 0) };
+        RecappiTheme.Bind(row, "RecappiBorderHairline", brush => row.BorderBrush = brush);
+        row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(new TextBlock { Text = label, Style = RecappiTheme.Style("RecappiBody"), FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center });
+        control.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(control, 1); row.Children.Add(control);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(control, label);
+        group.Children.Add(row);
+    }
     private void Toggle(string label, bool initial, Func<DesktopPreferences, bool, DesktopPreferences> edit)
     {
-        var control = new ToggleSwitch { Header = label, IsOn = initial, OnContent = "开启", OffContent = "关闭" };
-        control.Toggled += (_, _) => Edited(control, p => edit(p, control.IsOn)); section.Children.Add(control);
+        var control = new ToggleSwitch { Tag = label, IsOn = initial, OnContent = "开启", OffContent = "关闭", MinWidth = 0 };
+        control.Toggled += (_, _) => Edited(control, p => edit(p, control.IsOn)); AddRow(label, control);
     }
     private void Field(string label, string initial, Func<DesktopPreferences, string, DesktopPreferences> edit)
     {
-        var control = new TextBox { Header = label, Text = initial };
-        control.TextChanging += (_, _) => Edited(control, p => edit(p, control.Text)); section.Children.Add(control);
+        var control = new TextBox { Tag = label, Text = initial, Width = 220 };
+        control.TextChanging += (_, _) => Edited(control, p => edit(p, control.Text)); AddRow(label, control);
     }
     private void Choice(string label, string initial, string[] values, Func<DesktopPreferences, string, DesktopPreferences> edit)
     {
@@ -178,8 +207,8 @@ internal sealed class SettingsWindow : DesktopWindow
             "system" => "跟随系统", "light" => "浅色", "dark" => "深色", "meeting" => "会议", "podcast" => "播客",
             "interview" => "访谈", "casual" => "日常对话", "lecture" => "课程", _ => value
         } }).ToArray();
-        var control = new ComboBox { Header = label, ItemsSource = items, SelectedItem = items.First(x => (string)x.Tag == initial), MinWidth = 180 };
-        control.SelectionChanged += (_, _) => { if (control.SelectedItem is ComboBoxItem { Tag: string value }) Edited(control, p => edit(p, value)); }; section.Children.Add(control);
+        var control = new ComboBox { ItemsSource = items, SelectedItem = items.First(x => (string)x.Tag == initial), MinWidth = 160 };
+        control.SelectionChanged += (_, _) => { if (control.SelectedItem is ComboBoxItem { Tag: string value }) Edited(control, p => edit(p, value)); }; AddRow(label, control);
     }
     public bool Flush()
     {

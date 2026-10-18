@@ -13,6 +13,7 @@ internal class DesktopWindow : Window
     public StackPanel Body { get; } = new() { Spacing = 10, Padding = new Thickness(16) };
     protected TextBlock Error { get; } = Ui.Text("");
     private bool dialogOpen;
+    private bool floating;
     private bool closed;
     private bool resizeQueued;
     private bool initialized;
@@ -28,8 +29,11 @@ internal class DesktopWindow : Window
     public DesktopWindow(string title, int width, int height)
     {
         Title = title;
-        SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
-        Content = new ScrollViewer { Content = Body, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        RecappiTheme.Ensure();
+        var page = new ScrollViewer { Content = Body, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        // Opaque brand surface instead of Mica, matching the macOS window colors.
+        RecappiTheme.Bind(page, "RecappiSurfaceWindow", brush => { if (!floating) page.Background = brush; });
+        Content = page;
         ResizeLogical(width, height);
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Recappi.ico"));
         Error.Visibility = Visibility.Collapsed;
@@ -155,10 +159,32 @@ internal class DesktopWindow : Window
         }
     }
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
+    // Page windows draw their own title strip so the brand surface reaches the top edge.
+    // The strip holds no controls: everything in it is a window drag region.
+    protected Grid PageFrame(UIElement content, string page)
+    {
+        ExtendsContentIntoTitleBar = true;
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            AppWindow.TitleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+            AppWindow.TitleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+        }
+        var strip = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Height = 40, Padding = new Thickness(14, 0, 0, 0), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        var tile = RecappiTheme.LogoTile(18); tile.VerticalAlignment = VerticalAlignment.Center; strip.Children.Add(tile);
+        strip.Children.Add(new TextBlock { Text = "Recappi", Style = RecappiTheme.Style("RecappiEyebrow") });
+        strip.Children.Add(new TextBlock { Text = page, Style = RecappiTheme.Style("RecappiCaption") });
+        var frame = new Grid();
+        frame.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); frame.RowDefinitions.Add(new RowDefinition());
+        frame.Children.Add(strip);
+        if (content is FrameworkElement element) { Grid.SetRow(element, 1); frame.Children.Add(element); }
+        RecappiTheme.Bind(frame, "RecappiSurfaceWindow", brush => frame.Background = brush);
+        SetTitleBar(strip);
+        return frame;
+    }
     [DllImport("dwmapi.dll")] private static extern int DwmFlush();
     protected void CompactChrome(string moveLabel, int maximumHeight = 420, string surfaceBrush = "ApplicationPageBackgroundThemeBrush")
     {
-        retainSurface = true;
+        retainSurface = true; floating = true;
         // Floating recording/caption panels use an opaque surface for legibility over other apps.
         SystemBackdrop = null;
         ExtendsContentIntoTitleBar = true;
@@ -170,7 +196,7 @@ internal class DesktopWindow : Window
             presenter.PreferredMinimumHeight = (int)Math.Ceiling(44 * Scale);
         }
         var scroll = (ScrollViewer)Content;
-        scroll.VerticalContentAlignment = VerticalAlignment.Top;
+        scroll.VerticalContentAlignment = VerticalAlignment.Top; scroll.Background = null;
         Content = null;
         var grip = new ContentControl { Content = new FontIcon { Glyph = "\uE784", FontSize = 10, Opacity = 0.45 }, Width = 18,
             IsTabStop = true, UseSystemFocusVisuals = true, VerticalContentAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center };
@@ -282,14 +308,12 @@ internal static class Ui
     };
     public static Border Surface(UIElement child, Thickness padding)
     {
-        var border = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Border xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' CornerRadius='8' BorderThickness='1' Background='{ThemeResource CardBackgroundFillColorDefaultBrush}' BorderBrush='{ThemeResource CardStrokeColorDefaultBrush}'/>");
+        var border = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Border xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' CornerRadius='10' BorderThickness='1' Background='{ThemeResource RecappiSurfaceCard}' BorderBrush='{ThemeResource RecappiBorderHairline}'/>");
         border.Padding = padding; border.Child = child; return border;
     }
     public static Button Button(string label, Func<Task> action, DesktopWindow owner)
     {
-        var button = new Button { Content = label, Padding = new Thickness(10, 6, 10, 6), FontSize = 13, MinHeight = 34,
-            HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center, CornerRadius = new CornerRadius(6) };
-        if (label is "开始录音" or "发送" or "连接账号") button.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
+        var button = new Button { Content = label, Style = RecappiTheme.Style(label is "开始录音" or "发送" or "连接账号" or "下一步" or "开始使用" ? "RecappiPrimaryButton" : "RecappiButton") };
         var glyph = label switch
         {
             "开始录音" or "录音控制" => "\uE7C8", "停止并保存" => "\uE71A", "录音库" => "\uE8F1", "设置" => "\uE713",
@@ -301,7 +325,7 @@ internal static class Ui
         {
             var labelText = new TextBlock { Text = label, FontSize = 13, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center };
             var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-            content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 16, Width = 16, Height = 16, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center });
+            content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 14, Width = 16, Height = 16, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center });
             content.Children.Add(labelText); button.Content = content;
         }
         AutomationProperties.SetName(button, label);
@@ -318,8 +342,8 @@ internal static class Ui
     public static Button IconButton(string label, string glyph, Func<Task> action, DesktopWindow owner)
     {
         var button = Button(label, action, owner); button.Content = new FontIcon { Glyph = glyph, FontSize = 14 };
-        button.Style = (Style)Application.Current.Resources["SubtleButtonStyle"];
-        button.Width = 34; button.Height = 34; button.Padding = new Thickness(6); ToolTipService.SetToolTip(button, label);
+        button.Style = RecappiTheme.Style("RecappiIconButton");
+        button.Width = 32; button.Height = 32; ToolTipService.SetToolTip(button, label);
         return button;
     }
     public static WrapPanel Row(params UIElement[] items)

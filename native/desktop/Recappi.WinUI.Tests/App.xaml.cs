@@ -134,6 +134,15 @@ public partial class TestApp : Application
             File.WriteAllText(Path.Combine(root, "stage.txt"), name); await test(); passed.Add(name); Console.WriteLine("PASS " + name);
         }
     }
+    internal static IEnumerable<T> Descendants<T>(DependencyObject root)
+    {
+        for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match) yield return match;
+            foreach (var nested in Descendants<T>(child)) yield return nested;
+        }
+    }
     internal static T Field<T>(object target, string name) => (T)(target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic) ?? throw new Exception("Missing field " + name)).GetValue(target)!;
     internal static async Task Call(object target, string method, params object[] arguments)
     {
@@ -290,7 +299,7 @@ public partial class TestApp : Application
                 }
             navigation.SelectedItem = navigation.MenuItems[2];
             await Until(() => sections["录音与字幕"].IsLoaded, "Caption settings did not become visible.");
-            var language = sections["录音与字幕"].Children.OfType<TextBox>().First(x => (string)x.Header == "字幕语言");
+            var language = Descendants<TextBox>(sections["录音与字幕"]).First(x => (string)x.Tag == "字幕语言");
             language.Text = "zh"; host.SavePreferences(host.Preferences with { Scene = "interview" });
             host.RejectSave = true; Check(!window.Flush(), "Settings falsely reported save success.");
             Check(Field<Button>(window, "retrySave").Visibility == Visibility.Visible, "Failed settings save has no retry action.");

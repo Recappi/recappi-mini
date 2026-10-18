@@ -11,6 +11,7 @@ internal static class NativePreviewCapture
 {
     public static async Task Stage(string root, string name, DesktopWindow window, bool passiveShow = false)
     {
+        if (Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_SNAPSHOT") == "1") { await Snapshot(root, name, window); return; }
         await Task.Delay(500);
         var position = window.AppWindow.Position; var size = window.AppWindow.Size;
         var bounds = new FrameBounds { Left = position.X, Top = position.Y, Right = position.X + size.Width, Bottom = position.Y + size.Height };
@@ -76,6 +77,7 @@ internal static class NativePreviewCapture
     private static async Task Snapshot(string root, string name, DesktopWindow window)
     {
         await Task.Delay(500);
+        if (Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_FRAME") == "1") { await FrameSnapshot(root, name, window); return; }
         var bitmap = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
         await bitmap.RenderAsync(window.Content);
         var pixels = System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.ToArray(await bitmap.GetPixelsAsync());
@@ -135,6 +137,36 @@ internal static class NativePreviewCapture
         finally { caption.Close(); }
     }
     [StructLayout(LayoutKind.Sequential)] private struct FrameBounds { public int Left, Top, Right, Bottom; }
+    // Whole-HWND capture (including the non-client frame) without foreground activation.
+    private static async Task FrameSnapshot(string root, string name, DesktopWindow window)
+    {
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        GetWindowRect(hwnd, out var rect);
+        int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
+        var screen = GetDC(0); var dc = CreateCompatibleDC(screen); var bitmap = CreateCompatibleBitmap(screen, width, height);
+        var old = SelectObject(dc, bitmap);
+        PrintWindow(hwnd, dc, 2);
+        var info = new BitmapInfoHeader { Size = 40, Width = width, Height = -height, Planes = 1, BitCount = 32 };
+        var pixels = new byte[width * height * 4];
+        GetDIBits(dc, bitmap, 0, (uint)height, pixels, ref info, 0);
+        SelectObject(dc, old); DeleteObject(bitmap); DeleteDC(dc); ReleaseDC(0, screen);
+        for (var i = 3; i < pixels.Length; i += 4) pixels[i] = 255;
+        using var stream = File.Create(Path.Combine(root, name + ".png")).AsRandomAccessStream();
+        var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
+        encoder.SetPixelData(Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, Windows.Graphics.Imaging.BitmapAlphaMode.Ignore, (uint)width, (uint)height, 96, 96, pixels);
+        await encoder.FlushAsync();
+    }
+    [StructLayout(LayoutKind.Sequential)] private struct BitmapInfoHeader { public int Size, Width, Height; public short Planes, BitCount; public int Compression, SizeImage, XPelsPerMeter, YPelsPerMeter, ClrUsed, ClrImportant; }
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(nint window, out FrameBounds rect);
+    [DllImport("user32.dll")] private static extern bool PrintWindow(nint window, nint dc, uint flags);
+    [DllImport("user32.dll")] private static extern nint GetDC(nint window);
+    [DllImport("user32.dll")] private static extern int ReleaseDC(nint window, nint dc);
+    [DllImport("gdi32.dll")] private static extern nint CreateCompatibleDC(nint dc);
+    [DllImport("gdi32.dll")] private static extern nint CreateCompatibleBitmap(nint dc, int width, int height);
+    [DllImport("gdi32.dll")] private static extern nint SelectObject(nint dc, nint value);
+    [DllImport("gdi32.dll")] private static extern bool DeleteObject(nint value);
+    [DllImport("gdi32.dll")] private static extern bool DeleteDC(nint dc);
+    [DllImport("gdi32.dll")] private static extern int GetDIBits(nint dc, nint bitmap, uint start, uint lines, byte[] bits, ref BitmapInfoHeader info, uint usage);
     public static async Task UpdateChannels(string root)
     {
         await using var host = new TestHost(Path.Combine(root, "update-preview"));

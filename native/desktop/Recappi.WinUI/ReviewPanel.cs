@@ -5,7 +5,7 @@ namespace Recappi.WinUI;
 
 internal sealed class ReviewPanel : IDisposable
 {
-    public StackPanel Root { get; } = new() { Spacing = 10 };
+    public StackPanel Root { get; } = new() { Spacing = 12, Padding = new Microsoft.UI.Xaml.Thickness(0, 16, 16, 16), MaxWidth = 720, HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Left };
     private readonly LibraryWindow owner;
     private readonly IDesktopHost app;
     private readonly CloudAccount account;
@@ -33,7 +33,9 @@ internal sealed class ReviewPanel : IDisposable
     {
         this.owner = owner; this.app = app; this.account = account; this.recording = recording; this.current = current; this.selectVersion = selectVersion;
         timer = owner.DispatcherQueue.CreateTimer(); timer.Interval = TimeSpan.FromSeconds(2); timer.Tick += async (_, _) => await Load();
-        Root.Children.Add(Ui.Text("重新处理", 20)); Root.Children.Add(status); Root.Children.Add(versions);
+        Root.Children.Add(new TextBlock { Text = "重新处理", Style = RecappiTheme.Style("RecappiSectionTitle") });
+        status.Style = RecappiTheme.Style("RecappiBodySecondary"); Root.Children.Add(status);
+        versions.MinWidth = 320; Root.Children.Add(versions);
         transcribe = Ui.Button("重新转写", () => Submit("重新转写", "将使用当前语言和上下文创建新版本，可能消耗转写额度。", 0), owner);
         summarize = Ui.Button("重新生成摘要", () => Submit("重新生成摘要", "重新生成当前转写的摘要？", 1), owner);
         retry = Ui.Button("重试失败分块", () => Submit("重试失败分块", "只重试所选任务可重试的失败部分。", 2), owner);

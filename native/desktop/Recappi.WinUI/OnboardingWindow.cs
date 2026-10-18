@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Recappi.Core;
 
@@ -10,16 +11,35 @@ internal sealed class OnboardingWindow : DesktopWindow
     private readonly TextBlock step = Ui.Text("", 14);
     private readonly TextBlock title = Ui.Text("", 26);
     private readonly TextBlock message = Ui.Text("");
-    private readonly StackPanel actions = new() { Spacing = 8 };
+    private readonly StackPanel actions = new() { Spacing = 8, Orientation = Orientation.Horizontal };
+    private readonly StackPanel dots = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
+    private readonly FontIcon illustration = new() { FontSize = 26 };
     private readonly Button back;
     private readonly Button next;
     private int index;
     public OnboardingWindow(IDesktopHost app) : base("Recappi Mini · 使用引导", 560, 450)
     {
         this.app = app; index = Math.Clamp(app.Preferences.OnboardingStep, 0, 3);
-        Body.Children.Add(step); Body.Children.Add(title); Body.Children.Add(message); Body.Children.Add(actions);
+        // Step: illustration tile · title · explanation · optional action, with paging at the bottom.
+        Body.Padding = new Thickness(36, 16, 36, 28); Body.Spacing = 12;
+        Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 12;
+        var tile = new Border { Width = 60, Height = 60, CornerRadius = new CornerRadius(16), Child = illustration, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 8) };
+        RecappiTheme.Bind(tile, "RecappiAccentChipFill", brush => tile.Background = brush);
+        illustration.Style = RecappiTheme.Style("RecappiIconAccent");
+        step.Style = RecappiTheme.Style("RecappiEyebrow");
+        title.Style = RecappiTheme.Style("RecappiPageTitle"); title.FontSize = 24;
+        message.Style = RecappiTheme.Style("RecappiBody"); message.FontSize = 14; message.MaxWidth = 460; message.HorizontalAlignment = HorizontalAlignment.Left;
+        Body.Children.Add(tile); Body.Children.Add(step); Body.Children.Add(title); Body.Children.Add(message); Body.Children.Add(actions);
         back = Ui.Button("上一步", () => Move(-1), this); next = Ui.Button("下一步", () => Move(1), this);
-        Body.Children.Add(Ui.Row(back, next)); Render();
+        back.Style = RecappiTheme.Style("RecappiSubtleButton"); next.Style = RecappiTheme.Style("RecappiPrimaryButton");
+        var paging = new Grid { Margin = new Thickness(0, 24, 0, 0) };
+        paging.ColumnDefinitions.Add(new ColumnDefinition()); paging.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        dots.VerticalAlignment = VerticalAlignment.Center; paging.Children.Add(dots);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; buttons.Children.Add(back); buttons.Children.Add(next);
+        Grid.SetColumn(buttons, 1); paging.Children.Add(buttons);
+        Body.Children.Add(paging);
+        Content = PageFrame((UIElement)Content, "使用引导");
+        Render();
     }
     public void Restart() { index = 0; app.SavePreferences(app.Preferences with { OnboardingStep = 0, OnboardingCompleted = false }); Render(); }
     private Task Move(int delta)
@@ -31,7 +51,15 @@ internal sealed class OnboardingWindow : DesktopWindow
     }
     private void Render()
     {
-        step.Text = $"{index + 1} / 4";
+        step.Text = $"第 {index + 1} 步，共 4 步";
+        illustration.Glyph = new[] { "\uE767", "\uE720", "\uE753", "\uE7C8" }[index];
+        dots.Children.Clear();
+        for (var i = 0; i < 4; i++)
+        {
+            var dot = new Border { Height = 6, Width = i == index ? 18 : 6, CornerRadius = new CornerRadius(3) };
+            RecappiTheme.Bind(dot, i == index ? "RecappiAccent" : "RecappiBorderSubtle", brush => dot.Background = brush);
+            dots.Children.Add(dot);
+        }
         title.Text = new[] { "录制应用与系统声音", "选择麦克风", "连接云端", "准备好开始录音" }[index];
         message.Text = new[]
         {

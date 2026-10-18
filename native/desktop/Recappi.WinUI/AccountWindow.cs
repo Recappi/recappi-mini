@@ -12,6 +12,7 @@ internal sealed class AccountWindow : DesktopWindow
     private readonly TextBlock state = Ui.Text("");
     private readonly TextBlock code = Ui.Text("");
     private readonly TextBlock billing = Ui.Text("");
+    private readonly TextBlock initial = new();
     private readonly Button connect;
     private readonly Button verify;
     private readonly Button cancelLogin;
@@ -24,11 +25,24 @@ internal sealed class AccountWindow : DesktopWindow
     public AccountWindow(IDesktopHost app) : base("Recappi Mini · 账号", 520, 540)
     {
         this.app = app;
-        Body.Spacing = 16; Body.Children.Add(Ui.Text("账号", 24));
-        var accountPanel = new StackPanel { Spacing = 12 };
-        accountPanel.Children.Add(new FontIcon { Glyph = "\uE77B", FontSize = 28, HorizontalAlignment = HorizontalAlignment.Left, Opacity = 0.6 });
-        accountPanel.Children.Add(identity); state.Opacity = 0.7; accountPanel.Children.Add(state);
-        code.FontSize = 22; code.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; accountPanel.Children.Add(code);
+        Body.Spacing = 14; Body.Padding = new Thickness(24, 8, 24, 24);
+        Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 12;
+        var accountPanel = new StackPanel { Spacing = 14 };
+        // Identity header: initial avatar · email · connection state.
+        var header = new Grid { ColumnSpacing = 14 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new ColumnDefinition());
+        var avatar = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(24), Child = initial };
+        RecappiTheme.Bind(avatar, "RecappiAccentChipFill", brush => avatar.Background = brush);
+        initial.Style = RecappiTheme.Style("RecappiStatusAccent"); initial.FontSize = 20; initial.HorizontalAlignment = HorizontalAlignment.Center;
+        header.Children.Add(avatar);
+        var names = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        identity.Style = RecappiTheme.Style("RecappiSectionTitle"); identity.FontSize = 17; identity.TextTrimming = TextTrimming.CharacterEllipsis;
+        state.Style = RecappiTheme.Style("RecappiBodySecondary");
+        names.Children.Add(identity); names.Children.Add(state);
+        Grid.SetColumn(names, 1); header.Children.Add(names);
+        accountPanel.Children.Add(header);
+        code.FontSize = 22; code.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; code.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas");
+        accountPanel.Children.Add(code);
         connect = Ui.Button("连接账号", async () => await app.Account.SignInAsync(app.Origin, prompt => UiDispatcher.TryEnqueue(() =>
         { if (!closed) { verification = prompt.VerificationUri; code.Text = "确认码：" + prompt.Code; Render(); } })), this);
         verify = Ui.Button("打开浏览器确认", () => { if (verification is { } uri) Open(uri); return Task.CompletedTask; }, this);
@@ -36,8 +50,9 @@ internal sealed class AccountWindow : DesktopWindow
         refresh = Ui.Button("刷新连接", () => app.Account.RefreshAsync(), this);
         signOut = Ui.Button("退出账号", () => app.Account.SignOutAsync(), this);
         accountPanel.Children.Add(Ui.Row(connect, verify, cancelLogin, refresh, signOut));
-        Body.Children.Add(Ui.Surface(accountPanel, new Thickness(16)));
-        usagePanel.Children.Add(Ui.Text("用量与套餐", 20)); usagePanel.Children.Add(billing);
+        Body.Children.Add(Ui.Surface(accountPanel, new Thickness(20)));
+        usagePanel.Children.Add(new TextBlock { Text = "用量与套餐", Style = RecappiTheme.Style("RecappiSectionTitle") });
+        billing.Style = RecappiTheme.Style("RecappiBody"); billing.FontSize = 13.5; usagePanel.Children.Add(billing);
         var refreshUsage = Ui.Button("刷新用量", async () =>
         {
             var account = RequireAccount(); using var client = app.Account.Client(account);
@@ -51,7 +66,8 @@ internal sealed class AccountWindow : DesktopWindow
             var uri = await client.BillingPortalAsync(); if (IsCurrent(account)) Open(uri);
         }, this);
         usagePanel.Children.Add(Ui.Row(refreshUsage, managePlan));
-        usageSurface = Ui.Surface(usagePanel, new Thickness(16)); Body.Children.Add(usageSurface);
+        usageSurface = Ui.Surface(usagePanel, new Thickness(20)); Body.Children.Add(usageSurface);
+        Content = PageFrame((UIElement)Content, "账号");
         app.Account.Changed += Changed;
         Closed += (_, _) => { closed = true; app.Account.CancelLogin(); app.Account.Changed -= Changed; };
         Render();
@@ -63,6 +79,7 @@ internal sealed class AccountWindow : DesktopWindow
     {
         var value = app.Account.Snapshot;
         identity.Text = value.Account?.Email ?? "尚未登录";
+        initial.Text = value.Account?.Email is { Length: > 0 } email ? email[..1].ToUpperInvariant() : "?";
         state.Text = value.Message ?? value.State switch { AccountState.SignedIn => "已连接 Recappi Cloud", AccountState.SigningIn => "等待浏览器确认…", AccountState.Checking => "正在检查连接…", AccountState.Offline => "云端暂时不可用，本地录音可继续。", AccountState.Expired => "登录已过期。", _ => "可以先使用本地录音。" };
         if (value.State != AccountState.SigningIn) { verification = null; code.Text = ""; }
         var signingIn = value.State == AccountState.SigningIn;
