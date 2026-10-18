@@ -1,42 +1,57 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Media.Animation;
 using Recappi.Core;
 
 namespace Recappi.WinUI;
 
+// Compact recorder pill. Layout and tokens follow the macOS recording panel;
+// every control draws its own chrome instead of using default WinUI styles.
 internal sealed class RecorderWindow : DesktopWindow
 {
+    private const double RowHeight = 28;
     private readonly IDesktopHost app;
-    private readonly TextBlock state = Ui.Text("准备录音", 14);
-    private readonly TextBlock elapsed = Ui.Text("00:00:00", 18);
-    private readonly TextBlock activeSource = Ui.Text("", 12);
+    private readonly TextBlock state = RecorderTheme.Label("准备录音", "RecappiLabelPrimary");
+    private readonly TextBlock elapsed = RecorderTheme.Label("00:00", "RecappiTimer");
+    private readonly TextBlock activeSource = RecorderTheme.Label("", "RecappiLabelSecondary");
     private readonly TextBox title = new() { Header = "录音标题", PlaceholderText = "未命名录音" };
-    private readonly ComboBox source = new() { PlaceholderText = "声音来源", DisplayMemberPath = "Label", Width = 170, MaxWidth = 260 };
+    private readonly Button source;
+    private readonly TextBlock sourceLabel = RecorderTheme.Label("声音来源", "RecappiLabelPrimary");
+    private readonly MenuFlyout sourceMenu = new() { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
+    private IReadOnlyList<AudioSource> sources = [];
+    private AudioSource? selectedSource;
     private readonly ComboBox microphone = new() { Header = "麦克风", DisplayMemberPath = "Label", HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly CheckBox includeMicrophone = new() { Content = "录制麦克风" };
     private readonly CheckBox captions = new() { Content = "实时字幕" };
-    private readonly ProgressBar systemMeter = new() { Maximum = 100 };
-    private readonly ProgressBar microphoneMeter = new() { Maximum = 100 };
+    private readonly DotMatrixMeter waveform = new();
+    private readonly DispatcherTimer waveformTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
+    private double systemLevel;
+    private double microphoneLevel;
     private readonly StackPanel setup = new() { Spacing = 12 };
-    private readonly WrapPanel actions = new();
-    private readonly WrapPanel idleRow = new();
-    private readonly StackPanel activePanel = new() { Spacing = 8 };
+    private readonly Grid idleRow = Row();
+    private readonly StackPanel activePanel = new() { Spacing = 6 };
+    private readonly Grid recordingControls = Row();
+    private readonly FrameworkElement recordingDot;
+    private readonly Storyboard recordingPulse;
     private readonly Flyout options = new() { ShouldConstrainToRootBounds = false };
     private readonly Flyout recordingMenu = new() { ShouldConstrainToRootBounds = false };
-    private readonly WrapPanel donePanel = new();
-    private readonly TextBlock savedStatus = Ui.Text("已保存到本机", 14);
-    private readonly TextBlock savedDuration = Ui.Text("", 12);
-    private readonly TextBlock savedDetail = Ui.Text("", 12);
+    private readonly Grid donePanel = Row();
+    private readonly FontIcon savedIcon = RecorderTheme.Glyph("", 13);
+    private readonly TextBlock savedStatus = RecorderTheme.Label("已保存到本机", "RecappiStatusAccent");
+    private readonly TextBlock savedDuration = RecorderTheme.Label("", "RecappiDuration");
+    private readonly TextBlock savedDetail = RecorderTheme.Label("", "RecappiLabelSecondary");
     private ProcessingEntry? savedProcessing;
     private readonly Button newRecording;
     private bool dismissedDone;
-    private readonly TextBlock attention = Ui.Text("");
-    private readonly WrapPanel attentionActions;
+    private readonly TextBlock attention = RecorderTheme.Label("", "RecappiLabelPrimary");
+    private readonly Grid attentionActions = Row();
     private readonly Button start;
     private readonly Button stop;
     private readonly Button discard;
-    private readonly Button toggle;
-    private readonly Button idleMicrophone;
+    private readonly ToggleButton toggle;
+    private readonly ToggleButton idleMicrophone;
+    private readonly ProgressRing startProgress = new() { Width = 14, Height = 14, IsActive = false, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White) };
     private bool busy;
     private bool refreshing;
     private bool closed;
@@ -45,18 +60,22 @@ internal sealed class RecorderWindow : DesktopWindow
     private readonly Func<(IReadOnlyList<AudioSource> Sources, IReadOnlyList<MicrophoneDevice> Microphones)> discover;
     public bool IsActive => app.Engine.Snapshot.State is RecordingState.Starting or RecordingState.Recording or RecordingState.Stopping;
     public RecordingState State => app.Engine.Snapshot.State;
-    public int SourceCount => source.Items.Count;
+    public int SourceCount => sources.Count;
     public int MicrophoneCount => microphone.Items.Count;
-    public bool CanStart => !IsActive && !busy && !refreshing && source.SelectedItem is AudioSource selected &&
+    public bool CanStart => !IsActive && !busy && !refreshing && selectedSource is { } selected &&
         (selected.Id != "microphone-only" || includeMicrophone.IsChecked == true) && (includeMicrophone.IsChecked != true || microphone.SelectedItem is MicrophoneDevice);
-    public RecorderWindow(IDesktopHost app, Func<(IReadOnlyList<AudioSource> Sources, IReadOnlyList<MicrophoneDevice> Microphones)>? discover = null) : base("Recappi Mini", 520, 70)
+    public RecorderWindow(IDesktopHost app, Func<(IReadOnlyList<AudioSource> Sources, IReadOnlyList<MicrophoneDevice> Microphones)>? discover = null) : base("Recappi Mini", 384, 70)
     {
+        RecorderTheme.Ensure();
         this.app = app;
         this.discover = discover ?? (() => (AudioDevices.ListSources(), AudioDevices.ListMicrophones()));
-        Body.Padding = new Thickness(10); Body.Spacing = 8;
-        CompactChrome("移动录音面板", 300);
+        Body.Padding = new Thickness(4, 10, 10, 10); Body.Spacing = 6;
+        CompactChrome("移动录音面板", 300, "RecappiSurfacePanel");
+        Error.Style = RecorderTheme.Style("RecappiError"); Error.FontSize = 11.5; Error.IsTextSelectionEnabled = false; Error.Margin = new Thickness(8, 0, 4, 0);
         PlaceAtTopRight();
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) { presenter.IsAlwaysOnTop = true; presenter.IsMaximizable = false; }
+
+        // Rarely changed options stay in a flyout so the pill remains one row.
         foreach (var control in new UIElement[] { title, microphone, includeMicrophone, captions }) setup.Children.Add(control);
         setup.Children.Add(Ui.Button("刷新声音设备", RefreshDevices, this));
         var originalLanguage = new TextBox { Header = "字幕语言", Text = app.Preferences.CaptionLanguage, MaxLength = 20 };
@@ -67,10 +86,55 @@ internal sealed class RecorderWindow : DesktopWindow
         setup.Children.Add(Ui.Row(Ui.Button("设置", () => { options.Hide(); app.ShowSettings(); return Task.CompletedTask; }, this),
             Ui.Button("账号", () => { options.Hide(); app.ShowAccount(); return Task.CompletedTask; }, this), Ui.Button("退出", app.Quit, this)));
         options.Content = new ScrollViewer { Content = setup, MaxHeight = 480, Width = 310 };
-        start = Ui.Button("开始录音", () => Guard(Start), this);
-        stop = Ui.Button("停止并保存", () => Guard(app.StopRecording), this);
-        stop.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
-        discard = Ui.Button("丢弃录音", () => Guard(async () =>
+
+        // Idle: brand tile · source · microphone · options · hide · record.
+        var library = Action("录音库", RecorderTheme.LogoTile(RowHeight), "RecappiIconButton", () => { app.ShowLibrary(); Hide(); return Task.CompletedTask; }, "打开录音库");
+        library.Width = library.Height = RowHeight; library.Background = null;
+        var sourceContent = new Grid { ColumnSpacing = 6 };
+        sourceContent.ColumnDefinitions.Add(new ColumnDefinition()); sourceContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var chevron = RecorderTheme.Glyph("", 9); chevron.Style = RecorderTheme.Style("RecappiIconNeutral");
+        Grid.SetColumn(chevron, 1); sourceContent.Children.Add(sourceLabel); sourceContent.Children.Add(chevron);
+        source = Action("声音来源", sourceContent, "RecappiChipButton", () => Task.CompletedTask);
+        source.HorizontalAlignment = HorizontalAlignment.Stretch; source.HorizontalContentAlignment = HorizontalAlignment.Stretch; source.Padding = new Thickness(10, 0, 9, 0);
+        source.Flyout = sourceMenu;
+        idleMicrophone = Toggle("录制麦克风", () => { includeMicrophone.IsChecked = idleMicrophone!.IsChecked == true; Render(); return Task.CompletedTask; });
+        var optionButton = Action("录音选项", RecorderTheme.Glyph(""), "RecappiIconButton", () => Task.CompletedTask); optionButton.Flyout = options;
+        var hideIdle = Action("隐藏", RecorderTheme.Glyph("", 10), "RecappiIconButton", () => { options.Hide(); Hide(); return Task.CompletedTask; }, "隐藏面板");
+        hideIdle.Width = 24;
+        var startContent = new Grid();
+        startContent.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 10, Height = 10, Fill = startProgress.Foreground });
+        startContent.Children.Add(startProgress);
+        start = Action("开始录音", startContent, "RecappiRecordButton", () => Guard(Start));
+        Place(idleRow, (library, false), (source, true), (idleMicrophone, false), (optionButton, false), (hideIdle, false), (start, false));
+        Body.Children.Add(idleRow);
+
+        // Saved: status · duration · view · new · hide, with an optional detail line.
+        newRecording = Action("新录音", new TextBlock { Text = "新录音" }, "RecappiQuietButton", () => { dismissedDone = true; title.Text = ""; Render(); return Task.CompletedTask; }, "开始新的录音");
+        var viewContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
+        viewContent.Children.Add(new TextBlock { Text = "查看录音", VerticalAlignment = VerticalAlignment.Center });
+        viewContent.Children.Add(RecorderTheme.Glyph("", 9));
+        var view = Action("查看录音", viewContent, "RecappiAccentChipButton", () => { if (app.Engine.Snapshot.Recording is { } recording) { app.ShowRecording(recording.Id); Hide(); } return Task.CompletedTask; });
+        var hideDone = Action("隐藏", RecorderTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板");
+        hideDone.Width = 24;
+        savedIcon.Margin = new Thickness(8, 0, 0, 0); savedIcon.VerticalAlignment = VerticalAlignment.Center;
+        savedStatus.TextTrimming = TextTrimming.CharacterEllipsis;
+        Place(donePanel, (savedIcon, false), (savedStatus, false), (Separator(), false), (savedDuration, false), (new Border(), true), (view, false), (newRecording, false), (hideDone, false));
+        Body.Children.Add(donePanel);
+        savedDetail.TextWrapping = TextWrapping.Wrap; savedDetail.Margin = new Thickness(8, 0, 4, 0);
+        savedDetail.Visibility = Visibility.Collapsed;
+        Body.Children.Add(savedDetail);
+
+        // Recording: live header above waveform · microphone · more · stop.
+        var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 6, Height = 6, Style = RecorderTheme.Style("RecappiDotAccent"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        recordingDot = dot; recordingPulse = RecorderTheme.Pulse(dot);
+        var captionButton = Action("字幕", RecorderTheme.Glyph("", 12), "RecappiIconButton", () => { app.ShowCaptions(); return Task.CompletedTask; }, "显示实时字幕");
+        var hideRecording = Action("隐藏", RecorderTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板 · 录音在后台继续");
+        captionButton.Width = captionButton.Height = hideRecording.Width = hideRecording.Height = 20;
+        var header = Row(); header.Height = 20;
+        Place(header, (dot, false), (elapsed, false), (state, false), (Separator(), false), (activeSource, true), (captionButton, false), (hideRecording, false));
+        activePanel.Children.Add(header);
+        toggle = Toggle("切换麦克风", () => Guard(async () => await app.Engine.SetMicrophoneEnabledAsync(!app.Engine.MicrophoneEnabled)));
+        discard = Menu("丢弃录音", "", () => Guard(async () =>
         {
             recordingMenu.Hide();
             var target = app.Engine.Snapshot.Recording?.Id;
@@ -79,45 +143,33 @@ internal sealed class RecorderWindow : DesktopWindow
                 throw new InvalidOperationException("录音状态已变化，未执行丢弃。");
             await app.StopCaptions(true);
             await app.Engine.DiscardAsync(target);
-        }), this);
-        toggle = Ui.IconButton("切换麦克风", "\uE720", () => Guard(async () => await app.Engine.SetMicrophoneEnabledAsync(!app.Engine.MicrophoneEnabled)), this);
-        idleMicrophone = Ui.IconButton("录制麦克风", "\uE720", () => { includeMicrophone.IsChecked = includeMicrophone.IsChecked != true; Render(); return Task.CompletedTask; }, this);
-        var optionButton = Ui.IconButton("录音选项", "\uE713", () => Task.CompletedTask, this); optionButton.Flyout = options;
-        foreach (var control in new UIElement[] { Ui.IconButton("录音库", "\uE8F1", () => { app.ShowLibrary(); Hide(); return Task.CompletedTask; }, this), source, idleMicrophone, optionButton,
-            Ui.IconButton("隐藏", "\uE8A7", () => { options.Hide(); Hide(); return Task.CompletedTask; }, this), start }) idleRow.Children.Add(control);
-        Body.Children.Add(idleRow);
-        newRecording = Ui.Button("新录音", () => { dismissedDone = true; title.Text = ""; Render(); return Task.CompletedTask; }, this);
-        donePanel.Children.Add(savedStatus);
-        donePanel.Children.Add(savedDuration);
-        donePanel.Children.Add(Ui.Button("查看录音", () => { if (app.Engine.Snapshot.Recording is { } recording) { app.ShowRecording(recording.Id); Hide(); } return Task.CompletedTask; }, this));
-        donePanel.Children.Add(newRecording); donePanel.Children.Add(Ui.IconButton("隐藏", "\uE8A7", () => { Hide(); return Task.CompletedTask; }, this));
-        Body.Children.Add(donePanel);
-        savedDetail.Opacity = 0.7;
-        savedDetail.Visibility = Visibility.Collapsed;
-        Body.Children.Add(savedDetail);
-        var moreMenu = new StackPanel { Spacing = 8 }; moreMenu.Children.Add(discard);
-        moreMenu.Children.Add(Ui.Button("字幕", () => { recordingMenu.Hide(); app.ShowCaptions(); return Task.CompletedTask; }, this));
-        moreMenu.Children.Add(Ui.Button("录音库", () => { recordingMenu.Hide(); app.ShowLibrary(); return Task.CompletedTask; }, this));
-        moreMenu.Children.Add(Ui.Button("退出", () => { recordingMenu.Hide(); return app.Quit(); }, this));
+        }));
+        ((FontIcon)((StackPanel)discard.Content).Children[0]).Style = RecorderTheme.Style("RecappiIconDanger");
+        var moreMenu = new StackPanel { Spacing = 2, MinWidth = 160 };
+        moreMenu.Children.Add(Menu("录音库", "", () => { recordingMenu.Hide(); app.ShowLibrary(); return Task.CompletedTask; }));
+        moreMenu.Children.Add(discard);
+        moreMenu.Children.Add(Menu("退出", "", () => { recordingMenu.Hide(); return app.Quit(); }));
         recordingMenu.Content = moreMenu;
-        var moreButton = Ui.IconButton("更多操作", "\uE712", () => Task.CompletedTask, this); moreButton.Flyout = recordingMenu;
-        foreach (var button in new[] { toggle, moreButton, stop, Ui.IconButton("隐藏", "\uE8A7", () => { Hide(); return Task.CompletedTask; }, this) }) actions.Children.Add(button);
-        var meters = new StackPanel { Spacing = 4, Width = 60, VerticalAlignment = VerticalAlignment.Center };
-        systemMeter.Height = 4; microphoneMeter.Height = 4; meters.Children.Add(systemMeter); meters.Children.Add(microphoneMeter);
-        state.VerticalAlignment = elapsed.VerticalAlignment = VerticalAlignment.Center;
-        elapsed.FontSize = 17;
-        elapsed.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Cascadia Mono, Consolas");
-        state.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-        var recordingDot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 8, Height = 8, Fill = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed) };
-        activePanel.Children.Add(Ui.Row(recordingDot, state, elapsed, meters, actions));
-        activeSource.Opacity = 0.6; activeSource.TextTrimming = TextTrimming.CharacterEllipsis; activeSource.TextWrapping = TextWrapping.NoWrap;
-        activePanel.Children.Add(activeSource); Body.Children.Add(activePanel);
-        attentionActions = Ui.Row(Ui.Button("继续录音", () => { attention.Text = ""; attention.Visibility = Visibility.Collapsed; attentionActions!.Visibility = Visibility.Collapsed; return Task.CompletedTask; }, this),
-            Ui.Button("停止并保存", () => Guard(app.StopRecording), this));
+        var moreButton = Action("更多操作", RecorderTheme.Glyph("", 14), "RecappiIconButton", () => Task.CompletedTask); moreButton.Flyout = recordingMenu;
+        var stopContent = new Border { Width = 9, Height = 9, CornerRadius = new CornerRadius(2), Background = startProgress.Foreground };
+        stop = Action("停止并保存", stopContent, "RecappiRecordButton", () => Guard(app.StopRecording));
+        waveform.Margin = new Thickness(6, 0, 4, 0);
+        Place(recordingControls, (waveform, true), (toggle, false), (moreButton, false), (stop, false));
+        activePanel.Children.Add(recordingControls);
+
+        // Reminders replace the control row until the user chooses.
+        var attentionIcon = RecorderTheme.Glyph("", 12); attentionIcon.Style = RecorderTheme.Style("RecappiIconAccent"); attentionIcon.Margin = new Thickness(8, 0, 0, 0);
+        attention.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        var keep = Action("继续录音", new TextBlock { Text = "继续" }, "RecappiChipButton", () => { ClearAttention(); return Task.CompletedTask; });
+        keep.Height = 24; keep.Padding = new Thickness(9, 0, 9, 0);
+        var stopNow = Action("停止并保存", new TextBlock { Text = "停止" }, "RecappiDangerChipButton", () => Guard(app.StopRecording));
+        Place(attentionActions, (attentionIcon, false), (attention, true), (keep, false), (stopNow, false));
         attentionActions.Visibility = Visibility.Collapsed;
-        attention.Visibility = Visibility.Collapsed;
-        Body.Children.Add(attention); Body.Children.Add(attentionActions);
-        source.SelectionChanged += (_, _) => Render(); microphone.SelectionChanged += (_, _) => Render();
+        activePanel.Children.Add(attentionActions);
+        Body.Children.Add(activePanel);
+
+        waveformTimer.Tick += (_, _) => waveform.Push(Math.Max(systemLevel, app.Engine.MicrophoneEnabled ? microphoneLevel : 0));
+        microphone.SelectionChanged += (_, _) => Render();
         includeMicrophone.Checked += (_, _) => Render(); includeMicrophone.Unchecked += (_, _) => Render();
         ApplyPreferences();
         app.Engine.Changed += EngineChanged;
@@ -127,12 +179,53 @@ internal sealed class RecorderWindow : DesktopWindow
         Closed += (_, _) =>
         {
             closed = true;
+            waveformTimer.Stop();
             app.Engine.Changed -= EngineChanged;
             app.Engine.Level -= EngineLevel;
             app.Processing.Changed -= ProcessingChanged;
             app.Account.Changed -= AccountChanged;
         };
         Render();
+    }
+    private static Grid Row() => new() { ColumnSpacing = 6, MinHeight = RowHeight };
+    private static void Place(Grid row, params (FrameworkElement Element, bool Fill)[] items)
+    {
+        for (var i = 0; i < items.Length; i++)
+        {
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = items[i].Fill ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
+            items[i].Element.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(items[i].Element, i); row.Children.Add(items[i].Element);
+        }
+    }
+    private static TextBlock Separator() => RecorderTheme.Label("·", "RecappiLabelTertiary");
+    private Button Action(string name, object content, string style, Func<Task> action, string? tip = null)
+    {
+        var button = new Button { Content = content, Style = RecorderTheme.Style(style) };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, name);
+        ToolTipService.SetToolTip(button, tip ?? name);
+        var running = false;
+        button.Click += async (_, _) =>
+        {
+            if (running) return;
+            running = true;
+            try { await Run(action); }
+            finally { running = false; }
+        };
+        return button;
+    }
+    private Button Menu(string label, string glyph, Func<Task> action)
+    {
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var icon = RecorderTheme.Glyph(glyph, 14); icon.Style = RecorderTheme.Style("RecappiIconNeutral");
+        content.Children.Add(icon); content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+        return Action(label, content, "RecappiMenuButton", action, label);
+    }
+    private ToggleButton Toggle(string name, Func<Task> action)
+    {
+        var button = new ToggleButton { Content = RecorderTheme.Glyph("", 13), Style = RecorderTheme.Style("RecappiToggleButton") };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, name);
+        button.Click += async (_, _) => await Run(action);
+        return button;
     }
     private void ProcessingChanged(ProcessingEntry entry) => UiDispatcher.TryEnqueue(() =>
     {
@@ -167,8 +260,8 @@ internal sealed class RecorderWindow : DesktopWindow
             UiDispatcher.TryEnqueue(() =>
             {
                 if (closed) return;
-                var meter = value.Input == "system" ? systemMeter : microphoneMeter;
-                meter.Value = !IsActive || (value.Input == "microphone" && !app.Engine.MicrophoneEnabled) ? 0 : Math.Clamp((value.RmsDb + 60) / 60 * 100, 0, 100);
+                var level = !IsActive || (value.Input == "microphone" && !app.Engine.MicrophoneEnabled) ? 0 : Math.Clamp((value.RmsDb + 60) / 60, 0, 1);
+                if (value.Input == "system") systemLevel = level; else microphoneLevel = level;
             });
     }
     public void ApplyPreferences()
@@ -183,20 +276,37 @@ internal sealed class RecorderWindow : DesktopWindow
         refreshing = true; SetSetupEnabled(false);
         try
         {
-            var sourceId = (source.SelectedItem as AudioSource)?.Id ?? app.Preferences.SourceId;
+            var sourceId = selectedSource?.Id ?? app.Preferences.SourceId;
             var micId = (microphone.SelectedItem as MicrophoneDevice)?.Id ?? app.Preferences.MicrophoneId;
             var devices = await Task.Run(discover);
             if (closed) return;
-            var sources = devices.Item1.Select(item => item.Id == "system" ? item with { Label = "系统声音 · 所有应用" } : item).Concat([new AudioSource("microphone-only", "仅麦克风")]).ToArray();
-            source.ItemsSource = sources; microphone.ItemsSource = devices.Item2;
-            source.SelectedItem = sources.FirstOrDefault(x => x.Id == (sourceId ?? "system"));
+            sources = devices.Item1.Select(item => item.Id == "system" ? item with { Label = "系统声音 · 所有应用" } : item).Concat([new AudioSource("microphone-only", "仅麦克风")]).ToArray();
+            microphone.ItemsSource = devices.Item2;
+            SelectSource(sources.FirstOrDefault(x => x.Id == (sourceId ?? "system")));
             microphone.SelectedItem = micId is null ? devices.Item2.FirstOrDefault(x => x.IsDefault) ?? devices.Item2.FirstOrDefault() : devices.Item2.FirstOrDefault(x => x.Id == micId);
         }
         finally { refreshing = false; Render(); }
     }
+    private void SelectSource(AudioSource? value)
+    {
+        selectedSource = value;
+        sourceMenu.Items.Clear();
+        foreach (var item in sources)
+        {
+            var entry = new RadioMenuFlyoutItem { Text = item.Label, GroupName = "source", IsChecked = item == value };
+            entry.Click += (_, _) => { SelectSource(item); Render(); };
+            sourceMenu.Items.Add(entry);
+        }
+        sourceMenu.Items.Add(new MenuFlyoutSeparator());
+        var refresh = new MenuFlyoutItem { Text = "刷新声音设备", Icon = new FontIcon { Glyph = "" } };
+        refresh.Click += async (_, _) => await Run(RefreshDevices);
+        sourceMenu.Items.Add(refresh);
+        sourceLabel.Text = value?.Label ?? "选择声音来源";
+        ToolTipService.SetToolTip(source, value is null ? "选择声音来源" : "录制 " + value.Label + "，点击更换来源");
+    }
     private async Task Start()
     {
-        if (source.SelectedItem is not AudioSource selected) throw new InvalidOperationException("请选择可用的声音来源。");
+        if (selectedSource is not AudioSource selected) throw new InvalidOperationException("请选择可用的声音来源。");
         var withMic = includeMicrophone.IsChecked == true;
         var mic = microphone.SelectedItem as MicrophoneDevice;
         if (withMic && mic is null) throw new InvalidOperationException("请选择可用的麦克风。");
@@ -217,27 +327,50 @@ internal sealed class RecorderWindow : DesktopWindow
     {
         if (closed) return;
         var snapshot = app.Engine.Snapshot;
-        state.Text = snapshot.State switch { RecordingState.Starting => "启动中", RecordingState.Recording => "录音中", RecordingState.Stopping => "保存中", RecordingState.Done => "已保存到本地", RecordingState.Error => "录音失败", _ => "准备录音" };
-        elapsed.Text = TimeSpan.FromMilliseconds(snapshot.Recording?.DurationMs ?? 0).ToString(@"hh\:mm\:ss");
-        activeSource.Text = source.SelectedItem is AudioSource selected ? selected.Label + (app.Engine.MicrophoneEnabled ? " · 麦克风已开启" : " · 麦克风已关闭") : "";
-        if (IsActive) options.Hide();
+        var recording = snapshot.State == RecordingState.Recording;
+        state.Text = snapshot.State switch { RecordingState.Starting => "启动中…", RecordingState.Recording => "录音中", RecordingState.Stopping => "保存中…", RecordingState.Done => "已保存到本地", RecordingState.Error => "录音失败", _ => "准备录音" };
+        var duration = TimeSpan.FromMilliseconds(snapshot.Recording?.DurationMs ?? 0);
+        elapsed.Text = duration.ToString(duration.TotalHours >= 1 ? @"h\:mm\:ss" : @"mm\:ss");
+        elapsed.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
+        state.Visibility = recording ? Visibility.Collapsed : Visibility.Visible;
+        activeSource.Text = selectedSource is { } selected ? selected.Label + (app.Engine.MicrophoneEnabled ? " · 麦克风已开启" : " · 麦克风已关闭") : "";
+        ToolTipService.SetToolTip(activeSource, activeSource.Text);
+        if (IsActive) { options.Hide(); sourceMenu.Hide(); }
         var showDone = snapshot.State == RecordingState.Done && !dismissedDone;
-        idleRow.Visibility = IsActive || showDone ? Visibility.Collapsed : Visibility.Visible;
-        donePanel.Visibility = showDone ? Visibility.Visible : Visibility.Collapsed;
+        Show(idleRow, !IsActive && !showDone);
+        Show(donePanel, showDone);
         RenderSavedState(snapshot, showDone);
-        activePanel.Visibility = IsActive ? Visibility.Visible : Visibility.Collapsed;
+        Show(activePanel, IsActive);
+        if (IsActive && waveformTimer.IsEnabled == false) { waveform.Clear(); waveformTimer.Start(); recordingPulse.Begin(); }
+        else if (!IsActive && waveformTimer.IsEnabled) { waveformTimer.Stop(); recordingPulse.Stop(); }
+        recordingDot.Opacity = recording ? 1 : 0.45;
         SetSetupEnabled(!IsActive && !busy && !refreshing);
-        start.Visibility = IsActive ? Visibility.Collapsed : Visibility.Visible;
+        source.IsEnabled = !IsActive && !busy && !refreshing;
+        var starting = busy && !IsActive && snapshot.State != RecordingState.Done;
+        startProgress.IsActive = starting;
+        ((UIElement)((Grid)start.Content).Children[0]).Visibility = starting ? Visibility.Collapsed : Visibility.Visible;
         start.IsEnabled = CanStart;
         idleMicrophone.IsEnabled = !busy && !refreshing && !IsActive;
-        idleMicrophone.Opacity = includeMicrophone.IsChecked == true ? 1 : 0.5;
-        ToolTipService.SetToolTip(idleMicrophone, includeMicrophone.IsChecked == true ? "关闭麦克风录制" : "开启麦克风录制");
-        foreach (var button in new[] { stop, discard, toggle })
-        { button.Visibility = IsActive ? Visibility.Visible : Visibility.Collapsed; button.IsEnabled = !busy && snapshot.State == RecordingState.Recording; }
-        ToolTipService.SetToolTip(toggle, app.Engine.MicrophoneEnabled ? "关闭麦克风" : "开启麦克风");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, app.Engine.MicrophoneEnabled ? "关闭麦克风" : "开启麦克风");
-        toggle.Opacity = app.Engine.MicrophoneEnabled ? 1 : 0.55;
-        if (!IsActive) { systemMeter.Value = 0; microphoneMeter.Value = 0; attention.Text = ""; attention.Visibility = Visibility.Collapsed; attentionActions.Visibility = Visibility.Collapsed; }
+        idleMicrophone.IsChecked = includeMicrophone.IsChecked == true;
+        SetMicrophoneGlyph(idleMicrophone, includeMicrophone.IsChecked == true, "关闭麦克风录制", "开启麦克风录制");
+        foreach (var button in new Control[] { stop, discard, toggle })
+        { button.Visibility = IsActive ? Visibility.Visible : Visibility.Collapsed; button.IsEnabled = !busy && recording; }
+        toggle.IsChecked = app.Engine.MicrophoneEnabled;
+        SetMicrophoneGlyph(toggle, app.Engine.MicrophoneEnabled, "关闭麦克风", "开启麦克风");
+        if (!IsActive) { systemLevel = 0; microphoneLevel = 0; ClearAttention(); }
+    }
+    private static void SetMicrophoneGlyph(ToggleButton button, bool enabled, string onLabel, string offLabel)
+    {
+        ((FontIcon)button.Content).Glyph = enabled ? "" : "";
+        ToolTipService.SetToolTip(button, enabled ? onLabel : offLabel);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, enabled ? onLabel : offLabel);
+    }
+    private static void Show(UIElement element, bool visible)
+    {
+        var next = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (element.Visibility == next) return;
+        element.Visibility = next;
+        if (visible) RecorderTheme.FadeIn(element);
     }
     private void RenderSavedState(RecordingSnapshot snapshot, bool visible)
     {
@@ -262,6 +395,16 @@ internal sealed class RecorderWindow : DesktopWindow
             ProcessingStage.NeedsReconciliation => "需要核对云端状态",
             _ => "已保存到本机"
         };
+        var (glyph, tone) = entry?.Stage switch
+        {
+            ProcessingStage.Failed or ProcessingStage.Paused or ProcessingStage.NeedsReconciliation => ("", "Warning"),
+            ProcessingStage.Creating or ProcessingStage.Uploading or ProcessingStage.CompletingUpload => ("", "Neutral"),
+            ProcessingStage.SubmittingTranscription or ProcessingStage.Queued or ProcessingStage.Transcribing => ("", "Neutral"),
+            _ => ("", "Accent")
+        };
+        savedIcon.Glyph = glyph;
+        savedIcon.Style = RecorderTheme.Style("RecappiIcon" + tone);
+        savedStatus.Style = RecorderTheme.Style("RecappiStatus" + tone);
         savedDetail.Text = entry?.Stage switch
         {
             ProcessingStage.Failed or ProcessingStage.Paused or ProcessingStage.NeedsReconciliation => "本机音频已保留。打开录音查看状态并继续处理。",
@@ -275,16 +418,24 @@ internal sealed class RecorderWindow : DesktopWindow
     {
         foreach (var control in setup.Children.OfType<Control>()) control.IsEnabled = enabled;
     }
+    private void ClearAttention()
+    {
+        attention.Text = "";
+        attentionActions.Visibility = Visibility.Collapsed;
+        recordingControls.Visibility = Visibility.Visible;
+    }
     public void RequestAttention(AttentionAction action)
     {
         if (!IsActive || attention.Text.Length > 0) return;
-        attention.Text = action == AttentionAction.DurationLimit ? "已达到时长提醒。停止保存，还是继续录音？" : "声音来源似乎已停止。停止保存，还是继续录音？";
-        attention.Visibility = Visibility.Visible; attentionActions.Visibility = Visibility.Visible;
+        attention.Text = action == AttentionAction.DurationLimit ? "已达到时长提醒" : "声音来源似乎已停止";
+        ToolTipService.SetToolTip(attention, attention.Text + "。停止保存，还是继续录音？");
+        recordingControls.Visibility = Visibility.Collapsed;
+        Show(attentionActions, true);
     }
     public async Task SelectSuggestedSource(AudioSource suggested)
     {
         if (IsActive) return;
         await RefreshDevices();
-        source.SelectedItem = ((IEnumerable<AudioSource>)source.ItemsSource).FirstOrDefault(x => x.Id == suggested.Id);
+        SelectSource(sources.FirstOrDefault(x => x.Id == suggested.Id)); Render();
     }
 }

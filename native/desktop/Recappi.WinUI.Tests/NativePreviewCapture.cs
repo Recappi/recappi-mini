@@ -61,22 +61,56 @@ internal static class NativePreviewCapture
     }
     public static async Task Floating(string root, TestHost host)
     {
+        await Recorder(root, host, (name, window) => Stage(root, name, window));
+        await Caption(root);
+    }
+    public static async Task RecorderOnly(string root)
+    {
+        // Renders the XAML tree in-process, so it works without foreground activation.
+        // It omits the native frame; use the full capture for window-chrome evidence.
+        await using var host = new TestHost(Path.Combine(root, "recorder-preview"));
+        await Recorder(root, host, (name, window) => Snapshot(root, name, window));
+        await File.WriteAllTextAsync(Path.Combine(root, "capture-complete.json"), "{}");
+        Console.WriteLine("Snapshots: " + root);
+    }
+    private static async Task Snapshot(string root, string name, DesktopWindow window)
+    {
+        await Task.Delay(500);
+        var bitmap = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
+        await bitmap.RenderAsync(window.Content);
+        var pixels = System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.ToArray(await bitmap.GetPixelsAsync());
+        using var stream = File.Create(Path.Combine(root, name + ".png")).AsRandomAccessStream();
+        var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
+        var dpi = 96 * window.Content.XamlRoot.RasterizationScale;
+        encoder.SetPixelData(Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied,
+            (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, dpi, dpi, pixels);
+        await encoder.FlushAsync();
+    }
+    private static async Task Recorder(string root, TestHost host, Func<string, DesktopWindow, Task> stage)
+    {
         var recorder = new RecorderWindow(host, () => ([new AudioSource("system", "系统声音 · 所有应用")], [new MicrophoneDevice("sample", "验证麦克风", true)]));
         try
         {
             recorder.ApplyTheme("light"); await recorder.RefreshDevices(); recorder.Show();
-            await Stage(root, "recorder-idle-light", recorder);
-            recorder.ApplyTheme("dark"); await Stage(root, "recorder-idle-dark", recorder);
-            recorder.ApplyTheme("light");
+            await stage("recorder-idle-light", recorder);
+            recorder.ApplyTheme("dark"); await stage("recorder-idle-dark", recorder);
+            TestApp.Field<CheckBox>(recorder, "includeMicrophone").IsChecked = true;
+            await stage("recorder-idle-microphone-dark", recorder);
+            recorder.ApplyTheme("light"); await stage("recorder-idle-microphone-light", recorder);
             await TestApp.Call(recorder, "Start");
             await TestApp.Until(() => host.Engine.Snapshot.State == RecordingState.Recording, "Controlled recording did not start.");
-            await Task.Delay(1000); await Stage(root, "recorder-recording-light", recorder);
-            recorder.ApplyTheme("dark"); await Stage(root, "recorder-recording-dark", recorder);
-            recorder.ApplyTheme("light");
-            await host.StopRecording(); await Stage(root, "recorder-done-light", recorder);
-            recorder.ApplyTheme("dark"); await Stage(root, "recorder-done-dark", recorder);
+            await Task.Delay(1000); await stage("recorder-recording-light", recorder);
+            recorder.ApplyTheme("dark"); await stage("recorder-recording-dark", recorder);
+            recorder.RequestAttention(AttentionAction.DurationLimit);
+            await stage("recorder-attention-dark", recorder);
+            recorder.ApplyTheme("light"); await stage("recorder-attention-light", recorder);
+            await host.StopRecording(); await stage("recorder-done-light", recorder);
+            recorder.ApplyTheme("dark"); await stage("recorder-done-dark", recorder);
         }
         finally { recorder.Close(); }
+    }
+    private static async Task Caption(string root)
+    {
         var caption = new CaptionWindow(() => Task.CompletedTask);
         try
         {

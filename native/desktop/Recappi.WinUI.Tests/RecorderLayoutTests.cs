@@ -16,7 +16,7 @@ public partial class TestApp
             window.Show(); await window.RefreshDevices();
             await Until(() => window.IsUserVisible && window.Body.ActualHeight > 0, "Recorder did not appear.");
             await Task.Delay(250);
-            var row = Field<WrapPanel>(window, "idleRow");
+            var row = Field<Grid>(window, "idleRow");
             var rowBottom = row.TransformToVisual(window.Content).TransformPoint(new(0, row.ActualHeight)).Y;
             var scale = window.Content.XamlRoot.RasterizationScale;
             await File.WriteAllTextAsync(Path.Combine(root, "recorder-layout.json"), JsonSerializer.Serialize(new

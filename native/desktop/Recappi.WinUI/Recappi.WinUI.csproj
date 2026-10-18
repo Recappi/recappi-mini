@@ -25,6 +25,7 @@
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.6" />
     <ProjectReference Include="../Recappi.Core/Recappi.Core.csproj" />
     <Content Include="../Assets/*.ico" Link="Assets/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../Assets/Recappi.png" Link="Assets/Recappi.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- The modular WinUI package builds PRI/XBF but does not add them to dotnet publish. -->
   <Target Name="PublishWinUIResources" AfterTargets="ComputeFilesToPublish">

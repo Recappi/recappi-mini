@@ -156,7 +156,7 @@ internal class DesktopWindow : Window
     }
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
     [DllImport("dwmapi.dll")] private static extern int DwmFlush();
-    protected void CompactChrome(string moveLabel, int maximumHeight = 420)
+    protected void CompactChrome(string moveLabel, int maximumHeight = 420, string surfaceBrush = "ApplicationPageBackgroundThemeBrush")
     {
         retainSurface = true;
         // Floating recording/caption panels use an opaque surface for legibility over other apps.
@@ -194,9 +194,9 @@ internal class DesktopWindow : Window
         layout.Children.Add(grip); Grid.SetColumn(scroll, 1); layout.Children.Add(scroll);
         // The native frame already supplies the outline and corner clipping.
         // A second rounded outline inside it creates uneven concentric borders.
-        var border = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Border xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Background='{ThemeResource ApplicationPageBackgroundThemeBrush}'/>");
+        var border = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Border xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Background='{ThemeResource " + surfaceBrush + "}'/>");
         border.Child = layout;
-        var frame = (Grid)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Grid xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Background='{ThemeResource ApplicationPageBackgroundThemeBrush}'/>");
+        var frame = (Grid)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Grid xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Background='{ThemeResource " + surfaceBrush + "}'/>");
         frame.Children.Add(border); Content = frame;
         // Let Windows own drag hit testing instead of starting a nested move loop
         // from a XAML pointer event, which can arrive after the release event.

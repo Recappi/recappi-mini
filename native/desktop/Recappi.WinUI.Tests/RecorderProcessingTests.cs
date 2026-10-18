@@ -57,12 +57,12 @@ public partial class TestApp
             await host.SignIn();
             await Until(() => Field<TextBlock>(window, "savedStatus").Text == "云端处理失败", "Reconnecting lost persisted processing status.");
             Click(Field<Button>(window, "newRecording"));
-            await Until(() => Field<WrapPanel>(window, "donePanel").Visibility == Visibility.Collapsed, "New recording did not dismiss completion.");
+            await Until(() => Field<Grid>(window, "donePanel").Visibility == Visibility.Collapsed, "New recording did not dismiss completion.");
             Click(Field<Button>(window, "start"));
             await Until(() => host.Engine.Snapshot.State == RecordingState.Recording, "Could not start next recording while old cloud processing had failed.");
             await Task.Delay(100);
             Click(Field<Button>(window, "stop"));
-            await Until(() => host.Engine.Snapshot.State == RecordingState.Done && Field<WrapPanel>(window, "donePanel").Visibility == Visibility.Visible,
+            await Until(() => host.Engine.Snapshot.State == RecordingState.Done && Field<Grid>(window, "donePanel").Visibility == Visibility.Visible,
                 "Next recording did not reach completion.");
             Check(Field<TextBlock>(window, "savedStatus").Text == "已保存到本机", "Old recording's cloud failure leaked into the next recording.");
             if (capture) await File.WriteAllTextAsync(Path.Combine(root, "capture-complete.json"), "{\"controlledData\":true,\"completed\":true}");

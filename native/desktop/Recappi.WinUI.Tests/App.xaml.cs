@@ -82,6 +82,10 @@ public partial class TestApp : Application
         {
             await InputCalibrationPreview.Run(root); keeper.Close(); Exit(); return;
         }
+        if (commandLine.Contains("--capture-recorder-previews"))
+        {
+            await NativePreviewCapture.RecorderOnly(root); captureStart?.Close(); keeper.Close(); Exit(); return;
+        }
         if (commandLine.Contains("--capture-update-previews"))
         {
             await NativePreviewCapture.UpdateChannels(root); captureStart?.Close(); keeper.Close(); Exit(); return;
@@ -173,7 +177,7 @@ public partial class TestApp : Application
             Stage("start");
             Click(Field<Button>(window, "start"));
             await Until(() => host.Engine.Snapshot.State == RecordingState.Recording, "Start button did not record.");
-            await Until(() => Field<ProgressBar>(window, "systemMeter").Value > 0, "Recorded audio did not reach WinUI meter.");
+            await Until(() => Field<DotMatrixMeter>(window, "waveform").Latest > 0, "Recorded audio did not reach WinUI meter.");
             var id = host.Engine.Snapshot.Recording!.Id;
             Stage("hide");
             window.Hide(); await Task.Delay(200);

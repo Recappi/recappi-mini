@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$BinaryDirectory, [switch]$UpdateChannels, [switch]$RecorderFlow, [switch]$InteractiveStart)
+param([Parameter(Mandatory)][string]$BinaryDirectory, [switch]$UpdateChannels, [switch]$RecorderOnly, [switch]$RecorderFlow, [switch]$InteractiveStart)
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
 $binary = [IO.Path]::GetFullPath((Join-Path $workspace $BinaryDirectory))
@@ -7,6 +7,7 @@ if (-not (Test-Path -LiteralPath $executable)) { throw 'Build the native preview
 $ffmpeg = (Get-Command ffmpeg -ErrorAction Stop).Source
 $previewArgument = if ($UpdateChannels) { '--capture-update-previews' } else { '--capture-native-previews' }
 $previewArguments = @($previewArgument)
+if ($RecorderOnly) { $previewArguments = @('--capture-recorder-previews') }
 if ($RecorderFlow) { $previewArguments = @('--only', 'recorder-saved-processing', '--capture-recorder-flow') }
 if ($InteractiveStart) { $previewArguments += '--interactive-preview' }
 $process = Start-Process -FilePath $executable -ArgumentList $previewArguments -WorkingDirectory $workspace -WindowStyle Hidden -PassThru
