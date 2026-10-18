@@ -185,7 +185,9 @@ internal sealed class SettingsWindow : DesktopWindow
         if (group is null)
         {
             group = new StackPanel();
-            section.Children.Add(Ui.Surface(group, new Thickness(0)));
+            var surface = new Border { Child = group, CornerRadius = new CornerRadius(10) };
+            RecappiTheme.Bind(surface, "RecappiCardSubtleActive", brush => surface.Background = brush);
+            section.Children.Add(surface);
         }
         var row = new Grid { ColumnSpacing = 16, Padding = new Thickness(16, 10, 12, 10), MinHeight = 52, BorderThickness = new Thickness(0, group.Children.Count == 0 ? 0 : 1, 0, 0) };
         RecappiTheme.Bind(row, "RecappiBorderHairline", brush => row.BorderBrush = brush);

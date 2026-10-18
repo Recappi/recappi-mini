@@ -10,8 +10,8 @@ namespace Recappi.WinUI;
 // both themes, captions only, and controls that appear while the pointer is over it.
 internal sealed class CaptionWindow : DesktopWindow
 {
-    private const double CompactHeight = 94;
-    private const double ExpandedHeight = 216;
+    private const double CompactHeight = 62;
+    private const double ExpandedHeight = 184;
     private readonly Dictionary<(string Id, string Stream), CaptionDelta> segments = [];
     private readonly TextBlock status = Ui.Text("开始录音后显示字幕。");
     private readonly TextBlock archiveError = Ui.Text("");
@@ -39,12 +39,12 @@ internal sealed class CaptionWindow : DesktopWindow
     private bool hasTranslation;
     private bool followAfterLayout;
     private bool closed;
-    public CaptionWindow(Func<Task> retry) : base("Recappi Mini · 实时字幕", 542, 94)
+    public CaptionWindow(Func<Task> retry) : base("Recappi Mini · 实时字幕", 542, 62)
     {
         Body.Padding = new Thickness(13, 8, 14, 8); Body.Spacing = 6; Body.MinHeight = CompactHeight;
-        CompactChrome("移动字幕面板", 600, "RecappiCaptionScrim", glass: true, minimumHeight: 60);
+        CompactChrome("移动字幕面板", 600, "RecappiCaptionScrim", glass: true, minimumHeight: 40);
         // The subtitle scrim is dark in both app themes, as on macOS.
-        FixedDarkTheme = true; ApplyTheme("dark");
+
         Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 11.5;
         status.Style = RecappiTheme.Style("RecappiCaptionBadge"); status.IsTextSelectionEnabled = false;
         archiveError.Style = RecappiTheme.Style("RecappiError");
@@ -183,7 +183,7 @@ internal sealed class CaptionWindow : DesktopWindow
         {
             original.FontSize = 16; original.LineHeight = 22; original.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
             translation.FontSize = 15; translation.LineHeight = 21; translation.FontWeight = Microsoft.UI.Text.FontWeights.Medium;
-            originalScroll.MaxHeight = translationScroll.MaxHeight = 170;
+            originalScroll.MaxHeight = translationScroll.MaxHeight = 140;
             Body.Padding = new Thickness(13, 14, 14, 12); Body.MinHeight = ExpandedHeight;
             stage.MinHeight = 0; columns.VerticalAlignment = VerticalAlignment.Top;
         }

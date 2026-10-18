@@ -20,12 +20,12 @@ internal static class RecorderInputProbe
             await recorder.RefreshDevices(); recorder.Show();
             await TestApp.Until(() => recorder.IsUserVisible, "Recorder did not appear.");
             await Task.Delay(1200);
-            var toggle = TestApp.Field<ToggleButton>(recorder, "idleMicrophone");
-            var include = TestApp.Field<CheckBox>(recorder, "includeMicrophone");
-            var before = include.IsChecked == true;
-            Click(Center(recorder, toggle));
+            var chip = TestApp.Field<Button>(recorder, "optionsChip");
+            var options = TestApp.Field<Flyout>(recorder, "options");
+            var opened = false; options.Opened += (_, _) => opened = true;
+            Click(Center(recorder, chip));
             await Task.Delay(600);
-            var clicked = (include.IsChecked == true) != before;
+            var clicked = opened; options.Hide(); await Task.Delay(300);
             var start = recorder.AppWindow.Position;
             var scale = recorder.Content.XamlRoot.RasterizationScale;
             // Top padding above the control row is plain pill surface.

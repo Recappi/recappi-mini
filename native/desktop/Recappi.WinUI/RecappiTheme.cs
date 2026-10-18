@@ -45,7 +45,7 @@ internal static class RecappiTheme
         ("RecappiGlassFill", 0x29FFFFFF, 0x47000000),
         ("RecappiGlassEdge", 0xFFDADADD, 0xFF3F3F42),
         // Live captions: a fixed dark subtitle scrim and white text in both themes.
-        ("RecappiCaptionScrim", 0x8C000000, 0x8C000000),
+        ("RecappiCaptionScrim", 0xB3585858, 0xB0101010),
         ("RecappiCaptionText", 0xF5FFFFFF, 0xF5FFFFFF),
         ("RecappiCaptionTextSecondary", 0xC7FFFFFF, 0xC7FFFFFF),
         ("RecappiCaptionTextMuted", 0x99FFFFFF, 0x99FFFFFF),

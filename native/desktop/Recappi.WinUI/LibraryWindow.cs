@@ -108,9 +108,16 @@ internal sealed class LibraryWindow : DesktopWindow
         var moreActions = new StackPanel { Spacing = 2, MinWidth = 200 };
         var more = Ui.IconButton("更多操作", "", () => Task.CompletedTask, this);
         more.Flyout = new Flyout { Content = moreActions };
-        var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        foreach (var tool in new FrameworkElement[] { search, importButton, refreshButton, returnToRecorder, more }) { tool.VerticalAlignment = VerticalAlignment.Center; toolbar.Children.Add(tool); }
-        search.Margin = new Thickness(0, 0, 6, 0);
+        var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        var magnifier = RecappiTheme.Glyph("\uE721", 12); magnifier.Style = RecappiTheme.Style("RecappiIconNeutral"); magnifier.Margin = new Thickness(12, 0, 0, 0);
+        foreach (var key in new[] { "TextControlBackground", "TextControlBackgroundPointerOver", "TextControlBackgroundFocused", "TextControlBorderBrush", "TextControlBorderBrushPointerOver", "TextControlBorderBrushFocused" })
+            search.Resources[key] = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        search.BorderThickness = new Thickness(0); search.Width = 230; search.Padding = new Thickness(6, 6, 6, 0);
+        foreach (var tool in new FrameworkElement[] { magnifier, search, importButton, refreshButton, returnToRecorder, more }) { tool.VerticalAlignment = VerticalAlignment.Center; tools.Children.Add(tool); }
+        foreach (var button in new[] { importButton, refreshButton, returnToRecorder, more }) { button.Width = button.Height = 30; }
+        var toolbar = new Border { Child = tools, CornerRadius = new CornerRadius(18), Padding = new Thickness(0, 2, 4, 2), BorderThickness = new Thickness(1) };
+        RecappiTheme.Bind(toolbar, "RecappiControlHover", brush => toolbar.Background = brush);
+        RecappiTheme.Bind(toolbar, "RecappiBorderHairline", brush => toolbar.BorderBrush = brush);
 
         // Sidebar: account header · recordings by day · import status and cloud link.
         var sidebar = new Grid { RowSpacing = 6, Padding = new Thickness(10, 2, 10, 10) };
