@@ -88,6 +88,16 @@ internal static class NativePreviewCapture
             (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, dpi, dpi, pixels);
         await encoder.FlushAsync();
     }
+    private static async Task SnapshotElement(string root, string name, FrameworkElement element)
+    {
+        var bitmap = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
+        await bitmap.RenderAsync(element);
+        var pixels = System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions.ToArray(await bitmap.GetPixelsAsync());
+        using var stream = File.Create(Path.Combine(root, name + ".png")).AsRandomAccessStream();
+        var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
+        encoder.SetPixelData(Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 144, 144, pixels);
+        await encoder.FlushAsync();
+    }
     private static async Task Recorder(string root, TestHost host, Func<string, DesktopWindow, Task> stage)
     {
         var recorder = new RecorderWindow(host, () => ([new AudioSource("system", "系统声音 · 所有应用")], [new MicrophoneDevice("sample", "验证麦克风", true)]));
@@ -96,6 +106,19 @@ internal static class NativePreviewCapture
             recorder.ApplyTheme("light"); await recorder.RefreshDevices(); recorder.Show();
             await stage("recorder-idle-light", recorder);
             recorder.ApplyTheme("dark"); await stage("recorder-idle-dark", recorder);
+            if (Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_SNAPSHOT") == "1" || stage.Method.Name.Contains("RecorderOnly"))
+            {
+                var options = TestApp.Field<Flyout>(recorder, "options");
+                foreach (var theme in new[] { "light", "dark" })
+                {
+                    recorder.ApplyTheme(theme);
+                    options.ShowAt(TestApp.Field<Button>(recorder, "optionsChip"));
+                    await Task.Delay(700);
+                    await SnapshotElement(root, "recorder-options-" + theme, (FrameworkElement)options.Content);
+                    options.Hide(); await Task.Delay(200);
+                }
+                recorder.ApplyTheme("dark");
+            }
             TestApp.Field<CheckBox>(recorder, "includeMicrophone").IsChecked = true;
             await stage("recorder-idle-microphone-dark", recorder);
             recorder.ApplyTheme("light"); await stage("recorder-idle-microphone-light", recorder);

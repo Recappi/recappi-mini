@@ -104,6 +104,8 @@ internal static class RecappiTheme
     {
         apply(Brush(key, element.ActualTheme));
         element.ActualThemeChanged += (sender, _) => apply(Brush(key, sender.ActualTheme));
+        // ActualThemeChanged does not fire when an element enters an already themed tree (e.g. a flyout).
+        element.Loaded += (sender, _) => apply(Brush(key, ((FrameworkElement)sender).ActualTheme));
     }
     public static Style Style(string key) { Ensure(); return (Style)Application.Current.Resources[key]; }
 
@@ -434,5 +436,41 @@ internal sealed class DotMatrixMeter : Canvas
                 columns[column][row].Lit.Opacity = fill <= 0 ? 0 : fill >= 1 ? 1 : fill * fill * (3 - 2 * fill);
             }
         }
+    }
+}
+
+// Playback scrubber bars in the macOS style. Without decoded peaks every bar has the
+// same height, so the shape never implies audio content it does not know.
+internal sealed class WaveformBars : Canvas
+{
+    private readonly List<Rectangle> bars = [];
+    private double progress;
+    public double Progress { get => progress; set { progress = Math.Clamp(value, 0, 1); Paint(); } }
+    public WaveformBars()
+    {
+        IsHitTestVisible = false; Height = 32;
+        SizeChanged += (_, _) => Rebuild();
+        ActualThemeChanged += (_, _) => Paint();
+        Loaded += (_, _) => Paint();
+    }
+    private void Rebuild()
+    {
+        var count = (int)Math.Clamp((ActualWidth - 14) / 5.2, 18, 128);
+        Children.Clear(); bars.Clear();
+        var step = (ActualWidth - 14) / count; var width = Math.Max(1.8, step - 2.4);
+        for (var i = 0; i < count; i++)
+        {
+            var bar = new Rectangle { Width = width, Height = 10, RadiusX = width / 2, RadiusY = width / 2 };
+            SetLeft(bar, 7 + i * step); SetTop(bar, (ActualHeight - 10) / 2);
+            Children.Add(bar); bars.Add(bar);
+        }
+        Paint();
+    }
+    private void Paint()
+    {
+        if (bars.Count == 0) return;
+        var played = RecappiTheme.Brush("RecappiAccent", ActualTheme); var rest = RecappiTheme.Brush("RecappiLabelTertiary", ActualTheme);
+        var cut = (int)Math.Round(progress * bars.Count);
+        for (var i = 0; i < bars.Count; i++) bars[i].Fill = i < cut ? played : rest;
     }
 }

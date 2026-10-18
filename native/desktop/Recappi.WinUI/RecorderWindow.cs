@@ -29,6 +29,7 @@ internal sealed class RecorderWindow : DesktopWindow
     private double systemLevel;
     private double microphoneLevel;
     private readonly StackPanel setup = new() { Spacing = 12 };
+    private readonly List<Control> setupControls = [];
     private readonly Grid idleRow = Row();
     private readonly StackPanel activePanel = new() { Spacing = 6 };
     private readonly Grid recordingControls = Row();
@@ -78,17 +79,35 @@ internal sealed class RecorderWindow : DesktopWindow
         PlaceAtTopRight();
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) { presenter.IsAlwaysOnTop = true; presenter.IsMaximizable = false; }
 
-        // Rarely changed options stay in a flyout so the pill remains one row.
-        foreach (var control in new UIElement[] { title, microphone, includeMicrophone, captions }) setup.Children.Add(control);
-        setup.Children.Add(Ui.Button("刷新声音设备", RefreshDevices, this));
-        var originalLanguage = new TextBox { Header = "字幕语言", Text = app.Preferences.CaptionLanguage, MaxLength = 20 };
-        var translationLanguage = new TextBox { Header = "翻译语言（留空关闭）", Text = app.Preferences.TranslationLanguage, MaxLength = 20 };
+        // Options popover laid out like macOS: accent section headers, label rows with
+        // controls on the right, and an "open settings" footer below a divider.
+        setup.Spacing = 0; setup.Padding = new Thickness(18, 16, 18, 10);
+        var includeSwitch = OptionSwitch(includeMicrophone); var captionSwitch = OptionSwitch(captions);
+        var originalLanguage = new TextBox { Text = app.Preferences.CaptionLanguage, MaxLength = 20, Width = 120 };
+        var translationLanguage = new TextBox { Text = app.Preferences.TranslationLanguage, MaxLength = 20, Width = 120, PlaceholderText = "关闭" };
         originalLanguage.TextChanged += (_, _) => app.SetRecordingLanguage(originalLanguage.Text, translationLanguage.Text);
         translationLanguage.TextChanged += (_, _) => app.SetRecordingLanguage(originalLanguage.Text, translationLanguage.Text);
-        setup.Children.Add(originalLanguage); setup.Children.Add(translationLanguage);
-        setup.Children.Add(Ui.Row(Ui.Button("设置", () => { options.Hide(); app.ShowSettings(); return Task.CompletedTask; }, this),
-            Ui.Button("账号", () => { options.Hide(); app.ShowAccount(); return Task.CompletedTask; }, this), Ui.Button("退出", app.Quit, this)));
-        options.Content = new ScrollViewer { Content = setup, MaxHeight = 480, Width = 310 };
+        title.Header = null; title.Width = 170; microphone.Header = null; microphone.Width = 170; microphone.HorizontalAlignment = HorizontalAlignment.Right;
+        OptionSection("录音");
+        OptionRow("标题", null, title);
+        OptionRow("麦克风", null, microphone);
+        OptionRow("录制麦克风", "把麦克风混入录音", includeSwitch);
+        OptionSection("实时字幕");
+        OptionRow("开启", "录音时显示浮动字幕条", captionSwitch);
+        OptionRow("字幕语言", null, originalLanguage);
+        OptionRow("翻译", "留空则不翻译", translationLanguage);
+        var refresh = Ui.Button("刷新声音设备", RefreshDevices, this);
+        refresh.Style = RecappiTheme.Style("RecappiQuietButton");
+        RecappiTheme.Bind(refresh, "RecappiAccent", brush => refresh.Foreground = brush);
+        refresh.HorizontalAlignment = HorizontalAlignment.Left; refresh.Margin = new Thickness(-6, 6, 0, 0);
+        setup.Children.Add(refresh); setupControls.Add(refresh);
+        var divider = new Border { Height = 1, Margin = new Thickness(0, 12, 0, 6) };
+        RecappiTheme.Bind(divider, "RecappiBorderSubtle", brush => divider.Background = brush);
+        setup.Children.Add(divider);
+        setup.Children.Add(OptionLink("", "打开设置…", () => { options.Hide(); app.ShowSettings(); return Task.CompletedTask; }));
+        setup.Children.Add(OptionLink("", "账号", () => { options.Hide(); app.ShowAccount(); return Task.CompletedTask; }));
+        setup.Children.Add(OptionLink("", "退出 Recappi", app.Quit));
+        options.Content = new ScrollViewer { Content = setup, MaxHeight = 520, Width = 360 };
 
         // Idle: brand tile · source · microphone · options · hide · record.
         var library = Action("录音库", RecappiTheme.LogoTile(RowHeight), "RecappiIconButton", () => { app.ShowLibrary(); Hide(); return Task.CompletedTask; }, "打开录音库");
@@ -203,6 +222,46 @@ internal sealed class RecorderWindow : DesktopWindow
         Render();
     }
     private static Grid Row() => new() { ColumnSpacing = 6, MinHeight = RowHeight };
+    private void OptionSection(string text)
+    {
+        var header = new TextBlock { Text = text, FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.Bold, CharacterSpacing = 80, Style = RecappiTheme.Style("RecappiStatusAccent"),
+            Margin = new Thickness(0, setup.Children.Count == 0 ? 0 : 16, 0, 6) };
+        setup.Children.Add(header);
+    }
+    private void OptionRow(string label, string? detail, FrameworkElement control)
+    {
+        var row = new Grid { ColumnSpacing = 12, MinHeight = 36, Margin = new Thickness(0, 3, 0, 3) };
+        row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var text = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = label, Style = RecappiTheme.Style("RecappiBody"), FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium });
+        if (detail is not null) text.Children.Add(new TextBlock { Text = detail, Style = RecappiTheme.Style("RecappiCaption"), FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
+        row.Children.Add(text);
+        control.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(control, 1); row.Children.Add(control);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(control, label);
+        if (control is Control input) setupControls.Add(input);
+        setup.Children.Add(row);
+    }
+    // The CheckBox stays the preference model; the switch is its macOS-style view.
+    private static ToggleSwitch OptionSwitch(CheckBox model)
+    {
+        var view = new ToggleSwitch { IsOn = model.IsChecked == true, OnContent = "", OffContent = "", MinWidth = 0, Margin = new Thickness(0, 0, -12, 0) };
+        view.Toggled += (_, _) => { if (model.IsChecked != view.IsOn) model.IsChecked = view.IsOn; };
+        model.Checked += (_, _) => view.IsOn = true; model.Unchecked += (_, _) => view.IsOn = false;
+        return view;
+    }
+    private Button OptionLink(string glyph, string text, Func<Task> action)
+    {
+        var content = new Grid { ColumnSpacing = 8 };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); content.ColumnDefinitions.Add(new ColumnDefinition()); content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var icon = RecappiTheme.Glyph(glyph, 12); icon.Style = RecappiTheme.Style("RecappiIconNeutral");
+        var label = new TextBlock { Text = text, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center };
+        var arrow = RecappiTheme.Glyph("\uE8A7", 9); arrow.Style = RecappiTheme.Style("RecappiIconNeutral"); arrow.Opacity = 0.6;
+        content.Children.Add(icon); Grid.SetColumn(label, 1); content.Children.Add(label); Grid.SetColumn(arrow, 2); content.Children.Add(arrow);
+        var button = Action(text, content, "RecappiMenuButton", action);
+        button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.Height = 30; button.Margin = new Thickness(-8, 0, -8, 0); button.Foreground = null;
+        RecappiTheme.Bind(button, "RecappiTextSecondary", brush => button.Foreground = brush);
+        return button;
+    }
     private static void Place(Grid row, params (FrameworkElement Element, bool Fill)[] items)
     {
         for (var i = 0; i < items.Length; i++)
@@ -431,7 +490,7 @@ internal sealed class RecorderWindow : DesktopWindow
     }
     private void SetSetupEnabled(bool enabled)
     {
-        foreach (var control in setup.Children.OfType<Control>()) control.IsEnabled = enabled;
+        foreach (var control in setupControls) control.IsEnabled = enabled;
     }
     private void ClearAttention()
     {

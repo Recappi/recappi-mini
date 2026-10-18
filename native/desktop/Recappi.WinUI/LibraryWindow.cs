@@ -66,6 +66,7 @@ internal sealed class LibraryWindow : DesktopWindow
     private readonly Border statusChip = new();
     private readonly TextBlock playbackLabel = new() { Text = "未加载音频", TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock librarySubtitle = new();
+    private readonly WaveformBars bars = new();
     private readonly TextBlock meetingLabel = Ui.Text("");
     private readonly Grid detailLayout = new() { RowSpacing = 12, Visibility = Visibility.Collapsed };
     private readonly StackPanel emptyDetail = new() { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -91,6 +92,7 @@ internal sealed class LibraryWindow : DesktopWindow
         list.ItemContainerStyle = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><Setter Property='HorizontalContentAlignment' Value='Stretch'/><Setter Property='HorizontalAlignment' Value='Stretch'/><Setter Property='Padding' Value='8,0'/><Setter Property='Margin' Value='0,0'/><Setter Property='MinHeight' Value='32'/><Setter Property='CornerRadius' Value='6'/></Style>");
         // Plain day labels without the default ListView header divider line.
         var groupHeader = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewHeaderItem'><Setter Property='MinHeight' Value='0'/><Setter Property='Padding' Value='10,12,0,4'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ListViewHeaderItem'><ContentPresenter Content='{TemplateBinding Content}' ContentTemplate='{TemplateBinding ContentTemplate}' Margin='{TemplateBinding Padding}'/></ControlTemplate></Setter.Value></Setter></Style>");
+        list.Resources = (ResourceDictionary)Microsoft.UI.Xaml.Markup.XamlReader.Load(SidebarSelection);
         list.GroupStyle.Add(new GroupStyle { HidesIfEmpty = true, HeaderContainerStyle = groupHeader, HeaderTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><TextBlock Text='{Binding Key}' FontSize='11' FontWeight='SemiBold' Opacity='0.5'/></DataTemplate>") });
         ((ScrollViewer)Content).Content = null;
         var layout = new Grid();
@@ -236,7 +238,15 @@ internal sealed class LibraryWindow : DesktopWindow
         playbackTime.Style = RecappiTheme.Style("RecappiLabelSecondary"); playbackTime.FontSize = 11; playbackTime.IsTextSelectionEnabled = false;
         status.Children.Add(playbackLabel); status.Children.Add(playbackTime);
         Grid.SetColumn(status, 1); audioControls.Children.Add(status);
-        Grid.SetColumn(seek, 2); audioControls.Children.Add(seek);
+        var scrubber = new Grid { Height = 32, VerticalAlignment = VerticalAlignment.Center };
+        scrubber.Children.Add(bars);
+        foreach (var key in new[] { "SliderTrackFill", "SliderTrackFillPointerOver", "SliderTrackFillPressed", "SliderTrackFillDisabled", "SliderTrackValueFill", "SliderTrackValueFillPointerOver", "SliderTrackValueFillPressed", "SliderTrackValueFillDisabled", "SliderThumbBackground", "SliderThumbBackgroundPointerOver", "SliderThumbBackgroundPressed", "SliderThumbBackgroundDisabled", "SliderOuterThumbBackground", "SliderThumbBorderBrush" })
+            seek.Resources[key] = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        scrubber.Children.Add(seek);
+        seek.ValueChanged += (_, _) => bars.Progress = seek.Maximum <= 0 ? 0 : seek.Value / seek.Maximum;
+        seek.IsEnabledChanged += (_, _) => bars.Opacity = seek.IsEnabled ? 1 : 0.46;
+        bars.Opacity = 0.46;
+        Grid.SetColumn(scrubber, 2); audioControls.Children.Add(scrubber);
         var speed = new Button { Content = "1×", Style = RecappiTheme.Style("RecappiSpeedButton") };
         var speeds = new MenuFlyout();
         foreach (var rate in new double[] { 0.5, 1, 1.5, 2, 3 })
@@ -448,6 +458,13 @@ internal sealed class LibraryWindow : DesktopWindow
             }
         }
     }
+    private const string SidebarSelection = "<ResourceDictionary xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><ResourceDictionary.ThemeDictionaries>" +
+        "<ResourceDictionary x:Key='Light'>" + SelectionBrushes + "</ResourceDictionary><ResourceDictionary x:Key='Dark'>" + SelectionBrushes + "</ResourceDictionary></ResourceDictionary.ThemeDictionaries></ResourceDictionary>";
+    private const string SelectionBrushes =
+        "<StaticResource x:Key='ListViewItemBackgroundSelected' ResourceKey='RecappiAccent'/><StaticResource x:Key='ListViewItemBackgroundSelectedPointerOver' ResourceKey='RecappiAccentHover'/>" +
+        "<StaticResource x:Key='ListViewItemBackgroundSelectedPressed' ResourceKey='RecappiAccentHover'/><StaticResource x:Key='ListViewItemForegroundSelected' ResourceKey='RecappiOnAccent'/>" +
+        "<StaticResource x:Key='ListViewItemForegroundSelectedPointerOver' ResourceKey='RecappiOnAccent'/><StaticResource x:Key='ListViewItemForegroundSelectedPressed' ResourceKey='RecappiOnAccent'/>" +
+        "<SolidColorBrush x:Key='ListViewItemSelectionIndicatorBrush' Color='Transparent'/><SolidColorBrush x:Key='ListViewItemSelectionIndicatorPointerOverBrush' Color='Transparent'/><SolidColorBrush x:Key='ListViewItemSelectionIndicatorPressedBrush' Color='Transparent'/>";
     private sealed class DayGroup(string key, IEnumerable<LibraryRecording> items) : List<LibraryRecording>(items) { public string Key { get; } = key; }
     // Sidebar sections like the macOS Cloud list: today, yesterday, then dates.
     private static List<DayGroup> Group(IEnumerable<LibraryRecording> rows)
