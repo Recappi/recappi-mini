@@ -463,10 +463,11 @@ internal sealed class LibraryWindow : DesktopWindow
     }
     private const string SidebarSelection = "<ResourceDictionary xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><ResourceDictionary.ThemeDictionaries>" +
         "<ResourceDictionary x:Key='Light'>" + SelectionBrushes + "</ResourceDictionary><ResourceDictionary x:Key='Dark'>" + SelectionBrushes + "</ResourceDictionary></ResourceDictionary.ThemeDictionaries></ResourceDictionary>";
+    // macOS sidebar selection: the system blue with white text, not the Recappi accent.
     private const string SelectionBrushes =
-        "<StaticResource x:Key='ListViewItemBackgroundSelected' ResourceKey='RecappiAccent'/><StaticResource x:Key='ListViewItemBackgroundSelectedPointerOver' ResourceKey='RecappiAccentHover'/>" +
-        "<StaticResource x:Key='ListViewItemBackgroundSelectedPressed' ResourceKey='RecappiAccentHover'/><StaticResource x:Key='ListViewItemForegroundSelected' ResourceKey='RecappiOnAccent'/>" +
-        "<StaticResource x:Key='ListViewItemForegroundSelectedPointerOver' ResourceKey='RecappiOnAccent'/><StaticResource x:Key='ListViewItemForegroundSelectedPressed' ResourceKey='RecappiOnAccent'/>" +
+        "<SolidColorBrush x:Key='ListViewItemBackgroundSelected' Color='#FF0A84FF'/><SolidColorBrush x:Key='ListViewItemBackgroundSelectedPointerOver' Color='#FF0070E8'/>" +
+        "<SolidColorBrush x:Key='ListViewItemBackgroundSelectedPressed' Color='#FF0063CE'/><SolidColorBrush x:Key='ListViewItemForegroundSelected' Color='White'/>" +
+        "<SolidColorBrush x:Key='ListViewItemForegroundSelectedPointerOver' Color='White'/><SolidColorBrush x:Key='ListViewItemForegroundSelectedPressed' Color='White'/>" +
         "<SolidColorBrush x:Key='ListViewItemSelectionIndicatorBrush' Color='Transparent'/><SolidColorBrush x:Key='ListViewItemSelectionIndicatorPointerOverBrush' Color='Transparent'/><SolidColorBrush x:Key='ListViewItemSelectionIndicatorPressedBrush' Color='Transparent'/>";
     private sealed class DayGroup(string key, IEnumerable<LibraryRecording> items) : List<LibraryRecording>(items) { public string Key { get; } = key; }
     // Sidebar sections like the macOS Cloud list: today, yesterday, then dates.
