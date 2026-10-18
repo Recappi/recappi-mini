@@ -262,9 +262,8 @@ internal class DesktopWindow : Window
         {
             SetTitleBar(frame);
             Body.LayoutUpdated += (_, _) => UpdatePassthrough(frame);
-            // The zero-width move target shows keyboard focus as an accent outline on the pill.
-            grip.GotFocus += (_, _) => { if (grip.FocusState == FocusState.Keyboard) { border.BorderThickness = new Thickness(2); border.BorderBrush = RecappiTheme.Brush("RecappiAccent", border.ActualTheme); } };
-            grip.LostFocus += (_, _) => border.BorderThickness = new Thickness(0);
+            // The zero-width move target keeps arrow-key moving without drawing an outline;
+            // a programmatic first focus was being reported as keyboard focus and rimmed the pill in green.
             border.ActualThemeChanged += (_, _) => UpdateGlass(border);
             border.Loaded += (_, _) => UpdateGlass(border);
         }

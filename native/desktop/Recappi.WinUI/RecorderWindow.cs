@@ -114,7 +114,7 @@ internal sealed class RecorderWindow : DesktopWindow
         library.Width = library.Height = RowHeight; library.Background = null;
         var sourceContent = new Grid { ColumnSpacing = 6 };
         sourceContent.ColumnDefinitions.Add(new ColumnDefinition()); sourceContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var chevron = RecappiTheme.Glyph("\uE8CB", 10); chevron.Style = RecappiTheme.Style("RecappiIconNeutral");
+        var chevron = RecappiTheme.Glyph("\uEC8F", 11); chevron.Style = RecappiTheme.Style("RecappiIconNeutral");
         Grid.SetColumn(chevron, 1); sourceContent.Children.Add(sourceLabel); sourceContent.Children.Add(chevron);
         source = Action("声音来源", sourceContent, "RecappiChipButton", () => Task.CompletedTask);
         source.HorizontalAlignment = HorizontalAlignment.Stretch; source.HorizontalContentAlignment = HorizontalAlignment.Stretch; source.Padding = new Thickness(10, 0, 9, 0);
@@ -127,7 +127,7 @@ internal sealed class RecorderWindow : DesktopWindow
         optionsContent.Children.Add(optionsChevron);
         optionsChip = Action("录音选项", optionsContent, "RecappiChipButton", () => Task.CompletedTask, "录音选项：麦克风、字幕、标题与语言");
         optionsChip.Padding = new Thickness(9, 0, 8, 0); optionsChip.Flyout = options;
-        var hideIdle = Action("隐藏", RecappiTheme.Glyph("", 10), "RecappiIconButton", () => { options.Hide(); Hide(); return Task.CompletedTask; }, "隐藏面板");
+        var hideIdle = Action("隐藏", RecappiTheme.Glyph("", 11), "RecappiIconButton", () => { options.Hide(); Hide(); return Task.CompletedTask; }, "隐藏面板");
         hideIdle.Width = 24;
         var startContent = new Grid();
         startContent.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 10, Height = 10, Fill = startProgress.Foreground });
@@ -158,7 +158,7 @@ internal sealed class RecorderWindow : DesktopWindow
         // Recording: live header above waveform · microphone · more · stop.
         var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 6, Height = 6, Style = RecappiTheme.Style("RecappiDotAccent"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 0) };
         recordingDot = dot; recordingPulse = RecappiTheme.Pulse(dot);
-        var captionButton = Action("字幕", RecappiTheme.Glyph("\uE8BD", 12), "RecappiIconButton", () => { app.ShowCaptions(); return Task.CompletedTask; }, "显示实时字幕");
+        var captionButton = Action("字幕", RecappiTheme.Glyph("\uED1E", 12), "RecappiIconButton", () => { app.ShowCaptions(); return Task.CompletedTask; }, "显示实时字幕");
         var hideRecording = Action("隐藏", RecappiTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板 · 录音在后台继续");
         captionButton.Width = captionButton.Height = hideRecording.Width = hideRecording.Height = 18;
         ((FontIcon)captionButton.Content).FontSize = 10.5; ((FontIcon)hideRecording.Content).FontSize = 9;
@@ -407,7 +407,8 @@ internal sealed class RecorderWindow : DesktopWindow
         elapsed.Text = duration.ToString(duration.TotalHours >= 1 ? @"h\:mm\:ss" : @"mm\:ss");
         elapsed.Visibility = recording ? Visibility.Visible : Visibility.Collapsed;
         state.Visibility = recording ? Visibility.Collapsed : Visibility.Visible;
-        activeSource.Text = selectedSource is { } selected ? selected.Label + (app.Engine.MicrophoneEnabled ? " · 麦克风已开启" : " · 麦克风已关闭") : "";
+        // Source only, as on macOS; the microphone toggle already shows its state.
+        activeSource.Text = selectedSource?.Label ?? "";
         ToolTipService.SetToolTip(activeSource, activeSource.Text);
         if (IsActive) { options.Hide(); sourceMenu.Hide(); }
         var showDone = snapshot.State == RecordingState.Done && !dismissedDone;
