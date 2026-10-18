@@ -89,7 +89,9 @@ internal sealed class LibraryWindow : DesktopWindow
         // Cloud Center layout from macOS: unified toolbar · account header + dated list · detail pane.
         list.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         list.ItemContainerStyle = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><Setter Property='HorizontalContentAlignment' Value='Stretch'/><Setter Property='HorizontalAlignment' Value='Stretch'/><Setter Property='Padding' Value='8,0'/><Setter Property='Margin' Value='0,0'/><Setter Property='MinHeight' Value='32'/><Setter Property='CornerRadius' Value='6'/></Style>");
-        list.GroupStyle.Add(new GroupStyle { HidesIfEmpty = true, HeaderTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><TextBlock Text='{Binding Key}' FontSize='11' FontWeight='SemiBold' Opacity='0.5'/></DataTemplate>") });
+        // Plain day labels without the default ListView header divider line.
+        var groupHeader = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewHeaderItem'><Setter Property='MinHeight' Value='0'/><Setter Property='Padding' Value='10,12,0,4'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ListViewHeaderItem'><ContentPresenter Content='{TemplateBinding Content}' ContentTemplate='{TemplateBinding ContentTemplate}' Margin='{TemplateBinding Padding}'/></ControlTemplate></Setter.Value></Setter></Style>");
+        list.GroupStyle.Add(new GroupStyle { HidesIfEmpty = true, HeaderContainerStyle = groupHeader, HeaderTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><TextBlock Text='{Binding Key}' FontSize='11' FontWeight='SemiBold' Opacity='0.5'/></DataTemplate>") });
         ((ScrollViewer)Content).Content = null;
         var layout = new Grid();
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) }); layout.ColumnDefinitions.Add(new ColumnDefinition());
@@ -208,9 +210,8 @@ internal sealed class LibraryWindow : DesktopWindow
         navRow.Children.Add(pills);
         var meta = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         createdLabel.Style = RecappiTheme.Style("RecappiCaption"); createdLabel.FontSize = 11;
-        statusChip.Child = location; statusChip.Padding = new Thickness(9, 4, 9, 4); statusChip.CornerRadius = new CornerRadius(12); statusChip.BorderThickness = new Thickness(1);
+        statusChip.Child = location; statusChip.Padding = new Thickness(9, 4, 9, 4); statusChip.CornerRadius = new CornerRadius(12);
         RecappiTheme.Bind(statusChip, "RecappiAccentChipFill", brush => statusChip.Background = brush);
-        RecappiTheme.Bind(statusChip, "RecappiAccentStroke", brush => statusChip.BorderBrush = brush);
         foreach (var item in new UIElement[] { localCopy, cloudCopy, createdLabel, statusChip }) meta.Children.Add(item);
         Grid.SetColumn(meta, 1); navRow.Children.Add(meta);
         details.Children.Add(navRow);

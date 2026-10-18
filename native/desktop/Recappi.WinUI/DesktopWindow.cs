@@ -14,6 +14,7 @@ internal class DesktopWindow : Window
     protected TextBlock Error { get; } = Ui.Text("");
     private bool dialogOpen;
     private bool floating;
+    private bool framed;
     private bool closed;
     private bool resizeQueued;
     private bool initialized;
@@ -32,7 +33,7 @@ internal class DesktopWindow : Window
         RecappiTheme.Ensure();
         var page = new ScrollViewer { Content = Body, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         // Opaque brand surface instead of Mica, matching the macOS window colors.
-        RecappiTheme.Bind(page, "RecappiSurfaceWindow", brush => { if (!floating) page.Background = brush; });
+        RecappiTheme.Bind(page, "RecappiSurfaceWindow", brush => { if (!floating && !framed) page.Background = brush; });
         Content = page;
         ResizeLogical(width, height);
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Recappi.ico"));
@@ -73,7 +74,9 @@ internal class DesktopWindow : Window
     {
         if (!requestKeyboardFocus || keyboardEntry is not { IsLoaded: true } entry ||
             Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(entry.XamlRoot) is not null) return;
-        entry.Focus(FocusState.Programmatic);
+        // Pointer focus keeps keyboard navigation ready without drawing a focus rectangle on show;
+        // pressing Tab switches to visible keyboard focus.
+        entry.Focus(FocusState.Pointer);
     }
     protected void EnsureVisible()
     {
@@ -191,7 +194,12 @@ internal class DesktopWindow : Window
         frame.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); frame.RowDefinitions.Add(new RowDefinition());
         frame.Children.Add(strip);
         if (content is FrameworkElement element) { Grid.SetRow(element, 1); frame.Children.Add(element); }
-        RecappiTheme.Bind(frame, "RecappiSurfaceWindow", brush => frame.Background = brush);
+        // Page windows sit on Mica, the Windows counterpart of the macOS window material;
+        // content cards stay opaque. Without Mica support the brand surface is used.
+        framed = true;
+        if (content is ScrollViewer scroll) scroll.Background = null;
+        if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported()) SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
+        else RecappiTheme.Bind(frame, "RecappiSurfaceWindow", brush => frame.Background = brush);
         SetTitleBar(strip);
         return frame;
     }

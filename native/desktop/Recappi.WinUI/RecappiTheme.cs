@@ -29,7 +29,7 @@ internal static class RecappiTheme
         // Light surfaces need the deeper green; dark surfaces the brighter one.
         ("RecappiAccent", 0xFF047857, 0xFF34D399),
         ("RecappiAccentSoftFill", 0x12047857, 0x1F34D399),
-        ("RecappiAccentStroke", 0x29047857, 0x3834D399),
+        ("RecappiAccentStroke", 0x1A047857, 0x2434D399),
         ("RecappiAccentChipFill", 0x1F047857, 0x1F34D399),
         ("RecappiAccentChipHover", 0x33047857, 0x3334D399),
         ("RecappiRecord", 0xFFFF453A, 0xFFFF453A),
@@ -63,6 +63,8 @@ internal static class RecappiTheme
         ("RecappiButtonPress", 0xFFECECEF, 0x0AFFFFFF),
         ("RecappiAccentHover", 0xFF065F46, 0xFF6EE7B7),
         ("RecappiOnAccent", 0xFFFFFFFF, 0xFF052E1F),
+        // Text fields: a quiet neutral focus edge instead of the WinUI accent underline (macOS shows no focus ring).
+        ("TextControlBorderBrushFocused", 0x38000000, 0x38FFFFFF),
         // NavigationView lightweight styling: the pane sits on the window surface.
         ("NavigationViewDefaultPaneBackground", 0x00000000, 0x00000000),
         ("NavigationViewExpandedPaneBackground", 0x00000000, 0x00000000),
@@ -250,7 +252,7 @@ internal static class RecappiTheme
         Icon("RecappiIconNeutral", "RecappiTextSecondary") + Icon("RecappiIconDanger", "RecappiDanger") +
         Fill("RecappiDotAccent", "RecappiAccent") + Fill("RecappiDotUnlit", "RecappiWaveUnlit") +
         ButtonStyle("RecappiButton", "Button",
-            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiButtonFill}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderSubtle}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='MinHeight' Value='32'/><Setter Property='Padding' Value='12,0'/><Setter Property='FontSize' Value='13'/>",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiButtonFill}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderHairline}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='MinHeight' Value='32'/><Setter Property='Padding' Value='12,0'/><Setter Property='FontSize' Value='13'/>",
             "<Setter Target='Root.Background' Value='{ThemeResource RecappiButtonHover}'/>",
             "<Setter Target='Root.Background' Value='{ThemeResource RecappiButtonPress}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiLabelSecondary}'/>") +
         ButtonStyle("RecappiPrimaryButton", "Button",
