@@ -21,7 +21,7 @@ internal sealed class SummaryDocument : UserControl
     public SummaryDocument()
     {
         Content = cards;
-        MaxWidth = 760; HorizontalAlignment = HorizontalAlignment.Stretch;
+        HorizontalAlignment = HorizontalAlignment.Left;
         Margin = new Thickness(0, 4, 0, 72);
     }
     private void Render()

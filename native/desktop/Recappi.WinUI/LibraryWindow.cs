@@ -292,7 +292,10 @@ internal sealed class LibraryWindow : DesktopWindow
         transcriptLayout.Children.Add(transcriptTools);
         Grid.SetRow(transcript, 1); transcriptLayout.Children.Add(transcript);
         var sectionHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch, Padding = new Thickness(20, 12, 20, 0) };
-        var sectionViews = new UIElement[] { new ScrollViewer { Content = summary, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, transcriptLayout, askTab, reviewTab };
+        var summaryScroll = new ScrollViewer { Content = summary, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        // Cards fill the column up to the macOS 760pt reading width.
+        summaryScroll.SizeChanged += (_, e) => summary.Width = Math.Max(0, Math.Min(760, e.NewSize.Width - 4));
+        var sectionViews = new UIElement[] { summaryScroll, transcriptLayout, askTab, reviewTab };
         foreach (var name in names) tabs.Items.Add(new SelectorBarItem { Text = name });
         // The macOS pills drive section selection; SelectorBar stays as the selection model.
         tabs.SelectionChanged += (_, _) =>
