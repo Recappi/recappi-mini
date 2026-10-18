@@ -345,13 +345,14 @@ internal static class RecappiTheme
         sheen.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(61, 255, 255, 255), Offset = 0 });
         sheen.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(5, 255, 255, 255), Offset = 1 });
         var mark = new Grid { Background = sheen };
-        var logo = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Recappi.png");
+        // Transparent headset mark (macOS Logo.png); the app icon has its own white tile.
+        var logo = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "RecappiMark.png");
         if (File.Exists(logo))
-            mark.Children.Add(new Image { Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(logo)), Margin = new Thickness(size * 0.1), Opacity = 0.85 });
+            mark.Children.Add(new Image { Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(logo)), Margin = new Thickness(size * 0.083), Opacity = 0.85 });
         return new Border
         {
             Width = size, Height = size, CornerRadius = new CornerRadius(size * 0.25), Background = gradient, Child = mark,
-            BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(46, 255, 255, 255)), BorderThickness = new Thickness(1)
+            BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 255, 255, 255)), BorderThickness = new Thickness(0.5)
         };
     }
 

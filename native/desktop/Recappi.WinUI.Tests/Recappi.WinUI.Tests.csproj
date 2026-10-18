@@ -25,6 +25,7 @@
     <Compile Include="../Recappi.WinUI/*.cs" Exclude="../Recappi.WinUI/App.xaml.cs" Link="Production/%(Filename)%(Extension)" />
     <Content Include="../Assets/*.ico" Link="Assets/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../Assets/Recappi.png" Link="Assets/Recappi.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../Assets/RecappiMark.png" Link="Assets/RecappiMark.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- Match production publishing: the modular WinUI SDK omits application PRI/XBF. -->
   <Target Name="PublishWinUIResources" AfterTargets="ComputeFilesToPublish">
