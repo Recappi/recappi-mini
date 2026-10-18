@@ -439,13 +439,15 @@ internal sealed class DotMatrixMeter : Canvas
     }
 }
 
-// Playback scrubber bars in the macOS style. Without decoded peaks every bar has the
-// same height, so the shape never implies audio content it does not know.
+// Playback scrubber bars in the macOS style: height = 5 + 27 x peak. Until peaks are
+// decoded every bar has the same height, so the shape never implies unknown audio.
 internal sealed class WaveformBars : Canvas
 {
     private readonly List<Rectangle> bars = [];
     private double progress;
+    private float[]? peaks;
     public double Progress { get => progress; set { progress = Math.Clamp(value, 0, 1); Paint(); } }
+    public float[]? Peaks { get => peaks; set { peaks = value; Shape(); } }
     public WaveformBars()
     {
         IsHitTestVisible = false; Height = 32;
@@ -463,6 +465,22 @@ internal sealed class WaveformBars : Canvas
             var bar = new Rectangle { Width = width, Height = 10, RadiusX = width / 2, RadiusY = width / 2 };
             SetLeft(bar, 7 + i * step); SetTop(bar, (ActualHeight - 10) / 2);
             Children.Add(bar); bars.Add(bar);
+        }
+        Shape();
+    }
+    private void Shape()
+    {
+        for (var i = 0; i < bars.Count; i++)
+        {
+            // Each bar takes the loudest peak among the buckets it covers.
+            double level = 0.18;
+            if (peaks is { Length: > 0 })
+            {
+                var from = i * peaks.Length / bars.Count; var to = Math.Max(from + 1, (i + 1) * peaks.Length / bars.Count);
+                level = 0; for (var k = from; k < to && k < peaks.Length; k++) level = Math.Max(level, peaks[k]);
+            }
+            var height = Math.Min(ActualHeight, 5 + 27 * level);
+            bars[i].Height = height; SetTop(bars[i], (ActualHeight - height) / 2);
         }
         Paint();
     }

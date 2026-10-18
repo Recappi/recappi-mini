@@ -282,6 +282,7 @@ await Test("Same-account uploads queue while completed uploads continue transcri
 await Test("Ask streams split UTF8, CRLF/LF/CR frames, citations and rejects incomplete or oversized events", AskTests.RunAsync);
 await Test("Audio download authenticates, preserves content/type and rejects truncated replacement", () => AudioDownloadTests.RunAsync(root));
 await Test("Native audio import decodes PCM, preserves source and cleans canceled or invalid input", () => AudioImportTests.RunAsync(root));
+await Test("Playback peaks follow source loudness and stay empty for silence", () => AudioImportTests.PeaksAsync(root));
 await Test("Speaker profiles persist protected, isolate account/recording and preserve prior value on invalid save", () => SpeakerProfileTests.RunAsync(root));
 await Test("Cloud content cache searches all cached recordings, survives reload, isolates accounts and tolerates damage", () => CloudContentCacheTests.RunAsync(root));
 await Test("Captions resample PCM, bound queues, drain final text, reconnect and preserve bilingual streams", CaptionTests.RunAsync);

@@ -35,6 +35,9 @@ internal static class NativePreviewCapture
     public static async Task Library(string root, LibraryWindow window)
     {
         window.Title = "Recappi Mini · 录音库 · 受控样本";
+        // Load the selected recording's audio so the scrubber shows decoded peaks.
+        await TestApp.Call(window, "LoadAudio");
+        await TestApp.Until(() => TestApp.Field<WaveformBars>(window, "bars").Peaks is not null, "Scrubber peaks were not decoded.");
         await Stage(root, "library-summary-light", window);
         window.ApplyTheme("dark"); await Stage(root, "library-summary-dark", window);
         var scale = window.Content.XamlRoot.RasterizationScale;

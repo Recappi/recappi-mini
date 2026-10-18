@@ -511,8 +511,10 @@ internal sealed class LibraryWindow : DesktopWindow
         askTab.Content = Ui.Text("连接账号并完成云端处理后，可向这段录音提问。");
         reviewTab.Content = Ui.Text("通过「更多操作」上传录音后，可在这里查看处理历史。");
         localView = preferLocal && selected.Local is not null || selected.Cloud is null;
+        bars.Peaks = null;
         if (localView && selected.Local is { } localRecording)
         {
+            if (localRecording.State is RecordingState.Done or RecordingState.Error) _ = LoadPeaks(localRecording.AudioPath, version);
             summary.Text = "这段录音保存在本机。\n\n实时字幕可在「逐字稿」中查看；连接账号后，可通过「更多操作」上传并生成摘要。";
             location.Text = "本机 · " + (localRecording.State switch
             {
@@ -698,6 +700,7 @@ internal sealed class LibraryWindow : DesktopWindow
             };
             playbackSource = MediaSource.CreateFromStream(playbackStream, contentType);
             audioPath = sourcePath; player.Source = playbackSource;
+            if (bars.Peaks is null) _ = LoadPeaks(sourcePath, version);
         }
         catch { ResetPlayback(); throw; }
     }
@@ -751,6 +754,16 @@ internal sealed class LibraryWindow : DesktopWindow
         var session = player.PlaybackSession;
         if (session.CanSeek) session.Position = TimeSpan.FromSeconds(Math.Clamp(position.TotalSeconds, 0, session.NaturalDuration.TotalSeconds));
         RenderPlayback();
+    }
+    private async Task LoadPeaks(string path, int version)
+    {
+        try
+        {
+            var peaks = await AudioPeaks.ComputeAsync(path, 256, detailRequest.Token);
+            if (IsCurrent(version)) bars.Peaks = peaks;
+        }
+        // Peaks are decoration; an unreadable or canceled decode keeps uniform bars.
+        catch (Exception) { }
     }
     private async Task TogglePlayback()
     {

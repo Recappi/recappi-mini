@@ -9,13 +9,17 @@ internal static class LibraryPreview
     {
         void Stage(string value) => File.WriteAllText(Path.Combine(root, "stage.txt"), value);
         Stage("preview: creating controlled host");
-        // A short silent WAV exercises the real Windows decoder and citation seeking.
+        // A short WAV exercises the real Windows decoder and citation seeking.
         // Displayed meeting durations remain layout samples, not this fixture's duration.
         var previewAudio = Path.Combine(root, "preview-audio.wav");
         using (var writer = new Recappi.Core.PcmWaveWriter(previewAudio))
         {
-            var silence = new float[Recappi.Core.PcmWaveWriter.SampleRate];
-            for (var second = 0; second < 30; second++) writer.Append(silence);
+            // Quiet speech-like bursts so the scrubber shows a real decoded shape.
+            for (var second = 0; second < 30; second++)
+            {
+                var level = 0.02 + 0.03 * (1 + Math.Sin(second * 0.9)) * (second % 7 == 3 ? 0.2 : 1);
+                writer.Append(Enumerable.Range(0, Recappi.Core.PcmWaveWriter.SampleRate).Select(i => (float)(level * Math.Sin(i * 2 * Math.PI * 220 / Recappi.Core.PcmWaveWriter.SampleRate))).ToArray());
+            }
         }
         var skippedSummary = false;
         await using var host = new TestHost(Path.Combine(root, "library-preview"), (request, token) =>

@@ -71,4 +71,20 @@ internal static class AudioImportTests
         }
     }
     private sealed class CallbackProgress(Action<double> report) : IProgress<double> { public void Report(double value) => report(value); }
+    // Peaks follow loudness: silence then a tone gives empty leading buckets and full trailing ones.
+    public static async Task PeaksAsync(string root)
+    {
+        var source = Path.Combine(root, "peaks-source.wav");
+        using (var writer = new PcmWaveWriter(source))
+        {
+            writer.Append(new float[48000 * 2]);
+            writer.Append(Enumerable.Range(0, 48000 * 2).Select(i => (float)(.5 * Math.Sin(i * 2 * Math.PI * 440 / 48000))).ToArray());
+        }
+        var peaks = await AudioPeaks.ComputeAsync(source, 40);
+        if (peaks.Length != 40 || peaks.Take(18).Any(x => x > 0.01) || peaks.Skip(22).Any(x => x < 0.9))
+            throw new Exception("Audio peaks do not follow the source loudness: " + string.Join(",", peaks.Select(x => x.ToString("0.00"))));
+        var silent = Path.Combine(root, "peaks-silent.wav");
+        using (var writer = new PcmWaveWriter(silent)) writer.Append(new float[48000]);
+        if ((await AudioPeaks.ComputeAsync(silent, 16)).Any(x => x != 0)) throw new Exception("Silent audio produced non-zero peaks.");
+    }
 }
