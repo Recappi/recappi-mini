@@ -14,7 +14,7 @@ internal sealed class SettingsWindow : DesktopWindow
     private readonly Button retrySave;
     private StackPanel section = null!;
     private StackPanel? group;
-    private readonly NavigationView navigation = new() { IsSettingsVisible = false, IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed, PaneDisplayMode = NavigationViewPaneDisplayMode.Left, OpenPaneLength = 170, CompactModeThresholdWidth = 480, ExpandedModeThresholdWidth = 640 };
+    private readonly NavigationView navigation = new() { IsSettingsVisible = false, IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed, PaneDisplayMode = NavigationViewPaneDisplayMode.Top, IsPaneToggleButtonVisible = false };
     private readonly Dictionary<string, StackPanel> sections = [];
     private readonly ScrollViewer sectionViewer = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
     private readonly TextBlock updateStatus = Ui.Text("");
@@ -29,7 +29,7 @@ internal sealed class SettingsWindow : DesktopWindow
     private readonly Func<DesktopUpdates> createUpdates;
     private static string CurrentVersion => typeof(SettingsWindow).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
         .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0.1.0-preview.1";
-    public SettingsWindow(IDesktopHost app, bool recovery, DesktopDistribution? distribution = null, Func<DesktopUpdates>? createUpdates = null) : base("Recappi Mini · 设置", 720, 680)
+    public SettingsWindow(IDesktopHost app, bool recovery, DesktopDistribution? distribution = null, Func<DesktopUpdates>? createUpdates = null) : base("Recappi Mini · 设置", 600, 640)
     {
         this.app = app;
         this.distribution = distribution ?? DesktopDistributionDetector.Detect();
@@ -48,9 +48,11 @@ internal sealed class SettingsWindow : DesktopWindow
         var layout = new Grid(); layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); layout.RowDefinitions.Add(new RowDefinition());
         layout.Children.Add(Body); Grid.SetRow(navigation, 1); layout.Children.Add(navigation); Content = PageFrame(layout, "设置");
         navigation.Content = sectionViewer;
+        // Tall toolbar tabs so the icon-over-label items clear the selection indicator.
+        navigation.Resources["NavigationViewTopPaneHeight"] = 62d;
         navigation.SelectionChanged += (_, args) =>
         {
-            if (args.SelectedItem is NavigationViewItem { Tag: string key }) sectionViewer.Content = sections[key];
+            if (args.SelectedItem is NavigationViewItem { Tag: string key }) { sectionViewer.Content = sections[key]; Title = "Recappi Mini · " + key; }
         };
         if (recovery)
         {
@@ -59,8 +61,8 @@ internal sealed class SettingsWindow : DesktopWindow
         }
         Section("通用", Symbol.Setting);
         Choice("外观", app.Preferences.Theme, ["system", "light", "dark"], (p, v) => p with { Theme = v });
-        section.Children.Add(Ui.Button("重新打开使用引导", () => { app.ShowOnboarding(true); return Task.CompletedTask; }, this));
-        section.Children.Add(Ui.Button("Windows 麦克风权限", () => { Process.Start(new ProcessStartInfo("ms-settings:privacy-microphone") { UseShellExecute = true }); return Task.CompletedTask; }, this));
+        AddRow("重新打开使用引导", Ui.Button("重新开始", () => { app.ShowOnboarding(true); return Task.CompletedTask; }, this));
+        AddRow("Windows 麦克风权限", Ui.Button("打开设置", () => { Process.Start(new ProcessStartInfo("ms-settings:privacy-microphone") { UseShellExecute = true }); return Task.CompletedTask; }, this));
         Section("云端处理", Symbol.Upload);
         Toggle("保存后自动上传", app.Preferences.AutoUpload, (p, v) => p with { AutoUpload = v });
         Toggle("上传后自动转写", app.Preferences.AutoTranscribe, (p, v) => p with { AutoTranscribe = v });
@@ -167,10 +169,13 @@ internal sealed class SettingsWindow : DesktopWindow
     }
     private void Section(string name, Symbol icon)
     {
-        section = new StackPanel { Spacing = 14, Padding = new Thickness(28, 22, 28, 28), MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Stretch };
-        section.Children.Add(new TextBlock { Text = name, Style = RecappiTheme.Style("RecappiPageTitle"), FontSize = 20 }); sections[name] = section;
+        section = new StackPanel { Spacing = 12, Padding = new Thickness(20, 18, 20, 24), Width = 560, HorizontalAlignment = HorizontalAlignment.Center };
+        sections[name] = section;
         group = null;
-        navigation.MenuItems.Add(new NavigationViewItem { Content = name, Tag = name, Icon = new SymbolIcon(icon) });
+        var tab = new StackPanel { Spacing = 3, Width = 72, Padding = new Thickness(0, 4, 0, 2) };
+        tab.Children.Add(new SymbolIcon(icon) { HorizontalAlignment = HorizontalAlignment.Center });
+        tab.Children.Add(new TextBlock { Text = name, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+        navigation.MenuItems.Add(new NavigationViewItem { Content = tab, Tag = name });
     }
     private static int Minutes(string text) => int.TryParse(text, out var value) ? value : throw new ArgumentException("提醒时间请填写整数分钟。");
     private void Edited(Control control, Func<DesktopPreferences, DesktopPreferences> edit) { pending[control] = edit; timer.Stop(); timer.Start(); }
@@ -192,7 +197,7 @@ internal sealed class SettingsWindow : DesktopWindow
     }
     private void Toggle(string label, bool initial, Func<DesktopPreferences, bool, DesktopPreferences> edit)
     {
-        var control = new ToggleSwitch { Tag = label, IsOn = initial, OnContent = "开启", OffContent = "关闭", MinWidth = 0 };
+        var control = new ToggleSwitch { Tag = label, IsOn = initial, OnContent = "", OffContent = "", MinWidth = 0, Margin = new Thickness(0, 0, -12, 0) };
         control.Toggled += (_, _) => Edited(control, p => edit(p, control.IsOn)); AddRow(label, control);
     }
     private void Field(string label, string initial, Func<DesktopPreferences, string, DesktopPreferences> edit)
