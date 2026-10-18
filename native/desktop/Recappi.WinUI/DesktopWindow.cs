@@ -182,19 +182,24 @@ internal class DesktopWindow : Window
         return frame;
     }
     [DllImport("dwmapi.dll")] private static extern int DwmFlush();
-    protected void CompactChrome(string moveLabel, int maximumHeight = 420, string surfaceBrush = "ApplicationPageBackgroundThemeBrush")
+    protected void CompactChrome(string moveLabel, int maximumHeight = 420, string surfaceBrush = "ApplicationPageBackgroundThemeBrush", bool glass = false, int minimumHeight = 50)
     {
         retainSurface = true; floating = true;
-        // Floating recording/caption panels use an opaque surface for legibility over other apps.
+        // Floating caption panels use an opaque surface for legibility over other apps;
+        // the recorder pill uses always-active acrylic glass like the macOS panel.
         SystemBackdrop = null;
+        if (glass && !EnableGlass()) { glass = false; surfaceBrush = "RecappiSurfacePanel"; }
+        if (glass) surfaceBrush = "RecappiGlassFill";
         ExtendsContentIntoTitleBar = true;
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             // Keep the native resize border. Removing both border and title bar
             // reproduces a Windowing.Core heap error even in a one-button window.
             presenter.SetBorderAndTitleBar(true, false); presenter.IsMaximizable = false; presenter.IsAlwaysOnTop = true;
-            presenter.PreferredMinimumHeight = (int)Math.Ceiling(44 * Scale);
+            presenter.PreferredMinimumHeight = (int)Math.Ceiling(Math.Min(44, minimumHeight) * Scale);
         }
+        // Windows 11 rounds and shadows the floating frame; earlier versions ignore it.
+        var corner = 2u; _ = DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(this), 33, ref corner, sizeof(uint));
         var scroll = (ScrollViewer)Content;
         scroll.VerticalContentAlignment = VerticalAlignment.Top; scroll.Background = null;
         Content = null;
@@ -216,6 +221,11 @@ internal class DesktopWindow : Window
             }
             AppWindow.Move(position); EnsureVisible(); e.Handled = true;
         };
+        if (glass)
+        {
+            // The whole pill drags, as on macOS. The grip stays as the keyboard move target only.
+            grip.Content = null; grip.Width = 0; grip.UseSystemFocusVisuals = false; ToolTipService.SetToolTip(grip, null);
+        }
         var layout = new Grid(); layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); layout.ColumnDefinitions.Add(new ColumnDefinition());
         layout.Children.Add(grip); Grid.SetColumn(scroll, 1); layout.Children.Add(scroll);
         // The native frame already supplies the outline and corner clipping.
@@ -226,23 +236,36 @@ internal class DesktopWindow : Window
         frame.Children.Add(border); Content = frame;
         // Let Windows own drag hit testing instead of starting a nested move loop
         // from a XAML pointer event, which can arrive after the release event.
-        SetTitleBar(grip);
-        // The native non-client edge remains visible around borderless WinUI windows.
-        // Keep that edge in the same theme as the floating content surface.
-        border.ActualThemeChanged += (_, _) => UpdateFloatingFrame(border);
-        border.Loaded += (_, _) => UpdateFloatingFrame(border);
+        if (glass)
+        {
+            SetTitleBar(frame);
+            Body.LayoutUpdated += (_, _) => UpdatePassthrough(frame);
+            // The zero-width move target shows keyboard focus as an accent outline on the pill.
+            grip.GotFocus += (_, _) => { if (grip.FocusState == FocusState.Keyboard) { border.BorderThickness = new Thickness(2); border.BorderBrush = RecappiTheme.Brush("RecappiAccent", border.ActualTheme); } };
+            grip.LostFocus += (_, _) => border.BorderThickness = new Thickness(0);
+            border.ActualThemeChanged += (_, _) => UpdateGlass(border);
+            border.Loaded += (_, _) => UpdateGlass(border);
+        }
+        else
+        {
+            SetTitleBar(grip);
+            // The native non-client edge remains visible around borderless WinUI windows.
+            // Keep that edge in the same theme as the floating content surface.
+            border.ActualThemeChanged += (_, _) => UpdateFloatingFrame(border);
+            border.Loaded += (_, _) => UpdateFloatingFrame(border);
+        }
         Body.VerticalAlignment = VerticalAlignment.Top;
         Body.LayoutUpdated += (_, _) =>
         {
             if (dialogOpen || closed || resizeQueued) return;
-            var desiredHeight = (int)Math.Ceiling(Math.Clamp(Body.DesiredSize.Height, 50, maximumHeight) * Scale);
+            var desiredHeight = (int)Math.Ceiling(Math.Clamp(Body.DesiredSize.Height, minimumHeight, maximumHeight) * Scale);
             if (Math.Abs(AppWindow.ClientSize.Height - desiredHeight) <= 1) return;
             resizeQueued = true;
             DispatcherQueue.TryEnqueue(() =>
             {
                 resizeQueued = false;
                 if (dialogOpen || closed) return;
-                var height = (int)Math.Ceiling(Math.Clamp(Body.DesiredSize.Height, 50, maximumHeight) * Scale);
+                var height = (int)Math.Ceiling(Math.Clamp(Body.DesiredSize.Height, minimumHeight, maximumHeight) * Scale);
                 if (Math.Abs(AppWindow.ClientSize.Height - height) > 1)
                 {
                     // ResizeClient overestimates the non-client height with
@@ -265,6 +288,61 @@ internal class DesktopWindow : Window
         _ = DwmSetWindowAttribute(handle, 35, ref nativeColor, sizeof(uint));
     }
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint window, int attribute, ref uint value, int size);
+    private Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController? acrylic;
+    private Microsoft.UI.Composition.SystemBackdrops.SystemBackdropConfiguration? backdrop;
+    private Windows.Graphics.RectInt32[] passthrough = [];
+    private bool EnableGlass()
+    {
+        if (!Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported()) return false;
+        // Keep the glass when inactive: the always-on-top pill rarely holds focus.
+        backdrop = new() { IsInputActive = true };
+        acrylic = new() { Kind = Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicKind.Thin };
+        acrylic.AddSystemBackdropTarget(WinRT.CastExtensions.As<Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop>(this));
+        acrylic.SetSystemBackdropConfiguration(backdrop);
+        Closed += (_, _) => { acrylic?.Dispose(); acrylic = null; };
+        return true;
+    }
+    private void UpdateGlass(FrameworkElement surface)
+    {
+        if (closed || acrylic is null || backdrop is null) return;
+        var dark = surface.ActualTheme == ElementTheme.Dark;
+        backdrop.Theme = dark ? Microsoft.UI.Composition.SystemBackdrops.SystemBackdropTheme.Dark : Microsoft.UI.Composition.SystemBackdrops.SystemBackdropTheme.Light;
+        acrylic.TintColor = dark ? Windows.UI.Color.FromArgb(255, 32, 32, 32) : Windows.UI.Color.FromArgb(255, 252, 252, 252);
+        acrylic.TintOpacity = dark ? 0.55f : 0.5f;
+        acrylic.LuminosityOpacity = dark ? 0.9f : 0.85f;
+        acrylic.FallbackColor = dark ? Windows.UI.Color.FromArgb(255, 45, 45, 45) : Windows.UI.Color.FromArgb(255, 255, 255, 255);
+        if (RecappiTheme.Brush("RecappiGlassEdge", surface.ActualTheme) is Microsoft.UI.Xaml.Media.SolidColorBrush edge)
+        {
+            var nativeColor = (uint)(edge.Color.R | (edge.Color.G << 8) | (edge.Color.B << 16));
+            _ = DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(this), 34, ref nativeColor, sizeof(uint));
+        }
+    }
+    // The pill is one drag region; its buttons stay clickable as passthrough rectangles.
+    private void UpdatePassthrough(FrameworkElement root)
+    {
+        if (closed || root.XamlRoot is null) return;
+        var scale = root.XamlRoot.RasterizationScale;
+        var rects = new List<Windows.Graphics.RectInt32>();
+        void Visit(DependencyObject node)
+        {
+            for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(node); i++)
+            {
+                var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(node, i);
+                if (child is UIElement { Visibility: Visibility.Collapsed }) continue;
+                if (child is Control { IsTabStop: true } control and not ContentControl { Content: null, Width: 0 } && control.ActualWidth > 0)
+                {
+                    var origin = control.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
+                    rects.Add(new((int)Math.Floor(origin.X * scale), (int)Math.Floor(origin.Y * scale), (int)Math.Ceiling(control.ActualWidth * scale), (int)Math.Ceiling(control.ActualHeight * scale)));
+                    continue;
+                }
+                Visit(child);
+            }
+        }
+        Visit(root);
+        if (rects.SequenceEqual(passthrough)) return;
+        passthrough = rects.ToArray();
+        Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(AppWindow.Id).SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough, passthrough);
+    }
     public async Task Run(Func<Task> action)
     {
         try { SetError(""); await action(); }

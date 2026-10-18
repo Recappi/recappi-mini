@@ -82,6 +82,10 @@ public partial class TestApp : Application
         {
             await InputCalibrationPreview.Run(root); keeper.Close(); Exit(); return;
         }
+        if (commandLine.Contains("--probe-recorder-input"))
+        {
+            await RecorderInputProbe.Run(root); keeper.Close(); Exit(); return;
+        }
         if (commandLine.Contains("--capture-recorder-previews"))
         {
             await NativePreviewCapture.RecorderOnly(root); captureStart?.Close(); keeper.Close(); Exit(); return;

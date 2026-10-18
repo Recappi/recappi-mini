@@ -41,6 +41,9 @@ internal static class RecappiTheme
         ("RecappiDangerStroke", 0x38FF453A, 0x47FF453A),
         ("RecappiWarning", 0xFFC2410C, 0xFFF2754F),
         ("RecappiWaveUnlit", 0x38111827, 0x33FFFFFF),
+        // Recorder glass: a light legibility fill over acrylic, as on macOS.
+        ("RecappiGlassFill", 0x29FFFFFF, 0x47000000),
+        ("RecappiGlassEdge", 0xFFDADADD, 0xFF3F3F42),
         // Page windows (library, settings, account, onboarding).
         ("RecappiSurfaceWindow", 0xFFF7F7F8, 0xFF1C1C1C),
         ("RecappiSurfaceCard", 0xFFFFFFFF, 0xFF262626),

@@ -76,7 +76,7 @@ internal static class NativePreviewCapture
     }
     private static async Task Snapshot(string root, string name, DesktopWindow window)
     {
-        await Task.Delay(500);
+        await Task.Delay(Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_SCREEN") == "1" ? 1500 : 500);
         if (Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_FRAME") == "1") { await FrameSnapshot(root, name, window); return; }
         var bitmap = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
         await bitmap.RenderAsync(window.Content);
@@ -142,10 +142,13 @@ internal static class NativePreviewCapture
     {
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
         GetWindowRect(hwnd, out var rect);
+        if (Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_SCREEN") == "1" && DwmGetWindowAttribute(hwnd, 9, out var visible, Marshal.SizeOf<FrameBounds>()) == 0) rect = visible;
         int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
         var screen = GetDC(0); var dc = CreateCompatibleDC(screen); var bitmap = CreateCompatibleBitmap(screen, width, height);
         var old = SelectObject(dc, bitmap);
-        PrintWindow(hwnd, dc, 2);
+        // Screen mode copies the composed desktop so acrylic glass is visible (topmost windows only).
+        if (Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_SCREEN") == "1") BitBlt(dc, 0, 0, width, height, screen, rect.Left, rect.Top, 0x00CC0020 | 0x40000000);
+        else PrintWindow(hwnd, dc, 2);
         var info = new BitmapInfoHeader { Size = 40, Width = width, Height = -height, Planes = 1, BitCount = 32 };
         var pixels = new byte[width * height * 4];
         GetDIBits(dc, bitmap, 0, (uint)height, pixels, ref info, 0);
@@ -166,6 +169,7 @@ internal static class NativePreviewCapture
     [DllImport("gdi32.dll")] private static extern nint SelectObject(nint dc, nint value);
     [DllImport("gdi32.dll")] private static extern bool DeleteObject(nint value);
     [DllImport("gdi32.dll")] private static extern bool DeleteDC(nint dc);
+    [DllImport("gdi32.dll")] private static extern bool BitBlt(nint dc, int x, int y, int width, int height, nint source, int sourceX, int sourceY, uint operation);
     [DllImport("gdi32.dll")] private static extern int GetDIBits(nint dc, nint bitmap, uint start, uint lines, byte[] bits, ref BitmapInfoHeader info, uint usage);
     public static async Task UpdateChannels(string root)
     {

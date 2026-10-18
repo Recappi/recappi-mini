@@ -64,14 +64,16 @@ internal sealed class RecorderWindow : DesktopWindow
     public int MicrophoneCount => microphone.Items.Count;
     public bool CanStart => !IsActive && !busy && !refreshing && selectedSource is { } selected &&
         (selected.Id != "microphone-only" || includeMicrophone.IsChecked == true) && (includeMicrophone.IsChecked != true || microphone.SelectedItem is MicrophoneDevice);
-    public RecorderWindow(IDesktopHost app, Func<(IReadOnlyList<AudioSource> Sources, IReadOnlyList<MicrophoneDevice> Microphones)>? discover = null) : base("Recappi Mini", 384, 70)
+    public RecorderWindow(IDesktopHost app, Func<(IReadOnlyList<AudioSource> Sources, IReadOnlyList<MicrophoneDevice> Microphones)>? discover = null) : base("Recappi Mini", 346, 70)
     {
         RecappiTheme.Ensure();
         this.app = app;
         this.discover = discover ?? (() => (AudioDevices.ListSources(), AudioDevices.ListMicrophones()));
-        Body.Padding = new Thickness(4, 10, 10, 10); Body.Spacing = 6;
-        CompactChrome("移动录音面板", 300, "RecappiSurfacePanel");
-        Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 11.5; Error.IsTextSelectionEnabled = false; Error.Margin = new Thickness(8, 0, 4, 0);
+        // macOS panel metrics: 344pt wide, 6pt padding, 28pt controls, 6pt gaps.
+        Body.Padding = new Thickness(5, 6, 6, 6); Body.Spacing = 6;
+        CompactChrome("移动录音面板", 300, "RecappiSurfacePanel", glass: true, minimumHeight: 40);
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter compact) compact.PreferredMinimumWidth = (int)(300 * Scale);
+        Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 11; Error.IsTextSelectionEnabled = false; Error.Margin = new Thickness(2, 0, 2, 0);
         PlaceAtTopRight();
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) { presenter.IsAlwaysOnTop = true; presenter.IsMaximizable = false; }
 
@@ -116,21 +118,26 @@ internal sealed class RecorderWindow : DesktopWindow
         var view = Action("查看录音", viewContent, "RecappiAccentChipButton", () => { if (app.Engine.Snapshot.Recording is { } recording) { app.ShowRecording(recording.Id); Hide(); } return Task.CompletedTask; });
         var hideDone = Action("隐藏", RecappiTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板");
         hideDone.Width = 24;
-        savedIcon.Margin = new Thickness(8, 0, 0, 0); savedIcon.VerticalAlignment = VerticalAlignment.Center;
-        savedStatus.TextTrimming = TextTrimming.CharacterEllipsis;
+        savedIcon.Margin = new Thickness(2, 0, 0, 0); savedIcon.VerticalAlignment = VerticalAlignment.Center;
+        savedStatus.TextTrimming = TextTrimming.CharacterEllipsis; savedStatus.FontSize = 11.5; savedStatus.FontWeight = Microsoft.UI.Text.FontWeights.Medium;
+        savedDuration.FontSize = 11;
+        view.Height = 22; view.FontSize = 11; newRecording.Height = 22; newRecording.FontSize = 10.5;
         Place(donePanel, (savedIcon, false), (savedStatus, false), (Separator(), false), (savedDuration, false), (new Border(), true), (view, false), (newRecording, false), (hideDone, false));
         Body.Children.Add(donePanel);
-        savedDetail.TextWrapping = TextWrapping.Wrap; savedDetail.Margin = new Thickness(8, 0, 4, 0);
+        savedDetail.TextWrapping = TextWrapping.Wrap; savedDetail.Margin = new Thickness(2, 0, 2, 0); savedDetail.FontSize = 11;
         savedDetail.Visibility = Visibility.Collapsed;
         Body.Children.Add(savedDetail);
 
         // Recording: live header above waveform · microphone · more · stop.
-        var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 6, Height = 6, Style = RecappiTheme.Style("RecappiDotAccent"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 6, Height = 6, Style = RecappiTheme.Style("RecappiDotAccent"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 0, 0) };
         recordingDot = dot; recordingPulse = RecappiTheme.Pulse(dot);
         var captionButton = Action("字幕", RecappiTheme.Glyph("", 12), "RecappiIconButton", () => { app.ShowCaptions(); return Task.CompletedTask; }, "显示实时字幕");
         var hideRecording = Action("隐藏", RecappiTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板 · 录音在后台继续");
-        captionButton.Width = captionButton.Height = hideRecording.Width = hideRecording.Height = 20;
-        var header = Row(); header.Height = 20;
+        captionButton.Width = captionButton.Height = hideRecording.Width = hideRecording.Height = 18;
+        ((FontIcon)captionButton.Content).FontSize = 10.5; ((FontIcon)hideRecording.Content).FontSize = 9;
+        elapsed.FontSize = 11; elapsed.FontWeight = Microsoft.UI.Text.FontWeights.Medium;
+        state.FontSize = 11; state.FontWeight = Microsoft.UI.Text.FontWeights.Medium; activeSource.FontSize = 11;
+        var header = Row(); header.Height = 18; header.MinHeight = 18;
         Place(header, (dot, false), (elapsed, false), (state, false), (Separator(), false), (activeSource, true), (captionButton, false), (hideRecording, false));
         activePanel.Children.Add(header);
         toggle = Toggle("切换麦克风", () => Guard(async () => await app.Engine.SetMicrophoneEnabledAsync(!app.Engine.MicrophoneEnabled)));
@@ -153,16 +160,16 @@ internal sealed class RecorderWindow : DesktopWindow
         var moreButton = Action("更多操作", RecappiTheme.Glyph("", 14), "RecappiIconButton", () => Task.CompletedTask); moreButton.Flyout = recordingMenu;
         var stopContent = new Border { Width = 9, Height = 9, CornerRadius = new CornerRadius(2), Background = startProgress.Foreground };
         stop = Action("停止并保存", stopContent, "RecappiRecordButton", () => Guard(app.StopRecording));
-        waveform.Margin = new Thickness(6, 0, 4, 0);
+        waveform.Margin = new Thickness(4, 0, 0, 0);
         Place(recordingControls, (waveform, true), (toggle, false), (moreButton, false), (stop, false));
         activePanel.Children.Add(recordingControls);
 
         // Reminders replace the control row until the user chooses.
-        var attentionIcon = RecappiTheme.Glyph("", 12); attentionIcon.Style = RecappiTheme.Style("RecappiIconAccent"); attentionIcon.Margin = new Thickness(8, 0, 0, 0);
-        attention.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        var attentionIcon = RecappiTheme.Glyph("", 12); attentionIcon.Style = RecappiTheme.Style("RecappiIconAccent"); attentionIcon.Width = 18;
+        attention.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; attention.FontSize = 11.5;
         var keep = Action("继续录音", new TextBlock { Text = "继续" }, "RecappiChipButton", () => { ClearAttention(); return Task.CompletedTask; });
-        keep.Height = 24; keep.Padding = new Thickness(9, 0, 9, 0);
-        var stopNow = Action("停止并保存", new TextBlock { Text = "停止" }, "RecappiDangerChipButton", () => Guard(app.StopRecording));
+        keep.Height = 24; keep.Padding = new Thickness(8, 0, 8, 0); keep.FontSize = 11;
+        var stopNow = Action("停止并保存", new TextBlock { Text = "停止" }, "RecappiDangerChipButton", () => Guard(app.StopRecording)); stopNow.FontSize = 11; stopNow.Padding = new Thickness(8, 0, 8, 0);
         Place(attentionActions, (attentionIcon, false), (attention, true), (keep, false), (stopNow, false));
         attentionActions.Visibility = Visibility.Collapsed;
         activePanel.Children.Add(attentionActions);
