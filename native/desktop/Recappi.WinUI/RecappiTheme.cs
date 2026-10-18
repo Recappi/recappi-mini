@@ -44,6 +44,11 @@ internal static class RecappiTheme
         // Recorder glass: a light legibility fill over acrylic, as on macOS.
         ("RecappiGlassFill", 0x29FFFFFF, 0x47000000),
         ("RecappiGlassEdge", 0xFFDADADD, 0xFF3F3F42),
+        // Live captions: a fixed dark subtitle scrim and white text in both themes.
+        ("RecappiCaptionScrim", 0x8C000000, 0x8C000000),
+        ("RecappiCaptionText", 0xF5FFFFFF, 0xF5FFFFFF),
+        ("RecappiCaptionTextSecondary", 0xC7FFFFFF, 0xC7FFFFFF),
+        ("RecappiCaptionTextMuted", 0x99FFFFFF, 0x99FFFFFF),
         // Page windows (library, settings, account, onboarding).
         ("RecappiSurfaceWindow", 0xFFF7F7F8, 0xFF1C1C1C),
         ("RecappiSurfaceCard", 0xFFFFFFFF, 0xFF262626),
@@ -269,6 +274,31 @@ internal static class RecappiTheme
             "<Setter Property='Foreground' Value='{ThemeResource RecappiOnAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccent}'/><Setter Property='Width' Value='34'/><Setter Property='Height' Value='34'/><Setter Property='CornerRadius' Value='17'/>",
             "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/>",
             "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/><Setter Target='Root.Opacity' Value='0.85'/>") +
+        Text("RecappiCaptionBadge", "RecappiCaptionText", 9.5, "<Setter Property='FontWeight' Value='SemiBold'/>") +
+        Text("RecappiCaptionPane", "RecappiCaptionTextMuted", 9.5, "<Setter Property='FontWeight' Value='Bold'/>") +
+        Text("RecappiCaptionOriginal", "RecappiCaptionText", 16, "<Setter Property='FontWeight' Value='SemiBold'/>") +
+        Text("RecappiCaptionTranslation", "RecappiCaptionTextSecondary", 15, "<Setter Property='FontWeight' Value='Medium'/>") + @"
+<Style x:Key='RecappiCaptionSegment' TargetType='ToggleButton'>
+  <Setter Property='UseSystemFocusVisuals' Value='True'/>
+  <Setter Property='Width' Value='24'/><Setter Property='Height' Value='18'/>
+  <Setter Property='Padding' Value='0'/>
+  <Setter Property='Foreground' Value='#8CFFFFFF'/>
+  <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ToggleButton'>
+    <Grid x:Name='Root' Background='Transparent' CornerRadius='9'>
+      <VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'>
+        <VisualState x:Name='Normal'/>
+        <VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='Root.Background' Value='#1AFFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='Root.Background' Value='#1AFFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='Disabled'><VisualState.Setters><Setter Target='Root.Opacity' Value='0.4'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='Checked'><VisualState.Setters><Setter Target='Root.Background' Value='#33FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='CheckedPointerOver'><VisualState.Setters><Setter Target='Root.Background' Value='#40FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='CheckedPressed'><VisualState.Setters><Setter Target='Root.Background' Value='#40FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='CheckedDisabled'><VisualState.Setters><Setter Target='Root.Opacity' Value='0.4'/></VisualState.Setters></VisualState>
+      </VisualStateGroup></VisualStateManager.VisualStateGroups>
+      <ContentPresenter x:Name='Presenter' Content='{TemplateBinding Content}' Foreground='{TemplateBinding Foreground}' HorizontalAlignment='Center' VerticalAlignment='Center'/>
+    </Grid>
+  </ControlTemplate></Setter.Value></Setter>
+</Style>" +
         Text("RecappiPageTitle", "RecappiLabel", 22, "<Setter Property='FontWeight' Value='SemiBold'/><Setter Property='TextWrapping' Value='Wrap'/>") +
         Text("RecappiSectionTitle", "RecappiLabel", 15, "<Setter Property='FontWeight' Value='SemiBold'/>") +
         Text("RecappiBody", "RecappiLabel", 14, "<Setter Property='TextWrapping' Value='Wrap'/><Setter Property='LineHeight' Value='23'/>") +

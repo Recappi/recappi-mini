@@ -367,8 +367,11 @@ internal class DesktopWindow : Window
         }
         finally { dialogOpen = false; if (enlarge) { AppWindow.Resize(size); EnsureVisible(); } }
     }
+    // Surfaces that keep one appearance regardless of the app theme (the caption scrim).
+    protected bool FixedDarkTheme { get; set; }
     public void ApplyTheme(string theme)
     {
+        if (FixedDarkTheme) theme = "dark";
         ((FrameworkElement)Content).RequestedTheme = theme switch
         { "dark" => ElementTheme.Dark, "light" => ElementTheme.Light, _ => ElementTheme.Default };
         if (AppWindowTitleBar.IsCustomizationSupported())
