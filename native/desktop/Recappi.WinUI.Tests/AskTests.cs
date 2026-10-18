@@ -66,7 +66,7 @@ internal static class AskTests
                     }, "The compact viewport did not reveal the returned answer.");
                 }
                 panel.Root.Height = 400;
-                await Until(() => question.ActualHeight >= 88, "Growing the panel did not restore the multiline composer.");
+                await Until(() => question.MaxHeight >= 96, "Growing the panel did not restore the multiline composer.");
                 Check(question.Text == expected, "Resizing changed the next question draft.");
             }
             finally { panel.Dispose(); suggestions.TrySetCanceled(); response.TrySetCanceled(); owner.Close(); }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using Recappi.Core;
 using Windows.Media.Core;
 using Windows.Media.Playback;
@@ -60,6 +61,11 @@ internal sealed class LibraryWindow : DesktopWindow
     private readonly ContentControl reviewTab = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private readonly TextBlock accountLabel = Ui.Text("");
     private readonly TextBlock accountInitial = new() { FontSize = 13 };
+    private readonly FontIcon detailSource = new() { Glyph = "\uE753" };
+    private readonly TextBlock createdLabel = new();
+    private readonly Border statusChip = new();
+    private readonly TextBlock playbackLabel = new() { Text = "未加载音频", TextTrimming = TextTrimming.CharacterEllipsis };
+    private readonly TextBlock librarySubtitle = new();
     private readonly TextBlock meetingLabel = Ui.Text("");
     private readonly Grid detailLayout = new() { RowSpacing = 12, Visibility = Visibility.Collapsed };
     private readonly StackPanel emptyDetail = new() { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
@@ -72,7 +78,7 @@ internal sealed class LibraryWindow : DesktopWindow
     private IReadOnlyList<LibraryRecording> displayed = [];
     private LibraryRecording? Selected => list.SelectedItem as LibraryRecording;
     public LibraryWindow(IDesktopHost app, Func<Task<string?>>? pickImportFile = null,
-        Func<string, IProgress<double>, CancellationToken, Task<LocalRecording>>? importAudio = null) : base("Recappi Mini · 录音库", 1120, 760)
+        Func<string, IProgress<double>, CancellationToken, Task<LocalRecording>>? importAudio = null) : base("Recappi Mini · 录音库", 1080, 760)
     {
         this.app = app; cache = new CloudContentCache(Path.Combine(app.ApplicationRoot, "CloudContent"));
         this.pickImportFile = pickImportFile ?? PickImportFile;
@@ -80,103 +86,167 @@ internal sealed class LibraryWindow : DesktopWindow
         profiles = new SpeakerProfileStore(Path.Combine(app.ApplicationRoot, "Speakers"));
         ToolTipService.SetToolTip(search, "搜索本机标题与当前账号已缓存的内容");
         partition = app.Account.Snapshot.Account?.Partition;
+        // Cloud Center layout from macOS: unified toolbar · account header + dated list · detail pane.
         list.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-        list.ItemContainerStyle = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><Setter Property='HorizontalContentAlignment' Value='Stretch'/><Setter Property='HorizontalAlignment' Value='Stretch'/><Setter Property='Padding' Value='10,0'/><Setter Property='Margin' Value='0,1'/><Setter Property='CornerRadius' Value='8'/></Style>");
+        list.ItemContainerStyle = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><Setter Property='HorizontalContentAlignment' Value='Stretch'/><Setter Property='HorizontalAlignment' Value='Stretch'/><Setter Property='Padding' Value='8,0'/><Setter Property='Margin' Value='0,0'/><Setter Property='MinHeight' Value='32'/><Setter Property='CornerRadius' Value='6'/></Style>");
+        list.GroupStyle.Add(new GroupStyle { HidesIfEmpty = true, HeaderTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><TextBlock Text='{Binding Key}' FontSize='11' FontWeight='SemiBold' Opacity='0.5'/></DataTemplate>") });
         ((ScrollViewer)Content).Content = null;
         var layout = new Grid();
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(264) }); layout.ColumnDefinitions.Add(new ColumnDefinition());
-        // Sidebar: status · search and import · recordings · account.
-        Body.Padding = new Thickness(0); Body.Spacing = 8;
-        Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 12;
-        meetingLabel.Style = RecappiTheme.Style("RecappiStatusAccent"); meetingLabel.Visibility = Visibility.Collapsed; Body.Children.Add(meetingLabel);
-        var sidebar = new Grid { RowSpacing = 12, Padding = new Thickness(12, 4, 10, 12) };
-        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) sidebar.RowDefinitions.Add(new RowDefinition { Height = height });
-        sidebar.Children.Add(Body);
-        var controls = new StackPanel { Spacing = 8 }; controls.Children.Add(search);
-        var importButton = Ui.Button("导入音频", Import, this); importButton.HorizontalAlignment = HorizontalAlignment.Stretch;
-        var returnToRecorder = Ui.IconButton("录音控制", "", () => { app.ShowRecorder(); return Task.CompletedTask; }, this);
-        ToolTipService.SetToolTip(returnToRecorder, "打开录音条");
-        var actions = new Grid { ColumnSpacing = 4 };
-        actions.ColumnDefinitions.Add(new ColumnDefinition()); actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); actions.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) }); layout.ColumnDefinitions.Add(new ColumnDefinition());
+        Body.Padding = new Thickness(0); Body.Spacing = 6;
+        Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 11.5;
+        meetingLabel.Style = RecappiTheme.Style("RecappiStatusAccent"); meetingLabel.FontSize = 11; meetingLabel.Visibility = Visibility.Collapsed; Body.Children.Add(meetingLabel);
+
+        // Toolbar: search · upload · refresh · recorder · more.
+        search.Width = 260; search.PlaceholderText = "搜索所有录音"; search.MinHeight = 30;
+        var importButton = Ui.IconButton("导入音频", "", Import, this);
         var refreshButton = Ui.IconButton("刷新", "", Refresh, this);
-        Grid.SetColumn(refreshButton, 1); Grid.SetColumn(returnToRecorder, 2);
-        actions.Children.Add(importButton); actions.Children.Add(refreshButton); actions.Children.Add(returnToRecorder);
-        controls.Children.Add(actions);
-        importStatus.Style = RecappiTheme.Style("RecappiCaption"); importStatus.Visibility = Visibility.Collapsed;
-        cancelImport = Ui.Button("取消导入", () => { import?.Cancel(); return Task.CompletedTask; }, this); cancelImport.Visibility = Visibility.Collapsed;
-        controls.Children.Add(importStatus); controls.Children.Add(cancelImport);
-        Grid.SetRow(controls, 1); sidebar.Children.Add(controls);
-        Grid.SetRow(list, 2); sidebar.Children.Add(list);
-        emptyList.Style = RecappiTheme.Style("RecappiBodySecondary"); emptyList.Margin = new Thickness(8, 18, 8, 0); Grid.SetRow(emptyList, 2); sidebar.Children.Add(emptyList);
-        loadMore = Ui.Button("加载更多", LoadMore, this); loadMore.Visibility = Visibility.Collapsed; loadMore.HorizontalAlignment = HorizontalAlignment.Stretch;
-        accountLabel.Style = RecappiTheme.Style("RecappiCaption"); accountLabel.TextWrapping = TextWrapping.NoWrap; accountLabel.IsTextSelectionEnabled = false; accountLabel.FontSize = 12; accountLabel.LineHeight = 17;
-        var footer = new StackPanel { Spacing = 8 }; footer.Children.Add(loadMore);
+        var returnToRecorder = Ui.IconButton("录音控制", "", () => { app.ShowRecorder(); return Task.CompletedTask; }, this);
+        ToolTipService.SetToolTip(returnToRecorder, "打开录音条"); ToolTipService.SetToolTip(importButton, "导入音频");
+        var moreActions = new StackPanel { Spacing = 2, MinWidth = 200 };
+        var more = Ui.IconButton("更多操作", "", () => Task.CompletedTask, this);
+        more.Flyout = new Flyout { Content = moreActions };
+        var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        foreach (var tool in new FrameworkElement[] { search, importButton, refreshButton, returnToRecorder, more }) { tool.VerticalAlignment = VerticalAlignment.Center; toolbar.Children.Add(tool); }
+        search.Margin = new Thickness(0, 0, 6, 0);
+
+        // Sidebar: account header · recordings by day · import status and cloud link.
+        var sidebar = new Grid { RowSpacing = 6, Padding = new Thickness(10, 2, 10, 10) };
+        foreach (var height in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) sidebar.RowDefinitions.Add(new RowDefinition { Height = height });
+        accountLabel.Style = RecappiTheme.Style("RecappiCaption"); accountLabel.TextWrapping = TextWrapping.NoWrap; accountLabel.IsTextSelectionEnabled = false; accountLabel.FontSize = 11; accountLabel.LineHeight = 15;
         var accountContent = new Grid { ColumnSpacing = 10 };
-        accountContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); accountContent.ColumnDefinitions.Add(new ColumnDefinition());
-        var avatar = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(15), Child = accountInitial };
-        RecappiTheme.Bind(avatar, "RecappiAccentChipFill", brush => avatar.Background = brush);
-        accountInitial.Style = RecappiTheme.Style("RecappiStatusAccent"); accountInitial.HorizontalAlignment = HorizontalAlignment.Center;
+        foreach (var width in new[] { GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) accountContent.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
+        var avatar = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Child = accountInitial, BorderThickness = new Thickness(1) };
+        RecappiTheme.Bind(avatar, "RecappiControlPress", brush => avatar.Background = brush);
+        RecappiTheme.Bind(avatar, "RecappiBorderHairline", brush => avatar.BorderBrush = brush);
+        accountInitial.Style = RecappiTheme.Style("RecappiLabelSecondary"); accountInitial.FontSize = 11; accountInitial.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; accountInitial.HorizontalAlignment = HorizontalAlignment.Center;
         accountContent.Children.Add(avatar); Grid.SetColumn(accountLabel, 1); accountContent.Children.Add(accountLabel);
+        var chooser = RecappiTheme.Glyph("", 10); chooser.Style = RecappiTheme.Style("RecappiIconNeutral"); chooser.Opacity = 0.7; Grid.SetColumn(chooser, 2); accountContent.Children.Add(chooser);
         var accountButton = Ui.Button("账号", () => { app.ShowAccount(); return Task.CompletedTask; }, this);
         accountButton.Style = RecappiTheme.Style("RecappiSubtleButton"); accountButton.Content = accountContent;
-        accountButton.HorizontalAlignment = HorizontalAlignment.Stretch; accountButton.HorizontalContentAlignment = HorizontalAlignment.Stretch; accountButton.Padding = new Thickness(6);
-        footer.Children.Add(accountButton); Grid.SetRow(footer, 3); sidebar.Children.Add(footer);
+        accountButton.HorizontalAlignment = HorizontalAlignment.Stretch; accountButton.HorizontalContentAlignment = HorizontalAlignment.Stretch; accountButton.Padding = new Thickness(4, 6, 6, 6); accountButton.CornerRadius = new CornerRadius(8);
+        sidebar.Children.Add(accountButton);
+        Grid.SetRow(Body, 1); sidebar.Children.Add(Body);
+        Grid.SetRow(list, 2); sidebar.Children.Add(list);
+        emptyList.Style = RecappiTheme.Style("RecappiBodySecondary"); emptyList.FontSize = 12; emptyList.Margin = new Thickness(8, 18, 8, 0); Grid.SetRow(emptyList, 2); sidebar.Children.Add(emptyList);
+        importStatus.Style = RecappiTheme.Style("RecappiCaption"); importStatus.Visibility = Visibility.Collapsed;
+        cancelImport = Ui.Button("取消导入", () => { import?.Cancel(); return Task.CompletedTask; }, this); cancelImport.Visibility = Visibility.Collapsed;
+        loadMore = Ui.Button("加载更多", LoadMore, this); loadMore.Visibility = Visibility.Collapsed; loadMore.HorizontalAlignment = HorizontalAlignment.Stretch;
+        var openCloud = Ui.Button("打开 Recappi Cloud", OpenCloudHome, this);
+        var openCloudContent = new Grid(); openCloudContent.ColumnDefinitions.Add(new ColumnDefinition()); openCloudContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        openCloudContent.Children.Add(new TextBlock { Text = "打开 Recappi Cloud", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
+        var external = RecappiTheme.Glyph("", 11); external.Style = RecappiTheme.Style("RecappiIconNeutral"); Grid.SetColumn(external, 1); openCloudContent.Children.Add(external);
+        openCloud.Content = openCloudContent; openCloud.HorizontalAlignment = HorizontalAlignment.Stretch; openCloud.HorizontalContentAlignment = HorizontalAlignment.Stretch; openCloud.CornerRadius = new CornerRadius(8); openCloud.Padding = new Thickness(10, 7, 10, 7);
+        var footer = new StackPanel { Spacing = 8 };
+        foreach (var item in new UIElement[] { importStatus, cancelImport, loadMore, openCloud }) footer.Children.Add(item);
+        Grid.SetRow(footer, 3); sidebar.Children.Add(footer);
         layout.Children.Add(sidebar);
-        list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><StackPanel Padding='2,10' Spacing='4'><TextBlock Text='{Binding Title}' FontWeight='SemiBold' FontSize='13.5' TextTrimming='CharacterEllipsis'/><TextBlock x:Name='Metadata' Text='{Binding Location}' FontSize='11.5' Opacity='0.6' TextTrimming='CharacterEllipsis'/></StackPanel></DataTemplate>");
+        list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><StackPanel Orientation='Horizontal' Spacing='7' Padding='0,5'><Border Width='22' Height='22' CornerRadius='5'><FontIcon x:Name='Source' FontSize='14' Opacity='0.6'/></Border><TextBlock Text='{Binding Title}' FontSize='13' TextTrimming='CharacterEllipsis' VerticalAlignment='Center' MaxWidth='170'/></StackPanel></DataTemplate>");
         list.ContainerContentChanging += (_, e) =>
         {
-            if (e.Item is LibraryRecording item && e.ItemContainer.ContentTemplateRoot is FrameworkElement root && root.FindName("Metadata") is TextBlock metadata)
+            if (e.Item is LibraryRecording item && e.ItemContainer.ContentTemplateRoot is FrameworkElement root && root.FindName("Source") is FontIcon icon)
             {
                 var duration = item.Local?.DurationMs ?? item.Cloud?.DurationMs ?? 0;
                 var date = item.CreatedAt?.ToLocalTime().ToString("M月d日") ?? "";
-                metadata.Text = string.Join(" · ", new[] { date, duration > 0 ? $"{Math.Ceiling(duration / 60000d):0} 分钟" : "", item.Location }.Where(x => x.Length > 0));
+                icon.Glyph = item.Cloud is null ? "" : "";
+                ToolTipService.SetToolTip(e.ItemContainer, string.Join(" · ", new[] { item.Title, date, duration > 0 ? $"{Math.Ceiling(duration / 60000d):0} 分钟" : "", item.Location }.Where(x => x.Length > 0)));
             }
         };
-        transcript.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><StackPanel Padding='6,12' Spacing='8'><Button x:Name='Timestamp' Content='{Binding Label}' HorizontalAlignment='Left' ToolTipService.ToolTip='定位到这段录音'/><TextBlock Text='{Binding Text}' FontSize='14' LineHeight='24' TextWrapping='Wrap' IsTextSelectionEnabled='True'/></StackPanel></DataTemplate>");
+        transcript.ItemContainerStyle = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><Setter Property='HorizontalContentAlignment' Value='Stretch'/><Setter Property='Padding' Value='12,0'/><Setter Property='Margin' Value='0,2'/><Setter Property='CornerRadius' Value='9'/></Style>");
+        transcript.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><StackPanel Padding='0,14' Spacing='8'><StackPanel Orientation='Horizontal' Spacing='8'><TextBlock x:Name='Speaker' FontSize='12' FontWeight='Medium' Opacity='0.62' VerticalAlignment='Center'/><Button x:Name='Timestamp' Content='{Binding Label}' HorizontalAlignment='Left' ToolTipService.ToolTip='定位到这段录音'/></StackPanel><TextBlock Text='{Binding Text}' FontSize='13' LineHeight='22' TextWrapping='Wrap' IsTextSelectionEnabled='True'/></StackPanel></DataTemplate>");
         transcript.ContainerContentChanging += (_, e) =>
         {
             if (e.ItemContainer.ContentTemplateRoot is FrameworkElement root && root.FindName("Timestamp") is Button button)
             {
-                button.Style ??= RecappiTheme.Style("RecappiTimestampButton");
+                button.Style ??= RecappiTheme.Style("RecappiMarkerButton");
+                if (e.Item is CloudTranscriptSegment row && root.FindName("Speaker") is TextBlock name)
+                {
+                    // macOS row header: speaker name, then the time range as a mono marker.
+                    name.Text = row.Profile is { } profile ? (profile.Emoji + " " + profile.Name).Trim() : row.Speaker ?? "";
+                    name.Visibility = name.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+                    static string Stamp(long ms) { var t = TimeSpan.FromMilliseconds(ms); return t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"m\:ss"); }
+                    button.Content = row.StartMs is { } start ? Stamp(start) + (row.EndMs is { } end && end > start ? "–" + Stamp(end) : "") : "";
+                    button.Visibility = row.StartMs is null ? Visibility.Collapsed : Visibility.Visible;
+                }
                 button.Click -= TranscriptTimestampClick;
                 button.Tag = e.InRecycleQueue ? null : e.Item;
                 button.IsEnabled = button.Tag is CloudTranscriptSegment { StartMs: not null };
                 button.Click += TranscriptTimestampClick;
             }
         };
-        // Detail card: title and copies · sections · playback bar.
-        heading.Style = RecappiTheme.Style("RecappiPageTitle"); heading.MaxLines = 2; heading.TextTrimming = TextTrimming.CharacterEllipsis;
-        location.Style = RecappiTheme.Style("RecappiCaption"); location.IsTextSelectionEnabled = false;
-        details.Spacing = 8; details.Children.Add(heading);
+
+        // Detail header: source tile + title · section pills · date and status.
+        heading.Style = RecappiTheme.Style("RecappiPageTitle"); heading.MaxLines = 1; heading.TextWrapping = TextWrapping.NoWrap; heading.TextTrimming = TextTrimming.CharacterEllipsis; heading.VerticalAlignment = VerticalAlignment.Center;
+        location.Style = RecappiTheme.Style("RecappiStatusAccent"); location.FontSize = 11; location.FontWeight = Microsoft.UI.Text.FontWeights.Medium; location.IsTextSelectionEnabled = false;
+        details.Spacing = 9;
+        var titleRow = new Grid { ColumnSpacing = 12 };
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); titleRow.ColumnDefinitions.Add(new ColumnDefinition());
+        var sourceTile = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(8), Child = detailSource };
+        RecappiTheme.Bind(sourceTile, "RecappiAccentChipFill", brush => sourceTile.Background = brush);
+        detailSource.Style = RecappiTheme.Style("RecappiIconAccent"); detailSource.FontSize = 16;
+        titleRow.Children.Add(sourceTile); Grid.SetColumn(heading, 1); titleRow.Children.Add(heading);
+        details.Children.Add(titleRow);
         localCopy = Ui.Button("本机副本", () => Select(true), this); cloudCopy = Ui.Button("云端副本", () => Select(false), this);
-        foreach (var copy in new[] { localCopy, cloudCopy }) { copy.MinHeight = 26; copy.FontSize = 12; copy.Padding = new Thickness(10, 0, 10, 0); }
-        var meta = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        meta.Children.Add(location); meta.Children.Add(localCopy); meta.Children.Add(cloudCopy);
-        details.Children.Add(meta);
+        foreach (var copy in new[] { localCopy, cloudCopy }) { copy.Style = RecappiTheme.Style("RecappiPillButton"); }
+        var pills = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var pillGlyphs = new[] { "", "", "", "" };
+        var names = new[] { "摘要", "逐字稿", "问答", "处理历史" };
+        var pillButtons = new List<ToggleButtonLike>();
+        for (var i = 0; i < names.Length; i++)
+        {
+            var index = i;
+            var pill = new Button { Style = RecappiTheme.Style("RecappiPillButton") };
+            var pillContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
+            pillContent.Children.Add(RecappiTheme.Glyph(pillGlyphs[i], 10.5)); pillContent.Children.Add(new TextBlock { Text = names[i], VerticalAlignment = VerticalAlignment.Center });
+            pill.Content = pillContent;
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(pill, names[i]);
+            pill.Click += (_, _) => tabs.SelectedItem = tabs.Items[index];
+            pills.Children.Add(pill); pillButtons.Add(new(pill));
+        }
+        var navRow = new Grid { ColumnSpacing = 10 };
+        navRow.ColumnDefinitions.Add(new ColumnDefinition()); navRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        navRow.Children.Add(pills);
+        var meta = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        createdLabel.Style = RecappiTheme.Style("RecappiCaption"); createdLabel.FontSize = 11;
+        statusChip.Child = location; statusChip.Padding = new Thickness(9, 4, 9, 4); statusChip.CornerRadius = new CornerRadius(12); statusChip.BorderThickness = new Thickness(1);
+        RecappiTheme.Bind(statusChip, "RecappiAccentChipFill", brush => statusChip.Background = brush);
+        RecappiTheme.Bind(statusChip, "RecappiAccentStroke", brush => statusChip.BorderBrush = brush);
+        foreach (var item in new UIElement[] { localCopy, cloudCopy, createdLabel, statusChip }) meta.Children.Add(item);
+        Grid.SetColumn(meta, 1); navRow.Children.Add(meta);
+        details.Children.Add(navRow);
         media = new MediaPlayerElement { AreTransportControlsEnabled = false, Visibility = Visibility.Collapsed };
         media.SetMediaPlayer(player);
-        var audioControls = new Grid { ColumnSpacing = 14, Padding = new Thickness(0, 14, 0, 0) };
-        foreach (var width in new[] { GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto }) audioControls.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
+
+        // Playback: a floating capsule with play · source and time · scrubber · speed.
+        var audioControls = new Grid { ColumnSpacing = 12, Padding = new Thickness(10, 0, 10, 0), Height = 44 };
+        foreach (var width in new[] { GridLength.Auto, new GridLength(150), new GridLength(1, GridUnitType.Star), GridLength.Auto }) audioControls.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
         play = Ui.IconButton("播放 / 暂停", "", TogglePlayback, this);
-        play.Style = RecappiTheme.Style("RecappiPlayButton"); play.ClearValue(FrameworkElement.WidthProperty); play.ClearValue(FrameworkElement.HeightProperty);
+        play.Width = play.Height = 28; ((FontIcon)play.Content).FontSize = 12;
         audioControls.Children.Add(play); audioControls.Children.Add(media);
-        Grid.SetColumn(seek, 1); audioControls.Children.Add(seek);
-        playbackTime.Style = RecappiTheme.Style("RecappiDuration"); playbackTime.IsTextSelectionEnabled = false;
-        Grid.SetColumn(playbackTime, 2); audioControls.Children.Add(playbackTime);
-        var rates = new double[] { 0.5, 0.75, 1, 1.25, 1.5, 2 }.Select(x => new ComboBoxItem { Content = x + "×", Tag = x }).ToArray();
-        var speed = new ComboBox { ItemsSource = rates, SelectedItem = rates[2], MinWidth = 84, VerticalAlignment = VerticalAlignment.Center };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(speed, "播放速度");
-        ToolTipService.SetToolTip(speed, "播放速度");
+        var status = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
+        playbackLabel.Style = RecappiTheme.Style("RecappiLabelSecondary"); playbackLabel.FontSize = 11;
+        playbackTime.Style = RecappiTheme.Style("RecappiLabelSecondary"); playbackTime.FontSize = 11; playbackTime.IsTextSelectionEnabled = false;
+        status.Children.Add(playbackLabel); status.Children.Add(playbackTime);
+        Grid.SetColumn(status, 1); audioControls.Children.Add(status);
+        Grid.SetColumn(seek, 2); audioControls.Children.Add(seek);
+        var speed = new Button { Content = "1×", Style = RecappiTheme.Style("RecappiSpeedButton") };
+        var speeds = new MenuFlyout();
+        foreach (var rate in new double[] { 0.5, 1, 1.5, 2, 3 })
+        {
+            var option = new MenuFlyoutItem { Text = rate + "×" };
+            option.Click += (_, _) => { player.PlaybackSession.PlaybackRate = rate; speed.Content = rate + "×"; };
+            speeds.Items.Add(option);
+        }
+        speed.Flyout = speeds;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(speed, "播放速度"); ToolTipService.SetToolTip(speed, "播放速度");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(seek, "播放位置");
-        speed.SelectionChanged += (_, _) => { if (speed.SelectedItem is ComboBoxItem { Tag: double value }) player.PlaybackSession.PlaybackRate = value; };
         Grid.SetColumn(speed, 3); audioControls.Children.Add(speed);
-        var audioBar = new Border { Child = audioControls, BorderThickness = new Thickness(0, 1, 0, 0) };
-        RecappiTheme.Bind(audioBar, "RecappiBorderHairline", brush => audioBar.BorderBrush = brush);
+        var audioBar = new Border { Child = audioControls, CornerRadius = new CornerRadius(22), BorderThickness = new Thickness(1), Margin = new Thickness(14, 6, 14, 10) };
+        RecappiTheme.Bind(audioBar, "RecappiSurfacePanel", brush => audioBar.Background = brush);
+        RecappiTheme.Bind(audioBar, "RecappiBorderSubtle", brush => audioBar.BorderBrush = brush);
+        audioBar.Shadow = new Microsoft.UI.Xaml.Media.ThemeShadow(); audioBar.Translation = new System.Numerics.Vector3(0, 0, 16);
         seek.ValueChanged += (_, e) => { if (!updatingSeek && audioPath is not null) SeekAudio(TimeSpan.FromSeconds(e.NewValue)); };
         playbackTimer.Tick += (_, _) => RenderPlayback();
-        var moreActions = new StackPanel { Spacing = 2, MinWidth = 200 };
-        var more = Ui.IconButton("更多操作", "", () => Task.CompletedTask, this);
-        more.Flyout = new Flyout { Content = moreActions };
         moreActions.Children.Add(Ui.Button("完整标题", async () =>
         {
             var title = Selected?.Title;
@@ -193,39 +263,45 @@ internal sealed class LibraryWindow : DesktopWindow
         foreach (var control in new[] { Ui.Button("上传 / 继续处理", Upload, this), Ui.Button("从本机库移除", RemoveLocal, this), Ui.Button("删除云端录音", DeleteCloud, this),
             Ui.Button("导出文字", ExportText, this), Ui.Button("音频副本", ExportAudio, this), Ui.Button("导出字幕 JSONL", () => ExportCaptions(true), this), Ui.Button("打开目录", OpenFolder, this), Ui.Button("打开网页", OpenBrowser, this) }) moreActions.Children.Add(control);
         foreach (var action in moreActions.Children.OfType<Button>()) action.Style = RecappiTheme.Style("RecappiMenuButton");
-        var detailHeader = new Grid { ColumnSpacing = 16 };
-        detailHeader.ColumnDefinitions.Add(new ColumnDefinition()); detailHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        detailHeader.Children.Add(details); Grid.SetColumn(more, 1); more.VerticalAlignment = VerticalAlignment.Top; detailHeader.Children.Add(more);
+        var detailHeader = new Border { Child = details, Padding = new Thickness(22, 14, 22, 8), BorderThickness = new Thickness(0, 0, 0, 1) };
+        RecappiTheme.Bind(detailHeader, "RecappiBorderHairline", brush => detailHeader.BorderBrush = brush);
         var transcriptLayout = new Grid { RowSpacing = 8 };
         transcriptLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); transcriptLayout.RowDefinitions.Add(new RowDefinition());
-        var transcriptTools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
-        transcriptTools.Children.Add(filter); transcriptTools.Children.Add(speaker); transcriptTools.Children.Add(Ui.Button("编辑说话人", EditSpeaker, this));
+        var transcriptTools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        filter.MinHeight = 30; speaker.MinHeight = 30;
+        var editSpeaker = Ui.Button("编辑说话人", EditSpeaker, this); editSpeaker.MinHeight = 30; editSpeaker.FontSize = 12;
+        transcriptTools.Children.Add(filter); transcriptTools.Children.Add(speaker); transcriptTools.Children.Add(editSpeaker);
         transcriptLayout.Children.Add(transcriptTools);
         Grid.SetRow(transcript, 1); transcriptLayout.Children.Add(transcript);
-        var sectionHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
-        var sectionViews = new UIElement[] { new ScrollViewer { Content = summary }, transcriptLayout, askTab, reviewTab };
-        foreach (var name in new[] { "摘要", "逐字稿", "问答", "处理历史" }) tabs.Items.Add(new SelectorBarItem { Text = name });
-        tabs.SelectionChanged += (_, _) => { var index = tabs.Items.IndexOf(tabs.SelectedItem); if (index >= 0) sectionHost.Content = sectionViews[index]; };
+        var sectionHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch, Padding = new Thickness(20, 12, 20, 0) };
+        var sectionViews = new UIElement[] { new ScrollViewer { Content = summary, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, transcriptLayout, askTab, reviewTab };
+        foreach (var name in names) tabs.Items.Add(new SelectorBarItem { Text = name });
+        // The macOS pills drive section selection; SelectorBar stays as the selection model.
+        tabs.SelectionChanged += (_, _) =>
+        {
+            var index = tabs.Items.IndexOf(tabs.SelectedItem);
+            if (index < 0) return;
+            sectionHost.Content = sectionViews[index];
+            for (var i = 0; i < pillButtons.Count; i++) pillButtons[i].Set(i == index);
+        };
         tabs.SelectedItem = tabs.Items[0];
-        tabs.Margin = new Thickness(-12, 0, 0, 0);
-        var sectionLayout = new Grid { RowSpacing = 4 };
-        sectionLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); sectionLayout.RowDefinitions.Add(new RowDefinition());
-        sectionLayout.Children.Add(tabs); Grid.SetRow(sectionHost, 1); sectionLayout.Children.Add(sectionHost);
-        detailLayout.RowSpacing = 14;
+        detailLayout.RowSpacing = 0;
         detailLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); detailLayout.RowDefinitions.Add(new RowDefinition());
         detailLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        detailLayout.Children.Add(detailHeader); Grid.SetRow(sectionLayout, 1); detailLayout.Children.Add(sectionLayout);
+        detailLayout.Children.Add(detailHeader); Grid.SetRow(sectionHost, 1); detailLayout.Children.Add(sectionHost);
         Grid.SetRow(audioBar, 2); detailLayout.Children.Add(audioBar);
         emptyDetail.Spacing = 10;
-        var emptyTile = RecappiTheme.LogoTile(52); emptyTile.HorizontalAlignment = HorizontalAlignment.Center; emptyTile.Margin = new Thickness(0, 0, 0, 6); emptyDetail.Children.Add(emptyTile);
-        var emptyTitle = new TextBlock { Text = "从一段录音开始", Style = RecappiTheme.Style("RecappiSectionTitle"), FontSize = 18, HorizontalAlignment = HorizontalAlignment.Center }; emptyDetail.Children.Add(emptyTitle);
-        var emptyHint = new TextBlock { Text = "选择左侧录音，查看摘要、逐字稿与问答。", Style = RecappiTheme.Style("RecappiBodySecondary"), HorizontalAlignment = HorizontalAlignment.Center }; emptyDetail.Children.Add(emptyHint);
+        var emptyIcon = RecappiTheme.Glyph("", 28); emptyIcon.Style = RecappiTheme.Style("RecappiIconNeutral"); emptyIcon.Opacity = 0.6; emptyIcon.HorizontalAlignment = HorizontalAlignment.Center; emptyDetail.Children.Add(emptyIcon);
+        var emptyTitle = new TextBlock { Text = "选择一段录音", Style = RecappiTheme.Style("RecappiSectionTitle"), FontWeight = Microsoft.UI.Text.FontWeights.Medium, HorizontalAlignment = HorizontalAlignment.Center }; emptyDetail.Children.Add(emptyTitle);
+        var emptyHint = new TextBlock { Text = "在左侧选择录音，查看摘要、逐字稿与问答；也可以导入已有音频。", Style = RecappiTheme.Style("RecappiBodySecondary"), FontSize = 12, MaxWidth = 300, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center }; emptyDetail.Children.Add(emptyHint);
         var emptyImport = Ui.Button("导入音频", Import, this); emptyImport.HorizontalAlignment = HorizontalAlignment.Center; emptyImport.Margin = new Thickness(0, 8, 0, 0); emptyDetail.Children.Add(emptyImport);
-        var detailContainer = new Grid(); detailContainer.Children.Add(detailLayout); detailContainer.Children.Add(emptyDetail);
-        var detailSurface = Ui.Surface(detailContainer, new Thickness(28, 22, 28, 16));
-        detailSurface.BorderThickness = new Thickness(1, 1, 0, 0); detailSurface.CornerRadius = new CornerRadius(12, 0, 0, 0);
-        Grid.SetColumn(detailSurface, 1); layout.Children.Add(detailSurface); Content = PageFrame(layout, "录音库");
-        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) { presenter.PreferredMinimumWidth = (int)(820 * Scale); presenter.PreferredMinimumHeight = (int)(560 * Scale); }
+        var detailContainer = new Grid { BorderThickness = new Thickness(1, 0, 0, 0) };
+        RecappiTheme.Bind(detailContainer, "RecappiSurfaceCard", brush => detailContainer.Background = brush);
+        RecappiTheme.Bind(detailContainer, "RecappiBorderHairline", brush => detailContainer.BorderBrush = brush);
+        detailContainer.Children.Add(detailLayout); detailContainer.Children.Add(emptyDetail);
+        Grid.SetColumn(detailContainer, 1); layout.Children.Add(detailContainer);
+        Content = PageFrame(layout, "录音库", toolbar, librarySubtitle);
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) { presenter.PreferredMinimumWidth = (int)(880 * Scale); presenter.PreferredMinimumHeight = (int)(600 * Scale); }
         search.TextChanged += async (_, _) => await Run(Search);
         filter.TextChanged += (_, _) => RenderTranscript(); speaker.SelectionChanged += (_, _) => RenderTranscript();
         transcript.SelectionChanged += async (_, _) =>
@@ -347,7 +423,8 @@ internal sealed class LibraryWindow : DesktopWindow
         emptyList.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         loadMore.Visibility = nextCursor is null ? Visibility.Collapsed : Visibility.Visible;
         rebuild = true;
-        try { list.ItemsSource = rows; list.SelectedItem = rows.FirstOrDefault(x => x.Key == selected); }
+        librarySubtitle.Text = $"共 {rows.Length} 段录音";
+        try { list.ItemsSource = new CollectionViewSource { Source = Group(rows), IsSourceGrouped = true }.View; list.SelectedItem = rows.FirstOrDefault(x => x.Key == selected); }
         finally { rebuild = false; }
         if (selected is not null && Selected is null) await Select(true);
         else if (Selected is { } current)
@@ -362,6 +439,23 @@ internal sealed class LibraryWindow : DesktopWindow
                 heading.Text = current.Title;
             }
         }
+    }
+    private sealed class DayGroup(string key, IEnumerable<LibraryRecording> items) : List<LibraryRecording>(items) { public string Key { get; } = key; }
+    // Sidebar sections like the macOS Cloud list: today, yesterday, then dates.
+    private static List<DayGroup> Group(IEnumerable<LibraryRecording> rows)
+    {
+        var today = DateTime.Today;
+        static string Label(DateTime day, DateTime today) => day == today ? "今天" : day == today.AddDays(-1) ? "昨天" : day.Year == today.Year ? day.ToString("M月d日") : day.ToString("yyyy年M月d日");
+        return rows.GroupBy(x => x.CreatedAt?.ToLocalTime().Date).Select(g => new DayGroup(g.Key is { } day ? Label(day, today) : "更早", g)).ToList();
+    }
+    private sealed class ToggleButtonLike(Button button)
+    {
+        public void Set(bool active) => button.Style = RecappiTheme.Style(active ? "RecappiPillButtonActive" : "RecappiPillButton");
+    }
+    private Task OpenCloudHome()
+    {
+        Process.Start(new ProcessStartInfo(CloudClient.ValidateOrigin(app.Origin).AbsoluteUri) { UseShellExecute = true });
+        return Task.CompletedTask;
     }
     private void UpdateCopyActions(LibraryRecording selected)
     {
@@ -382,6 +476,9 @@ internal sealed class LibraryWindow : DesktopWindow
         if (selected is null) { heading.Text = "选择录音"; location.Text = ""; return; }
         UpdateCopyActions(selected);
         heading.Text = selected.Title; location.Text = selected.Location;
+        detailSource.Glyph = selected.Cloud is null ? "\uE8B7" : "\uE753";
+        createdLabel.Text = selected.CreatedAt?.ToLocalTime().ToString("yyyy年M月d日 HH:mm") ?? "";
+        playbackLabel.Text = selected.Cloud is null ? "本机音频" : "云端音频";
         selectedDurationMs = Math.Max(0, selected.Local?.DurationMs ?? selected.Cloud?.DurationMs ?? 0); RenderPlayback();
         askTab.Content = Ui.Text("连接账号并完成云端处理后，可向这段录音提问。");
         reviewTab.Content = Ui.Text("通过「更多操作」上传录音后，可在这里查看处理历史。");

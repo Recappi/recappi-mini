@@ -28,7 +28,8 @@ internal sealed class AskPanel : IDisposable
     private readonly StackPanel historyCitations = new() { Spacing = 6 };
     private readonly TextBlock asked = Ui.Text("", 14);
     private readonly TextBlock progress = Ui.Text("", 12);
-    private readonly Border askedBubble = new() { CornerRadius = new CornerRadius(12, 12, 4, 12), Padding = new Thickness(14, 10, 14, 10), HorizontalAlignment = HorizontalAlignment.Right, MaxWidth = 560 };
+    private readonly Border askedBubble = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 8, 12, 8), HorizontalAlignment = HorizontalAlignment.Right, MaxWidth = 560, Margin = new Thickness(40, 0, 0, 0) };
+    private readonly TextBlock answerLabel = new() { Text = "回答", FontSize = 9.5, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, CharacterSpacing = 60 };
     private readonly Button send;
     private readonly Button stop;
     private int edits;
@@ -46,10 +47,15 @@ internal sealed class AskPanel : IDisposable
         intro.Children.Add(new TextBlock { Text = "从录音中找到答案", Style = RecappiTheme.Style("RecappiSectionTitle") });
         intro.Children.Add(new TextBlock { Text = "围绕这段录音提问，回答中的引用可以定位到原音频。", Style = RecappiTheme.Style("RecappiBodySecondary") });
         timeline.Children.Add(intro);
-        foreach (var text in new[] { history, answer }) { text.Style = RecappiTheme.Style("RecappiBody"); text.FontSize = 14; text.LineHeight = 24; }
+        foreach (var text in new[] { history, answer }) { text.Style = RecappiTheme.Style("RecappiBody"); text.FontSize = 13; text.LineHeight = 21; }
+        answerLabel.Style = RecappiTheme.Style("RecappiStatusAccent"); answerLabel.FontSize = 9.5;
         timeline.Children.Add(history); timeline.Children.Add(historyCitations); timeline.Children.Add(suggestions);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(question, "向这场会议提问");
         send = Ui.Button("发送", Send, owner); stop = Ui.Button("停止", () => { sending?.Cancel(); return Task.CompletedTask; }, owner);
+        send.Style = stop.Style = RecappiTheme.Style("RecappiSendButton");
+        send.Content = RecappiTheme.Glyph("\uE74A", 13); stop.Content = RecappiTheme.Glyph("\uE71A", 11);
+        ToolTipService.SetToolTip(send, "发送"); ToolTipService.SetToolTip(stop, "停止回答");
+        question.MinHeight = 34; question.CornerRadius = new CornerRadius(9);
         var reload = Ui.IconButton("重新加载问答", "\uE72C", Load, owner);
         // Composer: question field with its actions stacked at the trailing edge.
         var composer = new Grid { ColumnSpacing = 8, Padding = new Thickness(0, 10, 0, 0) };
@@ -58,10 +64,11 @@ internal sealed class AskPanel : IDisposable
         composerActions.Children.Add(reload); composerActions.Children.Add(stop); composerActions.Children.Add(send);
         composer.Children.Add(question); Grid.SetColumn(composerActions, 1); composer.Children.Add(composerActions);
         Grid.SetRow(composer, 1); Root.Children.Add(composer);
-        asked.Style = RecappiTheme.Style("RecappiBody"); asked.FontSize = 14; asked.IsTextSelectionEnabled = true;
-        askedBubble.Child = asked; RecappiTheme.Bind(askedBubble, "RecappiAccentSoftFill", brush => askedBubble.Background = brush);
+        asked.Style = RecappiTheme.Style("RecappiBody"); asked.FontSize = 13; asked.IsTextSelectionEnabled = true;
+        askedBubble.Child = asked; RecappiTheme.Bind(askedBubble, "RecappiControlHover", brush => askedBubble.Background = brush);
         progress.Style = RecappiTheme.Style("RecappiCaption");
-        timeline.Children.Add(askedBubble); timeline.Children.Add(progress); timeline.Children.Add(answer); timeline.Children.Add(citations);
+        var response = new StackPanel { Spacing = 8 }; response.Children.Add(answerLabel); response.Children.Add(answer);
+        timeline.Children.Add(askedBubble); timeline.Children.Add(progress); timeline.Children.Add(response); timeline.Children.Add(citations);
         question.TextChanging += (_, _) => { edits++; Render(); }; Render();
     }
     private bool Current => !disposed && current();
@@ -90,7 +97,7 @@ internal sealed class AskPanel : IDisposable
             foreach (var value in values)
             {
                 var chip = Ui.Button(value, () => { question.Text = value; return Task.CompletedTask; }, owner);
-                chip.CornerRadius = new CornerRadius(15); chip.MinHeight = 30; chip.FontSize = 12.5; chip.HorizontalAlignment = HorizontalAlignment.Left;
+                chip.Style = RecappiTheme.Style("RecappiFollowUpButton"); chip.HorizontalAlignment = HorizontalAlignment.Left;
                 suggestions.Children.Add(chip);
             }
             Render();
@@ -133,8 +140,9 @@ internal sealed class AskPanel : IDisposable
     }
     private void ResizeComposer(object sender, SizeChangedEventArgs args)
     {
-        if (args.NewSize.Height < 400) { question.MinHeight = 40; question.MaxHeight = 64; }
-        else { question.MaxHeight = 120; question.MinHeight = 88; }
+        // One to four lines, as in the macOS composer; shorter on small windows.
+        if (args.NewSize.Height < 400) { question.MinHeight = 34; question.MaxHeight = 64; }
+        else { question.MinHeight = 34; question.MaxHeight = 96; }
     }
     private void RevealAnswer(object? sender, object args)
     {
@@ -150,6 +158,7 @@ internal sealed class AskPanel : IDisposable
         stop.Visibility = sending is null ? Visibility.Collapsed : Visibility.Visible;
         foreach (var text in new[] { history, asked, progress, answer }) text.Visibility = string.IsNullOrEmpty(text.Text) ? Visibility.Collapsed : Visibility.Visible;
         askedBubble.Visibility = asked.Visibility;
+        answerLabel.Visibility = answer.Visibility;
         foreach (var panel in new[] { historyCitations, suggestions, citations }) panel.Visibility = panel.Children.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
     private Button CitationButton(AskCitation citation)

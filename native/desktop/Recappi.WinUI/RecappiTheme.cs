@@ -263,7 +263,7 @@ internal static class RecappiTheme
             "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlHover}'/>",
             "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
         ButtonStyle("RecappiCitationButton", "Button",
-            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiAccentSoftFill}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiAccentStroke}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='MinHeight' Value='30'/><Setter Property='Padding' Value='10,4'/><Setter Property='FontSize' Value='12.5'/><Setter Property='HorizontalContentAlignment' Value='Left'/><Setter Property='CornerRadius' Value='8'/>",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccentChipFill}'/><Setter Property='MinHeight' Value='24'/><Setter Property='Padding' Value='9,4'/><Setter Property='FontSize' Value='11'/><Setter Property='FontWeight' Value='Medium'/><Setter Property='HorizontalContentAlignment' Value='Left'/><Setter Property='CornerRadius' Value='12'/>",
             "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>",
             "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>") +
         ButtonStyle("RecappiTimestampButton", "Button",
@@ -299,6 +299,30 @@ internal static class RecappiTheme
     </Grid>
   </ControlTemplate></Setter.Value></Setter>
 </Style>" +
+        ButtonStyle("RecappiPillButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabelSecondary}'/><Setter Property='Background' Value='{ThemeResource RecappiControlHover}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderHairline}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Height' Value='26'/><Setter Property='Padding' Value='10,0'/><Setter Property='FontSize' Value='11'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>", "<Setter Target='Root.Opacity' Value='0.45'/>") +
+        ButtonStyle("RecappiPillButtonActive", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiControlPress}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderSubtle}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Height' Value='26'/><Setter Property='Padding' Value='10,0'/><Setter Property='FontSize' Value='11'/><Setter Property='FontWeight' Value='SemiBold'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
+        ButtonStyle("RecappiMarkerButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabelTertiary}'/><Setter Property='Height' Value='20'/><Setter Property='Padding' Value='4,0'/><Setter Property='FontSize' Value='11'/><Setter Property='FontFamily' Value='Cascadia Mono, Consolas'/><Setter Property='CornerRadius' Value='4'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlHover}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiAccent}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>", "<Setter Target='Root.Opacity' Value='0.6'/>") +
+        ButtonStyle("RecappiSpeedButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiControlHover}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderSubtle}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Width' Value='40'/><Setter Property='Height' Value='25'/><Setter Property='FontSize' Value='11'/><Setter Property='FontWeight' Value='Bold'/><Setter Property='FontFamily' Value='Cascadia Mono, Consolas'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
+        ButtonStyle("RecappiFollowUpButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiCardSubtle}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderHairline}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='MinHeight' Value='26'/><Setter Property='Padding' Value='10,5'/><Setter Property='FontSize' Value='11'/><Setter Property='CornerRadius' Value='13'/><Setter Property='HorizontalContentAlignment' Value='Left'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlHover}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
+        ButtonStyle("RecappiSendButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiOnAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccent}'/><Setter Property='Width' Value='30'/><Setter Property='Height' Value='30'/><Setter Property='CornerRadius' Value='15'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/>",
+            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/>", "<Setter Target='Root.Opacity' Value='0.35'/>") +
         Text("RecappiPageTitle", "RecappiLabel", 22, "<Setter Property='FontWeight' Value='SemiBold'/><Setter Property='TextWrapping' Value='Wrap'/>") +
         Text("RecappiSectionTitle", "RecappiLabel", 15, "<Setter Property='FontWeight' Value='SemiBold'/>") +
         Text("RecappiBody", "RecappiLabel", 14, "<Setter Property='TextWrapping' Value='Wrap'/><Setter Property='LineHeight' Value='23'/>") +

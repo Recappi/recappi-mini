@@ -161,7 +161,7 @@ internal class DesktopWindow : Window
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
     // Page windows draw their own title strip so the brand surface reaches the top edge.
     // The strip holds no controls: everything in it is a window drag region.
-    protected Grid PageFrame(UIElement content, string page)
+    protected Grid PageFrame(UIElement content, string page, FrameworkElement? toolbar = null, TextBlock? subtitle = null)
     {
         ExtendsContentIntoTitleBar = true;
         if (AppWindowTitleBar.IsCustomizationSupported())
@@ -169,10 +169,24 @@ internal class DesktopWindow : Window
             AppWindow.TitleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
             AppWindow.TitleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
         }
-        var strip = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Height = 40, Padding = new Thickness(14, 0, 0, 0), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-        var tile = RecappiTheme.LogoTile(18); tile.VerticalAlignment = VerticalAlignment.Center; strip.Children.Add(tile);
-        strip.Children.Add(new TextBlock { Text = "Recappi", Style = RecappiTheme.Style("RecappiEyebrow") });
-        strip.Children.Add(new TextBlock { Text = page, Style = RecappiTheme.Style("RecappiCaption") });
+        // With a toolbar the strip becomes a unified title bar like macOS: title on the left,
+        // tools on the right ahead of the caption buttons; tools stay clickable as passthrough.
+        var strip = new Grid { Height = toolbar is null ? 40 : 52, Padding = new Thickness(14, 0, 0, 0), ColumnSpacing = 12, Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        strip.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); strip.ColumnDefinitions.Add(new ColumnDefinition());
+        strip.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); strip.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(toolbar is null ? 0 : 138) });
+        var brand = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        var tile = RecappiTheme.LogoTile(18); tile.VerticalAlignment = VerticalAlignment.Center; brand.Children.Add(tile);
+        if (toolbar is null) brand.Children.Add(new TextBlock { Text = "Recappi", Style = RecappiTheme.Style("RecappiEyebrow") });
+        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        titles.Children.Add(new TextBlock { Text = page, Style = RecappiTheme.Style(toolbar is null ? "RecappiCaption" : "RecappiSectionTitle"), FontSize = toolbar is null ? 12 : 13 });
+        if (subtitle is not null) { subtitle.Style = RecappiTheme.Style("RecappiCaption"); subtitle.FontSize = 11; titles.Children.Add(subtitle); }
+        brand.Children.Add(titles);
+        strip.Children.Add(brand);
+        if (toolbar is not null)
+        {
+            toolbar.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(toolbar, 2); strip.Children.Add(toolbar);
+            strip.LayoutUpdated += (_, _) => UpdatePassthrough(strip);
+        }
         var frame = new Grid();
         frame.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); frame.RowDefinitions.Add(new RowDefinition());
         frame.Children.Add(strip);
@@ -300,8 +314,23 @@ internal class DesktopWindow : Window
         acrylic.AddSystemBackdropTarget(WinRT.CastExtensions.As<Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop>(this));
         acrylic.SetSystemBackdropConfiguration(backdrop);
         Closed += (_, _) => { acrylic?.Dispose(); acrylic = null; };
+        // Make the whole window client area so no thin system frame rims the glass;
+        // DWM keeps the rounded corners and shadow.
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        frameProc = (window, message, wParam, lParam, _, _) => message == 0x0083 && wParam != 0 ? 0 : DefSubclassProc(window, message, wParam, lParam);
+        if (SetWindowSubclass(handle, frameProc, 2, 0))
+        {
+            Closed += (_, _) => RemoveWindowSubclass(handle, frameProc, 2);
+            _ = SetWindowPos(handle, 0, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010);
+        }
         return true;
     }
+    private delegate nint FrameProc(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint data);
+    private FrameProc? frameProc;
+    [DllImport("comctl32.dll")] private static extern bool SetWindowSubclass(nint window, FrameProc callback, nuint id, nuint data);
+    [DllImport("comctl32.dll")] private static extern bool RemoveWindowSubclass(nint window, FrameProc callback, nuint id);
+    [DllImport("comctl32.dll")] private static extern nint DefSubclassProc(nint window, uint message, nuint wParam, nint lParam);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
     private void UpdateGlass(FrameworkElement surface)
     {
         if (closed || acrylic is null || backdrop is null) return;
@@ -311,11 +340,9 @@ internal class DesktopWindow : Window
         acrylic.TintOpacity = dark ? 0.55f : 0.5f;
         acrylic.LuminosityOpacity = dark ? 0.9f : 0.85f;
         acrylic.FallbackColor = dark ? Windows.UI.Color.FromArgb(255, 45, 45, 45) : Windows.UI.Color.FromArgb(255, 255, 255, 255);
-        if (RecappiTheme.Brush("RecappiGlassEdge", surface.ActualTheme) is Microsoft.UI.Xaml.Media.SolidColorBrush edge)
-        {
-            var nativeColor = (uint)(edge.Color.R | (edge.Color.G << 8) | (edge.Color.B << 16));
-            _ = DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(this), 34, ref nativeColor, sizeof(uint));
-        }
+        // No drawn outline (DWMWA_COLOR_NONE): the system shadow alone separates the glass, as on macOS.
+        var none = 0xFFFFFFFEu;
+        _ = DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(this), 34, ref none, sizeof(uint));
     }
     // The pill is one drag region; its buttons stay clickable as passthrough rectangles.
     private void UpdatePassthrough(FrameworkElement root)
