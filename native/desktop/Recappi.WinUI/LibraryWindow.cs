@@ -152,7 +152,7 @@ internal sealed class LibraryWindow : DesktopWindow
         foreach (var item in new UIElement[] { importStatus, cancelImport, loadMore, openCloud }) footer.Children.Add(item);
         Grid.SetRow(footer, 3); sidebar.Children.Add(footer);
         layout.Children.Add(sidebar);
-        list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><StackPanel Orientation='Horizontal' Spacing='7' Padding='0,5'><Border Width='22' Height='22' CornerRadius='5'><FontIcon x:Name='Source' FontSize='14' Opacity='0.6'/></Border><TextBlock Text='{Binding Title}' FontSize='13' TextTrimming='CharacterEllipsis' VerticalAlignment='Center' MaxWidth='170'/></StackPanel></DataTemplate>");
+        list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><StackPanel Orientation='Horizontal' Spacing='7' Padding='0,5'><Border Width='22' Height='22' CornerRadius='5'><FontIcon x:Name='Source' FontSize='18' Opacity='0.7'/></Border><TextBlock Text='{Binding Title}' FontSize='13' TextTrimming='CharacterEllipsis' VerticalAlignment='Center' MaxWidth='170'/></StackPanel></DataTemplate>");
         list.ContainerContentChanging += (_, e) =>
         {
             if (e.Item is LibraryRecording item && e.ItemContainer.ContentTemplateRoot is FrameworkElement root && root.FindName("Source") is FontIcon icon)
@@ -194,7 +194,7 @@ internal sealed class LibraryWindow : DesktopWindow
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); titleRow.ColumnDefinitions.Add(new ColumnDefinition());
         var sourceTile = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(8), Child = detailSource };
         RecappiTheme.Bind(sourceTile, "RecappiAccentChipFill", brush => sourceTile.Background = brush);
-        detailSource.Style = RecappiTheme.Style("RecappiIconAccent"); detailSource.FontSize = 16;
+        detailSource.Style = RecappiTheme.Style("RecappiIconAccent"); detailSource.FontSize = 20;
         titleRow.Children.Add(sourceTile); Grid.SetColumn(heading, 1); titleRow.Children.Add(heading);
         details.Children.Add(titleRow);
         localCopy = Ui.Button("本机副本", () => Select(true), this); cloudCopy = Ui.Button("云端副本", () => Select(false), this);

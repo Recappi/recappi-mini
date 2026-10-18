@@ -178,7 +178,7 @@ internal class DesktopWindow : Window
         strip.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); strip.ColumnDefinitions.Add(new ColumnDefinition());
         strip.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); strip.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(toolbar is null ? 0 : 138) });
         var brand = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        var tile = RecappiTheme.LogoTile(18); tile.VerticalAlignment = VerticalAlignment.Center; brand.Children.Add(tile);
+        var tile = RecappiTheme.LogoTile(toolbar is null ? 20 : 26); tile.VerticalAlignment = VerticalAlignment.Center; brand.Children.Add(tile);
         if (toolbar is null) brand.Children.Add(new TextBlock { Text = "Recappi", Style = RecappiTheme.Style("RecappiEyebrow") });
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         titles.Children.Add(new TextBlock { Text = page, Style = RecappiTheme.Style(toolbar is null ? "RecappiCaption" : "RecappiSectionTitle"), FontSize = toolbar is null ? 12 : 13 });
