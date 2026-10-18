@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $repository = Split-Path -Parent $PSScriptRoot
 $source = [Drawing.Bitmap]::new((Join-Path $repository 'RecappiMini/Resources/Logo.png'))
-$destination = Join-Path $repository 'native/desktop/Recappi.Desktop/Assets'
+$destination = Join-Path $repository 'native/desktop/Assets'
 [void][IO.Directory]::CreateDirectory($destination)
 
 # Package the existing Recappi mark into standard Windows ICO sizes. The neutral

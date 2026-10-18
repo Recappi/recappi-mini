@@ -52,12 +52,39 @@ static class InputCatalog
             {
                 using var process = Process.GetProcessById(id);
                 if (process.HasExited || id == Environment.ProcessId) continue;
-                sources.Add(new { id = $"process:{id}", kind = "app", label = $"{process.ProcessName} (PID {id})", appName = process.ProcessName, processId = id });
+                var appName = ApplicationName(process);
+                sources.Add(new { id = $"process:{id}", kind = "app", label = $"{appName} (PID {id})", appName, processId = id });
             }
             catch (ArgumentException) { } // App exited during enumeration.
             catch (InvalidOperationException) { }
             catch (System.ComponentModel.Win32Exception) { }
         }
         return new { sources };
+    }
+
+    private static string ApplicationName(Process process)
+    {
+        var fallback = process.ProcessName;
+        try
+        {
+            if (process.MainModule?.FileVersionInfo is { } version)
+                return SelectApplicationName(version.FileDescription, version.ProductName, fallback);
+        }
+        catch (System.ComponentModel.Win32Exception) { } // Protected or inaccessible process.
+        catch (InvalidOperationException) { } // Process exited during discovery.
+        catch (NotSupportedException) { }
+        return fallback;
+    }
+
+    internal static string SelectApplicationName(string? description, string? product, string processName)
+    {
+        foreach (var value in new[] { description, product })
+        {
+            var name = value?.Trim();
+            if (!string.IsNullOrWhiteSpace(name) &&
+                !name.Equals("Electron", StringComparison.OrdinalIgnoreCase) &&
+                !name.Equals("app", StringComparison.OrdinalIgnoreCase)) return name;
+        }
+        return processName;
     }
 }

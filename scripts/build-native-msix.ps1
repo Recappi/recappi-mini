@@ -38,7 +38,7 @@ $stage = Join-Path $output 'payload'
 Get-ChildItem -LiteralPath $source -Force | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $stage -Recurse }
 $assets = Join-Path $stage 'Assets'
 [void][IO.Directory]::CreateDirectory($assets)
-Copy-Item -LiteralPath (Join-Path $repository 'native/desktop/Recappi.Desktop/Assets/Recappi.png') -Destination $assets
+Copy-Item -LiteralPath (Join-Path $repository 'native/desktop/Assets/Recappi.png') -Destination $assets
 [xml]$manifest = Get-Content -LiteralPath (Join-Path $repository 'native/desktop/packaging/AppxManifest.xml') -Raw
 $manifest.Package.Identity.Name = $IdentityName
 $manifest.Package.Identity.Publisher = $Publisher

@@ -11,7 +11,7 @@ $probe = Join-Path $root 'probe'
 Get-ChildItem -LiteralPath (Join-Path $builtRoot 'runtime-probe') -File | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $probe }
 $configPath = Join-Path $probe 'Recappi.RuntimeProbe.runtimeconfig.json'
 $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-($config.runtimeOptions.frameworks | Where-Object name -eq 'Microsoft.WindowsDesktop.App').version = '99.0.0'
+(@(@($config.runtimeOptions.frameworks) + @($config.runtimeOptions.framework)) | Where-Object name -eq 'Microsoft.NETCore.App').version = '99.0.0'
 $config.runtimeOptions | Add-Member -NotePropertyName rollForward -NotePropertyValue LatestPatch -Force
 $config | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $configPath -Encoding utf8
 $productId = '{' + [guid]::NewGuid().ToString().ToUpperInvariant() + '}'
@@ -33,6 +33,6 @@ $logText = Get-Content -LiteralPath $log -Raw
 if ($child.ExitCode -eq 0 -or (Test-Path -LiteralPath $registryPath) -or (Test-Path -LiteralPath (Join-Path $installRoot 'versions/guard-test/Recappi Mini.exe')) -or
     $logText -notmatch 'Runtime probe result: -?\d+' -or $logText -match 'Runtime probe result: 0') { throw 'Missing-runtime guard did not prevent installation.' }
 [ordered]@{ installerExitCode=$child.ExitCode; applicationNotInstalled=$true; registryNotCreated=$true;
-    limitation='Isolated probe runtimeconfig requires unavailable WindowsDesktop 99.0.0. Silent path must not download or install prerequisites. Real clean-system interactive installation remains unverified.' } |
+    limitation='Isolated probe runtimeconfig requires unavailable NETCore 99.0.0. Silent path must not download or install prerequisites. Real clean-system interactive installation remains unverified.' } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'results.json') -Encoding utf8
 Write-Output "PASS missing runtime stops silent installation before application writes: $root"

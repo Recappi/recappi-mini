@@ -45,6 +45,15 @@ internal static class CaptionExportTests
         foreach (var session in new[] { "first", "resumed" })
             for (var i = 2050; i >= 0; i--)
                 entries.Add(new(session + i, "source", session + " " + i, DateTimeOffset.UtcNow, new(session, i)));
+        // Revisions remain adjacent to their own session in the raw event stream.
+        // Insert more than a sort batch and repeatedly revise the same identity,
+        // including its failure marker, so deduplication must cross merge runs.
+        var firstSessionEnd = entries.FindIndex(x => x.Position?.Session == "resumed");
+        var revisions = Enumerable.Range(0, 260).Select(i => new ArchivedCaption("first" + i, "source", "first " + i,
+            DateTimeOffset.UtcNow, new("first", i), IsRevision: true)).ToList();
+        revisions.Add(new("first0", "source", "Discarded stale correction", DateTimeOffset.UtcNow, new("first", 9999), IsFailed: true, IsRevision: true));
+        revisions.Add(new("first0", "source", "first 0", DateTimeOffset.UtcNow, new("first", 0), IsRevision: true));
+        entries.InsertRange(firstSessionEnd, revisions);
         entries.Add(new("legacy-last", "translation", "Legacy last", DateTimeOffset.UtcNow));
         await File.WriteAllLinesAsync(source, entries.Select(x => System.Text.Json.JsonSerializer.Serialize(x)));
         await File.AppendAllTextAsync(source, "{\"partial\":");

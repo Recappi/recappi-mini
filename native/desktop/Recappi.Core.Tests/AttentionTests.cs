@@ -4,6 +4,11 @@ internal static class AttentionTests
 {
     public static Task RunAsync()
     {
+        if (InputCatalog.SelectApplicationName(" Google Chrome ", "Chromium", "chrome") != "Google Chrome" ||
+            InputCatalog.SelectApplicationName("Electron", "Discord", "app") != "Discord" ||
+            InputCatalog.SelectApplicationName(null, "Raycast", "app") != "Raycast" ||
+            InputCatalog.SelectApplicationName(" ", null, "private-app") != "private-app")
+            throw new Exception("Audio sources lost their friendly application name or process fallback.");
         var policy = new RecordingAttention();
         var tree = new Dictionary<int, (int Parent, string Executable)> { [11] = (10, "chrome.exe"), [10] = (1, "chrome.exe"), [1] = (0, "explorer.exe"), [22] = (1, "Recappi Mini.exe") };
         var appSources = AudioActivity.ExpandParents(new HashSet<int> { 11 }, tree, true);

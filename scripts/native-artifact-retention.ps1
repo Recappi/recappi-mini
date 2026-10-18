@@ -61,7 +61,7 @@ function Get-NativeArtifactPayloadFiles {
 function Get-NativeArtifactUsage {
     $runningPaths = @()
     $testRunning = $false
-    foreach ($process in @(Get-Process -Name 'Recappi Mini', 'Recappi.Core.Tests', 'Recappi.Desktop.Tests' -ErrorAction SilentlyContinue)) {
+    foreach ($process in @(Get-Process -Name 'Recappi Mini', 'Recappi.Core.Tests', 'Recappi.Desktop.Tests', 'Recappi.WinUI.Tests' -ErrorAction SilentlyContinue)) {
         if ($process.ProcessName -like 'Recappi.*.Tests') { $testRunning = $true }
         try {
             $processPath = $process.Path

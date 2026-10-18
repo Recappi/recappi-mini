@@ -4,7 +4,7 @@ $package = (Resolve-Path -LiteralPath $PackageDirectory).Path
 $configurationPath = Join-Path $package 'Recappi Mini.runtimeconfig.json'
 $configuration = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
 if ($configuration.runtimeOptions.includedFrameworks -or
-    @($configuration.runtimeOptions.frameworks | Where-Object name -eq 'Microsoft.WindowsDesktop.App').Count -ne 1) {
+    @(@(@($configuration.runtimeOptions.frameworks) + @($configuration.runtimeOptions.framework)) | Where-Object name -eq 'Microsoft.NETCore.App').Count -ne 1) {
     throw 'Select a framework-dependent Windows desktop candidate.'
 }
 $repository = Split-Path -Parent $PSScriptRoot
@@ -14,9 +14,9 @@ $copy = Join-Path $root 'unavailable-framework'
 [void][IO.Directory]::CreateDirectory($copy)
 Get-ChildItem -LiteralPath $package -Force | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $copy -Recurse }
 $originalHash = (Get-FileHash -LiteralPath $configurationPath).Hash
-# Only the isolated copy asks for an unavailable Desktop framework. Leave the
+# Only the isolated copy asks for an unavailable .NET framework. Leave the
 # machine's installed runtimes and the distributable candidate unchanged.
-$desktop = $configuration.runtimeOptions.frameworks | Where-Object name -eq 'Microsoft.WindowsDesktop.App'
+$desktop = @(@($configuration.runtimeOptions.frameworks) + @($configuration.runtimeOptions.framework)) | Where-Object name -eq 'Microsoft.NETCore.App'
 $desktop.version = '99.0.0'
 $configuration.runtimeOptions | Add-Member -NotePropertyName rollForward -NotePropertyValue LatestPatch -Force
 $configuration | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $copy 'Recappi Mini.runtimeconfig.json') -Encoding utf8
@@ -37,11 +37,11 @@ try {
     $errorTask = $child.StandardError.ReadToEndAsync()
     if (-not $child.WaitForExit(10000)) { throw "Dependency probe remains running: PID $($child.Id). Inspect it before retrying." }
     $errorText = $errorTask.GetAwaiter().GetResult()
-    if ($child.ExitCode -eq 0 -or $errorText -notmatch 'Microsoft.WindowsDesktop.App' -or $errorText -notmatch '99\.0\.0' -or
+    if ($child.ExitCode -eq 0 -or $errorText -notmatch 'Microsoft.NETCore.App' -or $errorText -notmatch '99\.0\.0' -or
         (Test-Path -LiteralPath $readyPath)) { throw 'Missing framework did not produce the expected pre-start dependency failure.' }
     if ((Get-FileHash -LiteralPath $configurationPath).Hash -ne $originalHash) { throw 'Original candidate configuration changed.' }
     $report = [ordered]@{ package = $package; exitCode = $child.ExitCode; rejectedBeforeReady = $true;
-        originalConfigurationUnchanged = $true; requiredMissingFramework = 'Microsoft.WindowsDesktop.App 99.0.0';
+        originalConfigurationUnchanged = $true; requiredMissingFramework = 'Microsoft.NETCore.App 99.0.0';
         limitation = 'Injected unavailable framework in an isolated copy; not a clean Windows installation or automatic prerequisite-install test.' }
     $report | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'results.json') -Encoding utf8
     Write-Output "PASS unavailable framework is rejected before app startup: $root"

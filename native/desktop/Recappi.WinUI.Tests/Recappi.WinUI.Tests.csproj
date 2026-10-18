@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22000.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <!-- Keep console output while generating the same STA desktop entry point as production. -->
+    <EnableWin32Codegen>true</EnableWin32Codegen>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationManifest>../Recappi.WinUI/app.manifest</ApplicationManifest>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RecappiWinUIProbeVersion Condition="'$(RecappiWinUIProbeVersion)' == ''">2.3.6</RecappiWinUIProbeVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Update="Microsoft.NETCore.App" RuntimeFrameworkVersion="$(RecappiRuntimeVersion)" Condition="'$(RecappiRuntimeVersion)' != ''" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="$(RecappiWinUIProbeVersion)" />
+    <ProjectReference Include="../Recappi.Core/Recappi.Core.csproj" />
+    <!-- Compile the production windows directly: executable project references
+         otherwise merge both App.xbf resources into the test host PRI. -->
+    <Compile Include="../Recappi.WinUI/*.cs" Exclude="../Recappi.WinUI/App.xaml.cs" Link="Production/%(Filename)%(Extension)" />
+    <Content Include="../Assets/*.ico" Link="Assets/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- Match production publishing: the modular WinUI SDK omits application PRI/XBF. -->
+  <Target Name="PublishWinUIResources" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(TargetDir)$(AssemblyName).pri">
+        <RelativePath>$(AssemblyName).pri</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+      <ResolvedFileToPublish Include="$(TargetDir)App.xbf">
+        <RelativePath>App.xbf</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>

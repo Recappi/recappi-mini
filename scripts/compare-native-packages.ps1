@@ -76,7 +76,7 @@ foreach ($runtime in $runtimes) {
             throw "Unexpected removed payload: $runtime/$($file.path)."
         }
     }
-    if (!$afterFiles.ContainsKey('zh-Hans/PresentationFramework.resources.dll')) { throw 'Candidate lacks simplified Chinese WPF resources.' }
+    if (!$afterFiles.ContainsKey('Recappi Mini.pri')) { throw 'Candidate lacks WinUI application resources.' }
     $reduction = [long]$before.publishedBytes - [long]$after.publishedBytes
     if ($reduction -le 0 -or ($removed | Measure-Object bytes -Sum).Sum -ne $reduction) { throw 'Size reduction is not explained by removed files.' }
     $comparisons += [pscustomobject][ordered]@{

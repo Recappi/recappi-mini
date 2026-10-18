@@ -10,7 +10,7 @@ $package = Split-Path -Parent $expected
 $runtime = Get-Content -LiteralPath (Join-Path $package 'Recappi Mini.runtimeconfig.json') -Raw | ConvertFrom-Json
 $selfContained = [bool]$runtime.runtimeOptions.includedFrameworks
 if (-not $selfContained -and -not $AllowFrameworkDependentCandidate) { throw 'Measure a self-contained publish output, or explicitly opt into a framework-dependent candidate.' }
-if (-not $selfContained -and @($runtime.runtimeOptions.frameworks | Where-Object name -eq 'Microsoft.WindowsDesktop.App').Count -ne 1) { throw 'Candidate has no Windows Desktop framework requirement.' }
+if (-not $selfContained -and @(@($runtime.runtimeOptions.frameworks) + @($runtime.runtimeOptions.framework) | Where-Object name -eq 'Microsoft.NETCore.App').Count -ne 1) { throw 'Candidate has no .NET runtime requirement.' }
 if (@(Get-Process -Name 'Recappi Mini' -ErrorAction SilentlyContinue).Count -ne 0) { throw 'Close existing Recappi Mini instances before benchmarking.' }
 $repository = Split-Path -Parent $PSScriptRoot
 $root = Join-Path $repository ('build/native-desktop-validation/startup-profile-' + [Guid]::NewGuid().ToString('N'))

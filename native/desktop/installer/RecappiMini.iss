@@ -65,7 +65,7 @@ var
 
 procedure InitializeWizard;
 begin
-  RuntimeDownloadPage := CreateDownloadPage('安装 .NET Desktop Runtime', '正在从 Microsoft 下载并校验运行时。', nil);
+  RuntimeDownloadPage := CreateDownloadPage('安装 .NET Runtime', '正在从 Microsoft 下载并校验运行时。', nil);
   RuntimeDownloadPage.ShowBaseNameInsteadOfUrl := True;
 end;
 
@@ -92,10 +92,10 @@ begin
     if HasCompatibleRuntime then Exit;
     if WizardSilent then
     begin
-      Result := '需要匹配架构的 .NET 10 Desktop Runtime。请先安装运行时，或交互运行此安装器；离线可使用自包含安装包。';
+      Result := '需要匹配架构的 .NET 10 Runtime。请先安装运行时，或交互运行此安装器；离线可使用自包含安装包。';
       Exit;
     end;
-    if MsgBox('此应用需要 .NET 10 Desktop Runtime。是否从 Microsoft 下载并安装？' + #13#10 +
+    if MsgBox('此应用需要 .NET 10 Runtime。是否从 Microsoft 下载并安装？' + #13#10 +
       '安装运行时可能要求管理员授权；取消不会安装 Recappi Mini。共享运行时不会随应用卸载。' + #13#10 +
       '离线安装请使用自包含安装包。', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) <> IDYES then
     begin
@@ -103,14 +103,14 @@ begin
       Exit;
     end;
     RuntimeDownloadPage.Clear;
-    RuntimeDownloadPage.Add('{#RuntimeDownloadUrl}', 'windowsdesktop-runtime.exe', '{#RuntimeDownloadSha256}');
+    RuntimeDownloadPage.Add('{#RuntimeDownloadUrl}', 'dotnet-runtime.exe', '{#RuntimeDownloadSha256}');
     RuntimeDownloadPage.Show;
     try
       RuntimeDownloadPage.Download;
     finally
       RuntimeDownloadPage.Hide;
     end;
-    RuntimeFile := ExpandConstant('{tmp}\windowsdesktop-runtime.exe');
+    RuntimeFile := ExpandConstant('{tmp}\dotnet-runtime.exe');
     if GetSHA256OfFile(RuntimeFile) <> '{#RuntimeDownloadSha256}' then
     begin
       Result := '运行时校验失败，未执行下载的文件。';

@@ -3,12 +3,12 @@
   "source": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json",
   "runtimes": {
     "win-x64": {
-      "url": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.12/windowsdesktop-runtime-10.0.12-win-x64.exe",
-      "sha512": "0b907e9312867172a4eb82f4b5ab3f7c2d25e27d8349546d77eeb5d5b8cbecab9ebebfed189b13e9669dc578d892756c548366da539d47b3ddac5efcb7ae72fe"
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Runtime/10.0.12/dotnet-runtime-10.0.12-win-x64.exe",
+      "sha512": "b937ae539c4ab21f885b033178dadea98018baad777252c76251e760d81c18463b2f802e86b6a67ea066690e9ede2d66a6bc3c3e614e391505e98c4c41121400"
     },
     "win-arm64": {
-      "url": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.12/windowsdesktop-runtime-10.0.12-win-arm64.exe",
-      "sha512": "909ffed452c1b45572d558b5dbf088927a57854dcd3844b46701ead6d4d175fb3f329084fdf9b077aa7cdecaececcacb95c82870d32d7b8c411638331491c441"
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Runtime/10.0.12/dotnet-runtime-10.0.12-win-arm64.exe",
+      "sha512": "45c8fcf4102c5c0d36bd9a85f9f35f10225f37415bf2479cf85b9f460b8a8e279d9e9210c5e7ac53604aea19e4aafa8ae35279f6bbfaf31816f6f27c1f2750df"
     }
   }
 }

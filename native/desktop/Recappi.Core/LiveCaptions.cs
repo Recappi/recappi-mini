@@ -34,6 +34,7 @@ public sealed class LiveCaptions : IAsyncDisposable
     public CaptionStatus Status => Volatile.Read(ref status);
     public int BufferedChunks => audio.Reader.Count;
     public event Action<CaptionDelta>? Delta;
+    public event Action<IReadOnlyList<CaptionDelta>>? Reordered;
     public event Action<CaptionStatus>? Changed;
     public bool TryRetry()
     {
@@ -145,7 +146,9 @@ public sealed class LiveCaptions : IAsyncDisposable
         public int SenderDone;
         public ConcurrentDictionary<string, byte> Awaiting { get; } = new();
         public Dictionary<string, string> Segments { get; } = [];
-        public Dictionary<string, long> Positions { get; } = [];
+        public CaptionTimeline Timeline { get; } = new(() => Interlocked.Increment(ref nextSequence));
+        public HashSet<string> Commits { get; } = [];
+        public Queue<string> CommitOrder { get; } = [];
         public HashSet<string> Finals { get; } = [];
         public Queue<string> FinalOrder { get; } = [];
         public bool Finish(string key)
@@ -193,39 +196,48 @@ public sealed class LiveCaptions : IAsyncDisposable
             var itemKey = current + ":" + (CloudFields.Text(value, "item_id") ?? "current");
             var contentIndex = value.TryGetProperty("content_index", out var index) && index.ValueKind == JsonValueKind.Number && index.TryGetInt32(out var number) ? number : 0;
             var key = itemKey + (contentIndex != 0 ? "#" + contentIndex : "");
-            CaptionPosition Position()
+            CaptionPosition Position() => state.Timeline.Position(itemKey, streamId, contentIndex);
+            void EmitSource(string text, bool final, bool failed = false)
             {
-                if (!state.Positions.TryGetValue(itemKey, out var sequence))
-                    state.Positions[itemKey] = sequence = Interlocked.Increment(ref nextSequence);
-                // Retain unresolved items even when many later turns finish first.
-                while (state.Positions.Count > 256)
-                {
-                    var expired = state.Positions.Keys.FirstOrDefault(x => !state.Awaiting.ContainsKey(x) && x != itemKey);
-                    if (expired is null) break;
-                    state.Positions.Remove(expired);
-                }
-                return new(streamId, sequence, contentIndex);
+                var caption = new CaptionDelta(key, "source", text, final, Position(), failed);
+                state.Timeline.Remember(itemKey, caption);
+                Emit(caption);
+            }
+            if (type is "input_audio_buffer.committed" or "conversation.item.input_audio_transcription.delta" or
+                "conversation.item.input_audio_transcription.completed" or "conversation.item.input_audio_transcription.failed")
+            {
+                if (state.Finals.Contains(key) && !state.Timeline.Contains(itemKey)) continue;
+                var previous = CloudFields.Text(value, "previous_item_id");
+                var revisions = state.Timeline.Register(itemKey, string.IsNullOrEmpty(previous) ? null : current + ":" + previous, state.Awaiting.ContainsKey);
+                EmitRevisions(revisions);
             }
             var delta = value.TryGetProperty("delta", out var raw) && raw.ValueKind == JsonValueKind.String ? raw.GetString() ?? "" : "";
             if (type == "input_audio_buffer.committed")
             {
-                state.Awaiting[key] = 0; Interlocked.Decrement(ref state.PendingCommits);
-                Position(); // Commit acknowledgements follow our appended audio; completions may overtake them.
+                if (state.Commits.Add(itemKey))
+                {
+                    state.CommitOrder.Enqueue(itemKey);
+                    while (state.CommitOrder.Count > 256) state.Commits.Remove(state.CommitOrder.Dequeue());
+                    while (Volatile.Read(ref state.PendingCommits) is var pending && pending > 0)
+                        if (Interlocked.CompareExchange(ref state.PendingCommits, pending - 1, pending) == pending) break;
+                    if (!state.Timeline.IsTerminal(itemKey)) state.Awaiting[itemKey] = 0;
+                }
                 if (state.Awaiting.Count > 128) throw new IOException("字幕服务未响应。");
+                CheckDrained(state);
             }
             else if (type == "conversation.item.input_audio_transcription.delta")
             {
                 if (state.Finals.Contains(key)) continue;
                 Interlocked.Exchange(ref retries, 0);
                 var text = Limit(state.Segments.GetValueOrDefault(key, "") + delta, 16000);
-                state.Segments[key] = text; Emit(new(key, "source", text, false, Position()));
+                state.Segments[key] = text; EmitSource(text, false);
                 if (state.Segments.Count > 128) state.Segments.Remove(state.Segments.Keys.First());
             }
             else if (type == "conversation.item.input_audio_transcription.completed")
             {
                 if (!state.Finish(key)) continue;
                 Interlocked.Exchange(ref retries, 0);
-                Emit(new(key, "source", Limit(CloudFields.Text(value, "transcript") ?? state.Segments.GetValueOrDefault(key, ""), 16000), true, Position()));
+                EmitSource(Limit(CloudFields.Text(value, "transcript") ?? state.Segments.GetValueOrDefault(key, ""), 16000), true);
                 state.Segments.Remove(key); state.Awaiting.TryRemove(itemKey, out _); CheckDrained(state);
             }
             else if (type == "conversation.item.input_audio_transcription.failed")
@@ -233,7 +245,7 @@ public sealed class LiveCaptions : IAsyncDisposable
                 if (!state.Finish(key)) continue;
                 // This item is terminal, but the connection and later audio remain usable.
                 // Preserve partial text with an explicit failure marker, never as a final transcript.
-                Emit(new(key, "source", state.Segments.GetValueOrDefault(key, ""), false, Position(), IsFailed: true));
+                EmitSource(state.Segments.GetValueOrDefault(key, ""), false, failed: true);
                 state.Segments.Remove(key); state.Awaiting.TryRemove(itemKey, out _); CheckDrained(state);
             }
             else if (type is "session.input_transcript.delta" or "session.output_transcript.delta")
@@ -268,6 +280,14 @@ public sealed class LiveCaptions : IAsyncDisposable
     {
         Volatile.Write(ref status, value);
         foreach (Action<CaptionStatus> observer in Changed?.GetInvocationList() ?? []) try { observer(value); } catch (Exception) { }
+    }
+    private void EmitRevisions(IReadOnlyList<CaptionDelta> values)
+    {
+        var revisions = values.Where(x => !string.IsNullOrEmpty(x.Text) || x.IsFailed)
+            .Select(x => x with { SegmentId = streamId + "/" + x.SegmentId }).ToArray();
+        if (revisions.Length == 0) return;
+        foreach (Action<IReadOnlyList<CaptionDelta>> observer in Reordered?.GetInvocationList() ?? [])
+            try { observer(revisions); } catch (Exception) { }
     }
     public Task StopAsync()
     {

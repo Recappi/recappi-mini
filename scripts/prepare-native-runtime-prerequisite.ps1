@@ -4,11 +4,11 @@ $repository = Split-Path -Parent $PSScriptRoot
 $manifest = Get-Content -LiteralPath (Join-Path $repository 'native/desktop/installer/dotnet-prerequisites.json') -Raw | ConvertFrom-Json
 if ($manifest.version -notmatch '^10\.0\.\d+$') { throw 'Unsupported prerequisite version.' }
 $entry = $manifest.runtimes.$Runtime
-$expectedUrl = "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/$($manifest.version)/windowsdesktop-runtime-$($manifest.version)-$Runtime.exe"
+$expectedUrl = "https://builds.dotnet.microsoft.com/dotnet/Runtime/$($manifest.version)/dotnet-runtime-$($manifest.version)-$Runtime.exe"
 if ($entry.url -cne $expectedUrl -or $entry.sha512 -notmatch '^[0-9a-f]{128}$') { throw 'Invalid pinned runtime prerequisite.' }
 $root = Join-Path $repository "build/native-installer-tools/dotnet-$($manifest.version)-$Runtime"
 [void][IO.Directory]::CreateDirectory($root)
-$file = Join-Path $root 'windowsdesktop-runtime.exe'
+$file = Join-Path $root 'dotnet-runtime.exe'
 if (-not (Test-Path -LiteralPath $file)) {
     $temporary = Join-Path $root ([guid]::NewGuid().ToString('N') + '.download')
     try {

@@ -29,9 +29,9 @@ jobs:
         run: dotnet run --project native/desktop/Recappi.Core.Tests -c Release
       - name: Verify native artifact retention safety
         run: powershell.exe -NoProfile -File scripts/test-native-artifact-retention.ps1
-      - name: Build WPF interaction tests
+      - name: Build WinUI 3 interaction tests
         # Actual interactive runs remain a desktop-session validation gate.
-        run: dotnet build native/desktop/Recappi.Desktop.Tests -c Release
+        run: dotnet build native/desktop/Recappi.WinUI.Tests -c Release
       - name: Publish and verify both native architectures
         run: ./scripts/publish-native-desktop.ps1
       - name: Build runtime prerequisite probes

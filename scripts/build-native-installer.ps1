@@ -43,9 +43,9 @@ try {
 [IO.Compression.ZipFile]::ExtractToDirectory($archive, $source)
 $runtimeConfiguration = Get-Content -LiteralPath (Join-Path $source 'Recappi Mini.runtimeconfig.json') -Raw | ConvertFrom-Json
 if ($FrameworkDependentCandidate) {
-    $frameworks = @($runtimeConfiguration.runtimeOptions.frameworks)
+    $frameworks = @(@($runtimeConfiguration.runtimeOptions.frameworks) + @($runtimeConfiguration.runtimeOptions.framework) | Where-Object { $_ })
     if ($runtimeConfiguration.runtimeOptions.includedFrameworks -or (Test-Path -LiteralPath (Join-Path $source 'coreclr.dll')) -or
-        $frameworks.Count -ne 2 -or @($frameworks | Where-Object { $_.name -in @('Microsoft.NETCore.App', 'Microsoft.WindowsDesktop.App') -and $_.version -eq '10.0.0' }).Count -ne 2) {
+        $frameworks.Count -ne 1 -or @($frameworks | Where-Object { $_.name -eq 'Microsoft.NETCore.App' -and $_.version -eq '10.0.0' }).Count -ne 1) {
         throw 'Online candidate requires the supported .NET 10 application framework contract.'
     }
 } elseif (-not $runtimeConfiguration.runtimeOptions.includedFrameworks -or
