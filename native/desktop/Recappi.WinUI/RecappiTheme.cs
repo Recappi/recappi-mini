@@ -319,7 +319,7 @@ internal static class RecappiTheme
         Text("RecappiCaptionTranslation", "RecappiCaptionTextSecondary", 15, "<Setter Property='FontWeight' Value='Medium'/>") + @"
 <Style x:Key='RecappiCaptionSegment' TargetType='ToggleButton'>
   <Setter Property='UseSystemFocusVisuals' Value='True'/>
-  <Setter Property='Width' Value='24'/><Setter Property='Height' Value='18'/>
+  <Setter Property='Width' Value='22'/><Setter Property='Height' Value='22'/>
   <Setter Property='Padding' Value='0'/>
   <Setter Property='Foreground' Value='#8CFFFFFF'/>
   <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ToggleButton'>

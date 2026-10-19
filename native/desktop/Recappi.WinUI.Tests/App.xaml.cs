@@ -110,6 +110,7 @@ public partial class TestApp : Application
             await Run("caption-order-and-bounds", Captions);
             await Run("settings-failure-and-merge", () => Settings(root));
             await Run("dialog-height-fits-content", () => DialogHeights(root));
+            await Run("button-hit-areas", () => ButtonHitAreas(root));
             await Run("settings-update-distribution", () => SettingsUpdateDistribution(root));
             await Run("settings-update-errors", () => SettingsUpdateErrors(root));
             await Run("onboarding-save-before-navigation", () => Onboarding(root));
@@ -289,6 +290,52 @@ public partial class TestApp : Application
         // The pill window carries a transparent shadow margin around the visible surface.
         Check(bodyBottom <= clientHeight - window.ChromeMargin + 1, "Caption content is clipped below the visible pill.");
         Check(clientHeight - window.ChromeMargin - bodyBottom <= 4, "Caption client area has excess blank space below its content.");
+    }
+    // Icon-only buttons have square hit/hover areas of at least 22pt, centred on the glyph.
+    private static async Task ButtonHitAreas(string root)
+    {
+        await using var host = new TestHost(Path.Combine(root, "hit-areas"));
+        await host.SignIn();
+        var report = new List<string>(); var problems = new List<string>();
+        void Audit(string window, UIElement content)
+        {
+            foreach (var button in Descendants<Microsoft.UI.Xaml.Controls.Primitives.ButtonBase>(content).Where(x => x.ActualWidth > 0 && x.Visibility == Visibility.Visible))
+            {
+                var name = Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(button);
+                var iconOnly = button.Content is IconElement or Microsoft.UI.Xaml.Shapes.Shape or Border { Child: null } or Grid { Children.Count: <= 2 } && button.Content is not FrameworkElement { ActualWidth: > 40 };
+                report.Add($"{window} {name} {button.GetType().Name} {button.ActualWidth:0.#}x{button.ActualHeight:0.#} iconOnly={iconOnly}");
+                // Floating panels have no scroll bar strip over their controls.
+                if (button is Microsoft.UI.Xaml.Controls.Primitives.RepeatButton && window.StartsWith("recorder") | window == "captions") problems.Add($"{window} scroll bar {name}");
+                if (iconOnly && (Math.Abs(button.ActualWidth - button.ActualHeight) > 1 || Math.Min(button.ActualWidth, button.ActualHeight) < 22))
+                    problems.Add($"{window} {name} {button.ActualWidth:0.#}x{button.ActualHeight:0.#}");
+            }
+        }
+        var recorder = new RecorderWindow(host, () => ([new AudioSource("system", "System")], [new MicrophoneDevice("microphone", "Mic", true)]));
+        try
+        {
+            await recorder.RefreshDevices(); recorder.Show(); await Until(() => recorder.IsUserVisible, "Recorder did not appear."); await Task.Delay(300);
+            Audit("recorder-idle", recorder.Content);
+            Click(Field<Button>(recorder, "start")); await Until(() => host.Engine.Snapshot.State == RecordingState.Recording, "Recording did not start."); await Task.Delay(400);
+            Audit("recorder-recording", recorder.Content);
+            Click(Field<Button>(recorder, "stop")); await Until(() => host.Engine.Snapshot.State == RecordingState.Done, "Recording did not stop."); await Task.Delay(300);
+            Audit("recorder-done", recorder.Content);
+        }
+        finally { recorder.Close(); }
+        var caption = new CaptionWindow(() => Task.CompletedTask); caption.Show();
+        try { await Task.Delay(400); Field<Border>(caption, "chrome").Opacity = 1; Audit("captions", caption.Content); }
+        finally { caption.Close(); }
+        var library = new LibraryWindow(host); library.Show();
+        try { await library.Refresh(); await Task.Delay(500); Audit("library", library.Content); }
+        finally { library.Close(); }
+        var settings = new SettingsWindow(host, false); settings.Show();
+        try { await Task.Delay(500); Audit("settings", settings.Content); }
+        finally { settings.Close(); }
+        var account = new AccountWindow(host); account.Show();
+        try { await Task.Delay(500); Audit("account", account.Content); }
+        finally { account.Close(); }
+        await File.WriteAllLinesAsync(Path.Combine(root, "button-hit-areas.txt"), report);
+        Console.WriteLine(string.Join(Environment.NewLine, report));
+        Check(problems.Count == 0, "Icon buttons with non-square or small hit areas: " + string.Join("; ", problems));
     }
     // Account and settings size their height to the content, per settings tab.
     private static async Task DialogHeights(string root)

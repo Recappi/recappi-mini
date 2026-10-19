@@ -18,7 +18,7 @@ internal sealed class SettingsWindow : DesktopWindow
     private readonly List<(string Name, Button Button)> tabs = [];
     private readonly NavigationView navigation = new() { IsSettingsVisible = false, IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed, PaneDisplayMode = NavigationViewPaneDisplayMode.Top, IsPaneToggleButtonVisible = false };
     private readonly Dictionary<string, StackPanel> sections = [];
-    private readonly ScrollViewer sectionViewer = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+    private readonly ScrollViewer sectionViewer = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly TextBlock updateStatus = Ui.Text("");
     private readonly CancellationTokenSource lifetime = new();
     private CancellationTokenSource? download;

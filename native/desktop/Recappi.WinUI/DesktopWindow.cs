@@ -31,7 +31,7 @@ internal class DesktopWindow : Window
     {
         Title = title;
         RecappiTheme.Ensure();
-        var page = new ScrollViewer { Content = Body, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        var page = new ScrollViewer { Content = Body, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         // Opaque brand surface instead of Mica, matching the macOS window colors.
         RecappiTheme.Bind(page, "RecappiSurfaceWindow", brush => { if (!floating && !framed) page.Background = brush; });
         Content = page;
@@ -286,6 +286,9 @@ internal class DesktopWindow : Window
         if (pill) { var none = 0xFFFFFFFEu; _ = DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(this), 34, ref none, sizeof(uint)); }
         var scroll = (ScrollViewer)Content;
         scroll.VerticalContentAlignment = VerticalAlignment.Top; scroll.Background = null;
+        // No scroll bar in floating panels: its hidden 12pt strip on the right edge took the
+        // pointer from the controls beneath it (the record button's hover stopped short).
+        scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
         Content = null;
         var grip = new ContentControl { Content = new FontIcon { Glyph = "\uE784", FontSize = 10, Opacity = 0.45 }, Width = 18,
             IsTabStop = true, UseSystemFocusVisuals = true, VerticalContentAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center };
