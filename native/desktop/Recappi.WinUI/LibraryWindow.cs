@@ -91,7 +91,7 @@ internal sealed class LibraryWindow : DesktopWindow
         partition = app.Account.Snapshot.Account?.Partition;
         // Cloud Center layout from macOS: unified toolbar · account header + dated list · detail pane.
         list.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-        list.ItemContainerStyle = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewItem'><Setter Property='HorizontalContentAlignment' Value='Stretch'/><Setter Property='HorizontalAlignment' Value='Stretch'/><Setter Property='Padding' Value='8,0'/><Setter Property='Margin' Value='0,0'/><Setter Property='MinHeight' Value='32'/><Setter Property='CornerRadius' Value='6'/></Style>");
+        list.ItemContainerStyle = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load(SidebarItemStyle);
         // Plain day labels without the default ListView header divider line.
         var groupHeader = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewHeaderItem'><Setter Property='MinHeight' Value='0'/><Setter Property='Padding' Value='10,12,0,4'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ListViewHeaderItem'><ContentPresenter Content='{TemplateBinding Content}' ContentTemplate='{TemplateBinding ContentTemplate}' Margin='{TemplateBinding Padding}'/></ControlTemplate></Setter.Value></Setter></Style>");
         list.Resources = (ResourceDictionary)Microsoft.UI.Xaml.Markup.XamlReader.Load(SidebarSelection);
@@ -265,8 +265,8 @@ internal sealed class LibraryWindow : DesktopWindow
         Grid.SetColumn(speed, 3); audioControls.Children.Add(speed);
         var audioBar = new Border { Child = audioControls, CornerRadius = new CornerRadius(22), BorderThickness = new Thickness(1), Margin = new Thickness(14, 6, 14, 10) };
         RecappiTheme.Bind(audioBar, "RecappiSurfacePanel", brush => audioBar.Background = brush);
-        RecappiTheme.Bind(audioBar, "RecappiBorderSubtle", brush => audioBar.BorderBrush = brush);
-        audioBar.Shadow = new Microsoft.UI.Xaml.Media.ThemeShadow(); audioBar.Translation = new System.Numerics.Vector3(0, 0, 16);
+        // A single hairline like the macOS player; a shadow under the border doubled the edge.
+        RecappiTheme.Bind(audioBar, "RecappiBorderHairline", brush => audioBar.BorderBrush = brush);
         seek.ValueChanged += (_, e) => { if (!updatingSeek && audioPath is not null) SeekAudio(TimeSpan.FromSeconds(e.NewValue)); };
         playbackTimer.Tick += (_, _) => RenderPlayback();
         moreActions.Children.Add(Ui.Button("完整标题", async () =>
@@ -481,6 +481,21 @@ internal sealed class LibraryWindow : DesktopWindow
             }
         }
     }
+    // macOS sidebar rows: a rounded selection inset from the edges (clear of the scroll bar).
+    // The stock presenter draws a square backplate here, so the row has its own template.
+    private const string SidebarItemStyle = "<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='ListViewItem'>" +
+        "<Setter Property='HorizontalContentAlignment' Value='Stretch'/><Setter Property='HorizontalAlignment' Value='Stretch'/><Setter Property='Padding' Value='8,0'/><Setter Property='Margin' Value='0,1,10,1'/><Setter Property='MinHeight' Value='32'/>" +
+        "<Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ListViewItem'><Grid x:Name='Root' Background='Transparent'>" +
+        "<VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'><VisualState x:Name='Normal'/>" +
+        "<VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='Back.Background' Value='{ThemeResource RecappiControlHover}'/></VisualState.Setters></VisualState>" +
+        "<VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='Back.Background' Value='{ThemeResource RecappiControlPress}'/></VisualState.Setters></VisualState>" +
+        "<VisualState x:Name='Selected'><VisualState.Setters><Setter Target='Back.Background' Value='#FF0A84FF'/><Setter Target='Presenter.Foreground' Value='White'/></VisualState.Setters></VisualState>" +
+        "<VisualState x:Name='PointerOverSelected'><VisualState.Setters><Setter Target='Back.Background' Value='#FF0070E8'/><Setter Target='Presenter.Foreground' Value='White'/></VisualState.Setters></VisualState>" +
+        "<VisualState x:Name='PressedSelected'><VisualState.Setters><Setter Target='Back.Background' Value='#FF0063CE'/><Setter Target='Presenter.Foreground' Value='White'/></VisualState.Setters></VisualState>" +
+        "</VisualStateGroup></VisualStateManager.VisualStateGroups>" +
+        "<Border x:Name='Back' CornerRadius='6'/>" +
+        "<ContentPresenter x:Name='Presenter' Content='{TemplateBinding Content}' ContentTemplate='{TemplateBinding ContentTemplate}' ContentTransitions='{TemplateBinding ContentTransitions}' Margin='{TemplateBinding Padding}' HorizontalContentAlignment='{TemplateBinding HorizontalContentAlignment}' VerticalContentAlignment='Center'/>" +
+        "</Grid></ControlTemplate></Setter.Value></Setter></Style>";
     private const string SidebarSelection = "<ResourceDictionary xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><ResourceDictionary.ThemeDictionaries>" +
         "<ResourceDictionary x:Key='Light'>" + SelectionBrushes + "</ResourceDictionary><ResourceDictionary x:Key='Dark'>" + SelectionBrushes + "</ResourceDictionary></ResourceDictionary.ThemeDictionaries></ResourceDictionary>";
     // macOS sidebar selection: the system blue with white text, not the Recappi accent.

@@ -61,6 +61,27 @@ internal static class RecorderInputProbe
         SetCursorPos(at.X, at.Y); Thread.Sleep(80);
         mouse_event(0x0002, 0, 0, 0, 0); Thread.Sleep(60); mouse_event(0x0004, 0, 0, 0, 0);
     }
+    // Wheel messages posted to the window's content bridge (the system cursor is not moved,
+    // so other apps never receive input); returns how far the scroll viewer moved.
+    public static async Task<object> Wheel(Window window, ScrollViewer viewer, FrameworkElement over)
+    {
+        var before = viewer.VerticalOffset;
+        var at = Center(window, over);
+        var top = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        var targets = new List<nint>();
+        EnumChildWindows(top, (child, _) => { targets.Add(child); return true; }, 0);
+        var lParam = (nint)(((at.Y & 0xFFFF) << 16) | (at.X & 0xFFFF));
+        foreach (var target in targets.Count > 0 ? targets : [top])
+            for (var i = 0; i < 3; i++) { PostMessage(target, 0x020A, unchecked((nint)(uint)(-120 << 16)), lParam); await Task.Delay(100); }
+        await Task.Delay(600);
+        return new { scrollable = viewer.ScrollableHeight, before, after = viewer.VerticalOffset, children = targets.Select(x => { GetWindowRect(x, out var r); return ClassOf(x) + $" [{r.Left},{r.Top},{r.Right},{r.Bottom}] visible={IsWindowVisible(x)}"; }).ToArray(), cursorAt = new { at.X, at.Y } };
+    }
+    private delegate bool ChildProc(nint window, nint parameter);
+    [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(nint window, out Rect rect);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint window);
+    [DllImport("user32.dll")] private static extern bool EnumChildWindows(nint parent, ChildProc proc, nint parameter);
+    [DllImport("user32.dll")] private static extern bool PostMessage(nint window, uint message, nint wParam, nint lParam);
     private static void Drag((int X, int Y) at, int dx, int dy)
     {
         SetCursorPos(at.X, at.Y); Thread.Sleep(80);
@@ -76,6 +97,9 @@ internal static class RecorderInputProbe
     }
     [StructLayout(LayoutKind.Sequential)] private struct Point { public int X, Y; }
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+    private static string ClassOf(nint window) { var name = new System.Text.StringBuilder(256); _ = GetClassName(window, name, 256); var title = new System.Text.StringBuilder(256); _ = GetWindowText(window, title, 256); return name + " / " + title; }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(nint window, System.Text.StringBuilder name, int count);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint window, System.Text.StringBuilder name, int count);
     [DllImport("user32.dll")] private static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] private static extern bool ClientToScreen(nint window, ref Point point);

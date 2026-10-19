@@ -58,7 +58,7 @@ public partial class TestApp : Application
             try { await ready.Task.WaitAsync(TimeSpan.FromSeconds(60)); }
             catch (TimeoutException) { captureStart.Close(); Environment.ExitCode = 1; Exit(); return; }
         }
-        if (Environment.GetCommandLineArgs().Contains("--preview-library") || Environment.GetCommandLineArgs().Contains("--capture-native-previews"))
+        if (Environment.GetCommandLineArgs().Contains("--preview-library") || Environment.GetCommandLineArgs().Contains("--capture-native-previews") || Environment.GetCommandLineArgs().Contains("--probe-library-scroll"))
         {
             await LibraryPreview.Run(root); captureStart?.Close(); Exit(); return;
         }

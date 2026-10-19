@@ -81,14 +81,14 @@ internal sealed class RecorderWindow : DesktopWindow
 
         // Options popover laid out like macOS: accent section headers, label rows with
         // controls on the right, and an "open settings" footer below a divider.
-        setup.Spacing = 0; setup.Padding = new Thickness(18, 16, 18, 10);
+        setup.Spacing = 0; setup.Padding = new Thickness(14, 12, 14, 6);
         var includeSwitch = OptionSwitch(includeMicrophone); var captionSwitch = OptionSwitch(captions);
         var originalLanguage = LanguagePicker(app.Preferences.CaptionLanguage, false);
         var translationLanguage = LanguagePicker(app.Preferences.TranslationLanguage, true);
         void LanguageChanged() => app.SetRecordingLanguage(Code(originalLanguage), Code(translationLanguage));
         originalLanguage.SelectionChanged += (_, _) => LanguageChanged(); translationLanguage.SelectionChanged += (_, _) => LanguageChanged();
         RecappiTheme.ChipPicker(microphone);
-        microphone.Header = null; microphone.Width = 190; microphone.HorizontalAlignment = HorizontalAlignment.Right;
+        microphone.Header = null; microphone.Width = 170; microphone.HorizontalAlignment = HorizontalAlignment.Right;
         OptionSection("录音");
         OptionRow("麦克风", null, microphone);
         OptionRow("录制麦克风", "把麦克风混入录音", includeSwitch);
@@ -99,15 +99,20 @@ internal sealed class RecorderWindow : DesktopWindow
         var refresh = Ui.Button("刷新声音设备", RefreshDevices, this);
         refresh.Style = RecappiTheme.Style("RecappiQuietButton");
         RecappiTheme.Bind(refresh, "RecappiAccent", brush => refresh.Foreground = brush);
-        refresh.HorizontalAlignment = HorizontalAlignment.Left; refresh.Margin = new Thickness(-6, 6, 0, 0);
+        refresh.HorizontalAlignment = HorizontalAlignment.Left; refresh.Margin = new Thickness(-6, 4, 0, 0);
         setup.Children.Add(refresh); setupControls.Add(refresh);
-        var divider = new Border { Height = 1, Margin = new Thickness(0, 12, 0, 6) };
+        var divider = new Border { Height = 1, Margin = new Thickness(0, 6, 0, 4) };
         RecappiTheme.Bind(divider, "RecappiBorderSubtle", brush => divider.Background = brush);
         setup.Children.Add(divider);
         setup.Children.Add(OptionLink("", "打开设置…", () => { options.Hide(); app.ShowSettings(); return Task.CompletedTask; }));
         setup.Children.Add(OptionLink("", "账号", () => { options.Hide(); app.ShowAccount(); return Task.CompletedTask; }));
         setup.Children.Add(OptionLink("", "退出 Recappi", app.Quit));
-        options.Content = new ScrollViewer { Content = setup, MaxHeight = 520, Width = 360 };
+        options.Content = new ScrollViewer { Content = setup, MaxHeight = 520, Width = 320 };
+        // The popover's own padding replaces the presenter's default inset (as on macOS).
+        var popover = new Style(typeof(FlyoutPresenter));
+        popover.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+        popover.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0d));
+        options.FlyoutPresenterStyle = popover;
 
         // Idle: brand tile · source · microphone · options · hide · record.
         var library = Action("录音库", RecappiTheme.LogoTile(RowHeight), "RecappiIconButton", () => { app.ShowLibrary(); Hide(); return Task.CompletedTask; }, "打开录音库");
@@ -285,12 +290,12 @@ internal sealed class RecorderWindow : DesktopWindow
     private void OptionSection(string text)
     {
         var header = new TextBlock { Text = text, FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.Bold, CharacterSpacing = 80, Style = RecappiTheme.Style("RecappiStatusAccent"),
-            Margin = new Thickness(0, setup.Children.Count == 0 ? 0 : 16, 0, 6) };
+            Margin = new Thickness(0, setup.Children.Count == 0 ? 0 : 10, 0, 4) };
         setup.Children.Add(header);
     }
     private void OptionRow(string label, string? detail, FrameworkElement control)
     {
-        var row = new Grid { ColumnSpacing = 12, MinHeight = 36, Margin = new Thickness(0, 3, 0, 3) };
+        var row = new Grid { ColumnSpacing = 12, MinHeight = 32, Margin = new Thickness(0, 2, 0, 2) };
         row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var text = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
         text.Children.Add(new TextBlock { Text = label, Style = RecappiTheme.Style("RecappiBody"), FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium });
@@ -318,7 +323,7 @@ internal sealed class RecorderWindow : DesktopWindow
         var arrow = RecappiTheme.Glyph("\uE8A7", 9); arrow.Style = RecappiTheme.Style("RecappiIconNeutral"); arrow.Opacity = 0.6;
         content.Children.Add(icon); Grid.SetColumn(label, 1); content.Children.Add(label); Grid.SetColumn(arrow, 2); content.Children.Add(arrow);
         var button = Action(text, content, "RecappiMenuButton", action);
-        button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.Height = 30; button.Margin = new Thickness(-8, 0, -8, 0); button.Foreground = null;
+        button.HorizontalContentAlignment = HorizontalAlignment.Stretch; button.Height = 28; button.Margin = new Thickness(-8, 0, -8, 0); button.Foreground = null;
         RecappiTheme.Bind(button, "RecappiTextSecondary", brush => button.Foreground = brush);
         return button;
     }

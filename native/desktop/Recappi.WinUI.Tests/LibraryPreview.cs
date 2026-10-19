@@ -65,6 +65,20 @@ internal static class LibraryPreview
         if (Environment.GetCommandLineArgs().Contains("--ask")) sections.SelectedItem = sections.Items[2];
         await TestApp.Until(() => TestApp.Field<Recappi.Core.CloudTranscript?>(window, "content") is not null, "Preview content did not load.");
         await TestApp.Until(() => ((Microsoft.UI.Xaml.FrameworkElement)window.Content).ActualWidth > 0, "Preview layout did not load.");
+        if (Environment.GetCommandLineArgs().Contains("--probe-library-scroll"))
+        {
+            // Wheel messages over the summary must scroll it (no system cursor movement).
+            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(1100, 620)); await Task.Delay(1500);
+            var document = TestApp.Field<SummaryDocument>(window, "summary");
+            var viewer = TestApp.Descendants<ScrollViewer>(window.Content).First(x => ReferenceEquals(x.Content, document));
+            var result = await RecorderInputProbe.Wheel(window, viewer, viewer);
+            var list = TestApp.Field<ListView>(window, "list");
+            var listViewer = TestApp.Descendants<ScrollViewer>(list).First();
+            var listResult = await RecorderInputProbe.Wheel(window, listViewer, list);
+            var json = System.Text.Json.JsonSerializer.Serialize(new { summary = result, list = listResult });
+            await File.WriteAllTextAsync(Path.Combine(root, "library-scroll.json"), json); Console.WriteLine(json);
+            window.Close(); return;
+        }
         Stage("preview: rendering initial bitmap");
         var bitmap = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
         await bitmap.RenderAsync(window.Content);
