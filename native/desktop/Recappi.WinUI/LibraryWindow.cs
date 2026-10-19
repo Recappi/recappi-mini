@@ -20,6 +20,8 @@ internal sealed class LibraryWindow : DesktopWindow
     private readonly TextBox search = new() { PlaceholderText = "搜索录音" };
     private readonly TextBlock heading = Ui.Text("选择录音", 24);
     private readonly TextBlock location = Ui.Text("");
+    // Problems with a recording read as a sentence under the header, not inside the status chip.
+    private readonly TextBlock notice = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 2, 0, 0) };
     private readonly TextBlock importStatus = Ui.Text("");
     private readonly SummaryDocument summary = new();
     private readonly ListView transcript = new() { SelectionMode = ListViewSelectionMode.Single };
@@ -222,10 +224,12 @@ internal sealed class LibraryWindow : DesktopWindow
         var meta = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         createdLabel.Style = RecappiTheme.Style("RecappiCaption"); createdLabel.FontSize = 11;
         statusChip.Child = location; statusChip.Padding = new Thickness(9, 4, 9, 4); statusChip.CornerRadius = new CornerRadius(12);
-        RecappiTheme.Bind(statusChip, "RecappiAccentChipFill", brush => statusChip.Background = brush);
+        statusChip.ActualThemeChanged += (_, _) => ShowNotice(notice.Text); statusChip.Loaded += (_, _) => ShowNotice(notice.Text);
         foreach (var item in new UIElement[] { localCopy, cloudCopy, createdLabel, statusChip }) meta.Children.Add(item);
         Grid.SetColumn(meta, 1); navRow.Children.Add(meta);
         details.Children.Add(navRow);
+        notice.Style = RecappiTheme.Style("RecappiStatusWarning"); notice.FontWeight = Microsoft.UI.Text.FontWeights.Normal; notice.TextWrapping = TextWrapping.Wrap; notice.TextTrimming = TextTrimming.None;
+        details.Children.Add(notice);
         media = new MediaPlayerElement { AreTransportControlsEnabled = false, Visibility = Visibility.Collapsed };
         media.SetMediaPlayer(player);
 
@@ -537,6 +541,14 @@ internal sealed class LibraryWindow : DesktopWindow
     }
     // Selection changes brushes in place: swapping styles re-templated the button, which
     // flashed its squircle chrome until the next layout scan.
+    private void ShowNotice(string? text)
+    {
+        notice.Text = text ?? ""; notice.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
+        // The chip turns warning-coloured while there is a problem to read.
+        var warn = notice.Visibility == Visibility.Visible;
+        statusChip.Background = RecappiTheme.Brush(warn ? "RecappiDangerFill" : "RecappiAccentChipFill", statusChip.ActualTheme);
+        location.Foreground = RecappiTheme.Brush(warn ? "RecappiWarning" : "RecappiAccent", location.ActualTheme);
+    }
     private sealed class ToggleButtonLike
     {
         private readonly Button button; private bool active;
@@ -574,7 +586,7 @@ internal sealed class LibraryWindow : DesktopWindow
         emptyDetail.Visibility = selected is null ? Visibility.Visible : Visibility.Collapsed;
         if (selected is null) { heading.Text = "选择录音"; location.Text = ""; return; }
         UpdateCopyActions(selected);
-        heading.Text = selected.Title; location.Text = selected.Location;
+        heading.Text = selected.Title; location.Text = selected.Location; ShowNotice(null);
         detailSource.Glyph = selected.Cloud is null ? "\uE7F8" : "\uE9D9";
         createdLabel.Text = selected.CreatedAt?.ToLocalTime().ToString("yyyy年M月d日 HH:mm") ?? "";
         playbackLabel.Text = selected.Cloud is null ? "本机音频" : "云端音频";
@@ -591,7 +603,8 @@ internal sealed class LibraryWindow : DesktopWindow
             {
                 RecordingState.Starting => "正在启动", RecordingState.Recording => "录音中", RecordingState.Stopping => "正在保存",
                 RecordingState.Done => "已保存", RecordingState.Error => "录音异常", _ => "准备录音"
-            }) + (localRecording.Error is { } error ? " · " + error : "");
+            });
+            ShowNotice(localRecording.Error);
             if (localRecording.State is RecordingState.Done or RecordingState.Error)
             {
                 var cancellation = detailRequest.Token;

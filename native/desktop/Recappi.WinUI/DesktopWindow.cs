@@ -67,6 +67,16 @@ internal class DesktopWindow : Window
             ScheduleScan(null, this);
         };
     }
+    // Page windows open centred on the display the user is working on (like macOS), and stay
+    // centred while they size themselves to their content until the user moves them.
+    private PointInt32? centeredAt;
+    private void CenterOnCursorDisplay()
+    {
+        var display = GetCursorPos(out var cursor) ? DisplayArea.GetFromPoint(new PointInt32(cursor.X, cursor.Y), DisplayAreaFallback.Primary) : DisplayArea.Primary;
+        var area = display.WorkArea; var size = AppWindow.Size;
+        var position = new PointInt32(area.X + Math.Max(0, (area.Width - size.Width) / 2), area.Y + Math.Max(0, (area.Height - size.Height) / 2));
+        AppWindow.Move(position); centeredAt = position;
+    }
     // Dialog-like pages size their height to the content (macOS settings and account panels),
     // capped by the work area, where the scroll viewer takes over.
     protected void FitHeightTo(ScrollViewer scroll, double minimum = 240)
@@ -83,7 +93,10 @@ internal class DesktopWindow : Window
             var target = Math.Clamp(client - scroll.ViewportHeight + content, minimum, area * 0.9);
             if (Math.Abs(target - client) < 2) return;
             // Adjust the outer size by the difference: ResizeClient misjudges the extended title bar.
-            AppWindow.Resize(new SizeInt32(AppWindow.Size.Width, AppWindow.Size.Height + (int)Math.Round((target - client) * scale)));
+            var delta = (int)Math.Round((target - client) * scale);
+            AppWindow.Resize(new SizeInt32(AppWindow.Size.Width, AppWindow.Size.Height + delta));
+            if (centeredAt is { } centre && AppWindow.Position.X == centre.X && AppWindow.Position.Y == centre.Y)
+            { var moved = new PointInt32(centre.X, centre.Y - delta / 2); AppWindow.Move(moved); centeredAt = moved; }
             EnsureVisible();
         };
         void Schedule(object? sender, object args) { if (!closed && !fit.IsRunning) fit.Start(); }
@@ -104,6 +117,7 @@ internal class DesktopWindow : Window
     {
         if (firstReveal is not null) return;
         if (pillCarrier) { ShowWithoutActivation(); return; } // Panels never take activation.
+        if (!initialized && !floating) CenterOnCursorDisplay();
         requestKeyboardFocus = true;
         RestoreRetainedSurface();
         EnsureVisible();
