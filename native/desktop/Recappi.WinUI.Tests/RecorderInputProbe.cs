@@ -104,7 +104,8 @@ internal static class RecorderInputProbe
             // Input from a worker thread so the UI thread keeps pumping during the drag.
             var from = Center(recorder, chip); await Task.Run(() => Drag(from, 70, 30)); await Task.Delay(600);
             var moved = recorder.AppWindow.Position;
-            var result = new { at = new { at.X, at.Y }, start = new { start.X, start.Y }, clickOpenedFlyout = clicked > 0, dragMoved = new { dx = moved.X - start.X, dy = moved.Y - start.Y }, dragOpenedFlyout = opened > clicked };
+            var activated = GetForegroundWindow() == WinRT.Interop.WindowNative.GetWindowHandle(recorder);
+            var result = new { activated, at = new { at.X, at.Y }, start = new { start.X, start.Y }, clickOpenedFlyout = clicked > 0, dragMoved = new { dx = moved.X - start.X, dy = moved.Y - start.Y }, dragOpenedFlyout = opened > clicked };
             Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result));
             options.Hide();
         }
@@ -116,6 +117,7 @@ internal static class RecorderInputProbe
         mouse_event(0x0001 | 0x8000 | 0x4000, (uint)((x - left) * 65535L / (width - 1)), (uint)((y - top) * 65535L / (height - 1)), 0, 0);
     }
     [DllImport("user32.dll")] private static extern nint WindowFromPoint(Point point);
+    [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     [DllImport("user32.dll")] private static extern nint GetAncestor(nint window, uint flags);
     private static (int X, int Y) ClientOrigin(Window window)
     {

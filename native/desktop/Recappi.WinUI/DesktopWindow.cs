@@ -103,6 +103,7 @@ internal class DesktopWindow : Window
     public void Show()
     {
         if (firstReveal is not null) return;
+        if (pillCarrier) { ShowWithoutActivation(); return; } // Panels never take activation.
         requestKeyboardFocus = true;
         RestoreRetainedSurface();
         EnsureVisible();
@@ -540,6 +541,11 @@ internal class DesktopWindow : Window
                 if (GetClientRect(window, out var area)) _ = FillRect((nint)wParam, ref area, GetStockObject(4));
                 return 1;
             }
+            // The pill is a panel that never looks or becomes active (macOS non-activating panel):
+            // clicks do not activate it, and any activation that does happen (showing, the move
+            // loop) is drawn as inactive, so DWM never paints the active-frame tint into the glass.
+            if (eraseToBlack && message == 0x0021) return 3; // WM_MOUSEACTIVATE → MA_NOACTIVATE
+            if (eraseToBlack && message == 0x0086) return DefSubclassProc(window, message, 0, -1); // WM_NCACTIVATE as inactive, no repaint
             return DefSubclassProc(window, message, wParam, lParam);
         };
         if (SetWindowSubclass(handle, frameProc, 2, 0))

@@ -162,6 +162,7 @@ public partial class TestApp : Application
             foreach (var nested in Descendants<T>(child)) yield return nested;
         }
     }
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     internal static T Field<T>(object target, string name) => (T)(target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic) ?? throw new Exception("Missing field " + name)).GetValue(target)!;
     internal static async Task Call(object target, string method, params object[] arguments)
     {
@@ -195,8 +196,8 @@ public partial class TestApp : Application
             await window.RefreshDevices();
             await Until(() => Field<Button>(window, "start").IsLoaded, "Recorder did not finish loading.");
             await Until(() => window.IsUserVisible, "Recorder did not finish its first reveal.");
-            Check(Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(window.Content.XamlRoot) is not null,
-                "Recorder first show has no XAML focus for keyboard navigation.");
+            // The recorder is a non-activating panel like macOS: showing it never takes activation.
+            Check(GetForegroundWindow() != WinRT.Interop.WindowNative.GetWindowHandle(window), "Recorder took activation when shown.");
             var focusedButton = Field<Button>(window, "start");
             Check(focusedButton.Focus(FocusState.Keyboard), "Cannot focus recorder action.");
             window.Show();
