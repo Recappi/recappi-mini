@@ -126,9 +126,24 @@ internal class DesktopWindow : Window
         // Activate initializes the XAML window as well as showing its HWND.
         // Showing AppWindow first exposes the native surface before XAML activation.
         Activate();
+        BringToFront();
         InitializeKeyboardFocus();
         firstReveal?.Arm();
     }
+    // Opened from the non-activating recorder, this app is not the foreground app, so Activate
+    // alone leaves the window behind the current one. The click that opened it was our input,
+    // which lets SetForegroundWindow succeed; if the system still refuses, a synthetic Alt press
+    // (the documented foreground-lock release) lets it through.
+    private void BringToFront()
+    {
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        if (GetForegroundWindow() == handle || SetForegroundWindow(handle)) return;
+        keybd_event(0x12, 0, 0, 0); keybd_event(0x12, 0, 0x0002, 0);
+        _ = SetForegroundWindow(handle);
+    }
+    [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
+    [DllImport("user32.dll")] private static extern void keybd_event(byte key, byte scan, uint flags, nint extra);
     private void InitializeKeyboardFocus()
     {
         if (!requestKeyboardFocus || keyboardEntry is not { IsLoaded: true } entry ||
