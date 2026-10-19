@@ -398,34 +398,35 @@ internal class DesktopWindow : Window
     private Windows.Graphics.RectInt32[] passthrough = [];
     private Grid? pillSurface;
     // The whole pill drags, as on macOS: the background through the caption region, and the controls
-    // by pressing and moving past a small threshold. That cancels the control's press (no click) and
-    // hands the still-held button to the system move loop, as a caption press would. The loop starts
-    // only while the button is still down, so it cannot outlive the release.
+    // by pressing and moving past a small threshold. A press on a control is followed by polling the
+    // real cursor (XAML stops receiving moves once the pointer crosses into the caption region), so
+    // the drag starts on the first frame past the threshold. The window first catches up with the
+    // distance already moved, then the still-held button goes to the system move loop as a caption
+    // press would; the control's press is cancelled, so it does not click.
     private void DragFromControls(FrameworkElement root)
     {
-        PointInt32? pressCursor = null;
+        var poll = DispatcherQueue.CreateTimer(); poll.Interval = TimeSpan.FromMilliseconds(8);
+        PointInt32 pressCursor = default, pressWindow = default; UIElement? pressed = null;
         root.AddHandler(UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, e) =>
         {
-            pressCursor = e.GetCurrentPoint(root).Properties.IsLeftButtonPressed && GetCursorPos(out var cursor) ? new PointInt32(cursor.X, cursor.Y) : null;
+            if (!e.GetCurrentPoint(root).Properties.IsLeftButtonPressed || !GetCursorPos(out var cursor)) return;
+            pressCursor = new PointInt32(cursor.X, cursor.Y); pressWindow = AppWindow.Position; pressed = e.OriginalSource as UIElement;
+            poll.Start();
         }), true);
-        root.AddHandler(UIElement.PointerMovedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, e) =>
+        poll.Tick += (_, _) =>
         {
-            if (pressCursor is not { } start || !GetCursorPos(out var cursor)) return;
-            if (!e.GetCurrentPoint(root).Properties.IsLeftButtonPressed) { pressCursor = null; return; }
-            if (Math.Abs(cursor.X - start.X) < 4 * Scale && Math.Abs(cursor.Y - start.Y) < 4 * Scale) return;
-            pressCursor = null; e.Handled = true;
-            if (e.OriginalSource is UIElement source) for (DependencyObject? up = source; up is not null; up = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(up))
+            if (closed || (GetAsyncKeyState(0x01) & 0x8000) == 0 || !GetCursorPos(out var cursor)) { poll.Stop(); return; }
+            int dx = cursor.X - pressCursor.X, dy = cursor.Y - pressCursor.Y;
+            if (Math.Abs(dx) < 3 * Scale && Math.Abs(dy) < 3 * Scale) return;
+            poll.Stop();
+            for (DependencyObject? up = pressed; up is not null; up = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(up))
                 if (up is UIElement element) element.ReleasePointerCaptures();
-            var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (closed || (GetAsyncKeyState(0x01) & 0x8000) == 0 || !GetCursorPos(out var now)) return;
-                _ = ReleaseCapture();
-                _ = SendMessage(handle, 0x00A1, 2, (nint)(((now.Y & 0xFFFF) << 16) | (now.X & 0xFFFF)));
-                EnsureVisible();
-            });
-        }), true);
-        root.AddHandler(UIElement.PointerReleasedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) => pressCursor = null), true);
+            AppWindow.Move(new PointInt32(pressWindow.X + dx, pressWindow.Y + dy));
+            _ = ReleaseCapture();
+            _ = SendMessage(WinRT.Interop.WindowNative.GetWindowHandle(this), 0x00A1, 2, (nint)(((cursor.Y & 0xFFFF) << 16) | (cursor.X & 0xFFFF)));
+            EnsureVisible();
+        };
+        Closed += (_, _) => poll.Stop();
     }
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern nint SendMessage(nint window, uint message, nint wParam, nint lParam);
