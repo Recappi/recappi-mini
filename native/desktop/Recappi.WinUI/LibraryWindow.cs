@@ -322,7 +322,9 @@ internal sealed class LibraryWindow : DesktopWindow
         var emptyTitle = new TextBlock { Text = "选择一段录音", Style = RecappiTheme.Style("RecappiSectionTitle"), FontWeight = Microsoft.UI.Text.FontWeights.Medium, HorizontalAlignment = HorizontalAlignment.Center }; emptyDetail.Children.Add(emptyTitle);
         var emptyHint = new TextBlock { Text = "在左侧选择录音，查看摘要、逐字稿与问答；也可以导入已有音频。", Style = RecappiTheme.Style("RecappiBodySecondary"), FontSize = 12, MaxWidth = 300, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center }; emptyDetail.Children.Add(emptyHint);
         var emptyImport = Ui.Button("导入音频", Import, this); emptyImport.HorizontalAlignment = HorizontalAlignment.Center; emptyImport.Margin = new Thickness(0, 8, 0, 0); emptyDetail.Children.Add(emptyImport);
-        var detailContainer = new Grid { BorderThickness = new Thickness(1, 0, 0, 0) };
+        // The content pane is an inset surface, as in Windows 11 apps: hairline on its top and left with a rounded
+        // top-left corner where it meets the toolbar and sidebar, instead of a left line only.
+        var detailContainer = new Grid { BorderThickness = new Thickness(1, 1, 0, 0), CornerRadius = new CornerRadius(8, 0, 0, 0) };
         RecappiTheme.Bind(detailContainer, "RecappiSurfaceCard", brush => detailContainer.Background = brush);
         RecappiTheme.Bind(detailContainer, "RecappiBorderHairline", brush => detailContainer.BorderBrush = brush);
         detailContainer.Children.Add(detailLayout); detailContainer.Children.Add(emptyDetail);
