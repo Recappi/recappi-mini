@@ -118,6 +118,7 @@ public partial class TestApp : Application
             await Run("library-refresh-copy-and-draft", () => LibraryRefresh(root));
             await Run("library-long-local-transcript", () => LongLocalTranscript(root));
             await Run("cloud-account-context", () => CloudIsolation(root));
+            await Run("library-auto-load-more", () => AutoLoadMore(root));
             await Run("cloud-missing-transcript-recovery", () => MissingTranscript(root));
             await Run("ask-draft-and-cancellation", () => Ask(root));
             await Run("retranscription-provider-and-confirmation", () => Review(root));
@@ -457,6 +458,33 @@ public partial class TestApp : Application
             window.ConfirmAction = async (_, _, _) => { await host.Account.SignOutAsync(); return true; };
             await Call(window, "DeleteCloud"); await Task.Delay(80);
             Check(deletes == 0 && Field<SummaryDocument>(window, "summary").Text == "", "Account changed but old cloud content/action survived.");
+        }
+        finally { window.Close(); }
+    }
+    // The sidebar fetches the next page when scrolled near its end and keeps the scroll position.
+    private static async Task AutoLoadMore(string root)
+    {
+        var pages = 0;
+        static string Items(int from, int count) => string.Join(",", Enumerable.Range(from, count).Select(i => $$"""{"id":"r{{i}}","title":"Recording {{i}}","status":"completed","durationMs":1000,"createdAt":"2026-09-{{(28 - i / 3):00}}T02:00:00Z"}"""));
+        await using var host = new TestHost(Path.Combine(root, "auto-load"), (request, token) =>
+        {
+            if (request.RequestUri!.AbsolutePath != "/api/recordings") return TestHost.DefaultResponse(request, token);
+            pages++;
+            var second = request.RequestUri.Query.Contains("cursor=page2");
+            return Task.FromResult(TestHost.Json(second ? $$"""{"items":[{{Items(40, 10)}}],"nextCursor":null}""" : $$"""{"items":[{{Items(0, 40)}}],"nextCursor":"page2"}"""));
+        });
+        await host.SignIn(); var window = new LibraryWindow(host); window.Show();
+        try
+        {
+            await window.Refresh();
+            var list = Field<ListView>(window, "list");
+            await Until(() => Field<ScrollViewer?>(window, "listScroll") is { ScrollableHeight: > 0 }, "Sidebar did not become scrollable.");
+            Check(pages == 1, "Sidebar loaded the next page before scrolling.");
+            var viewer = Field<ScrollViewer?>(window, "listScroll")!;
+            viewer.ChangeView(null, viewer.ScrollableHeight, null, true);
+            await Until(() => Field<IReadOnlyList<LibraryRecording>>(window, "displayed").Count == 50, "Scrolling to the end did not load the next page.");
+            await Task.Delay(200);
+            Check(viewer.VerticalOffset > 0, "Loading the next page reset the sidebar to the top.");
         }
         finally { window.Close(); }
     }

@@ -337,10 +337,6 @@ internal static class RecappiTheme
             "<Setter Property='Foreground' Value='{ThemeResource RecappiLabelSecondary}'/><Setter Property='Background' Value='{ThemeResource RecappiControlHover}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderHairline}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Height' Value='26'/><Setter Property='Padding' Value='10,0'/><Setter Property='FontSize' Value='11'/>",
             "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>",
             "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>", "<Setter Target='Root.Opacity' Value='0.45'/>") +
-        ButtonStyle("RecappiPillButtonActive", "Button",
-            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiControlPress}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderSubtle}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Height' Value='26'/><Setter Property='Padding' Value='10,0'/><Setter Property='FontSize' Value='11'/><Setter Property='FontWeight' Value='SemiBold'/>",
-            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>",
-            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>") +
         ButtonStyle("RecappiMarkerButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiLabelTertiary}'/><Setter Property='Height' Value='20'/><Setter Property='Padding' Value='4,0'/><Setter Property='FontSize' Value='11'/><Setter Property='FontFamily' Value='Cascadia Mono, Consolas'/><Setter Property='CornerRadius' Value='4'/>",
             "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlHover}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiAccent}'/>",

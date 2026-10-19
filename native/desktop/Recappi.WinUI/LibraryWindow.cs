@@ -74,7 +74,6 @@ internal sealed class LibraryWindow : DesktopWindow
     private readonly StackPanel emptyDetail = new() { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock emptyList = Ui.Text("还没有录音\n开始录音，或导入已有音频。", 13);
     private readonly Button cancelImport;
-    private readonly Button loadMore;
     private readonly Button localCopy;
     private readonly Button cloudCopy;
     private readonly SpeakerProfileStore profiles;
@@ -145,14 +144,13 @@ internal sealed class LibraryWindow : DesktopWindow
         emptyList.Style = RecappiTheme.Style("RecappiBodySecondary"); emptyList.FontSize = 12; emptyList.Margin = new Thickness(8, 18, 8, 0); Grid.SetRow(emptyList, 2); sidebar.Children.Add(emptyList);
         importStatus.Style = RecappiTheme.Style("RecappiCaption"); importStatus.Visibility = Visibility.Collapsed;
         cancelImport = Ui.Button("取消导入", () => { import?.Cancel(); return Task.CompletedTask; }, this); cancelImport.Visibility = Visibility.Collapsed;
-        loadMore = Ui.Button("加载更多", LoadMore, this); loadMore.Visibility = Visibility.Collapsed; loadMore.HorizontalAlignment = HorizontalAlignment.Stretch;
         var openCloud = Ui.Button("打开 Recappi Cloud", OpenCloudHome, this);
         var openCloudContent = new Grid(); openCloudContent.ColumnDefinitions.Add(new ColumnDefinition()); openCloudContent.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         openCloudContent.Children.Add(new TextBlock { Text = "打开 Recappi Cloud", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
         var external = RecappiTheme.Glyph("", 11); external.Style = RecappiTheme.Style("RecappiIconNeutral"); Grid.SetColumn(external, 1); openCloudContent.Children.Add(external);
         openCloud.Content = openCloudContent; openCloud.HorizontalAlignment = HorizontalAlignment.Stretch; openCloud.HorizontalContentAlignment = HorizontalAlignment.Stretch; openCloud.CornerRadius = new CornerRadius(8); openCloud.Padding = new Thickness(10, 7, 10, 7);
         var footer = new StackPanel { Spacing = 8 };
-        foreach (var item in new UIElement[] { importStatus, cancelImport, loadMore, openCloud }) footer.Children.Add(item);
+        foreach (var item in new UIElement[] { importStatus, cancelImport, openCloud }) footer.Children.Add(item);
         Grid.SetRow(footer, 3); sidebar.Children.Add(footer);
         layout.Children.Add(sidebar);
         list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><StackPanel Orientation='Horizontal' Spacing='7' Padding='0,5'><FontIcon x:Name='Source' FontSize='14' Opacity='0.55' Visibility='Collapsed'/><TextBlock Text='{Binding Title}' FontSize='13' TextTrimming='CharacterEllipsis' VerticalAlignment='Center' MaxWidth='170'/></StackPanel></DataTemplate>");
@@ -334,6 +332,13 @@ internal sealed class LibraryWindow : DesktopWindow
             if (transcript.SelectedItem is CloudTranscriptSegment segment) await SeekTranscript(segment);
         };
         list.SelectionChanged += async (_, _) => { if (!rebuild) await Run(() => Select(Selected?.Cloud is null)); };
+        // Like macOS, the sidebar fetches the next page as it scrolls near the end.
+        list.Loaded += (_, _) =>
+        {
+            if (listScroll is not null || FindScroll(list) is not { } viewer) return;
+            listScroll = viewer;
+            viewer.ViewChanged += async (_, _) => { if (viewer.VerticalOffset >= viewer.ScrollableHeight - 120) await AutoLoadMore(); };
+        };
         list.KeyDown += (_, e) =>
         {
             if (e.Key != Windows.System.VirtualKey.Enter) return;
@@ -436,6 +441,24 @@ internal sealed class LibraryWindow : DesktopWindow
         }
         finally { if (version == refreshGeneration) refreshing = false; }
     }
+    private ScrollViewer? listScroll;
+    private static ScrollViewer? FindScroll(DependencyObject root)
+    {
+        for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is ScrollViewer viewer) return viewer;
+            if (FindScroll(child) is { } nested) return nested;
+        }
+        return null;
+    }
+    private bool loadingMore;
+    private async Task AutoLoadMore()
+    {
+        if (loadingMore || nextCursor is null) return;
+        loadingMore = true;
+        try { await Run(LoadMore); } finally { loadingMore = false; }
+    }
     private async Task LoadMore()
     {
         if (nextCursor is null) return;
@@ -462,10 +485,10 @@ internal sealed class LibraryWindow : DesktopWindow
         displayed = rows;
         emptyList.Text = query.Length == 0 ? "还没有录音\n开始录音，或导入已有音频。" : "没有找到匹配的录音。";
         emptyList.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        loadMore.Visibility = nextCursor is null ? Visibility.Collapsed : Visibility.Visible;
         rebuild = true;
         librarySubtitle.Text = $"共 {rows.Length} 段录音";
-        try { list.ItemsSource = new CollectionViewSource { Source = Group(rows), IsSourceGrouped = true }.View; list.SelectedItem = rows.FirstOrDefault(x => x.Key == selected); }
+        var offset = listScroll?.VerticalOffset ?? 0;
+        try { list.ItemsSource = new CollectionViewSource { Source = Group(rows), IsSourceGrouped = true }.View; list.SelectedItem = rows.FirstOrDefault(x => x.Key == selected); if (offset > 0) { list.UpdateLayout(); listScroll?.ChangeView(null, offset, null, true); } }
         finally { rebuild = false; }
         if (selected is not null && Selected is null) await Select(true);
         else if (Selected is { } current)
@@ -512,9 +535,21 @@ internal sealed class LibraryWindow : DesktopWindow
         static string Label(DateTime day, DateTime today) => day == today ? "今天" : day == today.AddDays(-1) ? "昨天" : day.Year == today.Year ? day.ToString("M月d日") : day.ToString("yyyy年M月d日");
         return rows.GroupBy(x => x.CreatedAt?.ToLocalTime().Date).Select(g => new DayGroup(g.Key is { } day ? Label(day, today) : "更早", g)).ToList();
     }
-    private sealed class ToggleButtonLike(Button button)
+    // Selection changes brushes in place: swapping styles re-templated the button, which
+    // flashed its squircle chrome until the next layout scan.
+    private sealed class ToggleButtonLike
     {
-        public void Set(bool active) => button.Style = RecappiTheme.Style(active ? "RecappiPillButtonActive" : "RecappiPillButton");
+        private readonly Button button; private bool active;
+        public ToggleButtonLike(Button button) { this.button = button; button.ActualThemeChanged += (_, _) => Apply(); }
+        public void Set(bool value) { active = value; Apply(); }
+        private void Apply()
+        {
+            // Inactive uses the RecappiPillButton tokens.
+            button.Background = RecappiTheme.Brush(active ? "RecappiControlPress" : "RecappiControlHover", button.ActualTheme);
+            button.Foreground = RecappiTheme.Brush(active ? "RecappiLabel" : "RecappiLabelSecondary", button.ActualTheme);
+            button.BorderBrush = RecappiTheme.Brush(active ? "RecappiBorderSubtle" : "RecappiBorderHairline", button.ActualTheme);
+            button.FontWeight = active ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+        }
     }
     private Task OpenCloudHome()
     {

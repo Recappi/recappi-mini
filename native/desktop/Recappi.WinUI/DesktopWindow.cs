@@ -197,11 +197,14 @@ internal class DesktopWindow : Window
         }
         // With a toolbar the strip becomes a unified title bar like macOS: title on the left,
         // tools on the right ahead of the caption buttons; tools stay clickable as passthrough.
-        var strip = new Grid { Height = toolbar is null ? 40 : 52, Padding = new Thickness(14, 0, 0, 0), ColumnSpacing = 12, Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        // Toolbar windows use the tall caption (48) so the system buttons share the toolbar's centre line.
+        if (toolbar is not null && AppWindowTitleBar.IsCustomizationSupported()) AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+        var strip = new Grid { Height = toolbar is null ? 40 : 48, Padding = new Thickness(14, 0, 0, 0), ColumnSpacing = 12, Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         strip.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); strip.ColumnDefinitions.Add(new ColumnDefinition());
         strip.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); strip.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(toolbar is null ? 0 : 138) });
         var brand = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-        var tile = RecappiTheme.LogoTile(toolbar is null ? 20 : 26); tile.VerticalAlignment = VerticalAlignment.Center; brand.Children.Add(tile);
+        // Toolbar pages lead with the account in the sidebar, so the title stands alone (macOS window title).
+        if (toolbar is null) { var tile = RecappiTheme.LogoTile(20); tile.VerticalAlignment = VerticalAlignment.Center; brand.Children.Add(tile); }
         if (toolbar is null) brand.Children.Add(new TextBlock { Text = "Recappi", Style = RecappiTheme.Style("RecappiEyebrow") });
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         titles.Children.Add(new TextBlock { Text = page, Style = RecappiTheme.Style(toolbar is null ? "RecappiCaption" : "RecappiSectionTitle"), FontSize = toolbar is null ? 12 : 13 });
