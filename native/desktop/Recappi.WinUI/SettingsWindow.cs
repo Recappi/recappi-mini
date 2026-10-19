@@ -95,7 +95,7 @@ internal sealed class SettingsWindow : DesktopWindow
         Toggle("声音不活跃提醒", app.Preferences.InactivityReminders, (p, v) => p with { InactivityReminders = v });
         Field("隐藏录音提醒间隔（分钟，0 关闭）", app.Preferences.LongReminderMinutes.ToString(), (p, v) => p with { LongReminderMinutes = Minutes(v) });
         Field("录音时长提醒（分钟，0 关闭）", app.Preferences.MaxDurationMinutes.ToString(), (p, v) => p with { MaxDurationMinutes = Minutes(v) });
-        Section("存储与关于", Symbol.Folder);
+        Section("存储", Symbol.Folder);
         // macOS-style rows: what it is on the left (with its detail beneath), actions on the right.
         var folder = new TextBlock { Text = app.Preferences.RecordingsRoot, Style = RecappiTheme.Style("RecappiCaption"), FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, IsTextSelectionEnabled = true };
         ToolTipService.SetToolTip(folder, app.Preferences.RecordingsRoot);
@@ -107,21 +107,21 @@ internal sealed class SettingsWindow : DesktopWindow
         }, this);
         AddRow(Labelled("本地录音目录", folder), Ui.Row(change, reveal));
         section.Children.Add(Note("更改后重启 Recappi 生效；已有录音不会移动。"));
-        group = null;
-        var about = new Grid { ColumnSpacing = 14, Margin = new Thickness(0, 8, 0, 0) };
-        about.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); about.ColumnDefinitions.Add(new ColumnDefinition()); about.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        about.Children.Add(RecappiTheme.LogoTile(44));
-        var version = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        version.Children.Add(new TextBlock { Text = "Recappi Mini", Style = RecappiTheme.Style("RecappiSectionTitle") });
-        version.Children.Add(new TextBlock { Text = CurrentVersion.Split('+')[0] + " · Windows 原生桌面版 · WinUI 3", Style = RecappiTheme.Style("RecappiCaption") });
-        Grid.SetColumn(version, 1); about.Children.Add(version);
+        // About is its own page, laid out like the macOS About panel: centred identity, then updates.
+        Section("关于", Symbol.Help);
+        var identity = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 8) };
+        var logo = RecappiTheme.LogoTile(72); logo.HorizontalAlignment = HorizontalAlignment.Center; logo.Margin = new Thickness(0, 0, 0, 6);
+        identity.Children.Add(logo);
+        identity.Children.Add(new TextBlock { Text = "Recappi Mini", Style = RecappiTheme.Style("RecappiSectionTitle"), FontSize = 20, HorizontalAlignment = HorizontalAlignment.Center });
+        identity.Children.Add(new TextBlock { Text = "版本 " + CurrentVersion.Split('+')[0], Style = RecappiTheme.Style("RecappiBodySecondary"), FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Center });
+        identity.Children.Add(new TextBlock { Text = "Windows 原生桌面版 · WinUI 3", Style = RecappiTheme.Style("RecappiCaption"), FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Center });
         var releases = Ui.Button("发布页面", () => { Process.Start(new ProcessStartInfo(DesktopUpdates.ReleasesPage.AbsoluteUri) { UseShellExecute = true }); return Task.CompletedTask; }, this);
-        releases.Style = RecappiTheme.Style("RecappiQuietButton"); releases.VerticalAlignment = VerticalAlignment.Center;
+        releases.Style = RecappiTheme.Style("RecappiQuietButton"); releases.HorizontalAlignment = HorizontalAlignment.Center;
         RecappiTheme.Bind(releases, "RecappiAccent", brush => releases.Foreground = brush);
         // Only the portable build updates from the release page; installed builds use their channel.
         releases.Visibility = this.distribution == DesktopDistribution.Portable ? Visibility.Visible : Visibility.Collapsed;
-        Grid.SetColumn(releases, 2); about.Children.Add(releases);
-        section.Children.Add(about);
+        identity.Children.Add(releases);
+        section.Children.Add(identity);
         updateStatus.Style = RecappiTheme.Style("RecappiCaption"); updateStatus.FontSize = 11.5; updateStatus.TextWrapping = TextWrapping.Wrap; updateStatus.TextTrimming = TextTrimming.None;
         var checkUpdate = Ui.Button("检查更新", CheckUpdate, this);
         downloadUpdate = Ui.Button("下载更新", DownloadUpdate, this); downloadUpdate.IsEnabled = false;

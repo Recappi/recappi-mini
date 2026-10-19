@@ -250,7 +250,7 @@ internal static class NativePreviewCapture
             try
             {
                 var navigation = TestApp.Field<NavigationView>(settings, "navigation");
-                navigation.SelectedItem = navigation.MenuItems[4];
+                navigation.SelectedItem = navigation.MenuItems[5];
                 settings.Show();
                 foreach (var theme in new[] { "light", "dark" })
                 {
@@ -270,7 +270,7 @@ internal static class NativePreviewCapture
         {
             settings.Show();
             var navigation = TestApp.Field<NavigationView>(settings, "navigation");
-            var names = new[] { "general", "cloud", "captions", "reminders", "about" };
+            var names = new[] { "general", "cloud", "captions", "reminders", "storage", "about" };
             foreach (var theme in new[] { "light", "dark" })
             {
                 settings.ApplyTheme(theme);

@@ -438,8 +438,8 @@ public partial class TestApp : Application
             try
             {
                 var navigation = Field<NavigationView>(window, "navigation");
-                navigation.SelectedItem = navigation.MenuItems[4];
-                var section = Field<Dictionary<string, StackPanel>>(window, "sections")["存储与关于"];
+                navigation.SelectedItem = navigation.MenuItems[5];
+                var section = Field<Dictionary<string, StackPanel>>(window, "sections")["关于"];
                 await Until(() => section.IsLoaded, "Update section did not load.");
                 var labels = Descendants<Button>(section).Where(button => button.Visibility == Visibility.Visible).Select(button => button.Content as string).ToArray();
                 Check(labels.Contains("检查更新") == (distribution == DesktopDistribution.Portable), "Update check exposed for wrong installation channel.");
