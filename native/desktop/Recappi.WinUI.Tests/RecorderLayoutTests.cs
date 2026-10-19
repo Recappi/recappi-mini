@@ -59,6 +59,11 @@ public partial class TestApp
             Click(Field<Button>(window, "start"));
             await Until(() => host.Engine.Snapshot.State == RecordingState.Recording && window.AppWindow.ClientSize.Height > idleHeight,
                 "Recording state did not expand to fit its source/status row.");
+            // The live waveform relayouts constantly; input regions must not be rewritten each pass.
+            var counter = typeof(DesktopWindow).GetField("regionWrites", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            await Task.Delay(400); var writes = (int)counter.GetValue(window)!; await Task.Delay(3000);
+            var rewrites = (int)counter.GetValue(window)! - writes;
+            Check(rewrites == 0, $"Recording rewrote the drag regions {rewrites} times in 3s.");
             window.RequestAttention(AttentionAction.DurationLimit);
             await Until(() => Field<TextBlock>(window, "attention").ActualHeight > 0, "Reminder did not appear.");
             var recordingHeight = window.AppWindow.ClientSize.Height;

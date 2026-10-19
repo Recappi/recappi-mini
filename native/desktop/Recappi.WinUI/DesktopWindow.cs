@@ -417,7 +417,7 @@ internal class DesktopWindow : Window
             carrierCompositor.CreateColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
         // The shadow margin lets clicks through to the windows behind, as on macOS: while the
         // pointer is over the window but outside the pill, the window is made input-transparent.
-        passThroughTimer = DispatcherQueue.CreateTimer(); passThroughTimer.Interval = TimeSpan.FromMilliseconds(50);
+        passThroughTimer = DispatcherQueue.CreateTimer(); passThroughTimer.Interval = TimeSpan.FromMilliseconds(30);
         var transparent = false;
         passThroughTimer.Tick += (_, _) =>
         {
@@ -533,23 +533,51 @@ internal class DesktopWindow : Window
                 if (child is Control { IsTabStop: true } control and not ContentControl { Content: null, Width: 0 } && control.ActualWidth > 0)
                 {
                     var origin = control.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
-                    rects.Add(new((int)Math.Floor(origin.X * scale), (int)Math.Floor(origin.Y * scale), (int)Math.Ceiling(control.ActualWidth * scale), (int)Math.Ceiling(control.ActualHeight * scale)));
+                    // One extra pixel around each control so rounding never leaves its edge draggable.
+                    rects.Add(new((int)Math.Floor(origin.X * scale) - 1, (int)Math.Floor(origin.Y * scale) - 1, (int)Math.Ceiling(control.ActualWidth * scale) + 2, (int)Math.Ceiling(control.ActualHeight * scale) + 2));
                     continue;
                 }
                 Visit(child);
             }
         }
         Visit(root);
-        if (rects.SequenceEqual(passthrough) && ExtendsContentIntoTitleBar) return;
-        passthrough = rects.ToArray();
-        var source = Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(AppWindow.Id);
+        // Without SetTitleBar the caption (drag) region is set directly, following ScreenCam's
+        // toolbar: the visible surface minus the controls, so the two never overlap.
+        var caption = captionRects;
         if (!ExtendsContentIntoTitleBar)
         {
-            // Without SetTitleBar the whole surface is the caption (drag) region; controls punch through.
             var inset = ChromeMargin;
-            source.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Caption, [new((int)Math.Floor(inset * scale), (int)Math.Floor(inset * scale), (int)Math.Ceiling((root.ActualWidth - inset * 2) * scale), (int)Math.Ceiling((root.ActualHeight - inset * 2) * scale))]);
+            var surface = new Windows.Graphics.RectInt32((int)Math.Floor(inset * scale), (int)Math.Floor(inset * scale), (int)Math.Ceiling((root.ActualWidth - inset * 2) * scale), (int)Math.Ceiling((root.ActualHeight - inset * 2) * scale));
+            caption = Subtract(surface, rects);
         }
+        // Rewriting the regions on every layout pass (the live waveform) dropped presses.
+        if (rects.SequenceEqual(passthrough) && caption.SequenceEqual(captionRects)) return;
+        passthrough = rects.ToArray(); captionRects = caption; regionWrites++;
+        var source = Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(AppWindow.Id);
+        if (!ExtendsContentIntoTitleBar) source.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Caption, captionRects);
         source.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough, passthrough);
+    }
+    private Windows.Graphics.RectInt32[] captionRects = [];
+    private int regionWrites;
+    private static Windows.Graphics.RectInt32[] Subtract(Windows.Graphics.RectInt32 bounds, IEnumerable<Windows.Graphics.RectInt32> exclusions)
+    {
+        var remaining = new List<Windows.Graphics.RectInt32> { bounds };
+        foreach (var cut in exclusions)
+        {
+            var next = new List<Windows.Graphics.RectInt32>();
+            foreach (var rect in remaining)
+            {
+                int left = Math.Max(rect.X, cut.X), top = Math.Max(rect.Y, cut.Y), right = Math.Min(rect.X + rect.Width, cut.X + cut.Width), bottom = Math.Min(rect.Y + rect.Height, cut.Y + cut.Height);
+                if (right <= left || bottom <= top) { next.Add(rect); continue; }
+                void Add(int x, int y, int width, int height) { if (width > 0 && height > 0) next.Add(new(x, y, width, height)); }
+                Add(rect.X, rect.Y, rect.Width, top - rect.Y);
+                Add(rect.X, bottom, rect.Width, rect.Y + rect.Height - bottom);
+                Add(rect.X, top, left - rect.X, bottom - top);
+                Add(right, top, rect.X + rect.Width - right, bottom - top);
+            }
+            remaining = next;
+        }
+        return remaining.ToArray();
     }
     public async Task Run(Func<Task> action)
     {
