@@ -82,6 +82,34 @@ internal static class RecorderInputProbe
         }
         finally { SetCursorPos(cursor.X, cursor.Y); recorder.Close(); }
     }
+    // Pressing a control and moving drags the whole pill without clicking it; a still press clicks.
+    public static async Task DragFromControl(string root)
+    {
+        await using var host = new TestHost(Path.Combine(root, "drag-probe"));
+        var recorder = new RecorderWindow(host, () => ([new AudioSource("system", "System")], [new MicrophoneDevice("sample", "Mic", true)]));
+        GetCursorPos(out var cursor);
+        try
+        {
+            await recorder.RefreshDevices(); recorder.Show();
+            await TestApp.Until(() => recorder.IsUserVisible, "Recorder did not appear.");
+            recorder.AppWindow.Move(new Windows.Graphics.PointInt32(300, 300)); await Task.Delay(1200);
+            var chip = TestApp.Field<Button>(recorder, "optionsChip");
+            var options = TestApp.Field<Flyout>(recorder, "options");
+            var opened = 0; options.Opened += (_, _) => opened++;
+            var at = Center(recorder, chip);
+            if (GetAncestor(WindowFromPoint(new Point { X = at.X, Y = at.Y }), 2) != WinRT.Interop.WindowNative.GetWindowHandle(recorder)) throw new Exception("Probe recorder is not under the cursor target; aborting real input.");
+            Click(at); await Task.Delay(600);
+            var clicked = opened; options.Hide(); await Task.Delay(400);
+            var start = recorder.AppWindow.Position;
+            // Input from a worker thread so the UI thread keeps pumping during the drag.
+            var from = Center(recorder, chip); await Task.Run(() => Drag(from, 70, 30)); await Task.Delay(600);
+            var moved = recorder.AppWindow.Position;
+            var result = new { at = new { at.X, at.Y }, start = new { start.X, start.Y }, clickOpenedFlyout = clicked > 0, dragMoved = new { dx = moved.X - start.X, dy = moved.Y - start.Y }, dragOpenedFlyout = opened > clicked };
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result));
+            options.Hide();
+        }
+        finally { SetCursorPos(cursor.X, cursor.Y); recorder.Close(); }
+    }
     private static void Move(int x, int y)
     {
         int left = GetSystemMetrics(76), top = GetSystemMetrics(77), width = GetSystemMetrics(78), height = GetSystemMetrics(79);

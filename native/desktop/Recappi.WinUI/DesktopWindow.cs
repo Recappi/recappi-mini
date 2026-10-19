@@ -333,6 +333,7 @@ internal class DesktopWindow : Window
             RecappiTheme.Bind(body, pillStroke, brush => shape.Stroke = brush);
             frame.Children.Add(caster); frame.Children.Add(body);
             pillSurface = body;
+            DragFromControls(frame);
         }
         frame.Children.Add(border); Content = frame;
         // Let Windows own drag hit testing instead of starting a nested move loop
@@ -396,6 +397,38 @@ internal class DesktopWindow : Window
     private Microsoft.UI.Composition.SystemBackdrops.SystemBackdropConfiguration? backdrop;
     private Windows.Graphics.RectInt32[] passthrough = [];
     private Grid? pillSurface;
+    // The whole pill drags, as on macOS: the background through the caption region, and the controls
+    // by pressing and moving past a small threshold. That cancels the control's press (no click) and
+    // hands the still-held button to the system move loop, as a caption press would. The loop starts
+    // only while the button is still down, so it cannot outlive the release.
+    private void DragFromControls(FrameworkElement root)
+    {
+        PointInt32? pressCursor = null;
+        root.AddHandler(UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, e) =>
+        {
+            pressCursor = e.GetCurrentPoint(root).Properties.IsLeftButtonPressed && GetCursorPos(out var cursor) ? new PointInt32(cursor.X, cursor.Y) : null;
+        }), true);
+        root.AddHandler(UIElement.PointerMovedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, e) =>
+        {
+            if (pressCursor is not { } start || !GetCursorPos(out var cursor)) return;
+            if (!e.GetCurrentPoint(root).Properties.IsLeftButtonPressed) { pressCursor = null; return; }
+            if (Math.Abs(cursor.X - start.X) < 4 * Scale && Math.Abs(cursor.Y - start.Y) < 4 * Scale) return;
+            pressCursor = null; e.Handled = true;
+            if (e.OriginalSource is UIElement source) for (DependencyObject? up = source; up is not null; up = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(up))
+                if (up is UIElement element) element.ReleasePointerCaptures();
+            var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (closed || (GetAsyncKeyState(0x01) & 0x8000) == 0 || !GetCursorPos(out var now)) return;
+                _ = ReleaseCapture();
+                _ = SendMessage(handle, 0x00A1, 2, (nint)(((now.Y & 0xFFFF) << 16) | (now.X & 0xFFFF)));
+                EnsureVisible();
+            });
+        }), true);
+        root.AddHandler(UIElement.PointerReleasedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) => pressCursor = null), true);
+    }
+    [DllImport("user32.dll")] private static extern bool ReleaseCapture();
+    [DllImport("user32.dll")] private static extern nint SendMessage(nint window, uint message, nint wParam, nint lParam);
     private bool pillCarrier;
     private Windows.UI.Composition.Compositor? carrierCompositor;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? passThroughTimer;

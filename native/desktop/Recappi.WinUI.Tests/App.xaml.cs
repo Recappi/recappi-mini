@@ -82,6 +82,10 @@ public partial class TestApp : Application
         {
             await InputCalibrationPreview.Run(root); keeper.Close(); Exit(); return;
         }
+        if (commandLine.Contains("--probe-recorder-drag"))
+        {
+            await RecorderInputProbe.DragFromControl(root); keeper.Close(); Exit(); return;
+        }
         if (commandLine.Contains("--probe-recorder-hover"))
         {
             await RecorderInputProbe.Hover(root); keeper.Close(); Exit(); return;
