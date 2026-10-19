@@ -172,6 +172,8 @@ internal class DesktopWindow : Window
             firstReveal = new FirstFrameReveal(this, () =>
             {
                 firstReveal = null;
+                // Clearing the first-reveal window region resets DWM's frame extension.
+                if (pillCarrier) ExtendCarrierFrame();
                 RestoreRetainedSurface();
                 InitializeKeyboardFocus();
             });
@@ -237,8 +239,7 @@ internal class DesktopWindow : Window
         if (pill)
         {
             glass = true; directCaption = true; ChromeMargin = 12;
-            SystemBackdrop = new TransparentBackdrop();
-            RemoveFrame();
+            EnablePillCarrier();
             surfaceBrush = "RecappiTransparent";
         }
         else if (glass && !EnableGlass()) { glass = false; surfaceBrush = "RecappiSurfacePanel"; }
@@ -365,12 +366,71 @@ internal class DesktopWindow : Window
     private Microsoft.UI.Composition.SystemBackdrops.SystemBackdropConfiguration? backdrop;
     private Windows.Graphics.RectInt32[] passthrough = [];
     private Grid? pillSurface;
+    private bool pillCarrier;
+    private Windows.UI.Composition.Compositor? carrierCompositor;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? passThroughTimer;
+    // Transparent carrier for the self-drawn pill, following ScreenCam's toolbar host: a borderless
+    // layered popup, the whole client extended into the DWM frame (zero-alpha black redirection
+    // pixels are transparent), black background erase and a clear system backdrop brush.
+    private void EnablePillCarrier()
+    {
+        pillCarrier = true;
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        RemoveFrame(eraseToBlack: true);
+        var style = (long)GetWindowLongPtr(handle, -16);
+        style &= ~(0x00C00000L | 0x00800000L | 0x00400000L | 0x00040000L | 0x00080000L | 0x00020000L | 0x00010000L);
+        style |= 0x80000000L;
+        _ = SetWindowLongPtr(handle, -16, (nint)style);
+        _ = SetWindowLongPtr(handle, -20, GetWindowLongPtr(handle, -20) | 0x00080000);
+        _ = SetLayeredWindowAttributes(handle, 0, 255, 0x2);
+        _ = SetWindowPos(handle, 0, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010);
+        ExtendCarrierFrame();
+        DispatcherQueue.EnsureSystemDispatcherQueue();
+        carrierCompositor = new Windows.UI.Composition.Compositor();
+        WinRT.CastExtensions.As<Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop>(this).SystemBackdrop =
+            carrierCompositor.CreateColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+        // The shadow margin lets clicks through to the windows behind, as on macOS: while the
+        // pointer is over the window but outside the pill, the window is made input-transparent.
+        passThroughTimer = DispatcherQueue.CreateTimer(); passThroughTimer.Interval = TimeSpan.FromMilliseconds(50);
+        var transparent = false;
+        passThroughTimer.Tick += (_, _) =>
+        {
+            if (closed || !GetCursorPos(out var point)) return;
+            var position = AppWindow.Position; var size = AppWindow.Size; var inset = (int)Math.Round(ChromeMargin * Scale);
+            var inWindow = point.X >= position.X && point.X < position.X + size.Width && point.Y >= position.Y && point.Y < position.Y + size.Height;
+            var inPill = point.X >= position.X + inset && point.X < position.X + size.Width - inset && point.Y >= position.Y + inset && point.Y < position.Y + size.Height - inset;
+            var next = inWindow && !inPill;
+            if (next == transparent) return;
+            transparent = next;
+            var ex = GetWindowLongPtr(handle, -20);
+            _ = SetWindowLongPtr(handle, -20, next ? ex | 0x00000020 : ex & ~(nint)0x00000020);
+        };
+        passThroughTimer.Start();
+        Closed += (_, _) => passThroughTimer?.Stop();
+    }
+    private void ExtendCarrierFrame()
+    {
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        _ = DwmExtendFrameIntoClientArea(handle, [-1, -1, -1, -1]);
+        _ = InvalidateRect(handle, 0, true);
+    }
     // Remove the non-client frame entirely (WM_NCCALCSIZE returns the whole window as client).
-    private void RemoveFrame()
+    private void RemoveFrame(bool eraseToBlack = false)
     {
         if (frameProc is not null) return;
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        frameProc = (window, message, wParam, lParam, _, _) => message == 0x0083 && wParam != 0 ? 0 : DefSubclassProc(window, message, wParam, lParam);
+        // WM_NCCALCSIZE: no frame. WM_ERASEBKGND on the carrier: erase to black, which the extended
+        // DWM frame composes as transparent instead of the opaque class background.
+        frameProc = (window, message, wParam, lParam, _, _) =>
+        {
+            if (message == 0x0083 && wParam != 0) return 0;
+            if (message == 0x0014 && eraseToBlack)
+            {
+                if (GetClientRect(window, out var area)) _ = FillRect((nint)wParam, ref area, GetStockObject(4));
+                return 1;
+            }
+            return DefSubclassProc(window, message, wParam, lParam);
+        };
         if (SetWindowSubclass(handle, frameProc, 2, 0))
         {
             Closed += (_, _) => RemoveWindowSubclass(handle, frameProc, 2);
@@ -396,6 +456,15 @@ internal class DesktopWindow : Window
     [DllImport("comctl32.dll")] private static extern bool SetWindowSubclass(nint window, FrameProc callback, nuint id, nuint data);
     [DllImport("comctl32.dll")] private static extern bool RemoveWindowSubclass(nint window, FrameProc callback, nuint id);
     [DllImport("comctl32.dll")] private static extern nint DefSubclassProc(nint window, uint message, nuint wParam, nint lParam);
+    [DllImport("dwmapi.dll")] private static extern int DwmExtendFrameIntoClientArea(nint window, int[] margins);
+    [DllImport("user32.dll")] private static extern bool SetLayeredWindowAttributes(nint window, uint key, byte alpha, uint flags);
+    [DllImport("user32.dll")] private static extern bool InvalidateRect(nint window, nint rect, bool erase);
+    [DllImport("user32.dll")] private static extern bool GetClientRect(nint window, out NativeRect rect);
+    [DllImport("user32.dll")] private static extern int FillRect(nint dc, ref NativeRect rect, nint brush);
+    [DllImport("gdi32.dll")] private static extern nint GetStockObject(int index);
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out NativePoint point);
+    [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X, Y; }
     [DllImport("user32.dll")] private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint window, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern nint SetWindowLongPtr(nint window, int index, nint value);

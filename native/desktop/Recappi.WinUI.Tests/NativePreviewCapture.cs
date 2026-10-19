@@ -180,6 +180,21 @@ internal static class NativePreviewCapture
         GetDIBits(dc, bitmap, 0, (uint)height, pixels, ref info, 0);
         SelectObject(dc, old); DeleteObject(bitmap); DeleteDC(dc); ReleaseDC(0, screen);
         for (var i = 3; i < pixels.Length; i += 4) pixels[i] = 255;
+        if (Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_SCREEN") == "1" && Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_BEHIND") == "1")
+        {
+            // Also capture what is behind the window, to verify transparent margins.
+            var position = window.AppWindow.Position;
+            window.AppWindow.Move(new Windows.Graphics.PointInt32(position.X, position.Y + 4000)); await Task.Delay(300);
+            var screen2 = GetDC(0); var dc2 = CreateCompatibleDC(screen2); var bitmap2 = CreateCompatibleBitmap(screen2, width, height); var old2 = SelectObject(dc2, bitmap2);
+            BitBlt(dc2, 0, 0, width, height, screen2, rect.Left, rect.Top, 0x00CC0020 | 0x40000000);
+            var behind = new byte[width * height * 4]; GetDIBits(dc2, bitmap2, 0, (uint)height, behind, ref info, 0);
+            SelectObject(dc2, old2); DeleteObject(bitmap2); DeleteDC(dc2); ReleaseDC(0, screen2);
+            window.AppWindow.Move(position); await Task.Delay(200);
+            var same = 0; var total = 0;
+            for (var y = 0; y < Math.Min(height, 12); y++) for (var x = 0; x < width; x++)
+            { var i = (y * width + x) * 4; total++; if (Math.Abs(pixels[i] - behind[i]) + Math.Abs(pixels[i + 1] - behind[i + 1]) + Math.Abs(pixels[i + 2] - behind[i + 2]) < 12) same++; }
+            await File.WriteAllTextAsync(Path.Combine(root, name + ".transparency.txt"), $"top-margin pixels matching background: {same}/{total}");
+        }
         using var stream = File.Create(Path.Combine(root, name + ".png")).AsRandomAccessStream();
         var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
         encoder.SetPixelData(Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, Windows.Graphics.Imaging.BitmapAlphaMode.Ignore, (uint)width, (uint)height, 96, 96, pixels);

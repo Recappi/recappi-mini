@@ -604,28 +604,3 @@ internal static class Squircles
     }
     public static Path ShapeOf(Grid surface) => (Path)surface.Tag;
 }
-
-// A fully transparent window backdrop so the app can draw a non-rectangular surface.
-internal sealed class TransparentBackdrop : Microsoft.UI.Xaml.Media.SystemBackdrop
-{
-    private static Windows.UI.Composition.Compositor? compositor;
-    private static object? queueController;
-    protected override void OnTargetConnected(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop connectedTarget, XamlRoot xamlRoot)
-    {
-        base.OnTargetConnected(connectedTarget, xamlRoot);
-        // System composition needs a Windows.System dispatcher queue on this thread.
-        if (Windows.System.DispatcherQueue.GetForCurrentThread() is null && queueController is null)
-        {
-            var options = new QueueOptions { Size = System.Runtime.InteropServices.Marshal.SizeOf<QueueOptions>(), ThreadType = 2, ApartmentType = 0 };
-            if (CreateDispatcherQueueController(options, out var controller) == 0) queueController = WinRT.MarshalInterface<object>.FromAbi(controller);
-        }
-        compositor ??= new Windows.UI.Composition.Compositor();
-        connectedTarget.SystemBackdrop = compositor.CreateColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
-    }
-    // A transparent brush has nothing to adapt to theme or activation changes; the base
-    // implementation rejects targets it did not configure itself.
-    protected override void OnDefaultSystemBackdropConfigurationChanged(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop target, XamlRoot xamlRoot) { }
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    private struct QueueOptions { public int Size; public int ThreadType; public int ApartmentType; }
-    [System.Runtime.InteropServices.DllImport("CoreMessaging.dll")] private static extern int CreateDispatcherQueueController(QueueOptions options, out nint controller);
-}
