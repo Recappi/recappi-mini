@@ -433,7 +433,7 @@ internal class DesktopWindow : Window
             // button goes down outside the pill and outside every open popover.
             var down = (GetAsyncKeyState(0x01) & 0x8000) != 0 || (GetAsyncKeyState(0x02) & 0x8000) != 0;
             var pressed = down && !buttonDown; buttonDown = down;
-            if (popups && pressed && !inPill && !open.Any(popup => Contains(popup, point))) foreach (var popup in open) popup.IsOpen = false;
+            if (popups && pressed && !OwnWindowAt(point)) foreach (var popup in open) popup.IsOpen = false;
             var next = inWindow && !inPill && !popups;
             if (next == transparent) return;
             transparent = next;
@@ -443,9 +443,10 @@ internal class DesktopWindow : Window
         passThroughTimer.Start();
         Closed += (_, _) => passThroughTimer?.Stop();
     }
-    // Borderless, non-activating popup like ScreenCam's toolbar host and the macOS panel. Any frame
-    // bit (the presenter re-adds WS_BORDER) lets DWM paint frame material into the extended glass,
-    // which showed as a blue bar in the shadow margin; activation gave the pill a focus state.
+    // Borderless, non-activating popup like ScreenCam's toolbar host and the macOS panel. Activation
+    // let DWM paint the active-frame tint into the extended glass (a blue bar in the shadow margin)
+    // and gave the pill a focus state. (The presenter keeps its WS_BORDER bit; with no non-client
+    // area it draws nothing.)
     private void ApplyPopupStyle()
     {
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -458,17 +459,16 @@ internal class DesktopWindow : Window
         _ = SetWindowLongPtr(handle, -20, (nint)noActivate);
         _ = SetWindowPos(handle, 0, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010);
     }
-    private bool Contains(Microsoft.UI.Xaml.Controls.Primitives.Popup popup, NativePoint point)
+    // A press on any window of this app (the pill, an open popover) is not outside.
+    private static bool OwnWindowAt(NativePoint point)
     {
-        if (popup.Child is not FrameworkElement child || child.XamlRoot is null) return false;
-        var scale = child.XamlRoot.RasterizationScale;
-        var origin = child.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point());
-        var client = new NativePoint(); _ = ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref client);
-        double left = client.X + origin.X * scale, top = client.Y + origin.Y * scale;
-        return point.X >= left && point.X < left + child.ActualWidth * scale && point.Y >= top && point.Y < top + child.ActualHeight * scale;
+        var root = GetAncestor(WindowFromPoint(point), 2);
+        return root != 0 && GetWindowThreadProcessId(root, out var process) != 0 && process == Environment.ProcessId;
     }
+    [DllImport("user32.dll")] private static extern nint WindowFromPoint(NativePoint point);
+    [DllImport("user32.dll")] private static extern nint GetAncestor(nint window, uint flags);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint process);
     [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
-    [DllImport("user32.dll")] private static extern bool ClientToScreen(nint window, ref NativePoint point);
     private void ExtendCarrierFrame()
     {
         ApplyPopupStyle();
@@ -481,6 +481,10 @@ internal class DesktopWindow : Window
     private void KeepTopmost()
     {
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        if ((GetWindowLongPtr(handle, -20) & 0x00000008) != 0) return;
+        // The presenter owns the topmost band (it vetoes z-order changes that contradict its state),
+        // so re-assert it through the presenter first.
+        if (AppWindow.Presenter is OverlappedPresenter presenter) { presenter.IsAlwaysOnTop = false; presenter.IsAlwaysOnTop = true; }
         if ((GetWindowLongPtr(handle, -20) & 0x00000008) == 0) _ = SetWindowPos(handle, -1, 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0010);
     }
     // Remove the non-client frame entirely (WM_NCCALCSIZE returns the whole window as client).
