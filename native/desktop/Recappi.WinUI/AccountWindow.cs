@@ -19,7 +19,7 @@ internal sealed class AccountWindow : DesktopWindow
     private readonly Button refresh;
     private readonly Button signOut;
     private readonly StackPanel usagePanel = new() { Spacing = 12 };
-    private readonly Border usageSurface;
+    private readonly Grid usageSurface;
     private Uri? verification;
     private bool closed;
     public AccountWindow(IDesktopHost app) : base("Recappi Mini · 账号", 520, 540)

@@ -5,6 +5,8 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Shapes;
 
+using Path = Microsoft.UI.Xaml.Shapes.Path;
+
 namespace Recappi.WinUI;
 
 // App-wide design tokens and control templates. Colors mirror the macOS palette
@@ -107,6 +109,26 @@ internal static class RecappiTheme
         // ActualThemeChanged does not fire when an element enters an already themed tree (e.g. a flyout).
         element.Loaded += (sender, _) => apply(Brush(key, ((FrameworkElement)sender).ActualTheme));
     }
+    public static List<Windows.Foundation.Point> Squircle(double width, double height, double radius)
+    {
+        var r = Math.Clamp(radius, 0, Math.Min(width, height) / 2);
+        const double exponent = 5.6, steps = 16;
+        var power = 2 / exponent; var points = new List<Windows.Foundation.Point> { new(r, 0), new(width - r, 0) };
+        void Corner(double cx, double cy, double start)
+        {
+            for (var i = 0; i <= steps; i++)
+            {
+                var angle = start + Math.PI / 2 * i / steps;
+                double cos = Math.Cos(angle), sin = Math.Sin(angle);
+                points.Add(new(cx + r * Math.Sign(cos) * Math.Pow(Math.Abs(cos), power), cy + r * Math.Sign(sin) * Math.Pow(Math.Abs(sin), power)));
+            }
+        }
+        Corner(width - r, r, -Math.PI / 2); points.Add(new(width, height - r));
+        Corner(width - r, height - r, 0); points.Add(new(r, height));
+        Corner(r, height - r, Math.PI / 2); points.Add(new(0, r));
+        Corner(r, r, Math.PI);
+        return points;
+    }
     public static Style Style(string key) { Ensure(); return (Style)Application.Current.Resources[key]; }
 
     private static string Build()
@@ -141,6 +163,7 @@ internal static class RecappiTheme
   {setters}
   <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='{target}'>
     <Grid x:Name='Root' Background='{{TemplateBinding Background}}' BorderBrush='{{TemplateBinding BorderBrush}}' BorderThickness='{{TemplateBinding BorderThickness}}' CornerRadius='{{TemplateBinding CornerRadius}}'>
+      <Canvas IsHitTestVisible='False'><Path x:Name='Shape' Fill='{{TemplateBinding Background}}' Stroke='{{TemplateBinding BorderBrush}}' StrokeThickness='1' Visibility='Collapsed'/></Canvas>
       <VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'>
         <VisualState x:Name='Normal'/>
         <VisualState x:Name='PointerOver'><VisualState.Setters>{hover}</VisualState.Setters></VisualState>
@@ -171,28 +194,28 @@ internal static class RecappiTheme
     private static readonly string Styles =
         ButtonStyle("RecappiIconButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiTextSecondary}'/><Setter Property='Width' Value='28'/><Setter Property='Height' Value='28'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlHover}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiTextPrimary}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiTextPrimary}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlHover}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiTextPrimary}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiTextPrimary}'/>") +
         ButtonStyle("RecappiChipButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiTextPrimary}'/><Setter Property='Background' Value='{ThemeResource RecappiChipFill}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderSubtle}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Height' Value='28'/><Setter Property='FontSize' Value='12'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiChipHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiChipHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>") +
         ButtonStyle("RecappiDangerChipButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiDanger}'/><Setter Property='Background' Value='{ThemeResource RecappiDangerFill}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiDangerStroke}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Height' Value='24'/><Setter Property='Padding' Value='9,0'/><Setter Property='FontSize' Value='12'/><Setter Property='FontWeight' Value='SemiBold'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiDangerHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiDangerHover}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiDangerHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiDangerHover}'/>") +
         ButtonStyle("RecappiAccentChipButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccentChipFill}'/><Setter Property='Height' Value='24'/><Setter Property='Padding' Value='10,0'/><Setter Property='CornerRadius' Value='12'/><Setter Property='FontSize' Value='12'/><Setter Property='FontWeight' Value='SemiBold'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentChipHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentChipHover}'/>") +
         ButtonStyle("RecappiQuietButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiTextSecondary}'/><Setter Property='Height' Value='24'/><Setter Property='Padding' Value='6,0'/><Setter Property='FontSize' Value='12'/>",
-            "<Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiTextPrimary}'/><Setter Target='Root.Background' Value='{ThemeResource RecappiControlHover}'/>",
-            "<Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiTextPrimary}'/><Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
+            "<Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiTextPrimary}'/><Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlHover}'/>",
+            "<Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiTextPrimary}'/><Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>") +
         ButtonStyle("RecappiMenuButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiTextPrimary}'/><Setter Property='HorizontalAlignment' Value='Stretch'/><Setter Property='HorizontalContentAlignment' Value='Left'/><Setter Property='Height' Value='32'/><Setter Property='Padding' Value='10,0'/><Setter Property='FontSize' Value='13'/><Setter Property='CornerRadius' Value='4'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") + $@"
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>") + $@"
 <Style x:Key='RecappiRecordButton' TargetType='Button'>
   <Setter Property='UseSystemFocusVisuals' Value='True'/>
   <Setter Property='Width' Value='28'/><Setter Property='Height' Value='28'/>
@@ -226,14 +249,15 @@ internal static class RecappiTheme
   <Setter Property='Foreground' Value='{{ThemeResource RecappiTextTertiary}}'/>
   <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ToggleButton'>
     <Grid x:Name='Root' Background='{{TemplateBinding Background}}' BorderBrush='{{TemplateBinding BorderBrush}}' BorderThickness='{{TemplateBinding BorderThickness}}' CornerRadius='{{TemplateBinding CornerRadius}}'>
+      <Canvas IsHitTestVisible='False'><Path x:Name='Shape' Fill='{{TemplateBinding Background}}' Stroke='{{TemplateBinding BorderBrush}}' StrokeThickness='1' Visibility='Collapsed'/></Canvas>
       <VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'>
         <VisualState x:Name='Normal'/>
-        <VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='Root.Background' Value='{{ThemeResource RecappiControlHover}}'/><Setter Target='Presenter.Foreground' Value='{{ThemeResource RecappiTextSecondary}}'/></VisualState.Setters></VisualState>
-        <VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='Root.Background' Value='{{ThemeResource RecappiControlPress}}'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='Shape.Fill' Value='{{ThemeResource RecappiControlHover}}'/><Setter Target='Presenter.Foreground' Value='{{ThemeResource RecappiTextSecondary}}'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='Shape.Fill' Value='{{ThemeResource RecappiControlPress}}'/></VisualState.Setters></VisualState>
         <VisualState x:Name='Disabled'><VisualState.Setters><Setter Target='Root.Opacity' Value='0.4'/></VisualState.Setters></VisualState>
         <VisualState x:Name='Checked'><VisualState.Setters>{CheckedSetters}</VisualState.Setters></VisualState>
-        <VisualState x:Name='CheckedPointerOver'><VisualState.Setters>{CheckedSetters}<Setter Target='Root.Background' Value='{{ThemeResource RecappiAccentChipFill}}'/></VisualState.Setters></VisualState>
-        <VisualState x:Name='CheckedPressed'><VisualState.Setters>{CheckedSetters}<Setter Target='Root.Background' Value='{{ThemeResource RecappiAccentChipHover}}'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='CheckedPointerOver'><VisualState.Setters>{CheckedSetters}<Setter Target='Shape.Fill' Value='{{ThemeResource RecappiAccentChipFill}}'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='CheckedPressed'><VisualState.Setters>{CheckedSetters}<Setter Target='Shape.Fill' Value='{{ThemeResource RecappiAccentChipHover}}'/></VisualState.Setters></VisualState>
         <VisualState x:Name='CheckedDisabled'><VisualState.Setters>{CheckedSetters}<Setter Target='Root.Opacity' Value='0.4'/></VisualState.Setters></VisualState>
       </VisualStateGroup></VisualStateManager.VisualStateGroups>
       {Presenter}
@@ -255,29 +279,29 @@ internal static class RecappiTheme
         Fill("RecappiDotAccent", "RecappiAccent") + Fill("RecappiDotUnlit", "RecappiWaveUnlit") +
         ButtonStyle("RecappiButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiButtonFill}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderHairline}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='MinHeight' Value='32'/><Setter Property='Padding' Value='12,0'/><Setter Property='FontSize' Value='13'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiButtonHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiButtonPress}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiLabelSecondary}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiButtonHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiButtonPress}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiLabelSecondary}'/>") +
         ButtonStyle("RecappiPrimaryButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiOnAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccent}'/><Setter Property='MinHeight' Value='32'/><Setter Property='Padding' Value='14,0'/><Setter Property='FontSize' Value='13'/><Setter Property='FontWeight' Value='SemiBold'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/><Setter Target='Root.Opacity' Value='0.85'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentHover}'/><Setter Target='Root.Opacity' Value='0.85'/>",
             "<Setter Target='Root.Opacity' Value='0.35'/>") +
         ButtonStyle("RecappiSubtleButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='MinHeight' Value='32'/><Setter Property='Padding' Value='10,0'/><Setter Property='FontSize' Value='13'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>") +
         ButtonStyle("RecappiCitationButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccentChipFill}'/><Setter Property='MinHeight' Value='24'/><Setter Property='Padding' Value='9,4'/><Setter Property='FontSize' Value='11'/><Setter Property='FontWeight' Value='Medium'/><Setter Property='HorizontalContentAlignment' Value='Left'/><Setter Property='CornerRadius' Value='12'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentChipHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentChipHover}'/>") +
         ButtonStyle("RecappiTimestampButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccentSoftFill}'/><Setter Property='Height' Value='22'/><Setter Property='Padding' Value='8,0'/><Setter Property='FontSize' Value='11.5'/><Setter Property='FontFamily' Value='Cascadia Mono, Consolas'/><Setter Property='CornerRadius' Value='11'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentChipHover}'/>", "<Setter Target='Root.Opacity' Value='0.5'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentChipHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentChipHover}'/>", "<Setter Target='Root.Opacity' Value='0.5'/>") +
         ButtonStyle("RecappiPlayButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiOnAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccent}'/><Setter Property='Width' Value='34'/><Setter Property='Height' Value='34'/><Setter Property='CornerRadius' Value='17'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/><Setter Target='Root.Opacity' Value='0.85'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentHover}'/><Setter Target='Root.Opacity' Value='0.85'/>") +
         Text("RecappiCaptionBadge", "RecappiCaptionText", 9.5, "<Setter Property='FontWeight' Value='SemiBold'/>") +
         Text("RecappiCaptionPane", "RecappiCaptionTextMuted", 9.5, "<Setter Property='FontWeight' Value='Bold'/>") +
         Text("RecappiCaptionOriginal", "RecappiCaptionText", 16, "<Setter Property='FontWeight' Value='SemiBold'/>") +
@@ -291,12 +315,12 @@ internal static class RecappiTheme
     <Grid x:Name='Root' Background='Transparent' CornerRadius='9'>
       <VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'>
         <VisualState x:Name='Normal'/>
-        <VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='Root.Background' Value='#1AFFFFFF'/></VisualState.Setters></VisualState>
-        <VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='Root.Background' Value='#1AFFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='Shape.Fill' Value='#1AFFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='Shape.Fill' Value='#1AFFFFFF'/></VisualState.Setters></VisualState>
         <VisualState x:Name='Disabled'><VisualState.Setters><Setter Target='Root.Opacity' Value='0.4'/></VisualState.Setters></VisualState>
-        <VisualState x:Name='Checked'><VisualState.Setters><Setter Target='Root.Background' Value='#33FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
-        <VisualState x:Name='CheckedPointerOver'><VisualState.Setters><Setter Target='Root.Background' Value='#40FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
-        <VisualState x:Name='CheckedPressed'><VisualState.Setters><Setter Target='Root.Background' Value='#40FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='Checked'><VisualState.Setters><Setter Target='Shape.Fill' Value='#33FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='CheckedPointerOver'><VisualState.Setters><Setter Target='Shape.Fill' Value='#40FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='CheckedPressed'><VisualState.Setters><Setter Target='Shape.Fill' Value='#40FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
         <VisualState x:Name='CheckedDisabled'><VisualState.Setters><Setter Target='Root.Opacity' Value='0.4'/></VisualState.Setters></VisualState>
       </VisualStateGroup></VisualStateManager.VisualStateGroups>
       <ContentPresenter x:Name='Presenter' Content='{TemplateBinding Content}' Foreground='{TemplateBinding Foreground}' HorizontalAlignment='Center' VerticalAlignment='Center'/>
@@ -305,28 +329,32 @@ internal static class RecappiTheme
 </Style>" +
         ButtonStyle("RecappiPillButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiLabelSecondary}'/><Setter Property='Background' Value='{ThemeResource RecappiControlHover}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderHairline}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Height' Value='26'/><Setter Property='Padding' Value='10,0'/><Setter Property='FontSize' Value='11'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>", "<Setter Target='Root.Opacity' Value='0.45'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>", "<Setter Target='Root.Opacity' Value='0.45'/>") +
         ButtonStyle("RecappiPillButtonActive", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiControlPress}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderSubtle}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Height' Value='26'/><Setter Property='Padding' Value='10,0'/><Setter Property='FontSize' Value='11'/><Setter Property='FontWeight' Value='SemiBold'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>") +
         ButtonStyle("RecappiMarkerButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiLabelTertiary}'/><Setter Property='Height' Value='20'/><Setter Property='Padding' Value='4,0'/><Setter Property='FontSize' Value='11'/><Setter Property='FontFamily' Value='Cascadia Mono, Consolas'/><Setter Property='CornerRadius' Value='4'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlHover}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiAccent}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>", "<Setter Target='Root.Opacity' Value='0.6'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlHover}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiAccent}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>", "<Setter Target='Root.Opacity' Value='0.6'/>") +
         ButtonStyle("RecappiSpeedButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiControlHover}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderSubtle}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Width' Value='40'/><Setter Property='Height' Value='25'/><Setter Property='FontSize' Value='11'/><Setter Property='FontWeight' Value='Bold'/><Setter Property='FontFamily' Value='Cascadia Mono, Consolas'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>") +
         ButtonStyle("RecappiFollowUpButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiLabel}'/><Setter Property='Background' Value='{ThemeResource RecappiCardSubtle}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderHairline}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='MinHeight' Value='26'/><Setter Property='Padding' Value='10,5'/><Setter Property='FontSize' Value='11'/><Setter Property='CornerRadius' Value='13'/><Setter Property='HorizontalContentAlignment' Value='Left'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiControlPress}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>") +
         ButtonStyle("RecappiSendButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiOnAccent}'/><Setter Property='Background' Value='{ThemeResource RecappiAccent}'/><Setter Property='Width' Value='30'/><Setter Property='Height' Value='30'/><Setter Property='CornerRadius' Value='15'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/>",
-            "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentHover}'/>", "<Setter Target='Root.Opacity' Value='0.35'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentHover}'/>", "<Setter Target='Root.Opacity' Value='0.35'/>") +
+        ButtonStyle("RecappiTabButton", "Button",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiLabelSecondary}'/><Setter Property='Padding' Value='10,5'/><Setter Property='CornerRadius' Value='8'/><Setter Property='MinWidth' Value='64'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlHover}'/>",
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>") +
         Text("RecappiPageTitle", "RecappiLabel", 22, "<Setter Property='FontWeight' Value='SemiBold'/><Setter Property='TextWrapping' Value='Wrap'/>") +
         Text("RecappiSectionTitle", "RecappiLabel", 15, "<Setter Property='FontWeight' Value='SemiBold'/>") +
         Text("RecappiBody", "RecappiLabel", 14, "<Setter Property='TextWrapping' Value='Wrap'/><Setter Property='LineHeight' Value='23'/>") +
@@ -334,13 +362,13 @@ internal static class RecappiTheme
         Text("RecappiCaption", "RecappiLabelTertiary", 12) +
         Text("RecappiEyebrow", "RecappiLabelSecondary", 12, "<Setter Property='FontWeight' Value='SemiBold'/>");
 
-    private const string CheckedSetters = "<Setter Target='Root.Background' Value='{ThemeResource RecappiAccentSoftFill}'/><Setter Target='Root.BorderBrush' Value='{ThemeResource RecappiAccentStroke}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiAccent}'/><Setter Target='LiveDot.Visibility' Value='Visible'/>";
+    private const string CheckedSetters = "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiAccentSoftFill}'/><Setter Target='Shape.Stroke' Value='{ThemeResource RecappiAccentStroke}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiAccent}'/><Setter Target='LiveDot.Visibility' Value='Visible'/>";
 
     public static FontIcon Glyph(string glyph, double size = 13) => new() { Glyph = glyph, FontSize = size, FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets") };
     public static TextBlock Label(string text, string style) => new() { Text = text, Style = Style(style) };
 
     // Brand tile: green gradient with the headset mark, as on macOS.
-    public static Border LogoTile(double size)
+    public static Grid LogoTile(double size)
     {
         var gradient = new LinearGradientBrush { StartPoint = new(0, 0), EndPoint = new(1, 1) };
         gradient.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(255, 52, 211, 153), Offset = 0 });
@@ -348,18 +376,36 @@ internal static class RecappiTheme
         var sheen = new LinearGradientBrush { StartPoint = new(0, 0), EndPoint = new(1, 1) };
         sheen.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(61, 255, 255, 255), Offset = 0 });
         sheen.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(5, 255, 255, 255), Offset = 1 });
-        var mark = new Grid { Background = sheen };
+        var mark = new Grid();
         // Transparent headset mark (macOS Logo.png); the app icon has its own white tile.
         var logo = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "RecappiMark.png");
         if (File.Exists(logo))
             mark.Children.Add(new Image { Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(logo)), Margin = new Thickness(size * 0.083), Opacity = 0.85 });
-        return new Border
-        {
-            Width = size, Height = size, CornerRadius = new CornerRadius(size * 0.25), Background = gradient, Child = mark,
-            BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 255, 255, 255)), BorderThickness = new Thickness(0.5)
-        };
+        var tile = new Grid { Width = size, Height = size };
+        tile.Children.Add(new Path { Data = Squircles.Geometry(size, size, size * 0.25), Fill = gradient });
+        tile.Children.Add(new Path { Data = Squircles.Geometry(size, size, size * 0.25), Fill = sheen, Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 255, 255, 255)), StrokeThickness = 0.5 });
+        tile.Children.Add(mark);
+        return tile;
     }
 
+    // Compact gray chip pickers like the macOS popover and settings menus.
+    public static void ChipPicker(ComboBox picker)
+    {
+        picker.MinHeight = 28; picker.Height = 28; picker.FontSize = 12.5; picker.Padding = new Thickness(10, 0, 0, 0); picker.CornerRadius = new CornerRadius(6);
+        foreach (var (key, token) in new[] { ("ComboBoxBackground", "RecappiChipFill"), ("ComboBoxBackgroundPointerOver", "RecappiChipHover"), ("ComboBoxBackgroundPressed", "RecappiControlPress"),
+            ("ComboBoxBorderBrush", "RecappiBorderHairline"), ("ComboBoxBorderBrushPointerOver", "RecappiBorderSubtle"), ("ComboBoxBorderBrushPressed", "RecappiBorderSubtle") })
+            Bind(picker, token, brush => picker.Resources[key] = brush);
+        // Resource overrides resolve once per template; the resting colors also follow theme changes directly.
+        Bind(picker, "RecappiChipFill", brush => picker.Background = brush);
+        Bind(picker, "RecappiBorderHairline", brush => picker.BorderBrush = brush);
+    }
+    // Compact controls for dense settings rows (macOS small control size).
+    public static void Compact(Control control)
+    {
+        control.MinHeight = 28; control.FontSize = 12.5;
+        if (control is Button button) { button.MinHeight = 26; button.FontSize = 12; button.Padding = new Thickness(10, 0, 10, 0); }
+        if (control is TextBox box) { box.Height = 28; box.Padding = new Thickness(8, 4, 8, 0); }
+    }
     public static Storyboard Pulse(UIElement target)
     {
         var animation = new DoubleAnimation { From = 1, To = 0.3, Duration = TimeSpan.FromMilliseconds(900), AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever,
@@ -491,4 +537,64 @@ internal sealed class WaveformBars : Canvas
         var cut = (int)Math.Round(progress * bars.Count);
         for (var i = 0; i < bars.Count; i++) bars[i].Fill = i < cut ? played : rest;
     }
+}
+
+// Continuous ("squircle") corners like macOS RoundedRectangle(style: .continuous). Each
+// corner is a superellipse quadrant, following ScreenCam's frame mask at full smoothness.
+internal static class Squircles
+{
+    public static Microsoft.UI.Xaml.Media.Geometry Geometry(double width, double height, double radius)
+    {
+        var figure = new PathFigure { IsClosed = true, IsFilled = true };
+        var points = RecappiTheme.Squircle(width, height, radius);
+        figure.StartPoint = points[0];
+        var line = new PolyLineSegment();
+        foreach (var point in points.Skip(1)) line.Points.Add(point);
+        figure.Segments.Add(line);
+        var geometry = new PathGeometry(); geometry.Figures.Add(figure);
+        return geometry;
+    }
+    // Template chrome: size the "Shape" path of every styled control under root.
+    public static void Track(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is Path { Name: "Shape", Tag: null } shape && VisualTreeHelper.GetParent(shape) is Canvas canvas && VisualTreeHelper.GetParent(canvas) is FrameworkElement host)
+            {
+                shape.Tag = "squircle";
+                var owner = host;
+                for (DependencyObject? up = host; up is not null; up = VisualTreeHelper.GetParent(up)) if (up is Control control) { owner = control; break; }
+                void Size()
+                {
+                    if (host.ActualWidth <= 0 || host.ActualHeight <= 0) return;
+                    var radius = owner is Control { CornerRadius: var corner } ? corner.TopLeft : 6;
+                    // The path sits in a Canvas so its size never feeds back into the control's layout;
+                    // the template's plain rounded background is hidden once the path takes over.
+                    shape.Width = host.ActualWidth; shape.Height = host.ActualHeight;
+                    shape.Data = Geometry(host.ActualWidth - 1, host.ActualHeight - 1, Math.Max(0, radius - 0.5));
+                    Canvas.SetLeft(shape, 0.5); Canvas.SetTop(shape, 0.5);
+                    shape.Visibility = Visibility.Visible;
+                    if (host is Panel panel) panel.Background = null;
+                    if (host is Grid grid) grid.BorderThickness = new Thickness(0);
+                }
+                host.SizeChanged += (_, _) => Size();
+                Size();
+            }
+            Track(child);
+        }
+    }
+    // Code-built surfaces (cards, tiles): a path behind the content, resized with it.
+    public static Grid Surface(UIElement child, double radius, Thickness padding)
+    {
+        var shape = new Path();
+        var canvas = new Canvas { IsHitTestVisible = false }; canvas.Children.Add(shape);
+        var holder = new Border { Child = child, Padding = padding };
+        var grid = new Grid(); grid.Children.Add(canvas); grid.Children.Add(holder);
+        // In a Canvas the path is sized explicitly and never feeds back into layout.
+        grid.SizeChanged += (_, e) => { shape.Width = e.NewSize.Width; shape.Height = e.NewSize.Height; shape.Data = Geometry(e.NewSize.Width - 1, e.NewSize.Height - 1, radius); Canvas.SetLeft(shape, 0.5); Canvas.SetTop(shape, 0.5); };
+        grid.Tag = shape;
+        return grid;
+    }
+    public static Path ShapeOf(Grid surface) => (Path)surface.Tag;
 }

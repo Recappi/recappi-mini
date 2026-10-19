@@ -46,6 +46,26 @@ internal class DesktopWindow : Window
             initialized = true; EnsureVisible(); InitializeKeyboardFocus();
         };
         Closed += (_, _) => { firstReveal?.Dispose(); firstReveal = null; closed = true; };
+        // Squircle chrome: size template paths after layout, including popups (flyouts, menus).
+        var squircleScan = DispatcherQueue.CreateTimer(); squircleScan.Interval = TimeSpan.FromMilliseconds(60); squircleScan.IsRepeating = false;
+        Closed += (_, _) => squircleScan.Stop();
+        squircleScan.Tick += (_, _) =>
+        {
+            if (closed) return;
+            XamlRoot? root;
+            try { root = Content?.XamlRoot; } catch (System.Runtime.InteropServices.COMException) { return; } // Window torn down between ticks.
+            if (root is null) return;
+            Squircles.Track(Content);
+            foreach (var popup in Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root)) if (popup.Child is { } child) Squircles.Track(child);
+        };
+        void ScheduleScan(object? sender, object args) { if (!squircleScan.IsRunning) squircleScan.Start(); }
+        Activated += (_, _) =>
+        {
+            if (closed) return;
+            try { if (Content is FrameworkElement element) { element.LayoutUpdated -= ScheduleScan; element.LayoutUpdated += ScheduleScan; } }
+            catch (System.Runtime.InteropServices.COMException) { return; } // Deactivation while closing.
+            ScheduleScan(null, this);
+        };
     }
     protected double Scale => retainedPosition is not null ? retainedScale : GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96d;
     protected void ResizeLogical(int width, int height) => AppWindow.Resize(new SizeInt32((int)(width * Scale), (int)(height * Scale)));
@@ -421,10 +441,13 @@ internal static class Ui
         Text = value, FontSize = size, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true,
         FontWeight = size >= 20 ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal
     };
-    public static Border Surface(UIElement child, Thickness padding)
+    public static Grid Surface(UIElement child, Thickness padding)
     {
-        var border = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Border xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' CornerRadius='10' BorderThickness='1' Background='{ThemeResource RecappiSurfaceCard}' BorderBrush='{ThemeResource RecappiBorderHairline}'/>");
-        border.Padding = padding; border.Child = child; return border;
+        var surface = Squircles.Surface(child, 10, padding);
+        var shape = Squircles.ShapeOf(surface); shape.StrokeThickness = 1;
+        RecappiTheme.Bind(surface, "RecappiSurfaceCard", brush => shape.Fill = brush);
+        RecappiTheme.Bind(surface, "RecappiBorderHairline", brush => shape.Stroke = brush);
+        return surface;
     }
     public static Button Button(string label, Func<Task> action, DesktopWindow owner)
     {

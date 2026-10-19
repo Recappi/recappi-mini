@@ -14,6 +14,8 @@ internal sealed class SettingsWindow : DesktopWindow
     private readonly Button retrySave;
     private StackPanel section = null!;
     private StackPanel? group;
+    private readonly StackPanel tabStrip = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
+    private readonly List<(string Name, Button Button)> tabs = [];
     private readonly NavigationView navigation = new() { IsSettingsVisible = false, IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed, PaneDisplayMode = NavigationViewPaneDisplayMode.Top, IsPaneToggleButtonVisible = false };
     private readonly Dictionary<string, StackPanel> sections = [];
     private readonly ScrollViewer sectionViewer = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -49,10 +51,21 @@ internal sealed class SettingsWindow : DesktopWindow
         layout.Children.Add(Body); Grid.SetRow(navigation, 1); layout.Children.Add(navigation); Content = PageFrame(layout, "设置");
         navigation.Content = sectionViewer;
         // Tall toolbar tabs so the icon-over-label items clear the selection indicator.
-        navigation.Resources["NavigationViewTopPaneHeight"] = 62d;
+        navigation.IsPaneVisible = false;
+        tabStrip.HorizontalAlignment = HorizontalAlignment.Center; tabStrip.Margin = new Thickness(0, 0, 0, 6);
+        var toolbar = new Border { Child = tabStrip, BorderThickness = new Thickness(0, 0, 0, 1) };
+        RecappiTheme.Bind(toolbar, "RecappiBorderHairline", brush => toolbar.BorderBrush = brush);
+        layout.RowDefinitions.Insert(1, new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(toolbar, 1); layout.Children.Add(toolbar); Grid.SetRow(navigation, 2);
         navigation.SelectionChanged += (_, args) =>
         {
             if (args.SelectedItem is NavigationViewItem { Tag: string key }) { sectionViewer.Content = sections[key]; Title = "Recappi Mini · " + key; }
+            foreach (var (name, button) in tabs)
+            {
+                var active = args.SelectedItem is NavigationViewItem { Tag: string current } && current == name;
+                button.Background = active ? RecappiTheme.Brush("RecappiControlHover", button.ActualTheme) : null;
+                button.Foreground = RecappiTheme.Brush(active ? "RecappiAccent" : "RecappiLabelSecondary", button.ActualTheme);
+            }
         };
         if (recovery)
         {
@@ -114,6 +127,7 @@ internal sealed class SettingsWindow : DesktopWindow
                     return Task.CompletedTask;
                 }, this));
         }
+        foreach (var page in sections.Values) foreach (var button in page.Children.OfType<Button>()) RecappiTheme.Compact(button);
         navigation.SelectedItem = navigation.MenuItems[0];
         AppWindow.Closing += (_, e) => { if (!Flush()) e.Cancel = true; };
         Closed += (_, _) => { closed = true; timer.Stop(); lifetime.Cancel(); download?.Cancel(); };
@@ -169,13 +183,18 @@ internal sealed class SettingsWindow : DesktopWindow
     }
     private void Section(string name, Symbol icon)
     {
-        section = new StackPanel { Spacing = 12, Padding = new Thickness(20, 18, 20, 24), Width = 560, HorizontalAlignment = HorizontalAlignment.Center };
+        section = new StackPanel { Spacing = 14, Padding = new Thickness(20, 16, 20, 24), Width = 560, HorizontalAlignment = HorizontalAlignment.Center };
         sections[name] = section;
         group = null;
-        var tab = new StackPanel { Spacing = 3, Width = 72, Padding = new Thickness(0, 4, 0, 2) };
-        tab.Children.Add(new SymbolIcon(icon) { HorizontalAlignment = HorizontalAlignment.Center });
-        tab.Children.Add(new TextBlock { Text = name, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
-        navigation.MenuItems.Add(new NavigationViewItem { Content = tab, Tag = name });
+        var item = new NavigationViewItem { Content = name, Tag = name };
+        navigation.MenuItems.Add(item);
+        var tab = new StackPanel { Spacing = 2 };
+        tab.Children.Add(new SymbolIcon(icon) { HorizontalAlignment = HorizontalAlignment.Center, RenderTransform = new Microsoft.UI.Xaml.Media.ScaleTransform { ScaleX = 0.9, ScaleY = 0.9, CenterX = 10, CenterY = 10 } });
+        tab.Children.Add(new TextBlock { Text = name, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center });
+        var button = new Button { Content = tab, Style = RecappiTheme.Style("RecappiTabButton") };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, name);
+        button.Click += (_, _) => navigation.SelectedItem = item;
+        tabStrip.Children.Add(button); tabs.Add((name, button));
     }
     private static int Minutes(string text) => int.TryParse(text, out var value) ? value : throw new ArgumentException("提醒时间请填写整数分钟。");
     private void Edited(Control control, Func<DesktopPreferences, DesktopPreferences> edit) { pending[control] = edit; timer.Stop(); timer.Start(); }
@@ -185,14 +204,16 @@ internal sealed class SettingsWindow : DesktopWindow
         if (group is null)
         {
             group = new StackPanel();
-            var surface = new Border { Child = group, CornerRadius = new CornerRadius(10) };
-            RecappiTheme.Bind(surface, "RecappiCardSubtleActive", brush => surface.Background = brush);
+            var surface = Squircles.Surface(group, 10, new Thickness(0));
+            var shape = Squircles.ShapeOf(surface);
+            RecappiTheme.Bind(surface, "RecappiCardSubtleActive", brush => shape.Fill = brush);
             section.Children.Add(surface);
         }
-        var row = new Grid { ColumnSpacing = 16, Padding = new Thickness(16, 10, 12, 10), MinHeight = 52, BorderThickness = new Thickness(0, group.Children.Count == 0 ? 0 : 1, 0, 0) };
+        var row = new Grid { ColumnSpacing = 16, Padding = new Thickness(12, 5, 10, 5), MinHeight = 40, BorderThickness = new Thickness(0, group.Children.Count == 0 ? 0 : 1, 0, 0) };
         RecappiTheme.Bind(row, "RecappiBorderHairline", brush => row.BorderBrush = brush);
         row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.Children.Add(new TextBlock { Text = label, Style = RecappiTheme.Style("RecappiBody"), FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = label, Style = RecappiTheme.Style("RecappiBody"), FontSize = 13, LineHeight = 18, VerticalAlignment = VerticalAlignment.Center });
+        if (control is ComboBox picker) RecappiTheme.ChipPicker(picker); else if (control is Control input and not ToggleSwitch) RecappiTheme.Compact(input);
         control.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(control, 1); row.Children.Add(control);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(control, label);
         group.Children.Add(row);
@@ -204,7 +225,7 @@ internal sealed class SettingsWindow : DesktopWindow
     }
     private void Field(string label, string initial, Func<DesktopPreferences, string, DesktopPreferences> edit)
     {
-        var control = new TextBox { Tag = label, Text = initial, Width = 220 };
+        var control = new TextBox { Tag = label, Text = initial, Width = 200 };
         control.TextChanging += (_, _) => Edited(control, p => edit(p, control.Text)); AddRow(label, control);
     }
     private void Choice(string label, string initial, string[] values, Func<DesktopPreferences, string, DesktopPreferences> edit)
@@ -214,7 +235,7 @@ internal sealed class SettingsWindow : DesktopWindow
             "system" => "跟随系统", "light" => "浅色", "dark" => "深色", "meeting" => "会议", "podcast" => "播客",
             "interview" => "访谈", "casual" => "日常对话", "lecture" => "课程", _ => value
         } }).ToArray();
-        var control = new ComboBox { ItemsSource = items, SelectedItem = items.First(x => (string)x.Tag == initial), MinWidth = 160 };
+        var control = new ComboBox { ItemsSource = items, SelectedItem = items.First(x => (string)x.Tag == initial), MinWidth = 140 };
         control.SelectionChanged += (_, _) => { if (control.SelectedItem is ComboBoxItem { Tag: string value }) Edited(control, p => edit(p, value)); }; AddRow(label, control);
     }
     public bool Flush()

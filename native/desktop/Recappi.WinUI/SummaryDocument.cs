@@ -62,11 +62,12 @@ internal sealed class SummaryDocument : UserControl
         }
         cards.Children.Add(Card(grouped));
     }
-    private static Border Card(UIElement child)
+    private static Grid Card(UIElement child)
     {
-        var card = new Border { Child = child, Padding = new Thickness(24), CornerRadius = new CornerRadius(14), BorderThickness = new Thickness(1) };
-        RecappiTheme.Bind(card, "RecappiCardSubtleActive", brush => card.Background = brush);
-        RecappiTheme.Bind(card, "RecappiBorderHairline", brush => card.BorderBrush = brush);
+        var card = Squircles.Surface(child, 14, new Thickness(24));
+        var shape = Squircles.ShapeOf(card); shape.StrokeThickness = 1;
+        RecappiTheme.Bind(card, "RecappiCardSubtleActive", brush => shape.Fill = brush);
+        RecappiTheme.Bind(card, "RecappiBorderHairline", brush => shape.Stroke = brush);
         return card;
     }
     private static TextBlock Eyebrow(string value) => new()

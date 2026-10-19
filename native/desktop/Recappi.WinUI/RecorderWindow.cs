@@ -83,19 +83,19 @@ internal sealed class RecorderWindow : DesktopWindow
         // controls on the right, and an "open settings" footer below a divider.
         setup.Spacing = 0; setup.Padding = new Thickness(18, 16, 18, 10);
         var includeSwitch = OptionSwitch(includeMicrophone); var captionSwitch = OptionSwitch(captions);
-        var originalLanguage = new TextBox { Text = app.Preferences.CaptionLanguage, MaxLength = 20, Width = 120 };
-        var translationLanguage = new TextBox { Text = app.Preferences.TranslationLanguage, MaxLength = 20, Width = 120, PlaceholderText = "关闭" };
-        originalLanguage.TextChanged += (_, _) => app.SetRecordingLanguage(originalLanguage.Text, translationLanguage.Text);
-        translationLanguage.TextChanged += (_, _) => app.SetRecordingLanguage(originalLanguage.Text, translationLanguage.Text);
-        title.Header = null; title.Width = 170; microphone.Header = null; microphone.Width = 170; microphone.HorizontalAlignment = HorizontalAlignment.Right;
+        var originalLanguage = LanguagePicker(app.Preferences.CaptionLanguage, false);
+        var translationLanguage = LanguagePicker(app.Preferences.TranslationLanguage, true);
+        void LanguageChanged() => app.SetRecordingLanguage(Code(originalLanguage), Code(translationLanguage));
+        originalLanguage.SelectionChanged += (_, _) => LanguageChanged(); translationLanguage.SelectionChanged += (_, _) => LanguageChanged();
+        RecappiTheme.ChipPicker(microphone);
+        microphone.Header = null; microphone.Width = 190; microphone.HorizontalAlignment = HorizontalAlignment.Right;
         OptionSection("录音");
-        OptionRow("标题", null, title);
         OptionRow("麦克风", null, microphone);
         OptionRow("录制麦克风", "把麦克风混入录音", includeSwitch);
         OptionSection("实时字幕");
         OptionRow("开启", "录音时显示浮动字幕条", captionSwitch);
         OptionRow("字幕语言", null, originalLanguage);
-        OptionRow("翻译", "留空则不翻译", translationLanguage);
+        OptionRow("翻译", null, translationLanguage);
         var refresh = Ui.Button("刷新声音设备", RefreshDevices, this);
         refresh.Style = RecappiTheme.Style("RecappiQuietButton");
         RecappiTheme.Bind(refresh, "RecappiAccent", brush => refresh.Foreground = brush);
@@ -222,6 +222,66 @@ internal sealed class RecorderWindow : DesktopWindow
         Render();
     }
     private static Grid Row() => new() { ColumnSpacing = 6, MinHeight = RowHeight };
+    // Background hosts that own windows or audio sessions but are never what people mean to record.
+    private static readonly HashSet<string> HiddenSourceApps = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Windows Explorer", "Host Process for Windows Services", "Application Frame Host", "CredentialUIBroker",
+        "Microsoft® Windows® Operating System", "Windows Shell Experience Host", "Windows Input Experience", "Desktop Window Manager"
+    };
+    private static string AppName(AudioSource source)
+    {
+        var label = source.Label;
+        var pid = label.LastIndexOf(" (PID ", StringComparison.Ordinal);
+        return pid > 0 ? label[..pid] : label;
+    }
+    private static IconElement AppIcon(int processId)
+    {
+        var icon = new ImageIcon { Width = 16, Height = 16 };
+        _ = LoadAppIcon(icon, processId);
+        return icon;
+    }
+    private static async Task LoadAppIcon(ImageIcon icon, int processId)
+    {
+        try
+        {
+            var path = ProcessPath(processId);
+            if (path is null) return;
+            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+            using var thumbnail = await file.GetThumbnailAsync(Windows.Storage.FileProperties.ThumbnailMode.SingleItem, 32);
+            var image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+            await image.SetSourceAsync(thumbnail);
+            icon.Source = image;
+        }
+        catch (Exception) { /* Icons are decoration; protected processes keep the plain row. */ }
+    }
+    private static string? ProcessPath(int processId)
+    {
+        var handle = OpenProcess(0x1000, false, processId);
+        if (handle == 0) return null;
+        try
+        {
+            var buffer = new System.Text.StringBuilder(1024); var size = buffer.Capacity;
+            return QueryFullProcessImageName(handle, 0, buffer, ref size) ? buffer.ToString() : null;
+        }
+        finally { CloseHandle(handle); }
+    }
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern nint OpenProcess(uint access, bool inherit, int processId);
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] private static extern bool QueryFullProcessImageName(nint process, int flags, System.Text.StringBuilder name, ref int size);
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool CloseHandle(nint handle);
+    private static readonly (string Code, string Name)[] Languages =
+        [("en", "英语"), ("zh", "中文"), ("ja", "日语"), ("ko", "韩语"), ("es", "西班牙语"), ("fr", "法语"), ("de", "德语"), ("pt", "葡萄牙语"), ("ru", "俄语"), ("it", "意大利语")];
+    private static ComboBox LanguagePicker(string current, bool allowOff)
+    {
+        var items = new List<ComboBoxItem>();
+        if (allowOff) items.Add(new ComboBoxItem { Content = "关闭", Tag = "" });
+        items.AddRange(Languages.Select(x => new ComboBoxItem { Content = x.Name, Tag = x.Code }));
+        // Keep a custom code chosen earlier in Settings.
+        if (!string.IsNullOrEmpty(current) && items.All(x => (string)x.Tag != current)) items.Add(new ComboBoxItem { Content = current, Tag = current });
+        var picker = new ComboBox { ItemsSource = items, SelectedItem = items.FirstOrDefault(x => (string)x.Tag == current) ?? items[0], Width = 130 };
+        RecappiTheme.ChipPicker(picker);
+        return picker;
+    }
+    private static string Code(ComboBox picker) => (picker.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
     private void OptionSection(string text)
     {
         var header = new TextBlock { Text = text, FontSize = 11, FontWeight = Microsoft.UI.Text.FontWeights.Bold, CharacterSpacing = 80, Style = RecappiTheme.Style("RecappiStatusAccent"),
@@ -365,18 +425,26 @@ internal sealed class RecorderWindow : DesktopWindow
     {
         selectedSource = value;
         sourceMenu.Items.Clear();
-        foreach (var item in sources)
+        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var apps = sources.Where(x => x.ProcessId is not null && !HiddenSourceApps.Contains(AppName(x)) || x == value).OrderBy(x => AppName(x), StringComparer.CurrentCultureIgnoreCase).ToList();
+        foreach (var item in sources.Where(x => x.ProcessId is null && x.Id != "microphone-only").Concat(apps).Concat(sources.Where(x => x.Id == "microphone-only")).Distinct())
         {
-            var entry = new RadioMenuFlyoutItem { Text = item.Label, GroupName = "source", IsChecked = item == value };
+            var name = AppName(item);
+            // Same app in several processes (e.g. two Slack windows): number the extras.
+            var count = seen[name] = seen.GetValueOrDefault(name) + 1;
+            var entry = new MenuFlyoutItem { Text = count > 1 ? $"{name}（{count}）" : name, KeyboardAcceleratorTextOverride = item == value ? "✓" : "" };
+            entry.Icon = item.ProcessId is { } pid ? AppIcon(pid) : new FontIcon { Glyph = item.Id == "microphone-only" ? "\uE720" : "\uE767" };
+            ToolTipService.SetToolTip(entry, item.ProcessId is { } id ? $"{name} · 进程 {id}" : name);
             entry.Click += (_, _) => { SelectSource(item); Render(); };
             sourceMenu.Items.Add(entry);
+            if (item.ProcessId is null && item.Id != "microphone-only" && apps.Count > 0) sourceMenu.Items.Add(new MenuFlyoutSeparator());
         }
         sourceMenu.Items.Add(new MenuFlyoutSeparator());
         var refresh = new MenuFlyoutItem { Text = "刷新声音设备", Icon = new FontIcon { Glyph = "" } };
         refresh.Click += async (_, _) => await Run(RefreshDevices);
         sourceMenu.Items.Add(refresh);
-        sourceLabel.Text = value?.Label ?? "选择声音来源";
-        ToolTipService.SetToolTip(source, value is null ? "选择声音来源" : "录制 " + value.Label + "，点击更换来源");
+        sourceLabel.Text = value is null ? "选择声音来源" : AppName(value);
+        ToolTipService.SetToolTip(source, value is null ? "选择声音来源" : "录制 " + AppName(value) + "，点击更换来源");
     }
     private async Task Start()
     {
