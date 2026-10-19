@@ -145,7 +145,8 @@ public partial class TestApp
             await Until(() => caption.IsUserVisible, "Caption did not become visible after hiding.");
             Check(caption.AppWindow.Position.X == position.X && caption.AppWindow.Position.Y == position.Y, "Caption did not restore its saved position.");
             Check(ActivationNative.GetActiveWindow() == active && ActivationNative.GetFocus() == focus, "Restoring caption stole focus.");
-            Check(Field<TextBlock>(caption, "original").Text == "Updated while hidden", "Hidden caption update was lost.");
+            Check(Field<TextBlock>(caption, "original").Text == "First visible caption Updated while hidden",
+                "Restoring compact captions lost or reordered the running text updated while hidden.");
         }
         finally { caption.Close(); owner.Close(); }
     }
