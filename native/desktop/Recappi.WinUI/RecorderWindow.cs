@@ -73,7 +73,7 @@ internal sealed class RecorderWindow : DesktopWindow
         this.discover = discover ?? (() => (AudioDevices.ListSources(), AudioDevices.ListMicrophones()));
         // macOS panel metrics: 344pt wide, 6pt padding, 28pt controls, 6pt gaps.
         Body.Padding = new Thickness(5, 6, 6, 6); Body.Spacing = 6;
-        CompactChrome("移动录音面板", 300, "RecappiSurfacePanel", glass: true, minimumHeight: 40);
+        CompactChrome("移动录音面板", 300, "RecappiSurfacePanel", glass: true, minimumHeight: 40, directCaption: true);
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter compact) compact.PreferredMinimumWidth = (int)(300 * Scale);
         Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 11; Error.IsTextSelectionEnabled = false; Error.Margin = new Thickness(2, 0, 2, 0);
         PlaceAtTopRight();

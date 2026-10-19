@@ -41,7 +41,11 @@ public sealed class DeviceLogin(CloudClient client, Func<TimeSpan, CancellationT
                 case "expired": throw new TimeoutException("Sign-in code expired. Try again.");
                 case "authorized":
                     var user = poll.GetProperty("user");
-                    return new CloudAccount(client.Origin.GetLeftPart(UriPartial.Authority), Required(user, "id"), user.TryGetProperty("email", out var email) ? email.GetString() : null, Required(poll, "token"));
+                    return new CloudAccount(client.Origin.GetLeftPart(UriPartial.Authority), Required(user, "id"), user.TryGetProperty("email", out var email) ? email.GetString() : null, Required(poll, "token"))
+                    {
+                        Name = user.TryGetProperty("name", out var name) && name.ValueKind == System.Text.Json.JsonValueKind.String ? name.GetString() : null,
+                        Image = user.TryGetProperty("image", out var image) && image.ValueKind == System.Text.Json.JsonValueKind.String ? image.GetString() : null
+                    };
                 default: throw new InvalidDataException("Unknown sign-in status.");
             }
         }

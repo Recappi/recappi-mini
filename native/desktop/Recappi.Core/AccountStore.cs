@@ -6,6 +6,8 @@ namespace Recappi.Core;
 
 public sealed record CloudAccount(string Origin, string UserId, string? Email, string Token)
 {
+    public string? Name { get; init; }
+    public string? Image { get; init; }
     public override string ToString() => "Recappi account (credentials redacted)";
     public string Partition => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Origin + "\n" + UserId))).ToLowerInvariant();
 }

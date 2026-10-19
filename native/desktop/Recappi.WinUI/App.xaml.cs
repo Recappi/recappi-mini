@@ -113,7 +113,7 @@ public partial class App : Application, IDesktopHost
                 if (entry.Stage is ProcessingStage.Failed or ProcessingStage.NeedsReconciliation) tray?.Notify("云端处理未完成", "本地音频已保留，可在录音库继续处理。");
                 library?.ProcessingChanged();
             });
-            tray = new TrayIcon(recorder, recorder.Show, () => _ = recorder.Run(Quit), ("录音库", ShowLibrary), ("账号", ShowAccount), ("字幕", ShowCaptions), ("设置", ShowSettings));
+            tray = new TrayIcon(recorder, recorder.Show, () => _ = recorder.Run(Quit), ("录音库", ShowLibrary), ("实时字幕", ShowCaptions), ("账号", ShowAccount), ("设置…", ShowSettings));
             attentionTimer = dispatcher.CreateTimer(); attentionTimer.Interval = TimeSpan.FromSeconds(5);
             attentionTimer.Tick += async (_, _) => await recorder.Run(CheckAttention); attentionTimer.Start();
             suggestionTimer = dispatcher.CreateTimer(); suggestionTimer.Interval = TimeSpan.FromSeconds(5);

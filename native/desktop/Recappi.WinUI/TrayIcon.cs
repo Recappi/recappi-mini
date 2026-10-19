@@ -58,8 +58,10 @@ internal sealed class TrayIcon : IDisposable
                 var menu = CreatePopupMenu();
                 try
                 {
-                    AppendMenu(menu, 0, 1, "显示录音面板"); AppendMenu(menu, 0, 2, "退出");
+                    // Open actions first, quit last behind a separator (standard tray menu order).
+                    AppendMenu(menu, 0, 1, "显示录音面板");
                     for (var index = 0; index < menuActions.Length; index++) AppendMenu(menu, 0, (nuint)(index + 3), menuActions[index].Label);
+                    AppendMenu(menu, 0x0800, 0, ""); AppendMenu(menu, 0, 2, "退出 Recappi");
                     GetCursorPos(out var position); SetForegroundWindow(window);
                     var selected = TrackPopupMenu(menu, 0x100 | 0x2, position.X, position.Y, 0, window, 0);
                     if (selected == 1) restore(); else if (selected == 2) quit();

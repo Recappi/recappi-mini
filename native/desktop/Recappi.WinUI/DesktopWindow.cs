@@ -224,7 +224,7 @@ internal class DesktopWindow : Window
         return frame;
     }
     [DllImport("dwmapi.dll")] private static extern int DwmFlush();
-    protected void CompactChrome(string moveLabel, int maximumHeight = 420, string surfaceBrush = "ApplicationPageBackgroundThemeBrush", bool glass = false, int minimumHeight = 50)
+    protected void CompactChrome(string moveLabel, int maximumHeight = 420, string surfaceBrush = "ApplicationPageBackgroundThemeBrush", bool glass = false, int minimumHeight = 50, bool directCaption = false)
     {
         retainSurface = true; floating = true;
         // Floating caption panels use an opaque surface for legibility over other apps;
@@ -232,7 +232,9 @@ internal class DesktopWindow : Window
         SystemBackdrop = null;
         if (glass && !EnableGlass()) { glass = false; surfaceBrush = "RecappiSurfacePanel"; }
         if (glass) surfaceBrush = "RecappiGlassFill";
-        ExtendsContentIntoTitleBar = true;
+        // Direct caption: no WinUI title bar handling (it reserves a 1px top strip that showed as a
+        // light line); drag and passthrough regions are set on the non-client source directly.
+        ExtendsContentIntoTitleBar = !directCaption;
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             // Keep the native resize border. Removing both border and title bar
@@ -280,7 +282,8 @@ internal class DesktopWindow : Window
         // from a XAML pointer event, which can arrive after the release event.
         if (glass)
         {
-            SetTitleBar(frame);
+            if (directCaption) frame.SizeChanged += (_, _) => UpdatePassthrough(frame);
+            else SetTitleBar(frame);
             Body.LayoutUpdated += (_, _) => UpdatePassthrough(frame);
             // The zero-width move target keeps arrow-key moving without drawing an outline;
             // a programmatic first focus was being reported as keyboard focus and rimmed the pill in green.
@@ -358,6 +361,8 @@ internal class DesktopWindow : Window
     [DllImport("comctl32.dll")] private static extern bool RemoveWindowSubclass(nint window, FrameProc callback, nuint id);
     [DllImport("comctl32.dll")] private static extern nint DefSubclassProc(nint window, uint message, nuint wParam, nint lParam);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint window, int index);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern nint SetWindowLongPtr(nint window, int index, nint value);
     private void UpdateGlass(FrameworkElement surface)
     {
         if (closed || acrylic is null || backdrop is null) return;
@@ -393,14 +398,20 @@ internal class DesktopWindow : Window
             }
         }
         Visit(root);
-        if (rects.SequenceEqual(passthrough)) return;
+        if (rects.SequenceEqual(passthrough) && ExtendsContentIntoTitleBar) return;
         passthrough = rects.ToArray();
-        Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(AppWindow.Id).SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough, passthrough);
+        var source = Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(AppWindow.Id);
+        if (!ExtendsContentIntoTitleBar)
+        {
+            // Without SetTitleBar the whole surface is the caption (drag) region; controls punch through.
+            source.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Caption, [new((int)0, 0, (int)Math.Ceiling(root.ActualWidth * scale), (int)Math.Ceiling(root.ActualHeight * scale))]);
+        }
+        source.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough, passthrough);
     }
     public async Task Run(Func<Task> action)
     {
         try { SetError(""); await action(); }
-        catch (OperationCanceledException) { SetError("操作已取消。"); }
+        catch (OperationCanceledException) { /* Superseded work (e.g. selecting another recording) is not a failure. */ }
         catch (Exception error) { SetError(error.Message); }
     }
     protected void SetError(string value) { Error.Text = value; Error.Visibility = string.IsNullOrEmpty(value) ? Visibility.Collapsed : Visibility.Visible; }

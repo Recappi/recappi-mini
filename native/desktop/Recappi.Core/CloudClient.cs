@@ -68,7 +68,9 @@ public sealed partial class CloudClient : IDisposable
             throw new CloudException(HttpStatusCode.Unauthorized);
         var renewed = response.Headers.TryGetValues("set-auth-token", out var values) ? values.FirstOrDefault()?.Trim() : null;
         return account with { Token = string.IsNullOrWhiteSpace(renewed) ? account.Token : renewed,
-            Email = user.TryGetProperty("email", out var email) && email.ValueKind == JsonValueKind.String ? email.GetString() : account.Email };
+            Email = user.TryGetProperty("email", out var email) && email.ValueKind == JsonValueKind.String ? email.GetString() : account.Email,
+            Name = user.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString() : account.Name,
+            Image = user.TryGetProperty("image", out var image) && image.ValueKind == JsonValueKind.String ? image.GetString() : account.Image };
     }
 
     public async Task<UploadTicket> CreateUploadAsync(string title, long durationMs, string contentType = "audio/wav", CancellationToken cancellation = default)

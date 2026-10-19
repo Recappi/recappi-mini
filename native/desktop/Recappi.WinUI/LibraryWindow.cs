@@ -61,6 +61,8 @@ internal sealed class LibraryWindow : DesktopWindow
     private readonly ContentControl reviewTab = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private readonly TextBlock accountLabel = Ui.Text("");
     private readonly TextBlock accountInitial = new() { FontSize = 13 };
+    private readonly Microsoft.UI.Xaml.Shapes.Ellipse accountPicture = new() { Width = 30, Height = 30, Visibility = Visibility.Collapsed };
+    private string? accountPictureUrl;
     private readonly FontIcon detailSource = new() { Glyph = "\uE753" };
     private readonly TextBlock createdLabel = new();
     private readonly Border statusChip = new();
@@ -127,7 +129,8 @@ internal sealed class LibraryWindow : DesktopWindow
         accountLabel.Style = RecappiTheme.Style("RecappiCaption"); accountLabel.TextWrapping = TextWrapping.NoWrap; accountLabel.IsTextSelectionEnabled = false; accountLabel.FontSize = 11; accountLabel.LineHeight = 15;
         var accountContent = new Grid { ColumnSpacing = 10 };
         foreach (var width in new[] { GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) accountContent.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
-        var avatar = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Child = accountInitial, BorderThickness = new Thickness(1) };
+        var avatarFace = new Grid(); avatarFace.Children.Add(accountInitial); avatarFace.Children.Add(accountPicture);
+        var avatar = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Child = avatarFace, BorderThickness = new Thickness(1) };
         RecappiTheme.Bind(avatar, "RecappiControlPress", brush => avatar.Background = brush);
         RecappiTheme.Bind(avatar, "RecappiBorderHairline", brush => avatar.BorderBrush = brush);
         accountInitial.Style = RecappiTheme.Style("RecappiLabelSecondary"); accountInitial.FontSize = 11; accountInitial.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; accountInitial.HorizontalAlignment = HorizontalAlignment.Center;
@@ -152,14 +155,15 @@ internal sealed class LibraryWindow : DesktopWindow
         foreach (var item in new UIElement[] { importStatus, cancelImport, loadMore, openCloud }) footer.Children.Add(item);
         Grid.SetRow(footer, 3); sidebar.Children.Add(footer);
         layout.Children.Add(sidebar);
-        list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><StackPanel Orientation='Horizontal' Spacing='7' Padding='0,5'><Border Width='22' Height='22' CornerRadius='5'><FontIcon x:Name='Source' FontSize='18' Opacity='0.7'/></Border><TextBlock Text='{Binding Title}' FontSize='13' TextTrimming='CharacterEllipsis' VerticalAlignment='Center' MaxWidth='170'/></StackPanel></DataTemplate>");
+        list.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'><StackPanel Orientation='Horizontal' Spacing='7' Padding='0,5'><FontIcon x:Name='Source' FontSize='14' Opacity='0.55' Visibility='Collapsed'/><TextBlock Text='{Binding Title}' FontSize='13' TextTrimming='CharacterEllipsis' VerticalAlignment='Center' MaxWidth='170'/></StackPanel></DataTemplate>");
         list.ContainerContentChanging += (_, e) =>
         {
             if (e.Item is LibraryRecording item && e.ItemContainer.ContentTemplateRoot is FrameworkElement root && root.FindName("Source") is FontIcon icon)
             {
                 var duration = item.Local?.DurationMs ?? item.Cloud?.DurationMs ?? 0;
                 var date = item.CreatedAt?.ToLocalTime().ToString("M月d日") ?? "";
-                icon.Glyph = item.Cloud is null ? "" : "";
+                // Only mark recordings that exist on this PC alone; cloud is the norm.
+                icon.Glyph = "\uE7F8"; icon.Visibility = item.Cloud is null ? Visibility.Visible : Visibility.Collapsed;
                 ToolTipService.SetToolTip(e.ItemContainer, string.Join(" · ", new[] { item.Title, date, duration > 0 ? $"{Math.Ceiling(duration / 60000d):0} 分钟" : "", item.Location }.Where(x => x.Length > 0)));
             }
         };
@@ -193,8 +197,8 @@ internal sealed class LibraryWindow : DesktopWindow
         var titleRow = new Grid { ColumnSpacing = 12 };
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); titleRow.ColumnDefinitions.Add(new ColumnDefinition());
         var sourceTile = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(8), Child = detailSource };
-        RecappiTheme.Bind(sourceTile, "RecappiAccentChipFill", brush => sourceTile.Background = brush);
-        detailSource.Style = RecappiTheme.Style("RecappiIconAccent"); detailSource.FontSize = 20;
+        RecappiTheme.Bind(sourceTile, "RecappiControlHover", brush => sourceTile.Background = brush);
+        detailSource.Style = RecappiTheme.Style("RecappiIconNeutral"); detailSource.FontSize = 18;
         titleRow.Children.Add(sourceTile); Grid.SetColumn(heading, 1); titleRow.Children.Add(heading);
         details.Children.Add(titleRow);
         localCopy = Ui.Button("本机副本", () => Select(true), this); cloudCopy = Ui.Button("云端副本", () => Select(false), this);
@@ -379,10 +383,26 @@ internal sealed class LibraryWindow : DesktopWindow
     });
     private void RenderAccount()
     {
-        var email = app.Account.Snapshot.Account?.Email;
-        accountLabel.Text = (email ?? "尚未登录") + "\n" +
+        var account = app.Account.Snapshot.Account;
+        var email = account?.Email;
+        RenderPicture(account?.Image);
+        accountLabel.Text = (string.IsNullOrWhiteSpace(account?.Name) ? email ?? "尚未登录" : account!.Name) + "\n" + (!string.IsNullOrWhiteSpace(account?.Name) && email is not null ? email + " · " : "") +
             (app.Account.Snapshot.State == AccountState.SignedIn ? "已连接云端" : app.Account.Snapshot.State == AccountState.Offline ? "离线 · 可查看已缓存内容" : "本机录音可用");
         accountInitial.Text = string.IsNullOrEmpty(email) ? "?" : email[..1].ToUpperInvariant();
+    }
+    private void RenderPicture(string? url)
+    {
+        if (url == accountPictureUrl) return;
+        accountPictureUrl = url;
+        // Only https pictures (Google/GitHub profile images); anything else keeps the initials.
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
+        {
+            var image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(uri) { DecodePixelWidth = 64 };
+            image.ImageOpened += (_, _) => { accountPicture.Visibility = Visibility.Visible; accountInitial.Visibility = Visibility.Collapsed; };
+            image.ImageFailed += (_, _) => { accountPicture.Visibility = Visibility.Collapsed; accountInitial.Visibility = Visibility.Visible; };
+            accountPicture.Fill = new Microsoft.UI.Xaml.Media.ImageBrush { ImageSource = image, Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill };
+        }
+        else { accountPicture.Visibility = Visibility.Collapsed; accountInitial.Visibility = Visibility.Visible; }
     }
     private bool IsCurrent(int version, CloudAccount? account = null) => !closed && version == generation &&
         (account is null || app.Account.Snapshot.Account is { } current && current.Partition == account.Partition && current.Token == account.Token && app.Account.Snapshot.State == AccountState.SignedIn);
@@ -505,7 +525,7 @@ internal sealed class LibraryWindow : DesktopWindow
         if (selected is null) { heading.Text = "选择录音"; location.Text = ""; return; }
         UpdateCopyActions(selected);
         heading.Text = selected.Title; location.Text = selected.Location;
-        detailSource.Glyph = selected.Cloud is null ? "\uE8B7" : "\uE753";
+        detailSource.Glyph = selected.Cloud is null ? "\uE7F8" : "\uE9D9";
         createdLabel.Text = selected.CreatedAt?.ToLocalTime().ToString("yyyy年M月d日 HH:mm") ?? "";
         playbackLabel.Text = selected.Cloud is null ? "本机音频" : "云端音频";
         selectedDurationMs = Math.Max(0, selected.Local?.DurationMs ?? selected.Cloud?.DurationMs ?? 0); RenderPlayback();
