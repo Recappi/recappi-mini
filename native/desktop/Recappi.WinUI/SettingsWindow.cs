@@ -96,25 +96,46 @@ internal sealed class SettingsWindow : DesktopWindow
         Field("隐藏录音提醒间隔（分钟，0 关闭）", app.Preferences.LongReminderMinutes.ToString(), (p, v) => p with { LongReminderMinutes = Minutes(v) });
         Field("录音时长提醒（分钟，0 关闭）", app.Preferences.MaxDurationMinutes.ToString(), (p, v) => p with { MaxDurationMinutes = Minutes(v) });
         Section("存储与关于", Symbol.Folder);
-        Field("本地录音目录（重启后生效）", app.Preferences.RecordingsRoot, (p, v) => p with { RecordingsRoot = v.Trim() });
-        var about = new Grid { ColumnSpacing = 14 };
-        about.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); about.ColumnDefinitions.Add(new ColumnDefinition());
+        // macOS-style rows: what it is on the left (with its detail beneath), actions on the right.
+        var folder = new TextBlock { Text = app.Preferences.RecordingsRoot, Style = RecappiTheme.Style("RecappiCaption"), FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, IsTextSelectionEnabled = true };
+        ToolTipService.SetToolTip(folder, app.Preferences.RecordingsRoot);
+        var change = Ui.Button("更改…", () => PickRecordingsRoot(folder), this);
+        var reveal = Ui.Button("打开", () =>
+        {
+            var path = folder.Text; if (Directory.Exists(path)) Process.Start(new ProcessStartInfo("explorer.exe", "\"" + path + "\"") { UseShellExecute = true });
+            return Task.CompletedTask;
+        }, this);
+        AddRow(Labelled("本地录音目录", folder), Ui.Row(change, reveal));
+        section.Children.Add(Note("更改后重启 Recappi 生效；已有录音不会移动。"));
+        group = null;
+        var about = new Grid { ColumnSpacing = 14, Margin = new Thickness(0, 8, 0, 0) };
+        about.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); about.ColumnDefinitions.Add(new ColumnDefinition()); about.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         about.Children.Add(RecappiTheme.LogoTile(44));
         var version = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
         version.Children.Add(new TextBlock { Text = "Recappi Mini", Style = RecappiTheme.Style("RecappiSectionTitle") });
         version.Children.Add(new TextBlock { Text = CurrentVersion.Split('+')[0] + " · Windows 原生桌面版 · WinUI 3", Style = RecappiTheme.Style("RecappiCaption") });
         Grid.SetColumn(version, 1); about.Children.Add(version);
+        var releases = Ui.Button("发布页面", () => { Process.Start(new ProcessStartInfo(DesktopUpdates.ReleasesPage.AbsoluteUri) { UseShellExecute = true }); return Task.CompletedTask; }, this);
+        releases.Style = RecappiTheme.Style("RecappiQuietButton"); releases.VerticalAlignment = VerticalAlignment.Center;
+        RecappiTheme.Bind(releases, "RecappiAccent", brush => releases.Foreground = brush);
+        // Only the portable build updates from the release page; installed builds use their channel.
+        releases.Visibility = this.distribution == DesktopDistribution.Portable ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetColumn(releases, 2); about.Children.Add(releases);
         section.Children.Add(about);
-        updateStatus.Style = RecappiTheme.Style("RecappiBodySecondary");
-        section.Children.Add(updateStatus);
+        updateStatus.Style = RecappiTheme.Style("RecappiCaption"); updateStatus.FontSize = 11.5; updateStatus.TextWrapping = TextWrapping.Wrap; updateStatus.TextTrimming = TextTrimming.None;
         var checkUpdate = Ui.Button("检查更新", CheckUpdate, this);
-        downloadUpdate = Ui.Button("下载已验证更新", DownloadUpdate, this); downloadUpdate.IsEnabled = false;
+        downloadUpdate = Ui.Button("下载更新", DownloadUpdate, this); downloadUpdate.IsEnabled = false;
         cancelUpdate = Ui.Button("取消下载", () => { download?.Cancel(); return Task.CompletedTask; }, this); cancelUpdate.IsEnabled = false;
+        // Download and cancel appear only when they can act, instead of sitting there disabled.
+        foreach (var conditional in new[] { downloadUpdate, cancelUpdate })
+        {
+            conditional.Visibility = Visibility.Collapsed;
+            conditional.IsEnabledChanged += (_, _) => conditional.Visibility = conditional.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        }
         if (this.distribution == DesktopDistribution.Portable)
         {
-            section.Children.Add(checkUpdate);
-            section.Children.Add(Ui.Row(downloadUpdate, cancelUpdate));
-            section.Children.Add(Ui.Button("打开发布页面", () => { Process.Start(new ProcessStartInfo(DesktopUpdates.ReleasesPage.AbsoluteUri) { UseShellExecute = true }); return Task.CompletedTask; }, this));
+            updateStatus.Text = "从官方发布页面检查新版本。";
+            AddRow(Labelled("软件更新", updateStatus), Ui.Row(checkUpdate, downloadUpdate, cancelUpdate));
         }
         else
         {
@@ -122,14 +143,16 @@ internal sealed class SettingsWindow : DesktopWindow
             updateStatus.Text = this.distribution == DesktopDistribution.Packaged
                 ? "当前为 MSIX 安装版，更新由原安装渠道管理。从 Microsoft Store 安装的版本，请在商店中检查更新；测试或组织分发的版本，请使用原渠道提供的新版安装包。"
                 : "暂时无法识别此应用的安装方式。请关闭并重新打开设置后重试，或从原安装渠道获取更新。";
-            if (this.distribution == DesktopDistribution.Packaged)
-                section.Children.Add(Ui.Button("打开 Microsoft Store 更新", () =>
-                {
-                    Process.Start(new ProcessStartInfo("ms-windows-store://downloadsandupdates") { UseShellExecute = true });
-                    return Task.CompletedTask;
-                }, this));
+            var store = Ui.Button("打开 Microsoft Store 更新", () =>
+            {
+                Process.Start(new ProcessStartInfo("ms-windows-store://downloadsandupdates") { UseShellExecute = true });
+                return Task.CompletedTask;
+            }, this);
+            store.Visibility = this.distribution == DesktopDistribution.Packaged ? Visibility.Visible : Visibility.Collapsed;
+            AddRow(Labelled("软件更新", updateStatus), store);
         }
         foreach (var page in sections.Values) foreach (var button in page.Children.OfType<Button>()) RecappiTheme.Compact(button);
+        foreach (var button in new[] { change, reveal, checkUpdate, downloadUpdate, cancelUpdate }) RecappiTheme.Compact(button);
         navigation.SelectedItem = navigation.MenuItems[0];
         AppWindow.Closing += (_, e) => { if (!Flush()) e.Cancel = true; };
         Closed += (_, _) => { closed = true; timer.Stop(); lifetime.Cancel(); download?.Cancel(); };
@@ -201,7 +224,26 @@ internal sealed class SettingsWindow : DesktopWindow
     private static int Minutes(string text) => int.TryParse(text, out var value) ? value : throw new ArgumentException("提醒时间请填写整数分钟。");
     private void Edited(Control control, Func<DesktopPreferences, DesktopPreferences> edit) { pending[control] = edit; timer.Stop(); timer.Start(); }
     // Settings rows share one card per section: label on the left, control on the right.
-    private void AddRow(string label, FrameworkElement control)
+    private static StackPanel Labelled(string label, TextBlock detail)
+    {
+        var stack = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        stack.Children.Add(new TextBlock { Text = label, Style = RecappiTheme.Style("RecappiBody"), FontSize = 13, LineHeight = 18 });
+        stack.Children.Add(detail);
+        return stack;
+    }
+    private static TextBlock Note(string text) => new() { Text = text, Style = RecappiTheme.Style("RecappiCaption"), FontSize = 11.5, Margin = new Thickness(12, -6, 0, 0), TextWrapping = TextWrapping.Wrap };
+    private async Task PickRecordingsRoot(TextBlock folder)
+    {
+        var picker = new Windows.Storage.Pickers.FolderPicker { SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary };
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        if (await picker.PickSingleFolderAsync() is not { } chosen || closed) return;
+        folder.Text = chosen.Path; ToolTipService.SetToolTip(folder, chosen.Path);
+        Edited(recordingsRootKey, p => p with { RecordingsRoot = chosen.Path });
+    }
+    private readonly Control recordingsRootKey = new ContentControl();
+    private void AddRow(string label, FrameworkElement control) => AddRow(new TextBlock { Text = label, Style = RecappiTheme.Style("RecappiBody"), FontSize = 13, LineHeight = 18, VerticalAlignment = VerticalAlignment.Center }, control, label);
+    private void AddRow(FrameworkElement left, FrameworkElement control, string? name = null)
     {
         if (group is null)
         {
@@ -214,10 +256,10 @@ internal sealed class SettingsWindow : DesktopWindow
         var row = new Grid { ColumnSpacing = 16, Padding = new Thickness(12, 5, 10, 5), MinHeight = 40, BorderThickness = new Thickness(0, group.Children.Count == 0 ? 0 : 1, 0, 0) };
         RecappiTheme.Bind(row, "RecappiBorderHairline", brush => row.BorderBrush = brush);
         row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.Children.Add(new TextBlock { Text = label, Style = RecappiTheme.Style("RecappiBody"), FontSize = 13, LineHeight = 18, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(left);
         if (control is ComboBox picker) RecappiTheme.ChipPicker(picker); else if (control is Control input and not ToggleSwitch) RecappiTheme.Compact(input);
         control.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(control, 1); row.Children.Add(control);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(control, label);
+        if (name is not null) Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(control, name);
         group.Children.Add(row);
     }
     private void Toggle(string label, bool initial, Func<DesktopPreferences, bool, DesktopPreferences> edit)

@@ -95,6 +95,10 @@ public partial class TestApp : Application
         {
             await RecorderInputProbe.Run(root); keeper.Close(); Exit(); return;
         }
+        if (commandLine.Contains("--capture-page-previews"))
+        {
+            await NativePreviewCapture.Auxiliary(root); keeper.Close(); Exit(); return;
+        }
         if (commandLine.Contains("--capture-caption-previews"))
         {
             await NativePreviewCapture.Caption(root); keeper.Close(); Exit(); return;
@@ -437,9 +441,9 @@ public partial class TestApp : Application
                 navigation.SelectedItem = navigation.MenuItems[4];
                 var section = Field<Dictionary<string, StackPanel>>(window, "sections")["存储与关于"];
                 await Until(() => section.IsLoaded, "Update section did not load.");
-                var labels = section.Children.OfType<Button>().Select(button => button.Content as string).ToArray();
+                var labels = Descendants<Button>(section).Where(button => button.Visibility == Visibility.Visible).Select(button => button.Content as string).ToArray();
                 Check(labels.Contains("检查更新") == (distribution == DesktopDistribution.Portable), "Update check exposed for wrong installation channel.");
-                Check(labels.Contains("打开发布页面") == (distribution == DesktopDistribution.Portable), "Portable release page exposed for wrong installation channel.");
+                Check(labels.Contains("发布页面") == (distribution == DesktopDistribution.Portable), "Portable release page exposed for wrong installation channel.");
                 Check(labels.Contains("打开 Microsoft Store 更新") == (distribution == DesktopDistribution.Packaged), "Store entry exposed for wrong installation channel.");
                 Check((Field<Button>(window, "downloadUpdate").Parent is not null) == (distribution == DesktopDistribution.Portable), "ZIP download exposed for wrong installation channel.");
                 if (distribution != DesktopDistribution.Portable)
