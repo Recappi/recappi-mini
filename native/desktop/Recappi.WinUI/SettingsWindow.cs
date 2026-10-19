@@ -48,7 +48,7 @@ internal sealed class SettingsWindow : DesktopWindow
         saved.Visibility = Visibility.Collapsed;
         ((ScrollViewer)Content).Content = null;
         var layout = new Grid(); layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); layout.RowDefinitions.Add(new RowDefinition());
-        layout.Children.Add(Body); Grid.SetRow(navigation, 1); layout.Children.Add(navigation); Content = PageFrame(layout, "设置");
+        layout.Children.Add(Body); Grid.SetRow(navigation, 1); layout.Children.Add(navigation); Content = PageFrame(layout, "设置"); CloseWithKeyboard(layout, Flush);
         navigation.Content = sectionViewer;
         // Each tab sizes the window to its content, like the macOS preferences window.
         FitHeightTo(sectionViewer);
@@ -62,13 +62,10 @@ internal sealed class SettingsWindow : DesktopWindow
         navigation.SelectionChanged += (_, args) =>
         {
             if (args.SelectedItem is NavigationViewItem { Tag: string key }) { sectionViewer.Content = sections[key]; Title = "Recappi Mini · " + key; }
-            foreach (var (name, button) in tabs)
-            {
-                var active = args.SelectedItem is NavigationViewItem { Tag: string current } && current == name;
-                button.Background = active ? RecappiTheme.Brush("RecappiControlHover", button.ActualTheme) : null;
-                button.Foreground = RecappiTheme.Brush(active ? "RecappiAccent" : "RecappiLabelSecondary", button.ActualTheme);
-            }
+            PaintTabs();
         };
+        // Tab colours follow theme changes too (a light brush stayed on the selected tab in dark mode).
+        tabStrip.ActualThemeChanged += (_, _) => PaintTabs();
         if (recovery)
         {
             saved.Text = "设置读取失败。已暂时关闭自动上传、自动转写、实时字幕、麦克风和录音建议。原设置尚未覆盖；修改后保存。";
@@ -81,20 +78,27 @@ internal sealed class SettingsWindow : DesktopWindow
         Section("云端处理", Symbol.Upload);
         Toggle("保存后自动上传", app.Preferences.AutoUpload, (p, v) => p with { AutoUpload = v });
         Toggle("上传后自动转写", app.Preferences.AutoTranscribe, (p, v) => p with { AutoTranscribe = v });
-        Field("转写语言", app.Preferences.TranscriptionLanguage, (p, v) => p with { TranscriptionLanguage = v.Trim() });
+        Language("转写语言", app.Preferences.TranscriptionLanguage, "auto", "自动识别", (p, v) => p with { TranscriptionLanguage = v });
         Choice("场景", app.Preferences.Scene, ["meeting", "podcast", "interview", "casual", "lecture"], (p, v) => p with { Scene = v });
         Field("额外上下文", app.Preferences.ExtraContext, (p, v) => p with { ExtraContext = v });
-        section.Children.Add(Ui.Button("连接账号", () => { app.ShowAccount(); return Task.CompletedTask; }, this));
+        // The account is a row like every other setting, not a loose button under the group.
+        group = null;
+        var accountState = new TextBlock { Style = RecappiTheme.Style("RecappiCaption"), FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis };
+        void ShowAccountState() => accountState.Text = app.Account.Snapshot is { State: AccountState.SignedIn, Account: { } signedIn } ? "已连接 · " + (signedIn.Email ?? "Recappi Cloud") : "未连接，云端处理需要先连接账号";
+        ShowAccountState();
+        void AccountChanged(AccountSnapshot _) => UiDispatcher.TryEnqueue(() => { if (!closed) ShowAccountState(); });
+        app.Account.Changed += AccountChanged; Closed += (_, _) => app.Account.Changed -= AccountChanged;
+        AddRow(Labelled("Recappi 账号", accountState), Ui.Button("管理账号", () => { app.ShowAccount(); return Task.CompletedTask; }, this));
         Section("录音与字幕", Symbol.Microphone);
         Toggle("开启实时字幕", app.Preferences.CaptionsEnabled, (p, v) => p with { CaptionsEnabled = v });
         Toggle("默认录制麦克风", app.Preferences.IncludeMicrophone, (p, v) => p with { IncludeMicrophone = v });
-        Field("字幕语言", app.Preferences.CaptionLanguage, (p, v) => p with { CaptionLanguage = v.Trim() });
-        Field("翻译语言（留空关闭）", app.Preferences.TranslationLanguage, (p, v) => p with { TranslationLanguage = v.Trim() });
+        Language("字幕语言", app.Preferences.CaptionLanguage, null, null, (p, v) => p with { CaptionLanguage = v });
+        Language("翻译为", app.Preferences.TranslationLanguage, "", "不翻译", (p, v) => p with { TranslationLanguage = v });
         Section("录音提醒", Symbol.Important);
         Toggle("应用声音录音建议", app.Preferences.RecordingSuggestions, (p, v) => p with { RecordingSuggestions = v });
         Toggle("声音不活跃提醒", app.Preferences.InactivityReminders, (p, v) => p with { InactivityReminders = v });
-        Field("隐藏录音提醒间隔（分钟，0 关闭）", app.Preferences.LongReminderMinutes.ToString(), (p, v) => p with { LongReminderMinutes = Minutes(v) });
-        Field("录音时长提醒（分钟，0 关闭）", app.Preferences.MaxDurationMinutes.ToString(), (p, v) => p with { MaxDurationMinutes = Minutes(v) });
+        MinutesChoice("隐藏录音时提醒", app.Preferences.LongReminderMinutes, (p, v) => p with { LongReminderMinutes = v });
+        MinutesChoice("录音时长提醒", app.Preferences.MaxDurationMinutes, (p, v) => p with { MaxDurationMinutes = v });
         Section("存储", Symbol.Folder);
         // macOS-style rows: what it is on the left (with its detail beneath), actions on the right.
         var folder = new TextBlock { Text = app.Preferences.RecordingsRoot, Style = RecappiTheme.Style("RecappiCaption"), FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, IsTextSelectionEnabled = true };
@@ -221,7 +225,15 @@ internal sealed class SettingsWindow : DesktopWindow
         button.Click += (_, _) => navigation.SelectedItem = item;
         tabStrip.Children.Add(button); tabs.Add((name, button));
     }
-    private static int Minutes(string text) => int.TryParse(text, out var value) ? value : throw new ArgumentException("提醒时间请填写整数分钟。");
+    private void PaintTabs()
+    {
+        foreach (var (name, button) in tabs)
+        {
+            var active = navigation.SelectedItem is NavigationViewItem { Tag: string current } && current == name;
+            button.Background = active ? RecappiTheme.Brush("RecappiControlHover", button.ActualTheme) : null;
+            button.Foreground = RecappiTheme.Brush(active ? "RecappiAccent" : "RecappiLabelSecondary", button.ActualTheme);
+        }
+    }
     private void Edited(Control control, Func<DesktopPreferences, DesktopPreferences> edit) { pending[control] = edit; timer.Stop(); timer.Start(); }
     // Settings rows share one card per section: label on the left, control on the right.
     private static StackPanel Labelled(string label, TextBlock detail)
@@ -271,6 +283,26 @@ internal sealed class SettingsWindow : DesktopWindow
     {
         var control = new TextBox { Tag = label, Text = initial, Width = 200 };
         control.TextChanging += (_, _) => Edited(control, p => edit(p, control.Text)); AddRow(label, control);
+    }
+    // Pickers instead of free text for codes and numbers (language codes, minutes, "0 = off").
+    private void Language(string label, string initial, string? extra, string? extraName, Func<DesktopPreferences, string, DesktopPreferences> edit)
+    {
+        var items = new List<ComboBoxItem>();
+        if (extra is not null) items.Add(new ComboBoxItem { Tag = extra, Content = extraName });
+        items.AddRange(RecorderWindow.Languages.Select(x => new ComboBoxItem { Tag = x.Code, Content = x.Name }));
+        if (items.All(x => (string)x.Tag != initial)) items.Add(new ComboBoxItem { Tag = initial, Content = initial.Length == 0 ? "未设置" : initial });
+        Picker(label, items, initial, edit);
+    }
+    private void MinutesChoice(string label, int initial, Func<DesktopPreferences, int, DesktopPreferences> edit)
+    {
+        var values = new[] { 0, 15, 30, 45, 60, 90, 120, 180 }.Append(initial).Distinct().Order();
+        var items = values.Select(x => new ComboBoxItem { Tag = x.ToString(), Content = x == 0 ? "关闭" : x < 60 || x % 60 != 0 ? $"{x} 分钟" : $"{x / 60} 小时" }).ToList();
+        Picker(label, items, initial.ToString(), (p, v) => edit(p, int.Parse(v)));
+    }
+    private void Picker(string label, List<ComboBoxItem> items, string initial, Func<DesktopPreferences, string, DesktopPreferences> edit)
+    {
+        var control = new ComboBox { Tag = label, ItemsSource = items, SelectedItem = items.First(x => (string)x.Tag == initial), MinWidth = 140 };
+        control.SelectionChanged += (_, _) => { if (control.SelectedItem is ComboBoxItem { Tag: string value }) Edited(control, p => edit(p, value)); }; AddRow(label, control);
     }
     private void Choice(string label, string initial, string[] values, Func<DesktopPreferences, string, DesktopPreferences> edit)
     {

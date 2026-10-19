@@ -67,6 +67,16 @@ internal class DesktopWindow : Window
             ScheduleScan(null, this);
         };
     }
+    // Dialog-like pages (settings, account) close with Esc or Ctrl+W, like macOS panels with Cmd+W.
+    protected void CloseWithKeyboard(UIElement root, Func<bool>? canClose = null)
+    {
+        foreach (var (key, modifiers) in new[] { (Windows.System.VirtualKey.Escape, Windows.System.VirtualKeyModifiers.None), (Windows.System.VirtualKey.W, Windows.System.VirtualKeyModifiers.Control) })
+        {
+            var accelerator = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = key, Modifiers = modifiers };
+            accelerator.Invoked += (_, e) => { e.Handled = true; if (canClose?.Invoke() != false) Close(); };
+            root.KeyboardAccelerators.Add(accelerator);
+        }
+    }
     // Page windows open centred on the display the user is working on (like macOS), and stay
     // centred while they size themselves to their content until the user moves them.
     private PointInt32? centeredAt;

@@ -332,6 +332,10 @@ internal sealed class LibraryWindow : DesktopWindow
         detailContainer.Children.Add(detailLayout); detailContainer.Children.Add(emptyDetail);
         Grid.SetColumn(detailContainer, 1); layout.Children.Add(detailContainer);
         Content = PageFrame(layout, "录音库", toolbar, librarySubtitle);
+        // Ctrl+F jumps to search, as in other Windows apps.
+        var find = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = Windows.System.VirtualKey.F, Modifiers = Windows.System.VirtualKeyModifiers.Control };
+        find.Invoked += (_, e) => { e.Handled = true; search.Focus(FocusState.Keyboard); search.SelectAll(); };
+        layout.KeyboardAccelerators.Add(find);
         if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter) { presenter.PreferredMinimumWidth = (int)(880 * Scale); presenter.PreferredMinimumHeight = (int)(600 * Scale); }
         search.TextChanged += async (_, _) => await Run(Search);
         filter.TextChanged += (_, _) => RenderTranscript(); speaker.SelectionChanged += (_, _) => RenderTranscript();

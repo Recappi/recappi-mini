@@ -79,7 +79,7 @@ internal sealed class AccountWindow : DesktopWindow
         usagePanel.Children.Add(Ui.Row(managePlan));
         usageSurface = Ui.Surface(usagePanel, new Thickness(20)); Body.Children.Add(usageSurface);
         var page = (ScrollViewer)Content;
-        Content = PageFrame(page, "账号");
+        Content = PageFrame(page, "账号"); CloseWithKeyboard(page);
         FitHeightTo(page);
         app.Account.Changed += Changed;
         Closed += (_, _) => { closed = true; app.Account.CancelLogin(); app.Account.Changed -= Changed; };

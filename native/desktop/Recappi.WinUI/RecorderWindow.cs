@@ -268,7 +268,7 @@ internal sealed class RecorderWindow : DesktopWindow
     [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern nint OpenProcess(uint access, bool inherit, int processId);
     [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] private static extern bool QueryFullProcessImageName(nint process, int flags, System.Text.StringBuilder name, ref int size);
     [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool CloseHandle(nint handle);
-    private static readonly (string Code, string Name)[] Languages =
+    internal static readonly (string Code, string Name)[] Languages =
         [("en", "英语"), ("zh", "中文"), ("ja", "日语"), ("ko", "韩语"), ("es", "西班牙语"), ("fr", "法语"), ("de", "德语"), ("pt", "葡萄牙语"), ("ru", "俄语"), ("it", "意大利语")];
     private static ComboBox LanguagePicker(string current, bool allowOff)
     {

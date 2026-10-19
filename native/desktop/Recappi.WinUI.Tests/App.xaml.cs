@@ -416,8 +416,8 @@ public partial class TestApp : Application
                 }
             navigation.SelectedItem = navigation.MenuItems[2];
             await Until(() => sections["录音与字幕"].IsLoaded, "Caption settings did not become visible.");
-            var language = Descendants<TextBox>(sections["录音与字幕"]).First(x => (string)x.Tag == "字幕语言");
-            language.Text = "zh"; host.SavePreferences(host.Preferences with { Scene = "interview" });
+            var language = Descendants<ComboBox>(sections["录音与字幕"]).First(x => (string)x.Tag == "字幕语言");
+            language.SelectedItem = language.Items.OfType<ComboBoxItem>().First(x => (string)x.Tag == "zh"); host.SavePreferences(host.Preferences with { Scene = "interview" });
             host.RejectSave = true; Check(!window.Flush(), "Settings falsely reported save success.");
             Check(Field<Button>(window, "retrySave").Visibility == Visibility.Visible, "Failed settings save has no retry action.");
             host.RejectSave = false; Check(window.Flush(), "Settings failed retry.");

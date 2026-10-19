@@ -65,11 +65,6 @@ internal static class RecorderInputProbe
             int width = (int)Math.Round(hide.ActualWidth * scale), height = (int)Math.Round(hide.ActualHeight * scale);
             var under = WindowFromPoint(new Point { X = left + width / 2, Y = top + height / 2 });
             if (GetAncestor(under, 2) != WinRT.Interop.WindowNative.GetWindowHandle(recorder)) throw new Exception("Probe recorder is not under the cursor target; aborting real input.");
-            async Task At(string label, int x, int y)
-            {
-                Move(x, y); await Task.Delay(160);
-                log.Add($"{label} ({x - left},{y - top}) hover={inside}");
-            }
             var sweepX = new List<string>(); var sweepY = new List<string>();
             for (var dx = -4; dx <= width + 4; dx += 2) { Move(left + dx, top + height / 2); await Task.Delay(70); sweepX.Add($"{dx}:{(inside ? 1 : 0)}"); }
             for (var dy = -4; dy <= height + 4; dy += 2) { Move(left + width / 2, top + dy); await Task.Delay(70); sweepY.Add($"{dy}:{(inside ? 1 : 0)}"); }
