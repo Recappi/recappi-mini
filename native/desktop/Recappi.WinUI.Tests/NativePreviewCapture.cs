@@ -108,6 +108,20 @@ internal static class NativePreviewCapture
         {
             recorder.ApplyTheme("light"); await recorder.RefreshDevices(); recorder.Show();
             await stage("recorder-idle-light", recorder);
+            if (Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_HOVER") == "1")
+            {
+                var hide = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(TestApp.Field<Button>(recorder, "optionsChip")) is Grid row ? row.Children.OfType<Button>().ElementAt(3) : null;
+                if (hide is not null)
+                {
+                    VisualStateManager.GoToState(hide, "PointerOver", false); await Task.Delay(300);
+                    var origin = hide.TransformToVisual(recorder.Content).TransformPoint(new Windows.Foundation.Point());
+                    var shape = TestApp.Descendants<Microsoft.UI.Xaml.Shapes.Path>(hide).FirstOrDefault();
+                    var bounds = shape?.Data?.Bounds;
+                    await File.WriteAllTextAsync(Path.Combine(root, "hover-bounds.txt"), $"button {origin.X},{origin.Y} {hide.ActualWidth}x{hide.ActualHeight} shape {bounds} margin {shape?.Margin} stretch {shape?.Stretch} parent {Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(shape!)?.GetType().Name} {(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(shape!) as FrameworkElement)?.ActualWidth}x{(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(shape!) as FrameworkElement)?.ActualHeight}");
+                    await stage("recorder-hover-light", recorder);
+                    VisualStateManager.GoToState(hide, "Normal", false);
+                }
+            }
             recorder.ApplyTheme("dark"); await stage("recorder-idle-dark", recorder);
             if (Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_SNAPSHOT") == "1" || stage.Method.Name.Contains("RecorderOnly"))
             {

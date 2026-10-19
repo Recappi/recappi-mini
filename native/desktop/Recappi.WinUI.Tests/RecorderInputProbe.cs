@@ -43,6 +43,52 @@ internal static class RecorderInputProbe
         }
         finally { SetCursorPos(cursor.X, cursor.Y); recorder.Close(); }
     }
+    // Real pointer moves over the hide button: XAML hover must start and end exactly at its edges.
+    public static async Task Hover(string root)
+    {
+        await using var host = new TestHost(Path.Combine(root, "hover-probe"));
+        var recorder = new RecorderWindow(host, () => ([new AudioSource("system", "System")], [new MicrophoneDevice("sample", "Mic", true)]));
+        GetCursorPos(out var cursor);
+        var log = new List<string>();
+        try
+        {
+            await recorder.RefreshDevices(); recorder.Show();
+            await TestApp.Until(() => recorder.IsUserVisible, "Recorder did not appear.");
+            recorder.AppWindow.Move(new Windows.Graphics.PointInt32(300, 300)); await Task.Delay(1200);
+            var row = (Grid)Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(TestApp.Field<Button>(recorder, "optionsChip"));
+            var hide = row.Children.OfType<Button>().ElementAt(3);
+            var inside = false; hide.PointerEntered += (_, _) => inside = true; hide.PointerExited += (_, _) => inside = false;
+            var clicks = 0; hide.Click += (_, _) => clicks++;
+            var scale = recorder.Content.XamlRoot.RasterizationScale;
+            var origin = hide.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point()); var client = ClientOrigin(recorder);
+            int left = client.X + (int)Math.Round(origin.X * scale), top = client.Y + (int)Math.Round(origin.Y * scale);
+            int width = (int)Math.Round(hide.ActualWidth * scale), height = (int)Math.Round(hide.ActualHeight * scale);
+            var under = WindowFromPoint(new Point { X = left + width / 2, Y = top + height / 2 });
+            if (GetAncestor(under, 2) != WinRT.Interop.WindowNative.GetWindowHandle(recorder)) throw new Exception("Probe recorder is not under the cursor target; aborting real input.");
+            async Task At(string label, int x, int y)
+            {
+                Move(x, y); await Task.Delay(160);
+                log.Add($"{label} ({x - left},{y - top}) hover={inside}");
+            }
+            var sweepX = new List<string>(); var sweepY = new List<string>();
+            for (var dx = -4; dx <= width + 4; dx += 2) { Move(left + dx, top + height / 2); await Task.Delay(70); sweepX.Add($"{dx}:{(inside ? 1 : 0)}"); }
+            for (var dy = -4; dy <= height + 4; dy += 2) { Move(left + width / 2, top + dy); await Task.Delay(70); sweepY.Add($"{dy}:{(inside ? 1 : 0)}"); }
+            log.Add("x " + string.Join(" ", sweepX)); log.Add("y " + string.Join(" ", sweepY));
+            var nc = new List<string>();
+            EnumChildWindows(WinRT.Interop.WindowNative.GetWindowHandle(recorder), (child, _) => { GetWindowRect(child, out var r); nc.Add(ClassOf(child) + $" [{r.Left - client.X},{r.Top - client.Y},{r.Right - client.X},{r.Bottom - client.Y}]"); return true; }, 0);
+            log.Add("children " + string.Join(" | ", nc)); log.Add($"button client px ({left - client.X},{top - client.Y}) {width}x{height}");
+            Console.WriteLine($"button {width}x{height} px");
+            foreach (var line in log) Console.WriteLine(line);
+        }
+        finally { SetCursorPos(cursor.X, cursor.Y); recorder.Close(); }
+    }
+    private static void Move(int x, int y)
+    {
+        int left = GetSystemMetrics(76), top = GetSystemMetrics(77), width = GetSystemMetrics(78), height = GetSystemMetrics(79);
+        mouse_event(0x0001 | 0x8000 | 0x4000, (uint)((x - left) * 65535L / (width - 1)), (uint)((y - top) * 65535L / (height - 1)), 0, 0);
+    }
+    [DllImport("user32.dll")] private static extern nint WindowFromPoint(Point point);
+    [DllImport("user32.dll")] private static extern nint GetAncestor(nint window, uint flags);
     private static (int X, int Y) ClientOrigin(Window window)
     {
         var point = new Point();

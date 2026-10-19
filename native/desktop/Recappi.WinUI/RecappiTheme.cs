@@ -577,12 +577,14 @@ internal static class Squircles
                     if (host.ActualWidth <= 0 || host.ActualHeight <= 0) return;
                     var radius = owner is Control { CornerRadius: var corner } ? corner.TopLeft : 6;
                     // The path sits in a Canvas so its size never feeds back into the control's layout;
-                    // the template's plain rounded background is hidden once the path takes over.
+                    // the template's plain rounded background is hidden once the path takes over. The
+                    // hidden background stays transparent, not null: the path's Canvas is not hit-testable,
+                    // so a null background left only the glyph or label clickable.
                     shape.Width = host.ActualWidth; shape.Height = host.ActualHeight;
                     shape.Data = Geometry(host.ActualWidth - 1, host.ActualHeight - 1, Math.Max(0, radius - 0.5));
                     Canvas.SetLeft(shape, 0.5); Canvas.SetTop(shape, 0.5);
                     shape.Visibility = Visibility.Visible;
-                    if (host is Panel panel) panel.Background = null;
+                    if (host is Panel panel) panel.Background = HitTarget;
                     if (host is Grid grid) grid.BorderThickness = new Thickness(0);
                 }
                 host.SizeChanged += (_, _) => Size();
@@ -604,4 +606,5 @@ internal static class Squircles
         return grid;
     }
     public static Path ShapeOf(Grid surface) => (Path)surface.Tag;
+    private static readonly SolidColorBrush HitTarget = new(Microsoft.UI.Colors.Transparent);
 }

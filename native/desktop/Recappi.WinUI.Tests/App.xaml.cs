@@ -82,6 +82,10 @@ public partial class TestApp : Application
         {
             await InputCalibrationPreview.Run(root); keeper.Close(); Exit(); return;
         }
+        if (commandLine.Contains("--probe-recorder-hover"))
+        {
+            await RecorderInputProbe.Hover(root); keeper.Close(); Exit(); return;
+        }
         if (commandLine.Contains("--probe-recorder-input"))
         {
             await RecorderInputProbe.Run(root); keeper.Close(); Exit(); return;
@@ -299,11 +303,24 @@ public partial class TestApp : Application
         var report = new List<string>(); var problems = new List<string>();
         void Audit(string window, UIElement content)
         {
-            foreach (var button in Descendants<Microsoft.UI.Xaml.Controls.Primitives.ButtonBase>(content).Where(x => x.ActualWidth > 0 && x.Visibility == Visibility.Visible))
+            static bool Shown(DependencyObject element)
+            {
+                for (var node = element; node is not null; node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node))
+                    if (node is UIElement { Visibility: Visibility.Collapsed }) return false;
+                return true;
+            }
+            foreach (var button in Descendants<Microsoft.UI.Xaml.Controls.Primitives.ButtonBase>(content).Where(x => x.ActualWidth > 0 && Shown(x)))
             {
                 var name = Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(button);
                 var iconOnly = button.Content is IconElement or Microsoft.UI.Xaml.Shapes.Shape or Border { Child: null } or Grid { Children.Count: <= 2 } && button.Content is not FrameworkElement { ActualWidth: > 40 };
                 report.Add($"{window} {name} {button.GetType().Name} {button.ActualWidth:0.#}x{button.ActualHeight:0.#} iconOnly={iconOnly}");
+                // The whole button is hit-testable, not just its glyph or label.
+                if (button is not Microsoft.UI.Xaml.Controls.Primitives.RepeatButton && button.ActualWidth > 8 && button.ActualHeight > 8)
+                    foreach (var probe in new[] { new Windows.Foundation.Point(3, button.ActualHeight / 2), new Windows.Foundation.Point(button.ActualWidth / 2, 3), new Windows.Foundation.Point(button.ActualWidth - 3, button.ActualHeight / 2) })
+                    {
+                        var at = button.TransformToVisual(null).TransformPoint(probe);
+                        if (!Microsoft.UI.Xaml.Media.VisualTreeHelper.FindElementsInHostCoordinates(at, content).Contains(button)) { problems.Add($"{window} {name} not hit-testable at {probe}"); break; }
+                    }
                 // Floating panels have no scroll bar strip over their controls.
                 if (button is Microsoft.UI.Xaml.Controls.Primitives.RepeatButton && window.StartsWith("recorder") | window == "captions") problems.Add($"{window} scroll bar {name}");
                 if (iconOnly && (Math.Abs(button.ActualWidth - button.ActualHeight) > 1 || Math.Min(button.ActualWidth, button.ActualHeight) < 22))
@@ -322,7 +339,7 @@ public partial class TestApp : Application
         }
         finally { recorder.Close(); }
         var caption = new CaptionWindow(() => Task.CompletedTask); caption.Show();
-        try { await Task.Delay(400); Field<Border>(caption, "chrome").Opacity = 1; Audit("captions", caption.Content); }
+        try { await Task.Delay(400); var chrome = Field<Border>(caption, "chrome"); chrome.Opacity = 1; chrome.IsHitTestVisible = true; await Task.Delay(100); Audit("captions", caption.Content); }
         finally { caption.Close(); }
         var library = new LibraryWindow(host); library.Show();
         try { await library.Refresh(); await Task.Delay(500); Audit("library", library.Content); }
