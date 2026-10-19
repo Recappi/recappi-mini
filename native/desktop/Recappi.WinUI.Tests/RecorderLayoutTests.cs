@@ -28,12 +28,14 @@ public partial class TestApp
                 position = new { window.AppWindow.Position.X, window.AppWindow.Position.Y },
                 size = new { window.AppWindow.Size.Width, window.AppWindow.Size.Height }
             }));
-            Check(window.AppWindow.ClientSize.Height / scale - rowBottom <= 14,
+            // The pill window carries a transparent shadow margin around the visible surface.
+            Check(window.AppWindow.ClientSize.Height / scale - window.ChromeMargin - rowBottom <= 14,
                 "Idle recorder has excess blank space below its controls.");
             var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(window.AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Primary).WorkArea;
             var initialPosition = window.AppWindow.Position;
-            Check(Math.Abs(initialPosition.Y - area.Y - 16 * scale) <= 1 &&
-                Math.Abs(area.X + area.Width - initialPosition.X - window.AppWindow.Size.Width - 16 * scale) <= 1,
+            var inset = (16 - window.ChromeMargin) * scale;
+            Check(Math.Abs(initialPosition.Y - area.Y - inset) <= 1 &&
+                Math.Abs(area.X + area.Width - initialPosition.X - window.AppWindow.Size.Width - inset) <= 1,
                 "Recorder did not default to the top-right work-area corner with a 16-point inset.");
             var idleHeight = window.AppWindow.ClientSize.Height;
             Click(Field<Button>(window, "start"));

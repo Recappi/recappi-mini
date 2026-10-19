@@ -46,6 +46,10 @@ internal static class RecappiTheme
         // Recorder glass: a light legibility fill over acrylic, as on macOS.
         ("RecappiGlassFill", 0x29FFFFFF, 0x47000000),
         ("RecappiGlassEdge", 0xFFDADADD, 0xFF3F3F42),
+        // Self-drawn recorder pill (macOS glass approximated without blur).
+        ("RecappiPillFill", 0xF5EDEDEF, 0xF51E1E20),
+        ("RecappiPillStroke", 0x1A000000, 0x24FFFFFF),
+        ("RecappiTransparent", 0x00000000, 0x00000000),
         // Live captions: a fixed dark subtitle scrim and white text in both themes.
         ("RecappiCaptionScrim", 0xB3585858, 0xB0101010),
         ("RecappiCaptionText", 0xF5FFFFFF, 0xF5FFFFFF),
@@ -111,7 +115,9 @@ internal static class RecappiTheme
     }
     public static List<Windows.Foundation.Point> Squircle(double width, double height, double radius)
     {
-        var r = Math.Clamp(radius, 0, Math.Min(width, height) / 2);
+        // A macOS continuous corner of radius r starts curving about 1.528r from the corner;
+        // the superellipse quadrant spans its full extent, so scale the extent to match.
+        var r = Math.Clamp(radius * 1.528, 0, Math.Min(width, height) / 2);
         const double exponent = 5.6, steps = 16;
         var power = 2 / exponent; var points = new List<Windows.Foundation.Point> { new(r, 0), new(width - r, 0) };
         void Corner(double cx, double cy, double start)
@@ -597,4 +603,29 @@ internal static class Squircles
         return grid;
     }
     public static Path ShapeOf(Grid surface) => (Path)surface.Tag;
+}
+
+// A fully transparent window backdrop so the app can draw a non-rectangular surface.
+internal sealed class TransparentBackdrop : Microsoft.UI.Xaml.Media.SystemBackdrop
+{
+    private static Windows.UI.Composition.Compositor? compositor;
+    private static object? queueController;
+    protected override void OnTargetConnected(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop connectedTarget, XamlRoot xamlRoot)
+    {
+        base.OnTargetConnected(connectedTarget, xamlRoot);
+        // System composition needs a Windows.System dispatcher queue on this thread.
+        if (Windows.System.DispatcherQueue.GetForCurrentThread() is null && queueController is null)
+        {
+            var options = new QueueOptions { Size = System.Runtime.InteropServices.Marshal.SizeOf<QueueOptions>(), ThreadType = 2, ApartmentType = 0 };
+            if (CreateDispatcherQueueController(options, out var controller) == 0) queueController = WinRT.MarshalInterface<object>.FromAbi(controller);
+        }
+        compositor ??= new Windows.UI.Composition.Compositor();
+        connectedTarget.SystemBackdrop = compositor.CreateColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+    }
+    // A transparent brush has nothing to adapt to theme or activation changes; the base
+    // implementation rejects targets it did not configure itself.
+    protected override void OnDefaultSystemBackdropConfigurationChanged(Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop target, XamlRoot xamlRoot) { }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct QueueOptions { public int Size; public int ThreadType; public int ApartmentType; }
+    [System.Runtime.InteropServices.DllImport("CoreMessaging.dll")] private static extern int CreateDispatcherQueueController(QueueOptions options, out nint controller);
 }

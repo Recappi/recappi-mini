@@ -71,6 +71,7 @@ internal class DesktopWindow : Window
     protected void ResizeLogical(int width, int height) => AppWindow.Resize(new SizeInt32((int)(width * Scale), (int)(height * Scale)));
     protected void PlaceAtTopRight(double margin = 16)
     {
+        margin -= ChromeMargin; // The visible pill keeps the requested inset.
         var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var inset = (int)Math.Round(margin * Scale);
         AppWindow.Move(new PointInt32(Math.Max(area.X, area.X + area.Width - AppWindow.Size.Width - inset), area.Y + inset));
@@ -224,14 +225,24 @@ internal class DesktopWindow : Window
         return frame;
     }
     [DllImport("dwmapi.dll")] private static extern int DwmFlush();
-    protected void CompactChrome(string moveLabel, int maximumHeight = 420, string surfaceBrush = "ApplicationPageBackgroundThemeBrush", bool glass = false, int minimumHeight = 50, bool directCaption = false)
+    // Transparent margin around a self-drawn pill, holding its shadow.
+    public double ChromeMargin { get; private set; }
+    protected void CompactChrome(string moveLabel, int maximumHeight = 420, string surfaceBrush = "ApplicationPageBackgroundThemeBrush", bool glass = false, int minimumHeight = 50, bool directCaption = false, bool pill = false)
     {
         retainSurface = true; floating = true;
         // Floating caption panels use an opaque surface for legibility over other apps;
-        // the recorder pill uses always-active acrylic glass like the macOS panel.
+        // the caption strip uses always-active acrylic glass. The recorder pill is drawn by
+        // the app as a 14pt squircle on a transparent window (no system blur can follow that shape).
         SystemBackdrop = null;
-        if (glass && !EnableGlass()) { glass = false; surfaceBrush = "RecappiSurfacePanel"; }
-        if (glass) surfaceBrush = "RecappiGlassFill";
+        if (pill)
+        {
+            glass = true; directCaption = true; ChromeMargin = 12;
+            SystemBackdrop = new TransparentBackdrop();
+            RemoveFrame();
+            surfaceBrush = "RecappiTransparent";
+        }
+        else if (glass && !EnableGlass()) { glass = false; surfaceBrush = "RecappiSurfacePanel"; }
+        else if (glass) surfaceBrush = "RecappiGlassFill";
         // Direct caption: no WinUI title bar handling (it reserves a 1px top strip that showed as a
         // light line); drag and passthrough regions are set on the non-client source directly.
         ExtendsContentIntoTitleBar = !directCaption;
@@ -242,8 +253,10 @@ internal class DesktopWindow : Window
             presenter.SetBorderAndTitleBar(true, false); presenter.IsMaximizable = false; presenter.IsAlwaysOnTop = true;
             presenter.PreferredMinimumHeight = (int)Math.Ceiling(Math.Min(44, minimumHeight) * Scale);
         }
-        // Windows 11 rounds and shadows the floating frame; earlier versions ignore it.
-        var corner = 2u; _ = DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(this), 33, ref corner, sizeof(uint));
+        // Windows 11 rounds and shadows the floating frame; earlier versions ignore it. The self-drawn
+        // pill opts out (DWMWCP_DONOTROUND) so no rectangular system shadow or border surrounds it.
+        var corner = pill ? 1u : 2u; _ = DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(this), 33, ref corner, sizeof(uint));
+        if (pill) { var none = 0xFFFFFFFEu; _ = DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(this), 34, ref none, sizeof(uint)); }
         var scroll = (ScrollViewer)Content;
         scroll.VerticalContentAlignment = VerticalAlignment.Top; scroll.Background = null;
         Content = null;
@@ -277,6 +290,19 @@ internal class DesktopWindow : Window
         var border = (Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Border xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Background='{ThemeResource " + surfaceBrush + "}'/>");
         border.Child = layout;
         var frame = (Grid)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Grid xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Background='{ThemeResource " + surfaceBrush + "}'/>");
+        if (pill)
+        {
+            // Shadow caster (rounded rect) under the squircle body; both inside the transparent margin.
+            frame.Padding = new Thickness(ChromeMargin);
+            var caster = new Border { CornerRadius = new CornerRadius(16), Margin = new Thickness(1), Translation = new System.Numerics.Vector3(0, 0, 18), Shadow = new Microsoft.UI.Xaml.Media.ThemeShadow() };
+            RecappiTheme.Bind(caster, "RecappiPillFill", brush => caster.Background = brush);
+            var body = Squircles.Surface(new Grid(), 14, new Thickness(0));
+            var shape = Squircles.ShapeOf(body); shape.StrokeThickness = 1;
+            RecappiTheme.Bind(body, "RecappiPillFill", brush => shape.Fill = brush);
+            RecappiTheme.Bind(body, "RecappiPillStroke", brush => shape.Stroke = brush);
+            frame.Children.Add(caster); frame.Children.Add(body);
+            pillSurface = body;
+        }
         frame.Children.Add(border); Content = frame;
         // Let Windows own drag hit testing instead of starting a nested move loop
         // from a XAML pointer event, which can arrive after the release event.
@@ -287,8 +313,11 @@ internal class DesktopWindow : Window
             Body.LayoutUpdated += (_, _) => UpdatePassthrough(frame);
             // The zero-width move target keeps arrow-key moving without drawing an outline;
             // a programmatic first focus was being reported as keyboard focus and rimmed the pill in green.
-            border.ActualThemeChanged += (_, _) => UpdateGlass(border);
-            border.Loaded += (_, _) => UpdateGlass(border);
+            if (!pill)
+            {
+                border.ActualThemeChanged += (_, _) => UpdateGlass(border);
+                border.Loaded += (_, _) => UpdateGlass(border);
+            }
         }
         else
         {
@@ -302,14 +331,14 @@ internal class DesktopWindow : Window
         Body.LayoutUpdated += (_, _) =>
         {
             if (dialogOpen || closed || resizeQueued) return;
-            var desiredHeight = (int)Math.Ceiling(Math.Clamp(Body.DesiredSize.Height, minimumHeight, maximumHeight) * Scale);
+            var desiredHeight = (int)Math.Ceiling((Math.Clamp(Body.DesiredSize.Height, minimumHeight, maximumHeight) + ChromeMargin * 2) * Scale);
             if (Math.Abs(AppWindow.ClientSize.Height - desiredHeight) <= 1) return;
             resizeQueued = true;
             DispatcherQueue.TryEnqueue(() =>
             {
                 resizeQueued = false;
                 if (dialogOpen || closed) return;
-                var height = (int)Math.Ceiling(Math.Clamp(Body.DesiredSize.Height, minimumHeight, maximumHeight) * Scale);
+                var height = (int)Math.Ceiling((Math.Clamp(Body.DesiredSize.Height, minimumHeight, maximumHeight) + ChromeMargin * 2) * Scale);
                 if (Math.Abs(AppWindow.ClientSize.Height - height) > 1)
                 {
                     // ResizeClient overestimates the non-client height with
@@ -335,6 +364,19 @@ internal class DesktopWindow : Window
     private Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController? acrylic;
     private Microsoft.UI.Composition.SystemBackdrops.SystemBackdropConfiguration? backdrop;
     private Windows.Graphics.RectInt32[] passthrough = [];
+    private Grid? pillSurface;
+    // Remove the non-client frame entirely (WM_NCCALCSIZE returns the whole window as client).
+    private void RemoveFrame()
+    {
+        if (frameProc is not null) return;
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        frameProc = (window, message, wParam, lParam, _, _) => message == 0x0083 && wParam != 0 ? 0 : DefSubclassProc(window, message, wParam, lParam);
+        if (SetWindowSubclass(handle, frameProc, 2, 0))
+        {
+            Closed += (_, _) => RemoveWindowSubclass(handle, frameProc, 2);
+            _ = SetWindowPos(handle, 0, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010);
+        }
+    }
     private bool EnableGlass()
     {
         if (!Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported()) return false;
@@ -346,13 +388,7 @@ internal class DesktopWindow : Window
         Closed += (_, _) => { acrylic?.Dispose(); acrylic = null; };
         // Make the whole window client area so no thin system frame rims the glass;
         // DWM keeps the rounded corners and shadow.
-        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        frameProc = (window, message, wParam, lParam, _, _) => message == 0x0083 && wParam != 0 ? 0 : DefSubclassProc(window, message, wParam, lParam);
-        if (SetWindowSubclass(handle, frameProc, 2, 0))
-        {
-            Closed += (_, _) => RemoveWindowSubclass(handle, frameProc, 2);
-            _ = SetWindowPos(handle, 0, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010);
-        }
+        RemoveFrame();
         return true;
     }
     private delegate nint FrameProc(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint data);
@@ -404,7 +440,8 @@ internal class DesktopWindow : Window
         if (!ExtendsContentIntoTitleBar)
         {
             // Without SetTitleBar the whole surface is the caption (drag) region; controls punch through.
-            source.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Caption, [new((int)0, 0, (int)Math.Ceiling(root.ActualWidth * scale), (int)Math.Ceiling(root.ActualHeight * scale))]);
+            var inset = ChromeMargin;
+            source.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Caption, [new((int)Math.Floor(inset * scale), (int)Math.Floor(inset * scale), (int)Math.Ceiling((root.ActualWidth - inset * 2) * scale), (int)Math.Ceiling((root.ActualHeight - inset * 2) * scale))]);
         }
         source.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough, passthrough);
     }
