@@ -395,7 +395,9 @@ internal class DesktopWindow : Window
         var transparent = false;
         passThroughTimer.Tick += (_, _) =>
         {
-            if (closed || !GetCursorPos(out var point)) return;
+            if (closed) return;
+            KeepTopmost();
+            if (!GetCursorPos(out var point)) return;
             var position = AppWindow.Position; var size = AppWindow.Size; var inset = (int)Math.Round(ChromeMargin * Scale);
             var inWindow = point.X >= position.X && point.X < position.X + size.Width && point.Y >= position.Y && point.Y < position.Y + size.Height;
             var inPill = point.X >= position.X + inset && point.X < position.X + size.Width - inset && point.Y >= position.Y + inset && point.Y < position.Y + size.Height - inset;
@@ -413,6 +415,13 @@ internal class DesktopWindow : Window
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         _ = DwmExtendFrameIntoClientArea(handle, [-1, -1, -1, -1]);
         _ = InvalidateRect(handle, 0, true);
+        KeepTopmost();
+    }
+    // The carrier's popup restyle drops the presenter's always-on-top band; assert it on the window itself.
+    private void KeepTopmost()
+    {
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        if ((GetWindowLongPtr(handle, -20) & 0x00000008) == 0) _ = SetWindowPos(handle, -1, 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0010);
     }
     // Remove the non-client frame entirely (WM_NCCALCSIZE returns the whole window as client).
     private void RemoveFrame(bool eraseToBlack = false)

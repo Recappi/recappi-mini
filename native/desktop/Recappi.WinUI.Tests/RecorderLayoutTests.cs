@@ -28,6 +28,11 @@ public partial class TestApp
                 position = new { window.AppWindow.Position.X, window.AppWindow.Position.Y },
                 size = new { window.AppWindow.Size.Width, window.AppWindow.Size.Height }
             }));
+            // The transparent carrier restyles the window; it must stay above other apps.
+            Check((RecorderLayoutExStyle(WinRT.Interop.WindowNative.GetWindowHandle(window), -20) & 0x8) != 0, "Recorder is not topmost.");
+            // Whatever drops the band later (seen in the running app), the recorder takes it back.
+            _ = RecorderLayoutLower(WinRT.Interop.WindowNative.GetWindowHandle(window), -2, 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0010);
+            await Until(() => (RecorderLayoutExStyle(WinRT.Interop.WindowNative.GetWindowHandle(window), -20) & 0x8) != 0, "Recorder did not restore topmost.");
             // The pill window carries a transparent shadow margin around the visible surface.
             Check(window.AppWindow.ClientSize.Height / scale - window.ChromeMargin - rowBottom <= 14,
                 "Idle recorder has excess blank space below its controls.");
@@ -53,9 +58,15 @@ public partial class TestApp
             window.AppWindow.Move(moved); window.Hide(); window.Show();
             Check(window.AppWindow.Position.X == moved.X && window.AppWindow.Position.Y == moved.Y,
                 "Restoring reset the user's chosen position to the default corner.");
+            await Task.Delay(300);
+            Check((RecorderLayoutExStyle(WinRT.Interop.WindowNative.GetWindowHandle(window), -20) & 0x8) != 0, "Recorder is not topmost after hide and restore.");
         }
         finally { window.Close(); }
     }
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetDpiForWindow")]
     private static extern uint RecorderLayoutDpi(nint window);
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern nint RecorderLayoutExStyle(nint window, int index);
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SetWindowPos")]
+    private static extern bool RecorderLayoutLower(nint window, nint after, int x, int y, int width, int height, uint flags);
 }
