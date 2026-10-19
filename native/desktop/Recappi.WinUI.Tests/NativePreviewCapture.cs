@@ -264,7 +264,10 @@ internal static class NativePreviewCapture
     }
     public static async Task Auxiliary(string root)
     {
-        await using var host = new TestHost(Path.Combine(root, "auxiliary-preview"));
+        await using var host = new TestHost(Path.Combine(root, "auxiliary-preview"), (request, token) =>
+            request.RequestUri!.AbsolutePath == "/api/billing/status"
+                ? Task.FromResult(TestHost.Json("""{"tier":"pro","storageBytes":1288490188,"storageCapBytes":10737418240,"minutesUsed":312.5,"minutesCap":1200,"isOverStorage":false,"isOverMinutes":false,"periodEnd":"2026-11-01T00:00:00Z"}"""))
+                : TestHost.DefaultResponse(request, token));
         var settings = new SettingsWindow(host, false);
         try
         {
@@ -289,6 +292,7 @@ internal static class NativePreviewCapture
             account.ApplyTheme("light"); await Stage(root, "account-signedout-light", account);
             account.ApplyTheme("dark"); await Stage(root, "account-signedout-dark", account);
             await host.SignIn();
+            await Task.Delay(800); // Usage loads by itself once connected.
             account.ApplyTheme("light"); await Stage(root, "account-connected-light", account);
             account.ApplyTheme("dark"); await Stage(root, "account-connected-dark", account);
         }

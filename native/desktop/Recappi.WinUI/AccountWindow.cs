@@ -19,6 +19,11 @@ internal sealed class AccountWindow : DesktopWindow
     private readonly Button refresh;
     private readonly Button signOut;
     private readonly StackPanel usagePanel = new() { Spacing = 12 };
+    private readonly TextBlock tier = new() { Text = "—" };
+    private readonly TextBlock resets = new();
+    private readonly Meter minutesMeter = new("转写时长");
+    private readonly Meter storageMeter = new("云端存储");
+    private string? usageFor;
     private readonly Grid usageSurface;
     private Uri? verification;
     private bool closed;
@@ -51,21 +56,27 @@ internal sealed class AccountWindow : DesktopWindow
         signOut = Ui.Button("退出账号", () => app.Account.SignOutAsync(), this);
         accountPanel.Children.Add(Ui.Row(connect, verify, cancelLogin, refresh, signOut));
         Body.Children.Add(Ui.Surface(accountPanel, new Thickness(20)));
-        usagePanel.Children.Add(new TextBlock { Text = "用量与套餐", Style = RecappiTheme.Style("RecappiSectionTitle") });
-        billing.Style = RecappiTheme.Style("RecappiBody"); billing.FontSize = 13.5; usagePanel.Children.Add(billing);
-        var refreshUsage = Ui.Button("刷新用量", async () =>
-        {
-            var account = RequireAccount(); using var client = app.Account.Client(account);
-            var usage = await client.BillingStatusAsync();
-            if (!IsCurrent(account)) return;
-            billing.Text = $"套餐：{usage.Tier}\n存储：{usage.StorageBytes / 1048576d:F1} MB / {(usage.UnlimitedStorage ? "不限量" : $"{usage.StorageCapBytes / 1048576d:F1} MB")}\n转写：{usage.MinutesUsed:F1} 分钟 / {(usage.UnlimitedMinutes ? "不限量" : $"{usage.MinutesCap:F1} 分钟")}";
-        }, this);
+        // Usage loads by itself whenever the account is connected (macOS shows it on open): the plan as a
+        // badge, a meter for each allowance, and when it resets. Manage plan opens the billing portal.
+        var usageHeader = new Grid();
+        usageHeader.ColumnDefinitions.Add(new ColumnDefinition()); usageHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        usageHeader.Children.Add(new TextBlock { Text = "用量与套餐", Style = RecappiTheme.Style("RecappiSectionTitle"), VerticalAlignment = VerticalAlignment.Center });
+        tier.Style = RecappiTheme.Style("RecappiStatusAccent"); tier.FontSize = 11.5;
+        var tierChip = new Border { Child = tier, Padding = new Thickness(9, 3, 9, 3), CornerRadius = new CornerRadius(10), VerticalAlignment = VerticalAlignment.Center };
+        RecappiTheme.Bind(tierChip, "RecappiAccentChipFill", brush => tierChip.Background = brush);
+        Grid.SetColumn(tierChip, 1); usageHeader.Children.Add(tierChip);
+        usagePanel.Children.Add(usageHeader);
+        billing.Style = RecappiTheme.Style("RecappiBodySecondary"); billing.FontSize = 12.5; billing.TextWrapping = TextWrapping.Wrap;
+        usagePanel.Children.Add(billing);
+        usagePanel.Children.Add(minutesMeter.Root); usagePanel.Children.Add(storageMeter.Root);
+        resets.Style = RecappiTheme.Style("RecappiCaption"); resets.FontSize = 11.5;
+        usagePanel.Children.Add(resets);
         var managePlan = Ui.Button("管理套餐", async () =>
         {
             var account = RequireAccount(); using var client = app.Account.Client(account);
             var uri = await client.BillingPortalAsync(); if (IsCurrent(account)) Open(uri);
         }, this);
-        usagePanel.Children.Add(Ui.Row(refreshUsage, managePlan));
+        usagePanel.Children.Add(Ui.Row(managePlan));
         usageSurface = Ui.Surface(usagePanel, new Thickness(20)); Body.Children.Add(usageSurface);
         var page = (ScrollViewer)Content;
         Content = PageFrame(page, "账号");
@@ -76,7 +87,53 @@ internal sealed class AccountWindow : DesktopWindow
     }
     private CloudAccount RequireAccount() => app.Account.Snapshot is { State: AccountState.SignedIn, Account: { } account } ? account : throw new InvalidOperationException("请先连接账号。");
     private bool IsCurrent(CloudAccount account) => !closed && app.Account.Snapshot is { State: AccountState.SignedIn, Account: { } current } && current.Partition == account.Partition && current.Token == account.Token;
-    private void Changed(AccountSnapshot _) => UiDispatcher.TryEnqueue(() => { if (!closed) { billing.Text = ""; Render(); } });
+    private void Changed(AccountSnapshot _) => UiDispatcher.TryEnqueue(() => { if (!closed) Render(); });
+    // One label, a thin bar and "used / allowance" on the right.
+    private sealed class Meter
+    {
+        public readonly StackPanel Root = new() { Spacing = 5 };
+        private readonly TextBlock value = new() { FontSize = 12, HorizontalAlignment = HorizontalAlignment.Right };
+        private readonly ProgressBar bar = new() { Minimum = 0, Maximum = 100, Height = 4, MinHeight = 4, CornerRadius = new CornerRadius(2) };
+        public Meter(string label)
+        {
+            var row = new Grid(); row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.Children.Add(new TextBlock { Text = label, FontSize = 13, Style = RecappiTheme.Style("RecappiBody") });
+            value.Style = RecappiTheme.Style("RecappiBodySecondary"); Grid.SetColumn(value, 1); row.Children.Add(value);
+            Root.Children.Add(row); Root.Children.Add(bar);
+        }
+        public void Set(string text, double percent, bool unlimited, bool over)
+        {
+            value.Text = text; bar.Value = percent; bar.Visibility = unlimited ? Visibility.Collapsed : Visibility.Visible;
+            bar.Foreground = RecappiTheme.Brush(over ? "RecappiDanger" : "RecappiAccent", bar.ActualTheme);
+        }
+    }
+    private async Task LoadUsage()
+    {
+        if (app.Account.Snapshot is not { State: AccountState.SignedIn, Account: { } account } || usageFor == account.Token) return;
+        usageFor = account.Token;
+        billing.Text = "正在读取用量…"; billing.Visibility = Visibility.Visible;
+        minutesMeter.Root.Visibility = storageMeter.Root.Visibility = resets.Visibility = Visibility.Collapsed;
+        try
+        {
+            using var client = app.Account.Client(account);
+            var usage = await client.BillingStatusAsync();
+            if (!IsCurrent(account)) return;
+            tier.Text = usage.Tier switch { "free" => "免费版", "pro" => "专业版", "unlimited" => "不限量", var other => other };
+            static string Size(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.#} GB" : $"{bytes / 1048576d:0.#} MB";
+            minutesMeter.Set($"{usage.MinutesUsed:0.#} / {(usage.UnlimitedMinutes ? "不限" : $"{usage.MinutesCap:0.#}")} 分钟", usage.MinutesPercent, usage.UnlimitedMinutes, !usage.UnlimitedMinutes && usage.IsOverMinutes);
+            storageMeter.Set($"{Size(usage.StorageBytes)} / {(usage.UnlimitedStorage ? "不限" : Size(usage.StorageCapBytes))}", usage.StoragePercent, usage.UnlimitedStorage, !usage.UnlimitedStorage && usage.IsOverStorage);
+            resets.Text = usage.PeriodEnd is { } end ? $"额度将于 {end.ToLocalTime():M月d日} 重置" : "";
+            billing.Text = usage.OverLimit ? "已超出套餐额度，新的录音将无法上传处理。" : "";
+            billing.Visibility = billing.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+            minutesMeter.Root.Visibility = storageMeter.Root.Visibility = Visibility.Visible;
+            resets.Visibility = resets.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        }
+        catch (Exception) when (!closed)
+        {
+            usageFor = null;
+            billing.Text = "暂时无法读取用量，稍后重新打开账号窗口再试。";
+        }
+    }
     private void Render()
     {
         var value = app.Account.Snapshot;
@@ -94,6 +151,7 @@ internal sealed class AccountWindow : DesktopWindow
         refresh.Visibility = signOut.Visibility = value.Account is not null && !signingIn ? Visibility.Visible : Visibility.Collapsed;
         refresh.IsEnabled = signOut.IsEnabled = value.State != AccountState.Checking;
         usageSurface.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
+        if (connected) _ = LoadUsage(); else usageFor = null;
     }
     private static void Open(Uri uri) => Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
 }
