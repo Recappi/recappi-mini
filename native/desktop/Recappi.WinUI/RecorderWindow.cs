@@ -129,7 +129,6 @@ internal sealed class RecorderWindow : DesktopWindow
         optionsChip = Action("录音选项", optionsContent, "RecappiChipButton", () => Task.CompletedTask, "录音选项：麦克风、字幕、标题与语言");
         optionsChip.Padding = new Thickness(9, 0, 8, 0); optionsChip.Flyout = options;
         var hideIdle = Action("隐藏", RecappiTheme.Glyph("", 11), "RecappiIconButton", () => { options.Hide(); Hide(); return Task.CompletedTask; }, "隐藏面板");
-        hideIdle.Width = 24;
         var startContent = new Grid();
         startContent.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 10, Height = 10, Fill = startProgress.Foreground });
         startContent.Children.Add(startProgress);
@@ -144,7 +143,6 @@ internal sealed class RecorderWindow : DesktopWindow
         viewContent.Children.Add(RecappiTheme.Glyph("", 9));
         var view = Action("查看录音", viewContent, "RecappiAccentChipButton", () => { if (app.Engine.Snapshot.Recording is { } recording) { app.ShowRecording(recording.Id); Hide(); } return Task.CompletedTask; });
         var hideDone = Action("隐藏", RecappiTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板");
-        hideDone.Width = 24;
         savedIcon.Margin = new Thickness(2, 0, 0, 0); savedIcon.VerticalAlignment = VerticalAlignment.Center;
         savedStatus.TextTrimming = TextTrimming.CharacterEllipsis; savedStatus.FontSize = 11.5; savedStatus.FontWeight = Microsoft.UI.Text.FontWeights.Medium;
         savedDuration.FontSize = 11;
@@ -161,7 +159,8 @@ internal sealed class RecorderWindow : DesktopWindow
         recordingDot = dot; recordingPulse = RecappiTheme.Pulse(dot);
         var captionButton = Action("字幕", RecappiTheme.Glyph("\uED1E", 12), "RecappiIconButton", () => { app.ShowCaptions(); return Task.CompletedTask; }, "显示实时字幕");
         var hideRecording = Action("隐藏", RecappiTheme.Glyph("", 10), "RecappiIconButton", () => { Hide(); return Task.CompletedTask; }, "隐藏面板 · 录音在后台继续");
-        captionButton.Width = captionButton.Height = hideRecording.Width = hideRecording.Height = 18;
+        // Square hit and hover areas centred on the glyph; the larger target overhangs the 18pt header.
+        foreach (var small in new[] { captionButton, hideRecording }) { small.Width = small.Height = 22; small.Margin = new Thickness(0, -2, 0, -2); small.CornerRadius = new CornerRadius(6); }
         ((FontIcon)captionButton.Content).FontSize = 10.5; ((FontIcon)hideRecording.Content).FontSize = 9;
         elapsed.FontSize = 11; elapsed.FontWeight = Microsoft.UI.Text.FontWeights.Medium;
         state.FontSize = 11; state.FontWeight = Microsoft.UI.Text.FontWeights.Medium; activeSource.FontSize = 11;

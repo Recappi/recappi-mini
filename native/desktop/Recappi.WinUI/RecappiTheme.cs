@@ -204,7 +204,7 @@ internal static class RecappiTheme
 
     private static readonly string Styles =
         ButtonStyle("RecappiIconButton", "Button",
-            "<Setter Property='Foreground' Value='{ThemeResource RecappiTextSecondary}'/><Setter Property='Width' Value='28'/><Setter Property='Height' Value='28'/>",
+            "<Setter Property='Foreground' Value='{ThemeResource RecappiTextSecondary}'/><Setter Property='Width' Value='28'/><Setter Property='Height' Value='28'/><Setter Property='CornerRadius' Value='7'/>",
             "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlHover}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiTextPrimary}'/>",
             "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiTextPrimary}'/>") +
         ButtonStyle("RecappiChipButton", "Button",
