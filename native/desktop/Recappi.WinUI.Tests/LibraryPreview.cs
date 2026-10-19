@@ -76,6 +76,7 @@ internal static class LibraryPreview
             var listViewer = TestApp.Descendants<ScrollViewer>(list).First();
             var listResult = await RecorderInputProbe.Wheel(window, listViewer, list);
             var json = System.Text.Json.JsonSerializer.Serialize(new { summary = result, list = listResult });
+            if (Environment.GetEnvironmentVariable("RECAPPI_PREVIEW_SNAPSHOT") == "1") { viewer.ChangeView(null, 120, null, true); await Task.Delay(400); await NativePreviewCapture.Stage(root, "library-summary-scrolled", window); }
             await File.WriteAllTextAsync(Path.Combine(root, "library-scroll.json"), json); Console.WriteLine(json);
             window.Close(); return;
         }

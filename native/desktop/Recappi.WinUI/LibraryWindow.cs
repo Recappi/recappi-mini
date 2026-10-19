@@ -299,7 +299,26 @@ internal sealed class LibraryWindow : DesktopWindow
         transcriptTools.Children.Add(filter); transcriptTools.Children.Add(speaker); transcriptTools.Children.Add(editSpeaker);
         transcriptLayout.Children.Add(transcriptTools);
         Grid.SetRow(transcript, 1); transcriptLayout.Children.Add(transcript);
-        var sectionHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch, Padding = new Thickness(20, 12, 20, 0) };
+        // Sections scroll right up to the header's hairline and down to the player, softened by short
+        // fades, instead of being clipped inside an inset band (content vanished 12pt below the line).
+        // Their own content carries the breathing room at the ends.
+        var sectionHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch, Padding = new Thickness(20, 0, 20, 0) };
+        transcriptLayout.Margin = new Thickness(0, 12, 0, 0); transcript.Padding = new Thickness(0, 0, 0, 16);
+        askTab.Margin = reviewTab.Margin = new Thickness(0, 12, 0, 0);
+        var sectionArea = new Grid(); sectionArea.Children.Add(sectionHost);
+        foreach (var (edge, height) in new[] { (VerticalAlignment.Top, 14d), (VerticalAlignment.Bottom, 18d) })
+        {
+            var fade = new Border { Height = height, VerticalAlignment = edge, IsHitTestVisible = false };
+            RecappiTheme.Bind(fade, "RecappiSurfaceCard", brush =>
+            {
+                var color = ((Microsoft.UI.Xaml.Media.SolidColorBrush)brush).Color;
+                var gradient = new Microsoft.UI.Xaml.Media.LinearGradientBrush { StartPoint = new(0, edge == VerticalAlignment.Top ? 0 : 1), EndPoint = new(0, edge == VerticalAlignment.Top ? 1 : 0) };
+                gradient.GradientStops.Add(new Microsoft.UI.Xaml.Media.GradientStop { Color = color, Offset = 0 });
+                gradient.GradientStops.Add(new Microsoft.UI.Xaml.Media.GradientStop { Color = Windows.UI.Color.FromArgb(0, color.R, color.G, color.B), Offset = 1 });
+                fade.Background = gradient;
+            });
+            sectionArea.Children.Add(fade);
+        }
         var summaryScroll = new ScrollViewer { Content = summary, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         // Cards fill the column up to the macOS 760pt reading width.
         summaryScroll.SizeChanged += (_, e) => summary.Width = Math.Max(0, Math.Min(760, e.NewSize.Width - 4));
@@ -317,7 +336,7 @@ internal sealed class LibraryWindow : DesktopWindow
         detailLayout.RowSpacing = 0;
         detailLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); detailLayout.RowDefinitions.Add(new RowDefinition());
         detailLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        detailLayout.Children.Add(detailHeader); Grid.SetRow(sectionHost, 1); detailLayout.Children.Add(sectionHost);
+        detailLayout.Children.Add(detailHeader); Grid.SetRow(sectionArea, 1); detailLayout.Children.Add(sectionArea);
         Grid.SetRow(audioBar, 2); detailLayout.Children.Add(audioBar);
         emptyDetail.Spacing = 10;
         var emptyIcon = RecappiTheme.Glyph("", 28); emptyIcon.Style = RecappiTheme.Style("RecappiIconNeutral"); emptyIcon.Opacity = 0.6; emptyIcon.HorizontalAlignment = HorizontalAlignment.Center; emptyDetail.Children.Add(emptyIcon);

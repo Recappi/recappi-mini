@@ -22,7 +22,7 @@ internal sealed class SummaryDocument : UserControl
     {
         Content = cards;
         HorizontalAlignment = HorizontalAlignment.Left;
-        Margin = new Thickness(0, 4, 0, 72);
+        Margin = new Thickness(0, 16, 0, 24); // Room at both ends of the scroll, under the section fades.
     }
     private void Render()
     {
