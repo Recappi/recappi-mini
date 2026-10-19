@@ -31,7 +31,7 @@ internal class DesktopWindow : Window
     {
         Title = title;
         RecappiTheme.Ensure();
-        var page = new ScrollViewer { Content = Body, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var page = new ScrollViewer { Content = Body, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Language = "zh-CN" };
         // Opaque brand surface instead of Mica, matching the macOS window colors.
         RecappiTheme.Bind(page, "RecappiSurfaceWindow", brush => { if (!floating && !framed) page.Background = brush; });
         Content = page;
@@ -269,7 +269,7 @@ internal class DesktopWindow : Window
             toolbar.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(toolbar, 2); strip.Children.Add(toolbar);
             strip.LayoutUpdated += (_, _) => UpdatePassthrough(strip);
         }
-        var frame = new Grid();
+        var frame = new Grid { Language = "zh-CN" }; // Han text falls back to the Chinese face (see RecappiTheme.Ensure).
         frame.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); frame.RowDefinitions.Add(new RowDefinition());
         frame.Children.Add(strip);
         if (content is FrameworkElement element) { Grid.SetRow(element, 1); frame.Children.Add(element); }
@@ -365,7 +365,7 @@ internal class DesktopWindow : Window
             pillSurface = body;
             DragAnywhere(frame);
         }
-        frame.Children.Add(border); Content = frame;
+        frame.Language = "zh-CN"; frame.Children.Add(border); Content = frame;
         // Let Windows own drag hit testing instead of starting a nested move loop
         // from a XAML pointer event, which can arrive after the release event.
         if (glass)

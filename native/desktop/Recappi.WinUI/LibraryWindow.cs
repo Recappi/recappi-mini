@@ -96,6 +96,8 @@ internal sealed class LibraryWindow : DesktopWindow
         // Plain day labels without the default ListView header divider line.
         var groupHeader = (Style)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='ListViewHeaderItem'><Setter Property='MinHeight' Value='0'/><Setter Property='Padding' Value='10,12,0,4'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ListViewHeaderItem'><ContentPresenter Content='{TemplateBinding Content}' ContentTemplate='{TemplateBinding ContentTemplate}' Margin='{TemplateBinding Padding}'/></ControlTemplate></Setter.Value></Setter></Style>");
         list.Resources = (ResourceDictionary)Microsoft.UI.Xaml.Markup.XamlReader.Load(SidebarSelection);
+        // No sticky day headers: over the translucent sidebar a pinned header showed the row scrolling beneath it.
+        list.ItemsPanel = (ItemsPanelTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<ItemsPanelTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><ItemsStackPanel AreStickyGroupHeadersEnabled='False'/></ItemsPanelTemplate>");
         list.GroupStyle.Add(new GroupStyle { HidesIfEmpty = true, HeaderContainerStyle = groupHeader, HeaderTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'><TextBlock Text='{Binding Key}' FontSize='11' FontWeight='SemiBold' Opacity='0.5'/></DataTemplate>") });
         ((ScrollViewer)Content).Content = null;
         var layout = new Grid();

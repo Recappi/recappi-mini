@@ -101,7 +101,11 @@ internal static class RecappiTheme
     public static void Ensure()
     {
         if (merged) return;
+        // The UI is Chinese: tag it zh-CN so Han characters fall back to Microsoft YaHei rather than a
+        // Japanese face (mixed glyph shapes in running text), and give controls the same font stack.
+        try { Microsoft.Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = "zh-CN"; } catch (Exception) { }
         dictionary = (ResourceDictionary)Microsoft.UI.Xaml.Markup.XamlReader.Load(Build());
+        dictionary["ContentControlThemeFontFamily"] = new FontFamily("Segoe UI Variable Text, Microsoft YaHei UI, Segoe UI");
         Application.Current.Resources.MergedDictionaries.Add(dictionary);
         merged = true;
     }
