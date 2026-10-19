@@ -33,6 +33,19 @@ public partial class TestApp
             // Whatever drops the band later (seen in the running app), the recorder takes it back.
             _ = RecorderLayoutLower(WinRT.Interop.WindowNative.GetWindowHandle(window), -2, 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0010);
             await Until(() => (RecorderLayoutExStyle(WinRT.Interop.WindowNative.GetWindowHandle(window), -20) & 0x8) != 0, "Recorder did not restore topmost.");
+            // The options popover opens every time and stays open (it once closed itself at random).
+            {
+                var options = Field<Flyout>(window, "options"); var chip = Field<Button>(window, "optionsChip");
+                var handle = WinRT.Interop.WindowNative.GetWindowHandle(window); var notes = new List<string>();
+                for (var attempt = 0; attempt < 8; attempt++)
+                {
+                    options.ShowAt(chip); await Task.Delay(700);
+                    notes.Add($"{attempt}: open={options.IsOpen} topmost={(RecorderLayoutExStyle(handle, -20) & 0x8) != 0}");
+                    options.Hide(); await Task.Delay(250);
+                }
+                await File.WriteAllLinesAsync(Path.Combine(root, "options-flyout.txt"), notes);
+                Check(notes.All(x => x.Contains("open=True")), "Options popover did not stay open: " + string.Join("; ", notes));
+            }
             // The pill window carries a transparent shadow margin around the visible surface.
             Check(window.AppWindow.ClientSize.Height / scale - window.ChromeMargin - rowBottom <= 14,
                 "Idle recorder has excess blank space below its controls.");

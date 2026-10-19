@@ -52,6 +52,9 @@ internal static class RecappiTheme
         ("RecappiTransparent", 0x00000000, 0x00000000),
         // Live captions: a fixed dark subtitle scrim and white text in both themes.
         ("RecappiCaptionScrim", 0xB3585858, 0xB0101010),
+        // Live caption pill: dark in both themes like the macOS subtitle overlay.
+        ("RecappiCaptionPill", 0xEB1E1E20, 0xEB1E1E20),
+        ("RecappiCaptionPillStroke", 0x24FFFFFF, 0x24FFFFFF),
         ("RecappiCaptionText", 0xF5FFFFFF, 0xF5FFFFFF),
         ("RecappiCaptionTextSecondary", 0xC7FFFFFF, 0xC7FFFFFF),
         ("RecappiCaptionTextMuted", 0x99FFFFFF, 0x99FFFFFF),
@@ -117,6 +120,8 @@ internal static class RecappiTheme
     {
         // A macOS continuous corner of radius r starts curving about 1.528r from the corner;
         // the superellipse quadrant spans its full extent, so scale the extent to match.
+        // Collapsed surfaces (width or height under the 1px stroke inset) draw an empty shape.
+        width = Math.Max(0, width); height = Math.Max(0, height);
         var r = Math.Clamp(radius * 1.528, 0, Math.Min(width, height) / 2);
         const double exponent = 5.6, steps = 16;
         var power = 2 / exponent; var points = new List<Windows.Foundation.Point> { new(r, 0), new(width - r, 0) };

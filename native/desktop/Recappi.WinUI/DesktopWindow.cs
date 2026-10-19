@@ -67,6 +67,29 @@ internal class DesktopWindow : Window
             ScheduleScan(null, this);
         };
     }
+    // Dialog-like pages size their height to the content (macOS settings and account panels),
+    // capped by the work area, where the scroll viewer takes over.
+    protected void FitHeightTo(ScrollViewer scroll, double minimum = 240)
+    {
+        var fit = DispatcherQueue.CreateTimer(); fit.Interval = TimeSpan.FromMilliseconds(30); fit.IsRepeating = false;
+        fit.Tick += (_, _) =>
+        {
+            if (closed || scroll.XamlRoot is not { } root || scroll.ViewportHeight <= 0) return;
+            var scale = root.RasterizationScale;
+            var client = AppWindow.ClientSize.Height / scale;
+            var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea.Height / scale;
+            // The content's desired height: its extent never drops below the viewport.
+            var content = scroll.Content is UIElement element ? element.DesiredSize.Height : scroll.ExtentHeight;
+            var target = Math.Clamp(client - scroll.ViewportHeight + content, minimum, area * 0.9);
+            if (Math.Abs(target - client) < 2) return;
+            // Adjust the outer size by the difference: ResizeClient misjudges the extended title bar.
+            AppWindow.Resize(new SizeInt32(AppWindow.Size.Width, AppWindow.Size.Height + (int)Math.Round((target - client) * scale)));
+            EnsureVisible();
+        };
+        void Schedule(object? sender, object args) { if (!closed && !fit.IsRunning) fit.Start(); }
+        scroll.LayoutUpdated += Schedule;
+        Closed += (_, _) => { fit.Stop(); scroll.LayoutUpdated -= Schedule; };
+    }
     protected double Scale => retainedPosition is not null ? retainedScale : GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96d;
     protected void ResizeLogical(int width, int height) => AppWindow.Resize(new SizeInt32((int)(width * Scale), (int)(height * Scale)));
     protected void PlaceAtTopRight(double margin = 16)
@@ -232,7 +255,7 @@ internal class DesktopWindow : Window
     [DllImport("dwmapi.dll")] private static extern int DwmFlush();
     // Transparent margin around a self-drawn pill, holding its shadow.
     public double ChromeMargin { get; private set; }
-    protected void CompactChrome(string moveLabel, int maximumHeight = 420, string surfaceBrush = "ApplicationPageBackgroundThemeBrush", bool glass = false, int minimumHeight = 50, bool directCaption = false, bool pill = false)
+    protected void CompactChrome(string moveLabel, int maximumHeight = 420, string surfaceBrush = "ApplicationPageBackgroundThemeBrush", bool glass = false, int minimumHeight = 50, bool directCaption = false, bool pill = false, string pillFill = "RecappiPillFill", string pillStroke = "RecappiPillStroke")
     {
         retainSurface = true; floating = true;
         // Floating caption panels use an opaque surface for legibility over other apps;
@@ -299,11 +322,11 @@ internal class DesktopWindow : Window
             // Shadow caster (rounded rect) under the squircle body; both inside the transparent margin.
             frame.Padding = new Thickness(ChromeMargin);
             var caster = new Border { CornerRadius = new CornerRadius(16), Margin = new Thickness(1), Translation = new System.Numerics.Vector3(0, 0, 18), Shadow = new Microsoft.UI.Xaml.Media.ThemeShadow() };
-            RecappiTheme.Bind(caster, "RecappiPillFill", brush => caster.Background = brush);
+            RecappiTheme.Bind(caster, pillFill, brush => caster.Background = brush);
             var body = Squircles.Surface(new Grid(), 14, new Thickness(0));
             var shape = Squircles.ShapeOf(body); shape.StrokeThickness = 1;
-            RecappiTheme.Bind(body, "RecappiPillFill", brush => shape.Fill = brush);
-            RecappiTheme.Bind(body, "RecappiPillStroke", brush => shape.Stroke = brush);
+            RecappiTheme.Bind(body, pillFill, brush => shape.Fill = brush);
+            RecappiTheme.Bind(body, pillStroke, brush => shape.Stroke = brush);
             frame.Children.Add(caster); frame.Children.Add(body);
             pillSurface = body;
         }
@@ -404,7 +427,9 @@ internal class DesktopWindow : Window
             var position = AppWindow.Position; var size = AppWindow.Size; var inset = (int)Math.Round(ChromeMargin * Scale);
             var inWindow = point.X >= position.X && point.X < position.X + size.Width && point.Y >= position.Y && point.Y < position.Y + size.Height;
             var inPill = point.X >= position.X + inset && point.X < position.X + size.Width - inset && point.Y >= position.Y + inset && point.Y < position.Y + size.Height - inset;
-            var next = inWindow && !inPill;
+            // Never while a popover is open: it overlaps the margin and must keep its pointer input.
+            var popups = Content?.XamlRoot is { } xamlRoot && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(xamlRoot).Count > 0;
+            var next = inWindow && !inPill && !popups;
             if (next == transparent) return;
             transparent = next;
             var ex = GetWindowLongPtr(handle, -20);

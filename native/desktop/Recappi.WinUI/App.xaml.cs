@@ -180,8 +180,10 @@ public partial class App : Application, IDesktopHost
             var recorderSize = recorder.AppWindow.Size;
             var scale = recorder.Content.XamlRoot?.RasterizationScale ?? 1;
             // Starting a recording adds a source/status line to the compact recorder.
-            var reservedHeight = Math.Max(recorderSize.Height, (int)Math.Ceiling(96 * scale));
-            captionWindow.AppWindow.Move(new Windows.Graphics.PointInt32(recorderPosition.X, recorderPosition.Y + reservedHeight + (int)Math.Ceiling(12 * scale)));
+            // Both windows carry a transparent shadow margin; the visible pills sit 12 points apart.
+            var reservedHeight = Math.Max(recorderSize.Height, (int)Math.Ceiling((96 + recorder.ChromeMargin * 2) * scale));
+            var gap = 12 - recorder.ChromeMargin - captionWindow.ChromeMargin;
+            captionWindow.AppWindow.Move(new Windows.Graphics.PointInt32(recorderPosition.X, recorderPosition.Y + reservedHeight + (int)Math.Round(gap * scale)));
             captionWindow.AppWindow.Closing += (_, e) => { if (!quitting) { e.Cancel = true; captionWindow.Hide(); } };
         }
         if (Engine.Snapshot.State is RecordingState.Starting or RecordingState.Recording or RecordingState.Stopping &&

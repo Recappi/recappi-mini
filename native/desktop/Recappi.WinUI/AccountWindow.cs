@@ -67,7 +67,9 @@ internal sealed class AccountWindow : DesktopWindow
         }, this);
         usagePanel.Children.Add(Ui.Row(refreshUsage, managePlan));
         usageSurface = Ui.Surface(usagePanel, new Thickness(20)); Body.Children.Add(usageSurface);
-        Content = PageFrame((UIElement)Content, "账号");
+        var page = (ScrollViewer)Content;
+        Content = PageFrame(page, "账号");
+        FitHeightTo(page);
         app.Account.Changed += Changed;
         Closed += (_, _) => { closed = true; app.Account.CancelLogin(); app.Account.Changed -= Changed; };
         Render();

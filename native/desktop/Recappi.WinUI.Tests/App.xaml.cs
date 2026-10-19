@@ -109,6 +109,7 @@ public partial class TestApp : Application
             await Run("recorder-content-sizing", () => RecorderContentSizing(root));
             await Run("caption-order-and-bounds", Captions);
             await Run("settings-failure-and-merge", () => Settings(root));
+            await Run("dialog-height-fits-content", () => DialogHeights(root));
             await Run("settings-update-distribution", () => SettingsUpdateDistribution(root));
             await Run("settings-update-errors", () => SettingsUpdateErrors(root));
             await Run("onboarding-save-before-navigation", () => Onboarding(root));
@@ -285,8 +286,39 @@ public partial class TestApp : Application
         var scale = window.Content.XamlRoot.RasterizationScale;
         var bodyBottom = window.Body.TransformToVisual(window.Content).TransformPoint(new(0, window.Body.ActualHeight)).Y;
         var clientHeight = window.AppWindow.ClientSize.Height / scale;
-        Check(bodyBottom <= clientHeight + 1, "Caption content is clipped below the native client area.");
-        Check(clientHeight - bodyBottom <= 4, "Caption client area has excess blank space below its content.");
+        // The pill window carries a transparent shadow margin around the visible surface.
+        Check(bodyBottom <= clientHeight - window.ChromeMargin + 1, "Caption content is clipped below the visible pill.");
+        Check(clientHeight - window.ChromeMargin - bodyBottom <= 4, "Caption client area has excess blank space below its content.");
+    }
+    // Account and settings size their height to the content, per settings tab.
+    private static async Task DialogHeights(string root)
+    {
+        await using var host = new TestHost(Path.Combine(root, "dialog-heights"));
+        static bool Fits(DesktopWindow window, ScrollViewer scroll) =>
+            scroll.ViewportHeight > 0 && scroll.Content is UIElement { DesiredSize.Height: > 0 } content && content.DesiredSize.Height <= scroll.ViewportHeight + 3 &&
+            // Short content stops at the 240-point floor.
+            (scroll.ViewportHeight - content.DesiredSize.Height <= 3 || window.AppWindow.ClientSize.Height / window.Content.XamlRoot.RasterizationScale <= 242);
+        var account = new AccountWindow(host); account.Show();
+        try
+        {
+            var page = Descendants<ScrollViewer>(account.Content).First(x => ReferenceEquals(x.Content, account.Body));
+            await Until(() => Fits(account, page), "Account window height did not fit its content.");
+        }
+        finally { account.Close(); }
+        var settings = new SettingsWindow(host, false); settings.Show();
+        try
+        {
+            var navigation = Field<NavigationView>(settings, "navigation"); var viewer = Field<ScrollViewer>(settings, "sectionViewer");
+            var heights = new List<int>();
+            for (var i = 0; i < navigation.MenuItems.Count; i++)
+            {
+                navigation.SelectedItem = navigation.MenuItems[i];
+                await Until(() => Fits(settings, viewer), $"Settings tab {i} height did not fit its content.");
+                heights.Add(settings.AppWindow.ClientSize.Height);
+            }
+            Check(heights.Distinct().Count() > 1, "Settings tabs did not resize the window: " + string.Join(",", heights));
+        }
+        finally { settings.Close(); }
     }
     private static async Task Settings(string root)
     {

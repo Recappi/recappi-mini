@@ -50,6 +50,8 @@ internal sealed class SettingsWindow : DesktopWindow
         var layout = new Grid(); layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); layout.RowDefinitions.Add(new RowDefinition());
         layout.Children.Add(Body); Grid.SetRow(navigation, 1); layout.Children.Add(navigation); Content = PageFrame(layout, "设置");
         navigation.Content = sectionViewer;
+        // Each tab sizes the window to its content, like the macOS preferences window.
+        FitHeightTo(sectionViewer);
         // Tall toolbar tabs so the icon-over-label items clear the selection indicator.
         navigation.IsPaneVisible = false;
         tabStrip.HorizontalAlignment = HorizontalAlignment.Center; tabStrip.Margin = new Thickness(0, 0, 0, 6);

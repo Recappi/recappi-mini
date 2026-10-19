@@ -108,11 +108,7 @@ internal sealed class RecorderWindow : DesktopWindow
         setup.Children.Add(OptionLink("", "账号", () => { options.Hide(); app.ShowAccount(); return Task.CompletedTask; }));
         setup.Children.Add(OptionLink("", "退出 Recappi", app.Quit));
         options.Content = new ScrollViewer { Content = setup, MaxHeight = 520, Width = 320 };
-        // The popover's own padding replaces the presenter's default inset (as on macOS).
-        var popover = new Style(typeof(FlyoutPresenter));
-        popover.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
-        popover.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0d));
-        options.FlyoutPresenterStyle = popover;
+        options.FlyoutPresenterStyle = Popover(0, 12);
 
         // Idle: brand tile · source · microphone · options · hide · record.
         var library = Action("录音库", RecappiTheme.LogoTile(RowHeight), "RecappiIconButton", () => { app.ShowLibrary(); Hide(); return Task.CompletedTask; }, "打开录音库");
@@ -184,11 +180,11 @@ internal sealed class RecorderWindow : DesktopWindow
             await app.Engine.DiscardAsync(target);
         }));
         ((FontIcon)((StackPanel)discard.Content).Children[0]).Style = RecappiTheme.Style("RecappiIconDanger");
-        var moreMenu = new StackPanel { Spacing = 2, MinWidth = 160 };
+        var moreMenu = new StackPanel { Spacing = 1, MinWidth = 150 };
         moreMenu.Children.Add(Menu("录音库", "", () => { recordingMenu.Hide(); app.ShowLibrary(); return Task.CompletedTask; }));
         moreMenu.Children.Add(discard);
         moreMenu.Children.Add(Menu("退出", "", () => { recordingMenu.Hide(); return app.Quit(); }));
-        recordingMenu.Content = moreMenu;
+        recordingMenu.Content = moreMenu; recordingMenu.FlyoutPresenterStyle = Popover(5, 10);
         var moreButton = Action("更多操作", RecappiTheme.Glyph("", 14), "RecappiIconButton", () => Task.CompletedTask); moreButton.Flyout = recordingMenu;
         var stopContent = new Border { Width = 9, Height = 9, CornerRadius = new CornerRadius(2), Background = startProgress.Foreground };
         stop = Action("停止并保存", stopContent, "RecappiRecordButton", () => Guard(app.StopRecording));
@@ -352,12 +348,23 @@ internal sealed class RecorderWindow : DesktopWindow
         };
         return button;
     }
+    // Popovers own their inset and corners (macOS menus: 5pt inset, 10pt corners; popover 12pt).
+    private static Style Popover(double padding, double radius)
+    {
+        var style = new Style(typeof(FlyoutPresenter));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(padding)));
+        style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(radius)));
+        style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0d));
+        return style;
+    }
     private Button Menu(string label, string glyph, Func<Task> action)
     {
-        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        var icon = RecappiTheme.Glyph(glyph, 14); icon.Style = RecappiTheme.Style("RecappiIconNeutral");
-        content.Children.Add(icon); content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
-        return Action(label, content, "RecappiMenuButton", action, label);
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var icon = RecappiTheme.Glyph(glyph, 13); icon.Style = RecappiTheme.Style("RecappiIconNeutral");
+        content.Children.Add(icon); content.Children.Add(new TextBlock { Text = label, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+        var button = Action(label, content, "RecappiMenuButton", action, label);
+        button.Height = 28; button.Padding = new Thickness(8, 0, 8, 0); button.CornerRadius = new CornerRadius(5);
+        return button;
     }
     private ToggleButton Toggle(string name, Func<Task> action)
     {

@@ -39,11 +39,11 @@ internal sealed class CaptionWindow : DesktopWindow
     private bool hasTranslation;
     private bool followAfterLayout;
     private bool closed;
-    public CaptionWindow(Func<Task> retry) : base("Recappi Mini · 实时字幕", 542, 62)
+    public CaptionWindow(Func<Task> retry) : base("Recappi Mini · 实时字幕", 566, 86)
     {
         Body.Padding = new Thickness(13, 8, 14, 8); Body.Spacing = 6; Body.MinHeight = CompactHeight;
-        CompactChrome("移动字幕面板", 600, "RecappiCaptionScrim", glass: true, minimumHeight: 40);
-        // The subtitle scrim is dark in both app themes, as on macOS.
+        // A self-drawn dark squircle on a transparent window, dark in both app themes as on macOS.
+        CompactChrome("移动字幕面板", 600, minimumHeight: 40, pill: true, pillFill: "RecappiCaptionPill", pillStroke: "RecappiCaptionPillStroke");
 
         Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 11.5;
         status.Style = RecappiTheme.Style("RecappiCaptionBadge"); status.IsTextSelectionEnabled = false;
@@ -81,8 +81,8 @@ internal sealed class CaptionWindow : DesktopWindow
         archiveError.Visibility = Visibility.Collapsed; Body.Children.Add(archiveError);
         originalScroll = new ScrollViewer { Content = original, MaxHeight = 280, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden };
         translationScroll = new ScrollViewer { Content = translation, MaxHeight = 280, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden };
-        originalPane.Children.Add(originalTitle); originalPane.Children.Add(originalScroll);
-        translationPane.Children.Add(translationTitle); translationPane.Children.Add(translationScroll);
+        originalPane.Children.Add(originalTitle); originalPane.Children.Add(Faded(originalScroll));
+        translationPane.Children.Add(translationTitle); translationPane.Children.Add(Faded(translationScroll));
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(57, GridUnitType.Star) }); columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(43, GridUnitType.Star) });
         columns.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); columns.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Grid.SetColumn(translationPane, 1);
@@ -98,6 +98,19 @@ internal sealed class CaptionWindow : DesktopWindow
         { control.Checked += (_, _) => Render(); control.Unchecked += (_, _) => Render(); }
         Render();
     }
+    // Older lines fade out under the top edge instead of being cut mid-line (macOS mask).
+    private static Grid Faded(ScrollViewer scroll)
+    {
+        var fade = new LinearGradientBrush { StartPoint = new(0, 0), EndPoint = new(0, 1) };
+        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xEB, 0x1E, 0x1E, 0x20), Offset = 0 });
+        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xEB, 0x1E, 0x1E, 0x20), Offset = 0.35 });
+        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0, 0x1E, 0x1E, 0x20), Offset = 1 });
+        var mask = new Border { Height = 28, VerticalAlignment = VerticalAlignment.Top, Background = fade, IsHitTestVisible = false };
+        scroll.ViewChanged += (_, _) => mask.Opacity = scroll.VerticalOffset > 0 ? 1 : 0;
+        mask.Opacity = 0;
+        var host = new Grid(); host.Children.Add(scroll); host.Children.Add(mask);
+        return host;
+    }
     private static TextBlock Pane(string text) => new()
     {
         Text = text, Style = RecappiTheme.Style("RecappiCaptionPane"), CharacterSpacing = 60, IsTextSelectionEnabled = false
@@ -111,8 +124,9 @@ internal sealed class CaptionWindow : DesktopWindow
     private bool PointerInside()
     {
         if (closed || !AppWindow.IsVisible || !GetCursorPos(out var point)) return false;
-        var position = AppWindow.Position; var size = AppWindow.Size;
-        return point.X >= position.X && point.X < position.X + size.Width && point.Y >= position.Y && point.Y < position.Y + size.Height;
+        // Only the visible pill, not the transparent shadow margin around it.
+        var position = AppWindow.Position; var size = AppWindow.Size; var inset = (int)Math.Round(ChromeMargin * Scale);
+        return point.X >= position.X + inset && point.X < position.X + size.Width - inset && point.Y >= position.Y + inset && point.Y < position.Y + size.Height - inset;
     }
     private void SetHover(bool value)
     {
