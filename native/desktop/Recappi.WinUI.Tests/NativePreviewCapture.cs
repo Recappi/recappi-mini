@@ -159,7 +159,7 @@ internal static class NativePreviewCapture
         }
         finally { recorder.Close(); }
     }
-    private static async Task Caption(string root)
+    public static async Task Caption(string root)
     {
         var caption = new CaptionWindow(() => Task.CompletedTask);
         try
@@ -171,6 +171,13 @@ internal static class NativePreviewCapture
             caption.Update(new("a", "source", "Before we leave on Saturday morning, let's check the forecast and choose a route with enough time for breaks. Everyone should bring water, a raincoat and a little food for the day.", true, new("sample", 0)));
             caption.Update(new("a", "translation", "周六早上出发前，我们先看看天气预报，再选择一条有充足休息时间的路线。大家记得准备饮水、雨衣和少量食物。", true, new("sample", 0)));
             await Stage(root, "caption-long-light", caption, passiveShow: true);
+            // Running Chinese captions and the hover controls over them.
+            foreach (var (id, text) in new[] { ("z1", "告诉你呢是两开始十还是比十多一点"), ("z2", "其实小一点呢"), ("z3", "上面还有一个凹凸面的梯体。"), ("z4", "那总体级应该比十多一点点") })
+                caption.Update(new(id, "source", text, true, new("sample", 10 + id[1])));
+            await Stage(root, "caption-running-light", caption, passiveShow: true);
+            var chrome = TestApp.Field<Border>(caption, "chrome"); chrome.Opacity = 1;
+            await Stage(root, "caption-hover-light", caption, passiveShow: true);
+            chrome.Opacity = 0;
             caption.ApplyTheme("dark"); TestApp.Field<CheckBox>(caption, "compact").IsChecked = false;
             caption.Update(new("b", "source", "We can meet at the station at eight.", true, new("sample", 1)));
             caption.Update(new("b", "translation", "我们可以八点在地铁站集合。", true, new("sample", 1)));

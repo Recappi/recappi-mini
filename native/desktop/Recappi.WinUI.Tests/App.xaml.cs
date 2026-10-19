@@ -90,6 +90,10 @@ public partial class TestApp : Application
         {
             await RecorderInputProbe.Run(root); keeper.Close(); Exit(); return;
         }
+        if (commandLine.Contains("--capture-caption-previews"))
+        {
+            await NativePreviewCapture.Caption(root); keeper.Close(); Exit(); return;
+        }
         if (commandLine.Contains("--capture-recorder-previews"))
         {
             await NativePreviewCapture.RecorderOnly(root); captureStart?.Close(); keeper.Close(); Exit(); return;

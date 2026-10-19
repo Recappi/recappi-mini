@@ -12,6 +12,7 @@ internal sealed class CaptionWindow : DesktopWindow
 {
     private const double CompactHeight = 62;
     private const double ExpandedHeight = 184;
+    private const double CompactLine = 18;
     private readonly Dictionary<(string Id, string Stream), CaptionDelta> segments = [];
     private readonly TextBlock status = Ui.Text("开始录音后显示字幕。");
     // Until the first caption arrives the panel says why it is empty instead of an empty dark box.
@@ -75,7 +76,7 @@ internal sealed class CaptionWindow : DesktopWindow
         var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Padding = new Thickness(5, 2, 5, 2) };
         foreach (var item in new UIElement[] { badgeSurface, streamSurface, expand, option, close }) tools.Children.Add(item);
         chrome = new Border { Child = tools, CornerRadius = new CornerRadius(14), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(150, 28, 28, 30)), BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(36, 255, 255, 255)),
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 44, 44, 47)), BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(36, 255, 255, 255)),
             BorderThickness = new Thickness(1), Opacity = 0, IsHitTestVisible = false };
         var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 6, Height = 6, Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 59, 48)),
             HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 4, 0, 0), IsHitTestVisible = false };
@@ -102,14 +103,17 @@ internal sealed class CaptionWindow : DesktopWindow
         Render();
     }
     // Older lines fade out under the top edge instead of being cut mid-line (macOS mask).
-    private static Grid Faded(ScrollViewer scroll)
+    private readonly List<(ScrollViewer Scroll, Border Mask)> fades = [];
+    // Expanded history only: the compact strip shows whole lines and needs no fade.
+    private void UpdateFades() { foreach (var (scroll, mask) in fades) mask.Opacity = compact.IsChecked != true && scroll.VerticalOffset > 0 ? 1 : 0; }
+    private Grid Faded(ScrollViewer scroll)
     {
         var fade = new LinearGradientBrush { StartPoint = new(0, 0), EndPoint = new(0, 1) };
         fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xF7, 0x1C, 0x1C, 0x1E), Offset = 0 });
         fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xF7, 0x1C, 0x1C, 0x1E), Offset = 0.35 });
         fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0, 0x1C, 0x1C, 0x1E), Offset = 1 });
         var mask = new Border { Height = 28, VerticalAlignment = VerticalAlignment.Top, Background = fade, IsHitTestVisible = false };
-        scroll.ViewChanged += (_, _) => mask.Opacity = scroll.VerticalOffset > 0 ? 1 : 0;
+        fades.Add((scroll, mask)); scroll.ViewChanged += (_, _) => UpdateFades();
         mask.Opacity = 0;
         var host = new Grid(); host.Children.Add(scroll); host.Children.Add(mask);
         return host;
@@ -170,6 +174,7 @@ internal sealed class CaptionWindow : DesktopWindow
     {
         if (originalScroll is null) return;
         placeholder.Visibility = segments.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateFades();
         translationToggle.Visibility = hasTranslation ? Visibility.Visible : Visibility.Collapsed;
         showTranslation.Visibility = hasTranslation ? Visibility.Visible : Visibility.Collapsed;
         var sourceVisible = showOriginal.IsChecked == true;
@@ -189,10 +194,12 @@ internal sealed class CaptionWindow : DesktopWindow
         translationTitle.Text = "译文";
         if (isCompact)
         {
-            original.FontSize = translation.FontSize = 12.5; original.LineHeight = translation.LineHeight = 15;
+            // Fixed line boxes so the strip holds whole lines: following the end never shows half a line.
+            original.FontSize = translation.FontSize = 13; original.LineHeight = translation.LineHeight = CompactLine;
+            original.LineStackingStrategy = translation.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
             original.FontWeight = translation.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
             // Two lines for one stream, one line each when bilingual.
-            originalScroll.MaxHeight = translationScroll.MaxHeight = both ? 15 : 31;
+            originalScroll.MaxHeight = translationScroll.MaxHeight = both ? CompactLine : CompactLine * 2;
             Body.Padding = new Thickness(13, 8, 14, 8); Body.MinHeight = CompactHeight;
             // Center the caption block in the fixed-height compact strip.
             stage.MinHeight = CompactHeight - 16; columns.VerticalAlignment = VerticalAlignment.Center;
@@ -223,7 +230,7 @@ internal sealed class CaptionWindow : DesktopWindow
             var showTranslation = translation.Text.Length > 0;
             originalPane.Visibility = showSource ? Visibility.Visible : Visibility.Collapsed;
             translationPane.Visibility = showTranslation ? Visibility.Visible : Visibility.Collapsed;
-            originalScroll.MaxHeight = translationScroll.MaxHeight = showSource && showTranslation ? 15 : 31;
+            originalScroll.MaxHeight = translationScroll.MaxHeight = showSource && showTranslation ? CompactLine : CompactLine * 2;
         }
         if (follow.IsChecked == true)
         {
