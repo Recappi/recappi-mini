@@ -14,6 +14,9 @@ internal sealed class CaptionWindow : DesktopWindow
     private const double ExpandedHeight = 184;
     private readonly Dictionary<(string Id, string Stream), CaptionDelta> segments = [];
     private readonly TextBlock status = Ui.Text("开始录音后显示字幕。");
+    // Until the first caption arrives the panel says why it is empty instead of an empty dark box.
+    private readonly TextBlock placeholder = new() { Text = "开始录音后显示字幕。", FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+        Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(150, 255, 255, 255)), IsHitTestVisible = false };
     private readonly TextBlock archiveError = Ui.Text("");
     private readonly TextBlock original = Ui.Text("", 20);
     private readonly TextBlock translation = Ui.Text("", 20);
@@ -87,7 +90,7 @@ internal sealed class CaptionWindow : DesktopWindow
         columns.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); columns.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Grid.SetColumn(translationPane, 1);
         columns.Children.Add(originalPane); columns.Children.Add(translationPane);
-        stage = new Grid(); stage.Children.Add(columns); stage.Children.Add(dot); stage.Children.Add(chrome);
+        stage = new Grid(); stage.Children.Add(placeholder); stage.Children.Add(columns); stage.Children.Add(dot); stage.Children.Add(chrome);
         Body.Children.Add(stage);
 
         // Pointer hover over the drag surface does not reach XAML; poll the cursor instead.
@@ -143,8 +146,8 @@ internal sealed class CaptionWindow : DesktopWindow
         Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, nameof(UIElement.Opacity));
         var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard(); storyboard.Children.Add(animation); storyboard.Begin();
     }
-    public void Reset(bool translate) { segments.Clear(); hasTranslation = translate; SetArchiveError(""); status.Text = "正在连接…"; Render(); }
-    public void SetStatus(string value) => status.Text = value;
+    public void Reset(bool translate) { segments.Clear(); hasTranslation = translate; SetArchiveError(""); SetStatus("正在连接…"); Render(); }
+    public void SetStatus(string value) { status.Text = value; placeholder.Text = value; }
     public void SetArchiveError(string value) { archiveError.Text = value; archiveError.Visibility = string.IsNullOrEmpty(value) ? Visibility.Collapsed : Visibility.Visible; }
     public void Update(CaptionDelta value)
     {
@@ -166,6 +169,7 @@ internal sealed class CaptionWindow : DesktopWindow
     private void Render()
     {
         if (originalScroll is null) return;
+        placeholder.Visibility = segments.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         translationToggle.Visibility = hasTranslation ? Visibility.Visible : Visibility.Collapsed;
         showTranslation.Visibility = hasTranslation ? Visibility.Visible : Visibility.Collapsed;
         var sourceVisible = showOriginal.IsChecked == true;

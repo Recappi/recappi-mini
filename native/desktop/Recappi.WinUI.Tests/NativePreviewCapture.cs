@@ -120,6 +120,14 @@ internal static class NativePreviewCapture
                     await File.WriteAllTextAsync(Path.Combine(root, "hover-bounds.txt"), $"button {origin.X},{origin.Y} {hide.ActualWidth}x{hide.ActualHeight} shape {bounds} margin {shape?.Margin} stretch {shape?.Stretch} parent {Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(shape!)?.GetType().Name} {(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(shape!) as FrameworkElement)?.ActualWidth}x{(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(shape!) as FrameworkElement)?.ActualHeight}");
                     await stage("recorder-hover-light", recorder);
                     VisualStateManager.GoToState(hide, "Normal", false);
+                    foreach (var (field, label) in new[] { ("source", "source"), ("optionsChip", "options") })
+                        foreach (var state in new[] { "PointerOver", "Pressed" })
+                        {
+                            var target = TestApp.Field<Button>(recorder, field);
+                            VisualStateManager.GoToState(target, state, false); await Task.Delay(250);
+                            await stage($"recorder-{label}-{state}-light", recorder);
+                            VisualStateManager.GoToState(target, "Normal", false);
+                        }
                 }
             }
             recorder.ApplyTheme("dark"); await stage("recorder-idle-dark", recorder);

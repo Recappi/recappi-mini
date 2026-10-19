@@ -17,8 +17,10 @@ internal static class RecappiTheme
     private static readonly (string Key, uint Light, uint Dark)[] Tokens =
     [
         ("RecappiSurfacePanel", 0xFFFFFFFF, 0xFF2D2D2D),
-        ("RecappiChipFill", 0x8CEFEFF1, 0x8C424242),
-        ("RecappiChipHover", 0xBFEFEFF1, 0xBF424242),
+        // Chips sit on the pill: a raised light fill, brighter on hover, dimmer while pressed.
+        ("RecappiChipFill", 0xB3FFFFFF, 0x8C48484B),
+        ("RecappiChipHover", 0xFFFFFFFF, 0xB358585B),
+        ("RecappiChipPress", 0xFFE6E6E9, 0xB3333336),
         ("RecappiBorderHairline", 0x1A000000, 0x0FFFFFFF),
         ("RecappiBorderSubtle", 0x24000000, 0x1AFFFFFF),
         ("RecappiControlHover", 0x0D000000, 0x12FFFFFF),
@@ -210,7 +212,7 @@ internal static class RecappiTheme
         ButtonStyle("RecappiChipButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiTextPrimary}'/><Setter Property='Background' Value='{ThemeResource RecappiChipFill}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiBorderSubtle}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Height' Value='28'/><Setter Property='FontSize' Value='12'/>",
             "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiChipHover}'/>",
-            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiControlPress}'/>") +
+            "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiChipPress}'/>") +
         ButtonStyle("RecappiDangerChipButton", "Button",
             "<Setter Property='Foreground' Value='{ThemeResource RecappiDanger}'/><Setter Property='Background' Value='{ThemeResource RecappiDangerFill}'/><Setter Property='BorderBrush' Value='{ThemeResource RecappiDangerStroke}'/><Setter Property='BorderThickness' Value='1'/><Setter Property='Height' Value='24'/><Setter Property='Padding' Value='9,0'/><Setter Property='FontSize' Value='12'/><Setter Property='FontWeight' Value='SemiBold'/>",
             "<Setter Target='Shape.Fill' Value='{ThemeResource RecappiDangerHover}'/>",
@@ -399,7 +401,7 @@ internal static class RecappiTheme
     public static void ChipPicker(ComboBox picker)
     {
         picker.MinHeight = 28; picker.Height = 28; picker.FontSize = 12.5; picker.Padding = new Thickness(10, 0, 0, 0); picker.CornerRadius = new CornerRadius(6);
-        foreach (var (key, token) in new[] { ("ComboBoxBackground", "RecappiChipFill"), ("ComboBoxBackgroundPointerOver", "RecappiChipHover"), ("ComboBoxBackgroundPressed", "RecappiControlPress"),
+        foreach (var (key, token) in new[] { ("ComboBoxBackground", "RecappiChipFill"), ("ComboBoxBackgroundPointerOver", "RecappiChipHover"), ("ComboBoxBackgroundPressed", "RecappiChipPress"),
             ("ComboBoxBorderBrush", "RecappiBorderHairline"), ("ComboBoxBorderBrushPointerOver", "RecappiBorderSubtle"), ("ComboBoxBorderBrushPressed", "RecappiBorderSubtle") })
             Bind(picker, token, brush => picker.Resources[key] = brush);
         // Resource overrides resolve once per template; the resting colors also follow theme changes directly.
