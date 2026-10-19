@@ -280,6 +280,7 @@ internal class DesktopWindow : Window
             presenter.SetBorderAndTitleBar(true, false); presenter.IsMaximizable = false; presenter.IsAlwaysOnTop = true;
             presenter.PreferredMinimumHeight = (int)Math.Ceiling(Math.Min(44, minimumHeight) * Scale);
         }
+        if (pill) ApplyPopupStyle(); // The presenter just re-added its border bit.
         // Windows 11 rounds and shadows the floating frame; earlier versions ignore it. The self-drawn
         // pill opts out (DWMWCP_DONOTROUND) so no rectangular system shadow or border surrounds it.
         var corner = pill ? 1u : 2u; _ = DwmSetWindowAttribute(WinRT.Interop.WindowNative.GetWindowHandle(this), 33, ref corner, sizeof(uint));
@@ -406,13 +407,8 @@ internal class DesktopWindow : Window
         pillCarrier = true;
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         RemoveFrame(eraseToBlack: true);
-        var style = (long)GetWindowLongPtr(handle, -16);
-        style &= ~(0x00C00000L | 0x00800000L | 0x00400000L | 0x00040000L | 0x00080000L | 0x00020000L | 0x00010000L);
-        style |= 0x80000000L;
-        _ = SetWindowLongPtr(handle, -16, (nint)style);
-        _ = SetWindowLongPtr(handle, -20, GetWindowLongPtr(handle, -20) | 0x00080000);
+        ApplyPopupStyle();
         _ = SetLayeredWindowAttributes(handle, 0, 255, 0x2);
-        _ = SetWindowPos(handle, 0, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010);
         ExtendCarrierFrame();
         DispatcherQueue.EnsureSystemDispatcherQueue();
         carrierCompositor = new Windows.UI.Composition.Compositor();
@@ -421,7 +417,7 @@ internal class DesktopWindow : Window
         // The shadow margin lets clicks through to the windows behind, as on macOS: while the
         // pointer is over the window but outside the pill, the window is made input-transparent.
         passThroughTimer = DispatcherQueue.CreateTimer(); passThroughTimer.Interval = TimeSpan.FromMilliseconds(30);
-        var transparent = false;
+        var transparent = false; var buttonDown = false;
         passThroughTimer.Tick += (_, _) =>
         {
             if (closed) return;
@@ -431,7 +427,13 @@ internal class DesktopWindow : Window
             var inWindow = point.X >= position.X && point.X < position.X + size.Width && point.Y >= position.Y && point.Y < position.Y + size.Height;
             var inPill = point.X >= position.X + inset && point.X < position.X + size.Width - inset && point.Y >= position.Y + inset && point.Y < position.Y + size.Height - inset;
             // Never while a popover is open: it overlaps the margin and must keep its pointer input.
-            var popups = Content?.XamlRoot is { } xamlRoot && Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(xamlRoot).Count > 0;
+            var open = Content?.XamlRoot is { } xamlRoot ? Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(xamlRoot) : [];
+            var popups = open.Count > 0;
+            // The non-activating window never loses activation, so popovers dismiss themselves when a
+            // button goes down outside the pill and outside every open popover.
+            var down = (GetAsyncKeyState(0x01) & 0x8000) != 0 || (GetAsyncKeyState(0x02) & 0x8000) != 0;
+            var pressed = down && !buttonDown; buttonDown = down;
+            if (popups && pressed && !inPill && !open.Any(popup => Contains(popup, point))) foreach (var popup in open) popup.IsOpen = false;
             var next = inWindow && !inPill && !popups;
             if (next == transparent) return;
             transparent = next;
@@ -441,8 +443,35 @@ internal class DesktopWindow : Window
         passThroughTimer.Start();
         Closed += (_, _) => passThroughTimer?.Stop();
     }
+    // Borderless, non-activating popup like ScreenCam's toolbar host and the macOS panel. Any frame
+    // bit (the presenter re-adds WS_BORDER) lets DWM paint frame material into the extended glass,
+    // which showed as a blue bar in the shadow margin; activation gave the pill a focus state.
+    private void ApplyPopupStyle()
+    {
+        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var style = (long)GetWindowLongPtr(handle, -16);
+        var popup = (style & ~(0x00C00000L | 0x00800000L | 0x00400000L | 0x00040000L | 0x00080000L | 0x00020000L | 0x00010000L)) | 0x80000000L;
+        var ex = (long)GetWindowLongPtr(handle, -20);
+        var noActivate = ex | 0x00080000L | 0x08000000L;
+        if (popup == style && noActivate == ex) return;
+        _ = SetWindowLongPtr(handle, -16, (nint)popup);
+        _ = SetWindowLongPtr(handle, -20, (nint)noActivate);
+        _ = SetWindowPos(handle, 0, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010);
+    }
+    private bool Contains(Microsoft.UI.Xaml.Controls.Primitives.Popup popup, NativePoint point)
+    {
+        if (popup.Child is not FrameworkElement child || child.XamlRoot is null) return false;
+        var scale = child.XamlRoot.RasterizationScale;
+        var origin = child.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point());
+        var client = new NativePoint(); _ = ClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref client);
+        double left = client.X + origin.X * scale, top = client.Y + origin.Y * scale;
+        return point.X >= left && point.X < left + child.ActualWidth * scale && point.Y >= top && point.Y < top + child.ActualHeight * scale;
+    }
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(nint window, ref NativePoint point);
     private void ExtendCarrierFrame()
     {
+        ApplyPopupStyle();
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         _ = DwmExtendFrameIntoClientArea(handle, [-1, -1, -1, -1]);
         _ = InvalidateRect(handle, 0, true);
