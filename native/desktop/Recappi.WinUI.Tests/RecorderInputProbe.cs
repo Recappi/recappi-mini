@@ -34,7 +34,7 @@ internal static class RecorderInputProbe
             var origin = source.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(source.ActualWidth + 3, source.ActualHeight / 2));
             var client = ClientOrigin(recorder);
             var press = (X: client.X + (int)(origin.X * scale), Y: client.Y + (int)(origin.Y * scale));
-            Drag(press, -80, 40);
+            await Task.Run(() => Drag(press, -80, 40)); // Worker thread: the UI thread keeps rendering while it moves.
             await Task.Delay(600);
             var moved = recorder.AppWindow.Position.X != start.X || recorder.AppWindow.Position.Y != start.Y;
             var result = new { buttonClicked = clicked, surfaceDragged = moved, start = new { start.X, start.Y }, end = new { recorder.AppWindow.Position.X, recorder.AppWindow.Position.Y } };

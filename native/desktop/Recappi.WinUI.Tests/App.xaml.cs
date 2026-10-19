@@ -84,7 +84,8 @@ public partial class TestApp : Application
         }
         if (commandLine.Contains("--probe-recorder-drag"))
         {
-            await RecorderInputProbe.DragFromControl(root); keeper.Close(); Exit(); return;
+            try { await RecorderInputProbe.DragFromControl(root); } catch (Exception error) { Console.WriteLine(error.Message); }
+            keeper.Close(); Exit(); return;
         }
         if (commandLine.Contains("--probe-recorder-hover"))
         {

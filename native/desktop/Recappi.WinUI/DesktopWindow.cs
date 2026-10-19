@@ -334,16 +334,20 @@ internal class DesktopWindow : Window
             RecappiTheme.Bind(body, pillStroke, brush => shape.Stroke = brush);
             frame.Children.Add(caster); frame.Children.Add(body);
             pillSurface = body;
-            DragFromControls(frame);
+            DragAnywhere(frame);
         }
         frame.Children.Add(border); Content = frame;
         // Let Windows own drag hit testing instead of starting a nested move loop
         // from a XAML pointer event, which can arrive after the release event.
         if (glass)
         {
-            if (directCaption) frame.SizeChanged += (_, _) => UpdatePassthrough(frame);
-            else SetTitleBar(frame);
-            Body.LayoutUpdated += (_, _) => UpdatePassthrough(frame);
+            // The pill moves itself (DragAnywhere); other floating panels use caption regions.
+            if (!pill)
+            {
+                if (directCaption) frame.SizeChanged += (_, _) => UpdatePassthrough(frame);
+                else SetTitleBar(frame);
+                Body.LayoutUpdated += (_, _) => UpdatePassthrough(frame);
+            }
             // The zero-width move target keeps arrow-key moving without drawing an outline;
             // a programmatic first focus was being reported as keyboard focus and rimmed the pill in green.
             if (!pill)
@@ -398,39 +402,52 @@ internal class DesktopWindow : Window
     private Microsoft.UI.Composition.SystemBackdrops.SystemBackdropConfiguration? backdrop;
     private Windows.Graphics.RectInt32[] passthrough = [];
     private Grid? pillSurface;
-    // The whole pill drags, as on macOS: the background through the caption region, and the controls
-    // by pressing and moving past a small threshold. A press on a control is followed by polling the
-    // real cursor (XAML stops receiving moves once the pointer crosses into the caption region), so
-    // the drag starts on the first frame past the threshold. The window first catches up with the
-    // distance already moved, then the still-held button goes to the system move loop as a caption
-    // press would; the control's press is cancelled, so it does not click.
-    private void DragFromControls(FrameworkElement root)
+    // The whole pill drags like a macOS panel, moved by the app itself rather than a system move loop
+    // (which activates the window and only starts after the system drag threshold): the window
+    // follows the real cursor every rendered frame while the button is held. A press on the background
+    // drags at once; a press on a control drags past 3pt, which cancels its press so it does not click.
+    private void DragAnywhere(FrameworkElement root)
     {
-        var poll = DispatcherQueue.CreateTimer(); poll.Interval = TimeSpan.FromMilliseconds(8);
         PointInt32 pressCursor = default, pressWindow = default; UIElement? pressed = null;
+        var threshold = 0d; var dragging = false; var tracking = false;
+        void Frame(object? sender, object args)
+        {
+            if (closed || (GetAsyncKeyState(0x01) & 0x8000) == 0 || !GetCursorPos(out var cursor)) { Stop(); return; }
+            int dx = cursor.X - pressCursor.X, dy = cursor.Y - pressCursor.Y;
+            if (!dragging)
+            {
+                if (Math.Abs(dx) < threshold && Math.Abs(dy) < threshold) return;
+                dragging = true;
+                // Outside the render callback: changing pointer capture during Rendering fails fast.
+                var target = pressed;
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    for (DependencyObject? up = target; up is not null; up = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(up))
+                        if (up is UIElement element) element.ReleasePointerCaptures();
+                });
+            }
+            var next = new PointInt32(pressWindow.X + dx, pressWindow.Y + dy);
+            if (next.X != AppWindow.Position.X || next.Y != AppWindow.Position.Y) AppWindow.Move(next);
+        }
+        void Stop()
+        {
+            if (!tracking) return;
+            tracking = false; Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= Frame;
+            if (dragging) EnsureVisible();
+            dragging = false;
+        }
         root.AddHandler(UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, e) =>
         {
             if (!e.GetCurrentPoint(root).Properties.IsLeftButtonPressed || !GetCursorPos(out var cursor)) return;
             pressCursor = new PointInt32(cursor.X, cursor.Y); pressWindow = AppWindow.Position; pressed = e.OriginalSource as UIElement;
-            poll.Start();
+            var onControl = false;
+            for (DependencyObject? up = pressed; up is not null && !ReferenceEquals(up, root); up = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(up))
+                if (up is Control { IsEnabled: true } and (Microsoft.UI.Xaml.Controls.Primitives.ButtonBase or ComboBox or ToggleSwitch or TextBox)) { onControl = true; break; }
+            threshold = onControl ? 3 * Scale : 0; dragging = false;
+            if (!tracking) { tracking = true; Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += Frame; }
         }), true);
-        poll.Tick += (_, _) =>
-        {
-            if (closed || (GetAsyncKeyState(0x01) & 0x8000) == 0 || !GetCursorPos(out var cursor)) { poll.Stop(); return; }
-            int dx = cursor.X - pressCursor.X, dy = cursor.Y - pressCursor.Y;
-            if (Math.Abs(dx) < 3 * Scale && Math.Abs(dy) < 3 * Scale) return;
-            poll.Stop();
-            for (DependencyObject? up = pressed; up is not null; up = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(up))
-                if (up is UIElement element) element.ReleasePointerCaptures();
-            AppWindow.Move(new PointInt32(pressWindow.X + dx, pressWindow.Y + dy));
-            _ = ReleaseCapture();
-            _ = SendMessage(WinRT.Interop.WindowNative.GetWindowHandle(this), 0x00A1, 2, (nint)(((cursor.Y & 0xFFFF) << 16) | (cursor.X & 0xFFFF)));
-            EnsureVisible();
-        };
-        Closed += (_, _) => poll.Stop();
+        Closed += (_, _) => Stop();
     }
-    [DllImport("user32.dll")] private static extern bool ReleaseCapture();
-    [DllImport("user32.dll")] private static extern nint SendMessage(nint window, uint message, nint wParam, nint lParam);
     private bool pillCarrier;
     private Windows.UI.Composition.Compositor? carrierCompositor;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? passThroughTimer;
