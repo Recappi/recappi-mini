@@ -410,6 +410,7 @@ internal class DesktopWindow : Window
         ApplyPopupStyle();
         _ = SetLayeredWindowAttributes(handle, 0, 255, 0x2);
         ExtendCarrierFrame();
+        AppWindow.Changed += (_, args) => { if (args.DidSizeChange && !closed) ExtendCarrierFrame(); };
         DispatcherQueue.EnsureSystemDispatcherQueue();
         carrierCompositor = new Windows.UI.Composition.Compositor();
         WinRT.CastExtensions.As<Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop>(this).SystemBackdrop =
@@ -474,7 +475,10 @@ internal class DesktopWindow : Window
         ApplyPopupStyle();
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         _ = DwmExtendFrameIntoClientArea(handle, [-1, -1, -1, -1]);
-        _ = InvalidateRect(handle, 0, true);
+        // Erase the whole redirection surface (frame included) to black, i.e. transparent. Without
+        // RDW_FRAME, pixels drawn before the carrier (the system caption: title text, a tinted
+        // button strip) and stale areas after a resize stayed visible in the shadow margin.
+        _ = RedrawWindow(handle, 0, 0, 0x0001 | 0x0004 | 0x0080 | 0x0400);
         KeepTopmost();
     }
     // The carrier's popup restyle drops the presenter's always-on-top band; assert it on the window itself.
@@ -531,7 +535,7 @@ internal class DesktopWindow : Window
     [DllImport("comctl32.dll")] private static extern nint DefSubclassProc(nint window, uint message, nuint wParam, nint lParam);
     [DllImport("dwmapi.dll")] private static extern int DwmExtendFrameIntoClientArea(nint window, int[] margins);
     [DllImport("user32.dll")] private static extern bool SetLayeredWindowAttributes(nint window, uint key, byte alpha, uint flags);
-    [DllImport("user32.dll")] private static extern bool InvalidateRect(nint window, nint rect, bool erase);
+    [DllImport("user32.dll")] private static extern bool RedrawWindow(nint window, nint rect, nint region, uint flags);
     [DllImport("user32.dll")] private static extern bool GetClientRect(nint window, out NativeRect rect);
     [DllImport("user32.dll")] private static extern int FillRect(nint dc, ref NativeRect rect, nint brush);
     [DllImport("gdi32.dll")] private static extern nint GetStockObject(int index);
