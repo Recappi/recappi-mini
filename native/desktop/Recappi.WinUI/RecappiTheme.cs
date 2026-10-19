@@ -55,7 +55,7 @@ internal static class RecappiTheme
         // Live captions: a fixed dark subtitle scrim and white text in both themes.
         ("RecappiCaptionScrim", 0xB3585858, 0xB0101010),
         // Live caption pill: dark in both themes like the macOS subtitle overlay.
-        ("RecappiCaptionPill", 0xEB1E1E20, 0xEB1E1E20),
+        ("RecappiCaptionPill", 0xF71C1C1E, 0xF71C1C1E),
         ("RecappiCaptionPillStroke", 0x24FFFFFF, 0x24FFFFFF),
         ("RecappiCaptionText", 0xF5FFFFFF, 0xF5FFFFFF),
         ("RecappiCaptionTextSecondary", 0xC7FFFFFF, 0xC7FFFFFF),

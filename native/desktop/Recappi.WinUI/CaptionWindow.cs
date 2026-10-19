@@ -105,9 +105,9 @@ internal sealed class CaptionWindow : DesktopWindow
     private static Grid Faded(ScrollViewer scroll)
     {
         var fade = new LinearGradientBrush { StartPoint = new(0, 0), EndPoint = new(0, 1) };
-        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xEB, 0x1E, 0x1E, 0x20), Offset = 0 });
-        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xEB, 0x1E, 0x1E, 0x20), Offset = 0.35 });
-        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0, 0x1E, 0x1E, 0x20), Offset = 1 });
+        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xF7, 0x1C, 0x1C, 0x1E), Offset = 0 });
+        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xF7, 0x1C, 0x1C, 0x1E), Offset = 0.35 });
+        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0, 0x1C, 0x1C, 0x1E), Offset = 1 });
         var mask = new Border { Height = 28, VerticalAlignment = VerticalAlignment.Top, Background = fade, IsHitTestVisible = false };
         scroll.ViewChanged += (_, _) => mask.Opacity = scroll.VerticalOffset > 0 ? 1 : 0;
         mask.Opacity = 0;
@@ -212,7 +212,18 @@ internal sealed class CaptionWindow : DesktopWindow
         foreach (var (name, label) in new[] { ("source", original), ("translation", translation) })
         {
             var lines = Ordered().Where(x => x.Stream == name).Select(x => CaptionText.Format(x.Text, x.IsFailed));
-            label.Text = string.Join("\n\n", compact.IsChecked == true ? lines.TakeLast(1) : lines);
+            // Compact rolls recent segments into one running line (each segment is only ~2s of speech,
+            // so showing the last one alone left a single word); expanded keeps them as paragraphs.
+            label.Text = compact.IsChecked == true ? Running(lines.TakeLast(8)) : string.Join("\n\n", lines);
+        }
+        if (isCompact && both)
+        {
+            // A stream with nothing yet takes no line, so the strip stays centred on what is shown.
+            var showSource = original.Text.Length > 0 || translation.Text.Length == 0;
+            var showTranslation = translation.Text.Length > 0;
+            originalPane.Visibility = showSource ? Visibility.Visible : Visibility.Collapsed;
+            translationPane.Visibility = showTranslation ? Visibility.Visible : Visibility.Collapsed;
+            originalScroll.MaxHeight = translationScroll.MaxHeight = showSource && showTranslation ? 15 : 31;
         }
         if (follow.IsChecked == true)
         {
@@ -223,6 +234,17 @@ internal sealed class CaptionWindow : DesktopWindow
             }
             QueueFollowLatest();
         }
+    }
+    private static string Running(IEnumerable<string> parts)
+    {
+        var text = new System.Text.StringBuilder();
+        foreach (var part in parts.Select(x => x.Trim()).Where(x => x.Length > 0))
+        {
+            // Latin words need a space between segments; CJK text runs on directly.
+            if (text.Length > 0 && text[^1] < 0x2E80 && part[0] < 0x2E80) text.Append(' ');
+            text.Append(part);
+        }
+        return text.ToString();
     }
     private void FollowAfterLayout(object? sender, object args)
     {

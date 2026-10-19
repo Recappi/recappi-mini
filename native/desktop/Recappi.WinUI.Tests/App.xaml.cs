@@ -264,7 +264,9 @@ public partial class TestApp : Application
             await Until(() => Math.Abs(scroll.VerticalOffset - scroll.ScrollableHeight) < 2, "Resuming follow did not reach the latest caption.");
             window.Update(new("item499", "source", "Line 499", true, new("s", 509)));
             Field<CheckBox>(window, "compact").IsChecked = true;
-            Check(Field<TextBlock>(window, "original").Text == "Line 499", "Compact caption does not show latest text.");
+            // Compact runs recent segments together so a short segment is never shown alone.
+            var running = Field<TextBlock>(window, "original").Text;
+            Check(running.EndsWith("Line 499") && running.Contains("Line 498 Line 499"), "Compact caption does not show the latest running text: " + running);
             await Until(() => window.AppWindow.ClientSize.Height < historyHeight,
                 "Collapsing caption history retained its expanded height.");
             await Task.Delay(250);
