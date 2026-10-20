@@ -14,7 +14,8 @@ public partial class TestApp : Application
     private static extern int CoGetApartmentType(out int apartmentType, out int qualifier);
 
     private Window? keeper;
-    public TestApp() { InitializeComponent(); }
+    // Tests assert the Chinese interface; RECAPPI_UI_LANG=en renders the English one (screenshots).
+    public TestApp() { L.English = Environment.GetEnvironmentVariable("RECAPPI_UI_LANG") == "en"; InitializeComponent(); }
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var root = Path.GetFullPath(Path.Combine("build", "native-desktop-validation", "winui-tests-" + Guid.NewGuid().ToString("N")));

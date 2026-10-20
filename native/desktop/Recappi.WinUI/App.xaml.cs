@@ -50,7 +50,7 @@ public partial class App : Application, IDesktopHost
     public string ApplicationRoot { get; private set; } = "";
     public string Origin { get; } = Environment.GetEnvironmentVariable("RECAPPI_ORIGIN") ?? "https://recordmeet.ing";
     private static string InstanceName => "RecappiMini.Desktop." + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Environment.UserDomainName + "\\" + Environment.UserName)))[..20];
-    public App() { InitializeComponent(); }
+    public App() { L.UseSystemLanguage(); InitializeComponent(); }
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var startupProbe = StartupProbe.Create();
