@@ -397,14 +397,17 @@ public partial class TestApp : Application
         try
         {
             var navigation = Field<NavigationView>(settings, "navigation"); var viewer = Field<ScrollViewer>(settings, "sectionViewer");
-            var heights = new List<int>();
+            var heights = new List<int>(); var tops = new List<int>();
             for (var i = 0; i < navigation.MenuItems.Count; i++)
             {
                 navigation.SelectedItem = navigation.MenuItems[i];
                 await Until(() => Fits(settings, viewer), $"Settings tab {i} height did not fit its content.");
                 heights.Add(settings.AppWindow.ClientSize.Height);
+                tops.Add(settings.AppWindow.Position.Y);
             }
             Check(heights.Distinct().Count() > 1, "Settings tabs did not resize the window: " + string.Join(",", heights));
+            // The header stays put: tabs grow and shrink the window downward without moving it.
+            Check(tops.Skip(1).Distinct().Count() == 1, "Settings window moved while switching tabs: " + string.Join(",", tops));
         }
         finally { settings.Close(); }
     }
