@@ -171,10 +171,10 @@ internal static class NativePreviewCapture
             if (DemoData.Enabled)
             {
                 caption.Reset(true); caption.SetStatus("实时字幕");
-                caption.Update(new("demo0", "source", "Recording library comes first this quarter.", true, new("sample", 0)));
-                caption.Update(new("demo0", "translation", "这个季度录音库排在第一位。", true, new("sample", 0)));
+                caption.Update(new("demo0", "source", "The library redesign comes first this quarter.", true, new("sample", 0)));
+                caption.Update(new("demo0", "translation", DemoData.English ? "La renovación de la biblioteca va primero." : "这个季度录音库排在第一位。", true, new("sample", 0)));
                 caption.Update(new("demo", "source", "Let's lock the beta for Nov 18.", true, new("sample", 1)));
-                caption.Update(new("demo", "translation", "我们把公测定在 11 月 18 日。", true, new("sample", 1)));
+                caption.Update(new("demo", "translation", DemoData.English ? "Fijemos la beta para el 18 de noviembre." : "我们把公测定在 11 月 18 日。", true, new("sample", 1)));
                 await Stage(root, "caption-demo-light", caption, passiveShow: true);
                 caption.ApplyTheme("dark"); await Stage(root, "caption-demo-dark", caption, passiveShow: true); caption.ApplyTheme("light");
             }
