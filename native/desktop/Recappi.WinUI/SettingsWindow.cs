@@ -112,7 +112,7 @@ internal sealed class SettingsWindow : DesktopWindow
             var path = folder.Text; if (Directory.Exists(path)) Process.Start(new ProcessStartInfo("explorer.exe", "\"" + path + "\"") { UseShellExecute = true });
             return Task.CompletedTask;
         }, this);
-        AddRow(Labelled(L.T("本地录音目录", "Recordings folder"), folder), Ui.Row(change, reveal));
+        AddRow(Labelled(L.T("本地录音目录", "Recordings folder"), folder), new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { change, reveal } });
         section.Children.Add(Note(L.T("更改后重启 Recappi 生效；已有录音不会移动。", "Takes effect after restarting Recappi. Existing recordings aren't moved.")));
         // About is its own page, laid out like the macOS About panel: centred identity, then updates.
         Section("关于", "About", Symbol.Help);

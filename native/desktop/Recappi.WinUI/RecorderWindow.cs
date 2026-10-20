@@ -66,7 +66,7 @@ internal sealed class RecorderWindow : DesktopWindow
     public int MicrophoneCount => microphone.Items.Count;
     public bool CanStart => !IsActive && !busy && !refreshing && selectedSource is { } selected &&
         (selected.Id != "microphone-only" || includeMicrophone.IsChecked == true) && (includeMicrophone.IsChecked != true || microphone.SelectedItem is MicrophoneDevice);
-    public RecorderWindow(IDesktopHost app, Func<(IReadOnlyList<AudioSource> Sources, IReadOnlyList<MicrophoneDevice> Microphones)>? discover = null) : base("Recappi Mini", 370, 94)
+    public RecorderWindow(IDesktopHost app, Func<(IReadOnlyList<AudioSource> Sources, IReadOnlyList<MicrophoneDevice> Microphones)>? discover = null) : base("Recappi Mini", L.English ? 400 : 370, 94) // English source labels are longer.
     {
         RecappiTheme.Ensure();
         this.app = app;

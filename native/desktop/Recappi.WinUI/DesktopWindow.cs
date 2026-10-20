@@ -146,18 +146,25 @@ internal class DesktopWindow : Window
     }
     // Opened from the non-activating recorder, this app is not the foreground app, so Activate
     // alone leaves the window behind the current one. The click that opened it was our input,
-    // which lets SetForegroundWindow succeed; if the system still refuses, a synthetic Alt press
-    // (the documented foreground-lock release) lets it through.
+    // which lets SetForegroundWindow succeed; if the system still refuses, attaching to the
+    // foreground thread's input lets it through. (A synthetic Alt press also works but switches
+    // Windows into keyboard-cue mode, drawing focus rectangles on the new window.)
     private void BringToFront()
     {
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         if (GetForegroundWindow() == handle || SetForegroundWindow(handle)) return;
-        keybd_event(0x12, 0, 0, 0); keybd_event(0x12, 0, 0x0002, 0);
-        _ = SetForegroundWindow(handle);
+        var foreground = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+        var own = GetCurrentThreadId();
+        if (foreground == 0 || foreground == own) { _ = SetForegroundWindow(handle); return; }
+        _ = AttachThreadInput(own, foreground, true);
+        try { _ = SetForegroundWindow(handle); _ = BringWindowToTop(handle); }
+        finally { _ = AttachThreadInput(own, foreground, false); }
     }
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
-    [DllImport("user32.dll")] private static extern void keybd_event(byte key, byte scan, uint flags, nint extra);
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint attach, uint to, bool join);
+    [DllImport("user32.dll")] private static extern bool BringWindowToTop(nint window);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     private void InitializeKeyboardFocus()
     {
         if (!requestKeyboardFocus || keyboardEntry is not { IsLoaded: true } entry ||
