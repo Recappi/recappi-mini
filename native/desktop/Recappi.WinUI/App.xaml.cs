@@ -69,13 +69,13 @@ public partial class App : Application, IDesktopHost
         try
         {
             installGuard = new Mutex(false, "Local\\RecappiMini.Desktop.InstallGuard");
-            try { using var maintenance = Mutex.OpenExisting("Local\\RecappiMini.Desktop.Setup"); throw new InvalidOperationException("安装或卸载正在进行，请稍后启动。"); }
+            try { using var maintenance = Mutex.OpenExisting("Local\\RecappiMini.Desktop.Setup"); throw new InvalidOperationException(L.T("安装或卸载正在进行，请稍后启动。", "Recappi Mini is being installed or uninstalled. Try again in a moment.")); }
             catch (WaitHandleCannotBeOpenedException) { }
             var root = Environment.GetEnvironmentVariable("RECAPPI_DESKTOP_DATA_DIR");
             var arguments = Environment.GetCommandLineArgs().Skip(1).ToArray();
             if (arguments.Length == 2 && arguments[0] == "--validation-data-dir")
             {
-                if (!Path.IsPathFullyQualified(arguments[1])) throw new ArgumentException("验证数据目录必须是绝对路径。");
+                if (!Path.IsPathFullyQualified(arguments[1])) throw new ArgumentException(L.T("验证数据目录必须是绝对路径。", "The validation data folder must be an absolute path."));
                 root = arguments[1];
             }
             ApplicationRoot = Path.GetDirectoryName(Path.GetFullPath(root ?? LocalRecordingStore.DefaultRoot))!;
@@ -116,11 +116,11 @@ public partial class App : Application, IDesktopHost
             Processing.Changed += entry => dispatcher.TryEnqueue(() =>
             {
                 if (entry.Partition != Account.Snapshot.Account?.Partition) return;
-                if (entry.Stage is ProcessingStage.Completed or ProcessingStage.Synced) tray?.Notify("云端处理完成", entry.Title);
-                if (entry.Stage is ProcessingStage.Failed or ProcessingStage.NeedsReconciliation) tray?.Notify("云端处理未完成", "本地音频已保留，可在录音库继续处理。");
+                if (entry.Stage is ProcessingStage.Completed or ProcessingStage.Synced) tray?.Notify(L.T("云端处理完成", "Cloud processing finished"), entry.Title);
+                if (entry.Stage is ProcessingStage.Failed or ProcessingStage.NeedsReconciliation) tray?.Notify(L.T("云端处理未完成", "Cloud processing didn’t finish"), L.T("本地音频已保留，可在录音库继续处理。", "Local audio is kept. Continue processing from the Library."));
                 library?.ProcessingChanged();
             });
-            tray = new TrayIcon(recorder, recorder.Show, () => _ = recorder.Run(Quit), ("录音库", ShowLibrary), ("实时字幕", ShowCaptions), ("账号", ShowAccount), ("设置…", ShowSettings));
+            tray = new TrayIcon(recorder, recorder.Show, () => _ = recorder.Run(Quit), (L.T("录音库", "Library"), ShowLibrary), (L.T("实时字幕", "Live captions"), ShowCaptions), (L.T("账号", "Account"), ShowAccount), (L.T("设置…", "Settings…"), ShowSettings));
             attentionTimer = dispatcher.CreateTimer(); attentionTimer.Interval = TimeSpan.FromSeconds(5);
             attentionTimer.Tick += async (_, _) => await recorder.Run(CheckAttention); attentionTimer.Start();
             suggestionTimer = dispatcher.CreateTimer(); suggestionTimer.Interval = TimeSpan.FromSeconds(5);
@@ -139,7 +139,7 @@ public partial class App : Application, IDesktopHost
         }
         catch (Exception error)
         {
-            var failure = new DesktopWindow("Recappi Mini · 启动失败", 500, 280);
+            var failure = new DesktopWindow(L.T("Recappi Mini · 启动失败", "Recappi Mini · Couldn’t start"), 500, 280);
             failure.Body.Children.Add(Ui.Text(error.Message));
             failure.Closed += (_, _) => { Cleanup(); Exit(); }; failure.Show();
         }
@@ -195,7 +195,7 @@ public partial class App : Application, IDesktopHost
         }
         if (Engine.Snapshot.State is RecordingState.Starting or RecordingState.Recording or RecordingState.Stopping &&
             !recordingPreferences.CaptionsEnabled)
-            captionWindow.SetStatus("本次录音未启用字幕；可在下次开始前开启。");
+            captionWindow.SetStatus(L.T("本次录音未启用字幕；可在下次开始前开启。", "Captions are off for this recording. Turn them on before the next one."));
         captionWindow.ShowWithoutActivation();
     }
     public void SavePreferences(DesktopPreferences value)
@@ -236,11 +236,11 @@ public partial class App : Application, IDesktopHost
         {
             // Right after launch the saved login is still being checked; captions connect once it is
             // (see Account.Changed). Only a different account needs the original one back.
-            captionWindow?.SetStatus(account is not null ? "登录原账号后可连接字幕；本地录音继续保存。"
-                : snapshot.State is AccountState.Checking ? "正在确认账号，确认后自动连接字幕…"
-                : snapshot.State is AccountState.Expired ? "登录已过期，重新连接账号后可显示字幕；本地录音继续保存。"
-                : snapshot.State is AccountState.Offline ? "云端暂时不可用，恢复后自动连接字幕；本地录音继续保存。"
-                : "连接账号后可显示实时字幕；本地录音继续保存。");
+            captionWindow?.SetStatus(account is not null ? L.T("登录原账号后可连接字幕；本地录音继续保存。", "Sign in to the original account to connect captions. Local recording continues.")
+                : snapshot.State is AccountState.Checking ? L.T("正在确认账号，确认后自动连接字幕…", "Checking your account. Captions connect once it’s confirmed…")
+                : snapshot.State is AccountState.Expired ? L.T("登录已过期，重新连接账号后可显示字幕；本地录音继续保存。", "Your sign-in has expired. Reconnect your account to show captions. Local recording continues.")
+                : snapshot.State is AccountState.Offline ? L.T("云端暂时不可用，恢复后自动连接字幕；本地录音继续保存。", "Cloud is unavailable. Captions connect when it’s back. Local recording continues.")
+                : L.T("连接账号后可显示实时字幕；本地录音继续保存。", "Connect an account to show live captions. Local recording continues."));
             return;
         }
         captionPartition ??= account.Partition;
@@ -266,7 +266,7 @@ public partial class App : Application, IDesktopHost
             archive.ErrorChanged += message => dispatcher.TryEnqueue(() => captionWindow?.SetArchiveError(message));
             if (archive.Error is { } error) dispatcher.TryEnqueue(() => captionWindow?.SetArchiveError(error));
         }
-        catch (Exception) { dispatcher.TryEnqueue(() => captionWindow?.SetArchiveError("字幕归档不可用；本地音频仍会保留。")); }
+        catch (Exception) { dispatcher.TryEnqueue(() => captionWindow?.SetArchiveError(L.T("字幕归档不可用；本地音频仍会保留。", "Caption archive is unavailable. Local audio is still kept."))); }
         stream.Start();
     }
     private async Task RetryCaptions()
@@ -284,7 +284,7 @@ public partial class App : Application, IDesktopHost
         if (stream is null)
         {
             if (Engine.Snapshot.State is RecordingState.Done or RecordingState.Error or RecordingState.Idle)
-                captionWindow?.SetStatus("实时字幕已停止。");
+                captionWindow?.SetStatus(L.T("实时字幕已停止。", "Live captions stopped."));
             return Task.WhenAll(stopping.Values.ToArray());
         }
         if (abort) { captions = null; _ = stream.AbortAsync(); }
@@ -297,7 +297,7 @@ public partial class App : Application, IDesktopHost
     {
         await stream.StopAsync(); await stream.DisposeAsync();
         if (archives.TryRemove(stream, out var archive)) { stream.Delta -= archive.Append; stream.Reordered -= archive.AppendRevisions; await archive.DisposeAsync(); }
-        if (ReferenceEquals(captions, stream)) { captions = null; captionWindow?.SetStatus("实时字幕已停止。"); }
+        if (ReferenceEquals(captions, stream)) { captions = null; captionWindow?.SetStatus(L.T("实时字幕已停止。", "Live captions stopped.")); }
     }
     private async Task ListenForActivation()
     {
@@ -329,8 +329,8 @@ public partial class App : Application, IDesktopHost
             var value = new AttentionSnapshot((int)(Engine.Snapshot.Recording!.DurationMs / 1000), RecorderVisible, active, recordingSourceProcess, rms, known);
             foreach (var action in attention.Evaluate(value, recordingPreferences.Attention))
             {
-                if (action == AttentionAction.LongHiddenRecording) tray?.Notify("录音仍在继续", $"已录制 {value.ElapsedSeconds / 60} 分钟，可从托盘恢复面板。");
-                else { recorder.RequestAttention(action); if (!RecorderVisible) tray?.Notify("录音提醒", "打开面板选择停止保存或继续录音。"); }
+                if (action == AttentionAction.LongHiddenRecording) tray?.Notify(L.T("录音仍在继续", "Still recording"), L.T($"已录制 {value.ElapsedSeconds / 60} 分钟，可从托盘恢复面板。", value.ElapsedSeconds / 60 == 1 ? "Recorded 1 minute. Reopen the recording bar from the tray." : $"Recorded {value.ElapsedSeconds / 60} minutes. Reopen the recording bar from the tray."));
+                else { recorder.RequestAttention(action); if (!RecorderVisible) tray?.Notify(L.T("录音提醒", "Recording reminder"), L.T("打开面板选择停止保存或继续录音。", "Open the recording bar to stop and save, or keep recording.")); }
             }
         }
         finally { checkingAttention = false; }
@@ -349,7 +349,7 @@ public partial class App : Application, IDesktopHost
             });
             if (quitting) return;
             var suggestion = suggestions.Observe(DateTimeOffset.UtcNow, sources, Preferences.RecordingSuggestions, recorder.IsActive, RecorderVisible);
-            if (suggestion is not null) tray?.Notify("是否录制应用声音？", suggestion.Label + " 正在播放声音。点击选择来源，再确认开始录音。", () =>
+            if (suggestion is not null) tray?.Notify(L.T("是否录制应用声音？", "Record app audio?"), suggestion.Label + L.T(" 正在播放声音。点击选择来源，再确认开始录音。", " is playing audio. Click to choose the source, then start recording."), () =>
             {
                 if (recorder.IsActive || !Preferences.RecordingSuggestions) return;
                 recorder.Show(); _ = recorder.Run(() => recorder.SelectSuggestedSource(suggestion));
@@ -368,7 +368,7 @@ public partial class App : Application, IDesktopHost
             if (recorder.IsActive)
             {
                 recorder.Show();
-                if (!await recorder.Confirm("退出 Recappi Mini", "录音正在进行。停止并保存后退出？", "保存并退出")) return;
+                if (!await recorder.Confirm(L.T("退出 Recappi Mini", "Quit Recappi Mini"), L.T("录音正在进行。停止并保存后退出？", "A recording is in progress. Stop, save and quit?"), L.T("保存并退出", "Save and quit"))) return;
             }
             await Engine.DisposeAsync(); await StopCaptions(); await Processing.DisposeAsync();
             Account.CancelLogin(); quitting = true; Cleanup();

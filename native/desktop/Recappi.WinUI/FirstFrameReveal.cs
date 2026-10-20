@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Windowing;
 using Windows.Graphics;
+using Recappi.Core;
 
 namespace Recappi.WinUI;
 
@@ -23,11 +24,11 @@ internal sealed class FirstFrameReveal : IDisposable
     {
         this.window = window; this.complete = complete;
         var region = CreateRectRgn(0, 0, 1, 1);
-        if (region == 0) throw new InvalidOperationException("无法准备窗口显示区域。");
+        if (region == 0) throw new InvalidOperationException(L.T("无法准备窗口显示区域。", "Couldn't prepare the window region."));
         if (SetWindowRgn(Handle, region, true) == 0)
         {
             DeleteObject(region);
-            throw new InvalidOperationException("无法设置窗口显示区域。");
+            throw new InvalidOperationException(L.T("无法设置窗口显示区域。", "Couldn't set the window region."));
         }
         ownsRegion = true;
         try

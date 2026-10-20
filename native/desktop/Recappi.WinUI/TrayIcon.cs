@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
+using Recappi.Core;
 
 namespace Recappi.WinUI;
 
@@ -27,17 +28,17 @@ internal sealed class TrayIcon : IDisposable
         activeIcon = LoadImage(0, Path.Combine(AppContext.BaseDirectory, "Assets", "Recappi.Recording.ico"), 1, 0, 0, 0x10 | 0x40);
         taskbarCreated = RegisterWindowMessage("TaskbarCreated");
         callback = HandleMessage;
-        if (!SetWindowSubclass(window, callback, 1, 0)) throw new InvalidOperationException("无法连接系统托盘。");
+        if (!SetWindowSubclass(window, callback, 1, 0)) throw new InvalidOperationException(L.T("无法连接系统托盘。", "Couldn't connect to the notification area."));
         Update(false, true);
     }
     private NotifyData Data() => new() { Size = (uint)Marshal.SizeOf<NotifyData>(), Window = window, Id = 1,
         Flags = 1 | 2 | 4, CallbackMessage = Callback, Icon = recording ? activeIcon : idleIcon,
-        Tip = recording ? "Recappi Mini · 录音中" : "Recappi Mini", Info = "", InfoTitle = "" };
+        Tip = recording ? L.T("Recappi Mini · 录音中", "Recappi Mini · Recording") : "Recappi Mini", Info = "", InfoTitle = "" };
     public void Update(bool active, bool add = false)
     {
         recording = active;
         var data = Data();
-        if (!Shell_NotifyIcon(add ? 0u : 1u, ref data) && add) throw new InvalidOperationException("无法显示系统托盘图标。");
+        if (!Shell_NotifyIcon(add ? 0u : 1u, ref data) && add) throw new InvalidOperationException(L.T("无法显示系统托盘图标。", "Couldn't show the notification area icon."));
     }
     public void Notify(string title, string message, Action? clicked = null)
     {
@@ -59,9 +60,9 @@ internal sealed class TrayIcon : IDisposable
                 try
                 {
                     // Open actions first, quit last behind a separator (standard tray menu order).
-                    AppendMenu(menu, 0, 1, "显示录音面板");
+                    AppendMenu(menu, 0, 1, L.T("显示录音面板", "Show recording bar"));
                     for (var index = 0; index < menuActions.Length; index++) AppendMenu(menu, 0, (nuint)(index + 3), menuActions[index].Label);
-                    AppendMenu(menu, 0x0800, 0, ""); AppendMenu(menu, 0, 2, "退出 Recappi");
+                    AppendMenu(menu, 0x0800, 0, ""); AppendMenu(menu, 0, 2, L.T("退出 Recappi", "Quit Recappi"));
                     GetCursorPos(out var position); SetForegroundWindow(window);
                     var selected = TrackPopupMenu(menu, 0x100 | 0x2, position.X, position.Y, 0, window, 0);
                     if (selected == 1) restore(); else if (selected == 2) quit();

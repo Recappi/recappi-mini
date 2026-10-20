@@ -14,19 +14,19 @@ internal sealed class CaptionWindow : DesktopWindow
     private const double ExpandedHeight = 184;
     private const double CompactLine = 18;
     private readonly Dictionary<(string Id, string Stream), CaptionDelta> segments = [];
-    private readonly TextBlock status = Ui.Text("开始录音后显示字幕。");
+    private readonly TextBlock status = Ui.Text(L.T("开始录音后显示字幕。", "Captions appear once you start recording."));
     // Until the first caption arrives the panel says why it is empty instead of an empty dark box.
-    private readonly TextBlock placeholder = new() { Text = "开始录音后显示字幕。", FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+    private readonly TextBlock placeholder = new() { Text = L.T("开始录音后显示字幕。", "Captions appear once you start recording."), FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
         IsHitTestVisible = false };
     private readonly TextBlock archiveError = Ui.Text("");
     private readonly TextBlock original = Ui.Text("", 20);
     private readonly TextBlock translation = Ui.Text("", 20);
-    private readonly TextBlock originalTitle = Pane("原文");
-    private readonly TextBlock translationTitle = Pane("译文");
-    private readonly CheckBox showOriginal = new() { Content = "原文", IsChecked = true };
-    private readonly CheckBox showTranslation = new() { Content = "翻译", IsChecked = true };
-    private readonly CheckBox compact = new() { Content = "紧凑模式", IsChecked = true };
-    private readonly CheckBox follow = new() { Content = "跟随最新", IsChecked = true };
+    private readonly TextBlock originalTitle = Pane(L.T("原文", "Original"));
+    private readonly TextBlock translationTitle = Pane(L.T("译文", "Translation"));
+    private readonly CheckBox showOriginal = new() { Content = L.T("原文", "Original"), IsChecked = true };
+    private readonly CheckBox showTranslation = new() { Content = L.T("翻译", "Translation"), IsChecked = true };
+    private readonly CheckBox compact = new() { Content = L.T("紧凑模式", "Compact"), IsChecked = true };
+    private readonly CheckBox follow = new() { Content = L.T("跟随最新", "Follow latest"), IsChecked = true };
     private readonly ScrollViewer originalScroll;
     private readonly ScrollViewer translationScroll;
     private readonly StackPanel originalPane = new() { Spacing = 4 };
@@ -43,11 +43,11 @@ internal sealed class CaptionWindow : DesktopWindow
     private bool hasTranslation;
     private bool followAfterLayout;
     private bool closed;
-    public CaptionWindow(Func<Task> retry) : base("Recappi Mini · 实时字幕", 566, 86)
+    public CaptionWindow(Func<Task> retry) : base(L.T("Recappi Mini · 实时字幕", "Recappi Mini · Live captions"), 566, 86)
     {
         Body.Padding = new Thickness(13, 8, 14, 8); Body.Spacing = 6; Body.MinHeight = CompactHeight;
         // A self-drawn dark squircle on a transparent window, dark in both app themes as on macOS.
-        CompactChrome("移动字幕面板", 600, minimumHeight: 40, pill: true, pillFill: "RecappiCaptionPill", pillStroke: "RecappiCaptionPillStroke");
+        CompactChrome(L.T("移动字幕面板", "Move caption bar"), 600, minimumHeight: 40, pill: true, pillFill: "RecappiCaptionPill", pillStroke: "RecappiCaptionPillStroke");
 
         Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 11.5;
         status.Style = RecappiTheme.Style("RecappiCaptionBadge"); status.IsTextSelectionEnabled = false;
@@ -61,18 +61,18 @@ internal sealed class CaptionWindow : DesktopWindow
         RecappiTheme.Pulse(liveDot).Begin();
         badge.Children.Add(liveDot); badge.Children.Add(status);
         var badgeSurface = new Border { Child = badge, CornerRadius = new CornerRadius(10), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(31, 255, 59, 48)) };
-        originalToggle = Segment("显示原文", ""); translationToggle = Segment("显示译文", "");
+        originalToggle = Segment(L.T("显示原文", "Show original"), ""); translationToggle = Segment(L.T("显示译文", "Show translation"), "");
         originalToggle.Click += (_, _) => showOriginal.IsChecked = originalToggle.IsChecked;
         translationToggle.Click += (_, _) => showTranslation.IsChecked = translationToggle.IsChecked;
         var streams = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(3, 2, 3, 2) };
         streams.Children.Add(originalToggle); streams.Children.Add(translationToggle);
         var streamSurface = new Border { Child = streams, CornerRadius = new CornerRadius(11) };
         RecappiTheme.Bind(streamSurface, "RecappiCaptionWash", brush => streamSurface.Background = brush);
-        expand = Ui.IconButton("展开字幕历史", "", () => { compact.IsChecked = compact.IsChecked != true; return Task.CompletedTask; }, this);
-        var option = Ui.IconButton("字幕选项", "", () => Task.CompletedTask, this);
-        var settings = new StackPanel { Spacing = 8 }; foreach (var control in new UIElement[] { follow, Ui.Button("重新连接", retry, this) }) settings.Children.Add(control);
+        expand = Ui.IconButton(L.T("展开字幕历史", "Show caption history"), "", () => { compact.IsChecked = compact.IsChecked != true; return Task.CompletedTask; }, this);
+        var option = Ui.IconButton(L.T("字幕选项", "Caption options"), "", () => Task.CompletedTask, this);
+        var settings = new StackPanel { Spacing = 8 }; foreach (var control in new UIElement[] { follow, Ui.Button(L.T("重新连接", "Reconnect"), retry, this) }) settings.Children.Add(control);
         option.Flyout = new Flyout { Content = settings, ShouldConstrainToRootBounds = false };
-        var close = Ui.IconButton("隐藏字幕", "", () => { Hide(); return Task.CompletedTask; }, this);
+        var close = Ui.IconButton(L.T("隐藏字幕", "Hide captions"), "", () => { Hide(); return Task.CompletedTask; }, this);
         foreach (var button in new[] { expand, option, close }) { button.Width = button.Height = 22; ((FontIcon)button.Content).FontSize = 9.5; }
         var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Padding = new Thickness(5, 2, 5, 2) };
         foreach (var item in new UIElement[] { badgeSurface, streamSurface, expand, option, close }) tools.Children.Add(item);
@@ -160,7 +160,7 @@ internal sealed class CaptionWindow : DesktopWindow
         Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, nameof(UIElement.Opacity));
         var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard(); storyboard.Children.Add(animation); storyboard.Begin();
     }
-    public void Reset(bool translate) { segments.Clear(); hasTranslation = translate; SetArchiveError(""); SetStatus("正在连接…"); Render(); }
+    public void Reset(bool translate) { segments.Clear(); hasTranslation = translate; SetArchiveError(""); SetStatus(L.T("正在连接…", "Connecting…")); Render(); }
     public void SetStatus(string value) { status.Text = value; placeholder.Text = value; }
     public void SetArchiveError(string value) { archiveError.Text = value; archiveError.Visibility = string.IsNullOrEmpty(value) ? Visibility.Collapsed : Visibility.Visible; }
     public void Update(CaptionDelta value)
@@ -201,7 +201,7 @@ internal sealed class CaptionWindow : DesktopWindow
         columns.ColumnDefinitions[1].Width = !isCompact && translationVisible ? new GridLength(43, GridUnitType.Star) : new GridLength(0);
         columns.ColumnSpacing = isCompact || !both ? 0 : 14;
         originalTitle.Visibility = translationTitle.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
-        translationTitle.Text = "译文";
+        translationTitle.Text = L.T("译文", "Translation");
         if (isCompact)
         {
             // Fixed line boxes so the strip holds whole lines: following the end never shows half a line.
@@ -223,8 +223,8 @@ internal sealed class CaptionWindow : DesktopWindow
             stage.MinHeight = 0; columns.VerticalAlignment = VerticalAlignment.Top;
         }
         original.TextWrapping = translation.TextWrapping = TextWrapping.Wrap;
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(expand, isCompact ? "展开字幕历史" : "收起字幕历史");
-        ToolTipService.SetToolTip(expand, isCompact ? "展开字幕历史" : "收起字幕历史");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(expand, isCompact ? L.T("展开字幕历史", "Show caption history") : L.T("收起字幕历史", "Hide caption history"));
+        ToolTipService.SetToolTip(expand, isCompact ? L.T("展开字幕历史", "Show caption history") : L.T("收起字幕历史", "Hide caption history"));
         ((FontIcon)expand.Content).Glyph = isCompact ? "" : "";
         foreach (var (name, label) in new[] { ("source", original), ("translation", translation) })
         {

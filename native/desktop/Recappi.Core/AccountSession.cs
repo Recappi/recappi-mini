@@ -22,7 +22,7 @@ public sealed class AccountSession(AccountStore store, Func<string, string?, Clo
     {
         var current = Snapshot;
         if (current.State is not (AccountState.SignedIn or AccountState.Offline) || current.Account is not { } active || active.Partition != account.Partition || active.Token != account.Token) return;
-        var expired = new AccountSnapshot(AccountState.Expired, active, "登录已过期，请重新连接。");
+        var expired = new AccountSnapshot(AccountState.Expired, active, L.T("登录已过期，请重新连接。", "Your sign-in has expired. Please reconnect."));
         if (ReferenceEquals(Interlocked.CompareExchange(ref snapshot, expired, current), current)) Notify(expired);
     }
 
@@ -37,7 +37,7 @@ public sealed class AccountSession(AccountStore store, Func<string, string?, Clo
             await ValidateAsync(account, cancellation);
         }
         catch (OperationCanceledException) { throw; }
-        catch { Publish(new(AccountState.Failed, Message: "无法读取保存的账号，请重新登录。")); }
+        catch { Publish(new(AccountState.Failed, Message: L.T("无法读取保存的账号，请重新登录。", "Couldn’t read the saved account. Please sign in again."))); }
         finally { gate.Release(); }
     }
 
@@ -63,9 +63,9 @@ public sealed class AccountSession(AccountStore store, Func<string, string?, Clo
             Publish(new(AccountState.SignedIn, verified));
         }
         catch (CloudException failure) when (failure.Status == HttpStatusCode.Unauthorized)
-        { Publish(new(AccountState.Expired, account, "登录已过期，请重新连接。")); }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { Publish(new(AccountState.Offline, account, "连接检查已取消。")); throw; }
-        catch { Publish(new(AccountState.Offline, account, "暂时无法连接云端，本地录音仍可使用。")); }
+        { Publish(new(AccountState.Expired, account, L.T("登录已过期，请重新连接。", "Your sign-in has expired. Please reconnect."))); }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { Publish(new(AccountState.Offline, account, L.T("连接检查已取消。", "Connection check canceled."))); throw; }
+        catch { Publish(new(AccountState.Offline, account, L.T("暂时无法连接云端，本地录音仍可使用。", "Can’t reach Cloud right now. Local recording still works."))); }
     }
 
     public async Task SignInAsync(string origin, Action<LoginPrompt> prompt, CancellationToken cancellation = default)
@@ -85,8 +85,8 @@ public sealed class AccountSession(AccountStore store, Func<string, string?, Clo
             store.Save(account);
             Publish(new(AccountState.SignedIn, account));
         }
-        catch (OperationCanceledException) { Publish(previous with { Message = "登录已取消。" }); }
-        catch (Exception failure) { Publish(previous with { Message = failure is CloudException ? failure.Message : "登录未完成，请重试。" }); }
+        catch (OperationCanceledException) { Publish(previous with { Message = L.T("登录已取消。", "Sign-in canceled.") }); }
+        catch (Exception failure) { Publish(previous with { Message = failure is CloudException ? failure.Message : L.T("登录未完成，请重试。", "Sign-in didn’t finish. Please try again.") }); }
         finally { Interlocked.CompareExchange(ref login, null, pending); gate.Release(); }
     }
 
@@ -107,7 +107,7 @@ public sealed class AccountSession(AccountStore store, Func<string, string?, Clo
             if (account is not null)
             {
                 try { using var client = Client(account); await client.SignOutAsync(cancellation); }
-                catch { Publish(new(AccountState.SignedOut, Message: "本机已退出；服务器会话未能撤销。")); }
+                catch { Publish(new(AccountState.SignedOut, Message: L.T("本机已退出；服务器会话未能撤销。", "Signed out on this PC, but the server session couldn’t be revoked."))); }
             }
         }
         finally { gate.Release(); }

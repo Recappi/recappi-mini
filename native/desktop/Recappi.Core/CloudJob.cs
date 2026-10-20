@@ -5,7 +5,7 @@ namespace Recappi.Core;
 public sealed record CloudJob(string Id, string Status, string? TranscriptId, long? EnqueuedAt, double Progress, bool HasRetryableChunks)
 {
     public bool IsActive => Status is "queued" or "running";
-    public string Display => (EnqueuedAt is >= 0 and < 253402300800000 ? DateTimeOffset.FromUnixTimeMilliseconds(EnqueuedAt.Value).ToLocalTime().ToString("MM-dd HH:mm") : Id) + " · " + (Status switch { "queued" => "排队中", "running" => $"转写中 {Progress:0}%", "succeeded" => "已完成", "failed" => "失败", _ => Status });
+    public string Display => (EnqueuedAt is >= 0 and < 253402300800000 ? DateTimeOffset.FromUnixTimeMilliseconds(EnqueuedAt.Value).ToLocalTime().ToString("MM-dd HH:mm") : Id) + " · " + (Status switch { "queued" => L.T("排队中", "Queued"), "running" => L.T($"转写中 {Progress:0}%", $"Transcribing {Progress:0}%"), "succeeded" => L.T("已完成", "Done"), "failed" => L.T("失败", "Failed"), _ => Status });
     public static CloudJob Parse(JsonElement value)
     {
         var id = CloudFields.Text(value, "id") ?? throw new InvalidDataException("Job ID missing.");

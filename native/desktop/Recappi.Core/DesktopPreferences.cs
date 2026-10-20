@@ -25,13 +25,13 @@ public sealed record DesktopPreferences
     public string RecordingsRoot { get; init; } = LocalRecordingStore.DefaultRoot;
     public DesktopPreferences Validate()
     {
-        if (Theme is not ("system" or "light" or "dark")) throw new ArgumentException("请选择有效主题。");
-        if (LongReminderMinutes is < 0 or > 10080 || MaxDurationMinutes is < 0 or > 10080) throw new ArgumentException("提醒间隔和时长上限请输入 0–10080 分钟，0 表示关闭。");
+        if (Theme is not ("system" or "light" or "dark")) throw new ArgumentException(L.T("请选择有效主题。", "Choose a valid theme."));
+        if (LongReminderMinutes is < 0 or > 10080 || MaxDurationMinutes is < 0 or > 10080) throw new ArgumentException(L.T("提醒间隔和时长上限请输入 0–10080 分钟，0 表示关闭。", "Enter 0–10080 minutes for the reminder interval and length limit; 0 turns it off."));
         foreach (var language in new[] { TranscriptionLanguage, CaptionLanguage, TranslationLanguage })
-            if (language is null || language.Length > 20 || language.Any(ch => !char.IsAsciiLetter(ch) && ch is not '-' and not '_')) throw new ArgumentException("语言请填写语言代码，例如 zh、en、zh-CN 或 auto。");
-        if (Scene is not ("meeting" or "podcast" or "interview" or "casual" or "lecture")) throw new ArgumentException("请选择有效场景。");
-        if (ExtraContext is null || ExtraContext.Length > 4000) throw new ArgumentException("额外上下文不能超过 4000 字符。");
-        if (string.IsNullOrWhiteSpace(RecordingsRoot) || !Path.IsPathFullyQualified(RecordingsRoot)) throw new ArgumentException("请选择完整的本地录音目录路径。");
+            if (language is null || language.Length > 20 || language.Any(ch => !char.IsAsciiLetter(ch) && ch is not '-' and not '_')) throw new ArgumentException(L.T("语言请填写语言代码，例如 zh、en、zh-CN 或 auto。", "Enter a language code, such as zh, en, zh-CN or auto."));
+        if (Scene is not ("meeting" or "podcast" or "interview" or "casual" or "lecture")) throw new ArgumentException(L.T("请选择有效场景。", "Choose a valid scene."));
+        if (ExtraContext is null || ExtraContext.Length > 4000) throw new ArgumentException(L.T("额外上下文不能超过 4000 字符。", "Extra context can’t exceed 4000 characters."));
+        if (string.IsNullOrWhiteSpace(RecordingsRoot) || !Path.IsPathFullyQualified(RecordingsRoot)) throw new ArgumentException(L.T("请选择完整的本地录音目录路径。", "Choose a full path for the local recordings folder."));
         return this with { RecordingsRoot = Path.GetFullPath(RecordingsRoot), TranscriptionLanguage = string.IsNullOrEmpty(TranscriptionLanguage) ? "auto" : TranscriptionLanguage, CaptionLanguage = string.IsNullOrEmpty(CaptionLanguage) ? "en" : CaptionLanguage };
     }
     [System.Text.Json.Serialization.JsonIgnore]

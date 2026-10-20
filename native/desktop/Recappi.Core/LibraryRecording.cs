@@ -5,7 +5,7 @@ public sealed record LibraryRecording(LocalRecording? Local, CloudRecordingItem?
     public string Key => Local is { } local ? "local/" + local.Id : "cloud/" + Cloud!.Id;
     public string Title => Cloud?.Title ?? Local!.Title;
     public DateTimeOffset? CreatedAt => Local?.StartedAt ?? Cloud?.CreatedAt;
-    public string Location => Local is not null && Cloud is not null ? "本机与云端" : Local is not null ? "本机" : "云端";
+    public string Location => Local is not null && Cloud is not null ? L.T("本机与云端", "This PC and Cloud") : Local is not null ? L.T("本机", "This PC") : L.T("云端", "Cloud");
     public override string ToString() => Title;
 
     public static IReadOnlyList<LibraryRecording> Merge(IReadOnlyList<LocalRecording> local,

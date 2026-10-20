@@ -30,7 +30,7 @@ internal sealed class CaptionTimeline(Func<long> allocateSequence)
             {
                 var oldest = order[0];
                 if (isAwaiting(oldest.Id) || oldest.Content.Count == 0 || oldest.Content.Values.Any(x => !x.IsFinal && !x.IsFailed))
-                    throw new IOException("字幕顺序等待过久，需重新连接。");
+                    throw new IOException(L.T("字幕顺序等待过久，需重新连接。", "Caption ordering waited too long. Reconnect needed."));
                 contentCount -= oldest.Content.Count;
                 items.Remove(oldest.Id); order.RemoveAt(0);
             }
@@ -44,7 +44,7 @@ internal sealed class CaptionTimeline(Func<long> allocateSequence)
             var visited = new HashSet<string>();
             while (ancestor is not null && visited.Add(ancestor))
             {
-                if (ancestor == id) throw new InvalidDataException("字幕顺序包含循环引用。");
+                if (ancestor == id) throw new InvalidDataException(L.T("字幕顺序包含循环引用。", "Caption ordering contains a cycle."));
                 ancestor = items.TryGetValue(ancestor, out var parent) ? parent.Previous : null;
             }
             item.Previous = previous;
@@ -63,7 +63,7 @@ internal sealed class CaptionTimeline(Func<long> allocateSequence)
                 foreach (var successor in successors) Visit(successor);
         }
         foreach (var root in order.Where(x => x.Previous is null || !items.ContainsKey(x.Previous))) Visit(root);
-        if (resolved.Count != order.Count) throw new InvalidDataException("字幕顺序无效。");
+        if (resolved.Count != order.Count) throw new InvalidDataException(L.T("字幕顺序无效。", "Caption ordering is invalid."));
         var slots = order.Select(x => x.Sequence).Order().ToArray();
         var revisions = new List<CaptionDelta>();
         for (var index = 0; index < resolved.Count; index++)
@@ -91,7 +91,7 @@ internal sealed class CaptionTimeline(Func<long> allocateSequence)
         var contentIndex = value.Position!.ContentIndex;
         if (!item.Content.ContainsKey(contentIndex))
         {
-            if (contentCount >= 512) throw new IOException("字幕内容等待过多，需重新连接。");
+            if (contentCount >= 512) throw new IOException(L.T("字幕内容等待过多，需重新连接。", "Too much caption content is pending. Reconnect needed."));
             contentCount++;
         }
         item.Content[contentIndex] = value;

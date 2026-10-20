@@ -2,6 +2,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
+using Recappi.Core;
 
 namespace Recappi.WinUI;
 
@@ -40,7 +41,7 @@ internal sealed class SummaryDocument : UserControl
         if (intro.Count > 0)
         {
             var hero = new StackPanel { Spacing = 14 };
-            hero.Children.Add(Eyebrow("摘要"));
+            hero.Children.Add(Eyebrow(L.T("摘要", "Summary")));
             foreach (var paragraph in intro) hero.Children.Add(Body(paragraph));
             cards.Children.Add(Card(hero));
         }
@@ -55,13 +56,20 @@ internal sealed class SummaryDocument : UserControl
                 grouped.Children.Add(divider);
             }
             var section = new StackPanel { Spacing = 10 };
-            section.Children.Add(Eyebrow(title));
+            section.Children.Add(Eyebrow(Heading(title)));
             var actions = title.Contains("行动"); var quotes = title.Contains("引用");
             foreach (var item in items) section.Children.Add(Item(item, actions ? "✓" : quotes ? "“" : "", actions));
             grouped.Children.Add(section);
         }
         cards.Children.Add(Card(grouped));
     }
+    // The service writes these headings in Chinese; the parser matches them, the label shows them.
+    private static string Heading(string title) => title switch
+    {
+        "要点" => L.T("要点", "Key points"), "话题" => L.T("话题", "Topics"), "决策" => L.T("决策", "Decisions"),
+        "行动项" => L.T("行动项", "Action items"), "引用" => L.T("引用", "Quotes"), "时间线" => L.T("时间线", "Timeline"),
+        _ => title
+    };
     private static Grid Card(UIElement child)
     {
         var card = Squircles.Surface(child, 14, new Thickness(24));

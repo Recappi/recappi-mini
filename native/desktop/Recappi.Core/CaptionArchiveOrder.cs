@@ -129,7 +129,7 @@ public static class CaptionArchiveOrder
     }
 
     private static Entry? ReadEntry(StreamReader reader) => reader.ReadLine() is { } line
-        ? JsonSerializer.Deserialize<Entry>(line) ?? throw new InvalidDataException("字幕排序临时文件无效。") : null;
+        ? JsonSerializer.Deserialize<Entry>(line) ?? throw new InvalidDataException(L.T("字幕排序临时文件无效。", "Caption ordering temp file is invalid.")) : null;
 
     private static void Merge(string first, string second, string destination, Comparison<Entry> compare)
     {

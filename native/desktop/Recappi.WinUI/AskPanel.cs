@@ -19,7 +19,7 @@ internal sealed class AskPanel : IDisposable
     private readonly Func<AskCitation, Task> seek;
     private readonly CancellationTokenSource lifetime = new();
     private CancellationTokenSource? sending;
-    private readonly TextBox question = new() { PlaceholderText = "这段录音里，有什么想进一步了解的？", AcceptsReturn = true, MinHeight = 88, MaxHeight = 120, TextWrapping = TextWrapping.Wrap };
+    private readonly TextBox question = new() { PlaceholderText = L.T("这段录音里，有什么想进一步了解的？", "What would you like to know about this recording?"), AcceptsReturn = true, MinHeight = 88, MaxHeight = 120, TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock history = Ui.Text("");
     private readonly TextBlock answer = Ui.Text("");
     private readonly StackPanel suggestions = new() { Spacing = 6 };
@@ -29,7 +29,7 @@ internal sealed class AskPanel : IDisposable
     private readonly TextBlock asked = Ui.Text("", 14);
     private readonly TextBlock progress = Ui.Text("", 12);
     private readonly Border askedBubble = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 8, 12, 8), HorizontalAlignment = HorizontalAlignment.Right, MaxWidth = 560, Margin = new Thickness(40, 0, 0, 0) };
-    private readonly TextBlock answerLabel = new() { Text = "回答", FontSize = 9.5, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, CharacterSpacing = 60 };
+    private readonly TextBlock answerLabel = new() { Text = L.T("回答", "Answer"), FontSize = 9.5, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, CharacterSpacing = 60 };
     private readonly Button send;
     private readonly Button stop;
     private int edits;
@@ -44,19 +44,19 @@ internal sealed class AskPanel : IDisposable
         Root.LayoutUpdated += RevealAnswer;
         Root.SizeChanged += ResizeComposer;
         var intro = new StackPanel { Spacing = 4 };
-        intro.Children.Add(new TextBlock { Text = "从录音中找到答案", Style = RecappiTheme.Style("RecappiSectionTitle") });
-        intro.Children.Add(new TextBlock { Text = "围绕这段录音提问，回答中的引用可以定位到原音频。", Style = RecappiTheme.Style("RecappiBodySecondary") });
+        intro.Children.Add(new TextBlock { Text = L.T("从录音中找到答案", "Find answers in the recording"), Style = RecappiTheme.Style("RecappiSectionTitle") });
+        intro.Children.Add(new TextBlock { Text = L.T("围绕这段录音提问，回答中的引用可以定位到原音频。", "Ask about this recording. Quotes in answers jump to the original audio."), Style = RecappiTheme.Style("RecappiBodySecondary") });
         timeline.Children.Add(intro);
         foreach (var text in new[] { history, answer }) { text.Style = RecappiTheme.Style("RecappiBody"); text.FontSize = 13; text.LineHeight = 21; }
         answerLabel.Style = RecappiTheme.Style("RecappiStatusAccent"); answerLabel.FontSize = 9.5;
         timeline.Children.Add(history); timeline.Children.Add(historyCitations); timeline.Children.Add(suggestions);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(question, "向这场会议提问");
-        send = Ui.Button("发送", Send, owner); stop = Ui.Button("停止", () => { sending?.Cancel(); return Task.CompletedTask; }, owner);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(question, L.T("向这场会议提问", "Ask about this meeting"));
+        send = Ui.Button(L.T("发送", "Send"), Send, owner); stop = Ui.Button(L.T("停止", "Stop"), () => { sending?.Cancel(); return Task.CompletedTask; }, owner);
         send.Style = stop.Style = RecappiTheme.Style("RecappiSendButton");
         send.Content = RecappiTheme.Glyph("\uE74A", 13); stop.Content = RecappiTheme.Glyph("\uE71A", 11);
-        ToolTipService.SetToolTip(send, "发送"); ToolTipService.SetToolTip(stop, "停止回答");
+        ToolTipService.SetToolTip(send, L.T("发送", "Send")); ToolTipService.SetToolTip(stop, L.T("停止回答", "Stop answering"));
         question.MinHeight = 34; question.CornerRadius = new CornerRadius(9);
-        var reload = Ui.IconButton("重新加载问答", "\uE72C", Load, owner);
+        var reload = Ui.IconButton(L.T("重新加载问答", "Reload Ask"), "\uE72C", Load, owner);
         // Composer: question field with its actions stacked at the trailing edge.
         var composer = new Grid { ColumnSpacing = 8, Padding = new Thickness(0, 10, 0, 0) };
         composer.ColumnDefinitions.Add(new ColumnDefinition()); composer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -79,12 +79,12 @@ internal sealed class AskPanel : IDisposable
         {
             using var client = app.Account.Client(account); var messages = await client.AskHistoryAsync(id, lifetime.Token);
             if (!Current || version != loadVersion) return;
-            history.Text = string.Join("\n\n", messages.Select(x => (x.Role == "user" ? "你：" : "回答：") + x.Content));
+            history.Text = string.Join("\n\n", messages.Select(x => (x.Role == "user" ? L.T("你：", "You: ") : L.T("回答：", "Answer: ")) + x.Content));
             historyCitations.Children.Clear();
             foreach (var citation in messages.SelectMany(x => x.Citations ?? [])) historyCitations.Children.Add(CitationButton(citation));
             Render();
         }
-        catch (Exception error) when (error is not OperationCanceledException) { if (Current && version == loadVersion) { history.Text = "历史加载失败，请重新加载问答。"; Render(); } }
+        catch (Exception error) when (error is not OperationCanceledException) { if (Current && version == loadVersion) { history.Text = L.T("历史加载失败，请重新加载问答。", "Couldn't load history. Reload Ask to try again."); Render(); } }
         catch (OperationCanceledException) { }
     }
     private async Task LoadSuggestions(int version)
@@ -110,7 +110,7 @@ internal sealed class AskPanel : IDisposable
         var prompt = question.Text; if (string.IsNullOrWhiteSpace(prompt)) return;
         using var pending = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); sending = pending;
         question.Text = ""; var draftVersion = edits; answer.Text = ""; citations.Children.Clear(); renderedCitations.Clear(); var completed = false;
-        asked.Text = prompt; progress.Text = "正在回答…"; revealResponse = false; revealPending = true; Render();
+        asked.Text = prompt; progress.Text = L.T("正在回答…", "Answering…"); revealResponse = false; revealPending = true; Render();
         var firstAnswer = true;
         try
         {
@@ -135,7 +135,7 @@ internal sealed class AskPanel : IDisposable
         {
             sending = null;
             if (Current && !completed && edits == draftVersion) question.Text = prompt;
-            if (Current) { progress.Text = completed ? "" : pending.IsCancellationRequested ? "已停止回答" : "回答未完成，可以重试。"; Render(); }
+            if (Current) { progress.Text = completed ? "" : pending.IsCancellationRequested ? L.T("已停止回答", "Stopped answering") : L.T("回答未完成，可以重试。", "The answer didn't finish. You can try again."); Render(); }
         }
     }
     private void ResizeComposer(object sender, SizeChangedEventArgs args)
@@ -165,7 +165,7 @@ internal sealed class AskPanel : IDisposable
     {
         var button = Ui.Button(citation.Display, () => Current ? seek(citation) : Task.CompletedTask, owner);
         button.Style = RecappiTheme.Style("RecappiCitationButton"); button.HorizontalAlignment = HorizontalAlignment.Left;
-        ToolTipService.SetToolTip(button, "定位到引用位置");
+        ToolTipService.SetToolTip(button, L.T("定位到引用位置", "Go to quoted passage"));
         return button;
     }
     private void AddCitation(AskCitation citation)

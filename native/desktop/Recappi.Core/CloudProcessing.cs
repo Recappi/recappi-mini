@@ -42,7 +42,7 @@ public sealed class CloudProcessing : IAsyncDisposable
         var key = account.Partition + "/" + recording.Id;
         lock (sync)
         {
-            if (detaching.Contains(key)) throw new InvalidOperationException("录音关联正在更新，请稍后重试。");
+            if (detaching.Contains(key)) throw new InvalidOperationException(L.T("录音关联正在更新，请稍后重试。", "The recording link is being updated. Try again in a moment."));
             ObjectDisposedException.ThrowIf(disposed, this);
             if (active.TryGetValue(key, out var existing)) return existing.Task;
             var cancellation = new CancellationTokenSource();
@@ -103,17 +103,17 @@ public sealed class CloudProcessing : IAsyncDisposable
         {
             prior = ReadJournal(EntryPath(account.Partition, recording.Id));
             if (prior is null || prior.LocalId != recording.Id || prior.Partition != account.Partition || !Enum.IsDefined(prior.Stage))
-                throw new InvalidDataException("本地处理记录无效，请先检查云端录音；不会重新上传。");
+                throw new InvalidDataException(L.T("本地处理记录无效，请先检查云端录音；不会重新上传。", "The local processing record is invalid. Check the Cloud recording first; it won’t be uploaded again."));
         }
         catch (FileNotFoundException) { prior = null; }
         catch (DirectoryNotFoundException) { prior = null; }
         catch (Exception error) when (error is JsonException or InvalidDataException)
         {
-            throw new ProcessingJournalException("本地处理记录已损坏，请先在云端录音库核对；本地音频已保留，不会重新上传。", error);
+            throw new ProcessingJournalException(L.T("本地处理记录已损坏，请先在云端录音库核对；本地音频已保留，不会重新上传。", "The local processing record is damaged. Check the Cloud library first. Local audio is kept and won’t be uploaded again."), error);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
-            throw new ProcessingJournalException("暂时无法读取本地处理记录，请稍后重试；本地音频已保留，不会重新上传。", error);
+            throw new ProcessingJournalException(L.T("暂时无法读取本地处理记录，请稍后重试；本地音频已保留，不会重新上传。", "Can’t read the local processing record right now. Try again later. Local audio is kept and won’t be uploaded again."), error);
         }
         var entry = prior ?? new ProcessingEntry(recording.Id, account.Partition, recording.Title, ProcessingStage.Creating);
         if (prior is { Ticket: null, Stage: ProcessingStage.Creating }) entry = entry with { Stage = ProcessingStage.NeedsReconciliation };
@@ -141,7 +141,7 @@ public sealed class CloudProcessing : IAsyncDisposable
             }
             if (entry.Ticket is null)
             {
-                if (entry.Stage == ProcessingStage.NeedsReconciliation) throw new InvalidOperationException("上次创建结果未确认，请先在云端录音库核对。");
+                if (entry.Stage == ProcessingStage.NeedsReconciliation) throw new InvalidOperationException(L.T("上次创建结果未确认，请先在云端录音库核对。", "The last create request wasn’t confirmed. Check the Cloud library first."));
                 entry = entry with { Stage = ProcessingStage.Creating, Error = null }; Save(entry);
                 try
                 {
@@ -150,7 +150,7 @@ public sealed class CloudProcessing : IAsyncDisposable
                 }
                 catch (Exception failure) when (failure is HttpRequestException or OperationCanceledException or IOException or InvalidDataException || failure is CloudException cloud && ((int)cloud.Status >= 500 || (int)cloud.Status == 408))
                 {
-                    entry = entry with { Stage = ProcessingStage.NeedsReconciliation, Error = "创建请求的结果未确认，请先检查云端录音库。" };
+                    entry = entry with { Stage = ProcessingStage.NeedsReconciliation, Error = L.T("创建请求的结果未确认，请先检查云端录音库。", "The create request wasn’t confirmed. Check the Cloud library first.") };
                     Save(entry); return entry;
                 }
             }
@@ -185,7 +185,7 @@ public sealed class CloudProcessing : IAsyncDisposable
                         entry = entry with { JobId = items.EnumerateArray().Select(x => Text(x, "id")).FirstOrDefault(x => !string.IsNullOrEmpty(x)) };
                     if (entry.JobId is null)
                     {
-                        entry = entry with { Stage = ProcessingStage.NeedsReconciliation, Error = "转写请求结果未确认，请刷新云端任务后重试。" };
+                        entry = entry with { Stage = ProcessingStage.NeedsReconciliation, Error = L.T("转写请求结果未确认，请刷新云端任务后重试。", "The transcribe request wasn’t confirmed. Refresh Cloud jobs and try again.") };
                         Save(entry); return entry;
                     }
                 }
@@ -204,20 +204,20 @@ public sealed class CloudProcessing : IAsyncDisposable
                 var job = await client.JobAsync(entry.JobId!, cancellation);
                 var status = Text(job, "status");
                 if (status == "succeeded") { entry = entry with { Stage = ProcessingStage.Completed, Progress = 1, Error = null }; Save(entry); return entry; }
-                if (status == "failed") { entry = entry with { Stage = ProcessingStage.Failed, Error = "云端转写失败，可在任务详情重试。" }; Save(entry); return entry; }
+                if (status == "failed") { entry = entry with { Stage = ProcessingStage.Failed, Error = L.T("云端转写失败，可在任务详情重试。", "Cloud transcription failed. You can retry from the job details.") }; Save(entry); return entry; }
                 if (status is not ("queued" or "running")) throw new InvalidDataException("Unknown transcription status.");
                 var percent = job.TryGetProperty("chunkProgress", out var chunks) && chunks.ValueKind == JsonValueKind.Object && chunks.TryGetProperty("percent", out var progress) && progress.TryGetDouble(out var number) ? Math.Clamp(number / 100, 0, 1) : 0;
                 entry = entry with { Stage = status == "queued" ? ProcessingStage.Queued : ProcessingStage.Transcribing, Progress = percent, Error = null }; Save(entry);
                 await delay(TimeSpan.FromSeconds(2), cancellation);
             }
-            entry = entry with { Stage = ProcessingStage.Paused, Error = "云端任务仍在运行，可稍后继续检查。" };
+            entry = entry with { Stage = ProcessingStage.Paused, Error = L.T("云端任务仍在运行，可稍后继续检查。", "The Cloud job is still running. Check again later.") };
         }
-        catch (OperationCanceledException) { entry = entry with { Stage = ProcessingStage.Paused, Error = "已暂停；本地录音保留，可继续上传或检查任务。" }; }
+        catch (OperationCanceledException) { entry = entry with { Stage = ProcessingStage.Paused, Error = L.T("已暂停；本地录音保留，可继续上传或检查任务。", "Paused. The local recording is kept; you can continue the upload or check the job.") }; }
         catch (Exception error)
         {
             if (entry.Stage == ProcessingStage.SubmittingTranscription && error is CloudException rejected && (int)rejected.Status is 400 or 401 or 402 or 403 or 404 or 422)
                 entry = entry with { TranscriptionAttempted = false };
-            entry = entry with { Stage = ProcessingStage.Failed, Error = error is CloudException ? error.Message : "处理未完成，本地录音已保留。" };
+            entry = entry with { Stage = ProcessingStage.Failed, Error = error is CloudException ? error.Message : L.T("处理未完成，本地录音已保留。", "Processing didn’t finish. The local recording is kept.") };
         }
         finally { uploadSlot?.Release(); if (acquired) slots.Release(); }
         Save(entry);

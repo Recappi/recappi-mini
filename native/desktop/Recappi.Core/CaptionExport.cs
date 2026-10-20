@@ -10,7 +10,7 @@ public static class CaptionExport
         var root = Path.TrimEndingDirectorySeparator(store.Root);
         if (target.Equals(root, StringComparison.OrdinalIgnoreCase) ||
             target.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("请选择录音存储目录以外的导出位置，以保留原始文件。");
+            throw new InvalidOperationException(L.T("请选择录音存储目录以外的导出位置，以保留原始文件。", "Choose an export location outside the recordings folder to keep the original files."));
         var source = store.CaptionPath(recording);
         // Open before creating output: a missing archive must not produce an empty successful export.
         using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -24,7 +24,7 @@ public static class CaptionExport
                 {
                     using var writer = new StreamWriter(output, new UTF8Encoding(false), leaveOpen: true);
                     foreach (var caption in CaptionArchiveOrder.Read(source))
-                        writer.WriteLine((caption.Stream == "translation" ? "[译文] " : "[原文] ") + CaptionText.Format(caption.Text, caption.IsFailed));
+                        writer.WriteLine((caption.Stream == "translation" ? L.T("[译文] ", "[Translation] ") : L.T("[原文] ", "[Original] ")) + CaptionText.Format(caption.Text, caption.IsFailed));
                     writer.Flush();
                 }
                 output.Flush(true);

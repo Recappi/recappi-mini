@@ -113,7 +113,7 @@ public sealed class RecordingEngine : IAsyncDisposable
         try
         {
             if (expectedRecordingId is not null && (snapshot.Recording?.Id != expectedRecordingId || snapshot.State != RecordingState.Recording))
-                throw new InvalidOperationException("录音状态已变化，未执行丢弃。请检查当前录音。");
+                throw new InvalidOperationException(L.T("录音状态已变化，未执行丢弃。请检查当前录音。", "The recording state changed, so it wasn’t discarded. Check the current recording."));
             if (pump is { IsCompleted: false }) { stop!.Cancel(); await pump; }
             if (snapshot.State == RecordingState.Error) throw new InvalidOperationException("Partial audio is retained after a recording failure.");
             if (snapshot.Recording is { } recording) store.Discard(recording);

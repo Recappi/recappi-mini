@@ -4,6 +4,7 @@ using Microsoft.UI.Windowing;
 using Windows.Graphics;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Automation;
+using Recappi.Core;
 
 namespace Recappi.WinUI;
 
@@ -338,7 +339,7 @@ internal class DesktopWindow : Window
             IsTabStop = true, UseSystemFocusVisuals = true, VerticalContentAlignment = VerticalAlignment.Center, HorizontalContentAlignment = HorizontalAlignment.Center };
         keyboardEntry = grip;
         grip.Loaded += (_, _) => InitializeKeyboardFocus();
-        AutomationProperties.SetName(grip, moveLabel); ToolTipService.SetToolTip(grip, "拖动；聚焦后用方向键移动");
+        AutomationProperties.SetName(grip, moveLabel); ToolTipService.SetToolTip(grip, L.T("拖动；聚焦后用方向键移动", "Drag, or focus and use the arrow keys to move"));
         grip.KeyDown += (_, e) =>
         {
             var step = (int)Math.Round(10 * Scale); var position = AppWindow.Position;
@@ -737,7 +738,7 @@ internal class DesktopWindow : Window
             if (enlarge) { AppWindow.Resize(new SizeInt32(Math.Max(size.Width, (int)(440 * Scale)), (int)(340 * Scale))); EnsureVisible(); }
             var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = title, Content = Ui.Text(message),
                 RequestedTheme = ((FrameworkElement)Content).ActualTheme,
-                PrimaryButtonText = action, CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
+                PrimaryButtonText = action, CloseButtonText = L.T("取消", "Cancel"), DefaultButton = ContentDialogButton.Close };
             return await dialog.ShowAsync() == ContentDialogResult.Primary;
         }
         finally { dialogOpen = false; if (enlarge) { AppWindow.Resize(size); EnsureVisible(); } }
@@ -770,9 +771,43 @@ internal static class Ui
         RecappiTheme.Bind(surface, "RecappiBorderHairline", brush => shape.Stroke = brush);
         return surface;
     }
+    // Button labels by their Chinese key. Style and glyph are chosen by the Chinese key; callers may
+    // pass either the key or its English text (L.T at the call site), and the shown text follows L.English.
+    private static readonly (string Zh, string En)[] ButtonLabels =
+    [
+        ("开始录音", "Start recording"), ("发送", "Send"), ("停止", "Stop"), ("连接账号", "Connect account"),
+        ("下一步", "Next"), ("上一步", "Back"), ("开始使用", "Get started"), ("录音控制", "Recorder"),
+        ("停止并保存", "Stop and save"), ("录音库", "Library"), ("设置", "Settings"), ("账号", "Account"),
+        ("字幕", "Captions"), ("隐藏", "Hide"), ("退出", "Quit"), ("刷新", "Refresh"), ("刷新任务", "Refresh jobs"),
+        ("刷新声音设备", "Refresh audio devices"), ("导入音频", "Import audio"), ("导出文字", "Export text"),
+        ("音频副本", "Audio copy"), ("打开目录", "Open folder"), ("丢弃录音", "Discard recording"),
+        ("删除云端录音", "Delete from Cloud"), ("打开浏览器确认", "Confirm in browser"), ("取消登录", "Cancel sign-in"),
+        ("刷新连接", "Refresh connection"), ("退出账号", "Sign out"), ("管理套餐", "Manage plan"),
+        ("重新加载问答", "Reload Ask"), ("展开字幕历史", "Show caption history"), ("字幕选项", "Caption options"),
+        ("重新连接", "Reconnect"), ("隐藏字幕", "Hide captions"), ("更多操作", "More actions"), ("取消导入", "Cancel import"),
+        ("打开 Recappi Cloud", "Open Recappi Cloud"), ("本机副本", "This PC copy"), ("云端副本", "Cloud copy"),
+        ("播放 / 暂停", "Play / Pause"), ("完整标题", "Full title"), ("上传 / 继续处理", "Upload / Continue"),
+        ("从本机库移除", "Remove from This PC"), ("导出字幕 JSONL", "Export captions JSONL"), ("打开网页", "Open web page"),
+        ("编辑说话人", "Edit speakers"), ("打开设置", "Open Settings"), ("管理账号", "Manage account"), ("更改…", "Change…"),
+        ("打开", "Open"), ("发布页面", "Release page"), ("检查更新", "Check for updates"), ("下载更新", "Download update"),
+        ("取消下载", "Cancel download"), ("打开 Microsoft Store 更新", "Update in Microsoft Store"),
+        ("重新转写", "Retranscribe"), ("重新生成摘要", "Regenerate summary"), ("重试失败分块", "Retry failed parts"),
+        ("当前版本", "Current version"), ("重新保存设置", "Save again"),
+    ];
+    private static readonly Dictionary<string, string> ButtonKeys = ButtonLabels.ToDictionary(x => x.En, x => x.Zh, StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, string> ButtonEnglish = ButtonLabels.ToDictionary(x => x.Zh, x => x.En);
+    // The Chinese key of a label passed in either language (unknown labels are their own key).
+    public static string ButtonKey(string label) => ButtonKeys.TryGetValue(label, out var zh) ? zh : label;
+    // The label as shown in the current interface language.
+    public static string ButtonText(string label)
+    {
+        var key = ButtonKey(label);
+        return ButtonEnglish.TryGetValue(key, out var en) ? L.T(key, en) : label;
+    }
     public static Button Button(string label, Func<Task> action, DesktopWindow owner)
     {
-        var button = new Button { Content = label, Style = RecappiTheme.Style(label is "开始录音" or "发送" or "连接账号" or "下一步" or "开始使用" ? "RecappiPrimaryButton" : "RecappiButton") };
+        var shown = ButtonText(label); label = ButtonKey(label);
+        var button = new Button { Content = shown, Style = RecappiTheme.Style(label is "开始录音" or "发送" or "连接账号" or "下一步" or "开始使用" ? "RecappiPrimaryButton" : "RecappiButton") };
         var glyph = label switch
         {
             "开始录音" or "录音控制" => "\uE7C8", "停止并保存" => "\uE71A", "录音库" => "\uE8F1", "设置" => "\uE713",
@@ -782,12 +817,12 @@ internal static class Ui
         };
         if (glyph is not null)
         {
-            var labelText = new TextBlock { Text = label, FontSize = 13, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center };
+            var labelText = new TextBlock { Text = shown, FontSize = 13, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center };
             var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
             content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 14, Width = 16, Height = 16, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center });
             content.Children.Add(labelText); button.Content = content;
         }
-        AutomationProperties.SetName(button, label);
+        AutomationProperties.SetName(button, shown);
         var running = false;
         button.Click += async (_, _) =>
         {
@@ -802,7 +837,7 @@ internal static class Ui
     {
         var button = Button(label, action, owner); button.Content = new FontIcon { Glyph = glyph, FontSize = 14 };
         button.Style = RecappiTheme.Style("RecappiIconButton");
-        button.Width = 32; button.Height = 32; ToolTipService.SetToolTip(button, label);
+        button.Width = 32; button.Height = 32; ToolTipService.SetToolTip(button, ButtonText(label));
         return button;
     }
     public static WrapPanel Row(params UIElement[] items)

@@ -7,7 +7,7 @@ public sealed record CloudRecordingItem(string Id, string Title, string Status, 
     public DateTimeOffset? CreatedAt { get; init; }
     public static CloudRecordingItem Parse(JsonElement value) => new(
         CloudFields.Text(value, "id") ?? throw new InvalidDataException("Recording ID missing."),
-        CloudFields.Text(value, "summaryTitle") ?? CloudFields.Text(value, "title") ?? "未命名录音",
+        CloudFields.Text(value, "summaryTitle") ?? CloudFields.Text(value, "title") ?? L.T("未命名录音", "Untitled recording"),
         CloudFields.Text(value, "status") ?? "unknown",
         value.TryGetProperty("durationMs", out var duration) && duration.ValueKind == JsonValueKind.Number && duration.TryGetInt64(out var ms) ? ms : 0)
         { CreatedAt = ParseCreatedAt(value) };
@@ -69,7 +69,7 @@ public sealed record CloudTranscript(string Text, string Summary, string Summary
 public sealed record CloudTranscriptSegment(string Text, string? Speaker, long? StartMs, long? EndMs)
 {
     public SpeakerProfile? Profile { get; init; }
-    public string Label => (StartMs is { } ms ? TimeSpan.FromMilliseconds(ms).ToString(@"hh\:mm\:ss") + " · " : "") + (Profile is { } profile ? profile.Emoji + " " + profile.Name : Speaker ?? "未标注说话人");
+    public string Label => (StartMs is { } ms ? TimeSpan.FromMilliseconds(ms).ToString(@"hh\:mm\:ss") + " · " : "") + (Profile is { } profile ? profile.Emoji + " " + profile.Name : Speaker ?? L.T("未标注说话人", "Unlabeled speaker"));
     internal static CloudTranscriptSegment Parse(JsonElement value) => new(CloudFields.Text(value, "text") ?? "",
         CloudFields.Text(value, "speaker") ?? CloudFields.Text(value, "speakerLabel"),
         Time(value, "startMs", "startTimeMs", "start"), Time(value, "endMs", "endTimeMs", "end"));

@@ -53,10 +53,10 @@ public sealed class LocalRecordingStore(string root)
         Validate(recording);
         // Read persisted state instead of trusting a selection captured before a dialog.
         var current = JsonSerializer.Deserialize<LocalRecording>(File.ReadAllText(Path.Combine(recording.Directory, "desktop-session.json")), Json)
-            ?? throw new InvalidDataException("录音记录无法读取。");
+            ?? throw new InvalidDataException(L.T("录音记录无法读取。", "Couldn’t read the recording record."));
         Validate(current);
         if (current.Id != recording.Id || current.State is not (RecordingState.Done or RecordingState.Error))
-            throw new InvalidOperationException("录音尚未结束，无法从库中移除。");
+            throw new InvalidOperationException(L.T("录音尚未结束，无法从库中移除。", "The recording hasn’t finished, so it can’t be removed from the Library."));
         // A separate marker survives later metadata saves. Audio, captions and upload
         // journals remain intact; removing a library entry does not cancel remote work.
         AtomicJsonFile.Write(Path.Combine(recording.Directory, "library-removed.json"), "{}");
@@ -71,12 +71,12 @@ public sealed class LocalRecordingStore(string root)
         var marker = Path.Combine(directory, "library-removed.json");
         if (!File.Exists(marker)) return null;
         var recording = JsonSerializer.Deserialize<LocalRecording>(File.ReadAllText(Path.Combine(directory, "desktop-session.json")), Json)
-            ?? throw new InvalidDataException("原录音记录无法读取，无法恢复。");
+            ?? throw new InvalidDataException(L.T("原录音记录无法读取，无法恢复。", "Couldn’t read the original recording record, so it can’t be restored."));
         Validate(recording);
         if (!string.Equals(Path.GetFullPath(recording.AudioPath), audioPath, StringComparison.OrdinalIgnoreCase) ||
             recording.State is not (RecordingState.Done or RecordingState.Error) ||
             (File.GetAttributes(audioPath) & FileAttributes.ReparsePoint) != 0)
-            throw new InvalidDataException("原录音记录不匹配，无法恢复。");
+            throw new InvalidDataException(L.T("原录音记录不匹配，无法恢复。", "The original recording record doesn’t match, so it can’t be restored."));
         cancellation.ThrowIfCancellationRequested();
         // Keep the original ID so a resumed upload can reuse its existing ticket.
         // Commit before returning; a failed removal must not create a duplicate import.
@@ -104,16 +104,16 @@ public sealed class LocalRecordingStore(string root)
             try
             {
                 long duration = 0;
-                var message = "上次录音意外中断；已保留可恢复的音频，请播放检查。";
+                var message = L.T("上次录音意外中断；已保留可恢复的音频，请播放检查。", "The last recording was interrupted. Recoverable audio was kept; play it to check.");
                 try
                 {
                     if ((File.GetAttributes(recording.AudioPath) & FileAttributes.ReparsePoint) != 0) continue;
                     audio = new FileStream(recording.AudioPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
                     duration = PcmWaveWriter.RecoverInterrupted(audio);
-                    if (duration == 0) message = "上次录音意外中断，未找到完整音频样本。已有文件已保留。";
+                    if (duration == 0) message = L.T("上次录音意外中断，未找到完整音频样本。已有文件已保留。", "The last recording was interrupted and no complete audio samples were found. Existing files were kept.");
                 }
-                catch (FileNotFoundException) { message = "上次录音意外中断，未找到音频文件。"; }
-                catch (InvalidDataException) { message = "上次录音意外中断，音频格式不完整。原文件已保留，请打开文件位置检查。"; }
+                catch (FileNotFoundException) { message = L.T("上次录音意外中断，未找到音频文件。", "The last recording was interrupted and its audio file wasn’t found."); }
+                catch (InvalidDataException) { message = L.T("上次录音意外中断，音频格式不完整。原文件已保留，请打开文件位置检查。", "The last recording was interrupted and its audio is incomplete. The original file was kept; open its location to check."); }
                 // Keep the exclusive audio handle until metadata commits. Busy or inaccessible
                 // files remain untouched and can be retried on a later launch.
                 Save(recording with { State = RecordingState.Error, DurationMs = duration, Error = message });

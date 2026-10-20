@@ -120,9 +120,9 @@ public sealed partial class CloudClient : IDisposable
         {
             using var response = await SendAsync(HttpMethod.Get, RecordingPath(id) + "/audio", null, timeout.Token, "audio/*");
             const long limit = 4L * 1024 * 1024 * 1024;
-            if (response.Content.Headers.ContentLength > limit) throw new InvalidDataException("音频超过下载大小限制。");
+            if (response.Content.Headers.ContentLength > limit) throw new InvalidDataException(L.T("音频超过下载大小限制。", "The audio exceeds the download size limit."));
             var media = response.Content.Headers.ContentType?.MediaType;
-            if (media is not null && !media.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) && media != "application/octet-stream") throw new InvalidDataException("服务器未返回音频文件。");
+            if (media is not null && !media.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) && media != "application/octet-stream") throw new InvalidDataException(L.T("服务器未返回音频文件。", "The server didn’t return an audio file."));
             destination = Path.ChangeExtension(destination, media switch { "audio/wav" or "audio/wave" or "audio/x-wav" => ".wav", "audio/mpeg" or "audio/mp3" => ".mp3", "audio/mp4" or "audio/x-m4a" => ".m4a", "audio/aac" => ".aac", "audio/ogg" => ".ogg", "audio/webm" => ".webm", _ => ".wav" });
             Directory.CreateDirectory(Path.GetDirectoryName(temporary)!);
             using (var input = await response.Content.ReadAsStreamAsync(timeout.Token))
@@ -134,10 +134,10 @@ public sealed partial class CloudClient : IDisposable
                     var count = await input.ReadAsync(buffer, timeout.Token);
                     if (count == 0) break;
                     written += count;
-                    if (written > limit) throw new InvalidDataException("音频超过下载大小限制。");
+                    if (written > limit) throw new InvalidDataException(L.T("音频超过下载大小限制。", "The audio exceeds the download size limit."));
                     await output.WriteAsync(buffer.AsMemory(0, count), timeout.Token);
                 }
-                if (written == 0 || response.Content.Headers.ContentLength is { } expected && expected != written) throw new EndOfStreamException("音频下载不完整。");
+                if (written == 0 || response.Content.Headers.ContentLength is { } expected && expected != written) throw new EndOfStreamException(L.T("音频下载不完整。", "Audio download incomplete."));
             }
             timeout.Token.ThrowIfCancellationRequested();
             File.Move(temporary, destination, true);

@@ -13,7 +13,7 @@ internal sealed class ReviewPanel : IDisposable
     private readonly Func<bool> current;
     private readonly Func<string?, Task> selectVersion;
     private readonly CancellationTokenSource lifetime = new();
-    private readonly ComboBox versions = new() { Header = "转写历史", DisplayMemberPath = "Display" };
+    private readonly ComboBox versions = new() { Header = L.T("转写历史", "Transcription history"), DisplayMemberPath = "Display" };
     private readonly TextBlock status = Ui.Text("");
     private CloudJob[] jobs = [];
     private bool busy;
@@ -33,13 +33,13 @@ internal sealed class ReviewPanel : IDisposable
     {
         this.owner = owner; this.app = app; this.account = account; this.recording = recording; this.current = current; this.selectVersion = selectVersion;
         timer = owner.DispatcherQueue.CreateTimer(); timer.Interval = TimeSpan.FromSeconds(2); timer.Tick += async (_, _) => await Load();
-        Root.Children.Add(new TextBlock { Text = "重新处理", Style = RecappiTheme.Style("RecappiSectionTitle") });
+        Root.Children.Add(new TextBlock { Text = L.T("重新处理", "Reprocess"), Style = RecappiTheme.Style("RecappiSectionTitle") });
         status.Style = RecappiTheme.Style("RecappiBodySecondary"); Root.Children.Add(status);
         versions.MinWidth = 320; Root.Children.Add(versions);
-        transcribe = Ui.Button("重新转写", () => Submit("重新转写", "将使用当前语言和上下文创建新版本，可能消耗转写额度。", 0), owner);
-        summarize = Ui.Button("重新生成摘要", () => Submit("重新生成摘要", "重新生成当前转写的摘要？", 1), owner);
-        retry = Ui.Button("重试失败分块", () => Submit("重试失败分块", "只重试所选任务可重试的失败部分。", 2), owner);
-        Root.Children.Add(Ui.Row(Ui.Button("当前版本", async () => { versions.SelectedItem = null; await selectVersion(null); }, owner), Ui.Button("刷新任务", Load, owner)));
+        transcribe = Ui.Button(L.T("重新转写", "Retranscribe"), () => Submit(L.T("重新转写", "Retranscribe"), L.T("将使用当前语言和上下文创建新版本，可能消耗转写额度。", "This creates a new version using the current language and context, and may use transcription quota."), 0), owner);
+        summarize = Ui.Button(L.T("重新生成摘要", "Regenerate summary"), () => Submit(L.T("重新生成摘要", "Regenerate summary"), L.T("重新生成当前转写的摘要？", "Regenerate the summary for this transcript?"), 1), owner);
+        retry = Ui.Button(L.T("重试失败分块", "Retry failed parts"), () => Submit(L.T("重试失败分块", "Retry failed parts"), L.T("只重试所选任务可重试的失败部分。", "Only the retryable failed parts of the selected job will be retried."), 2), owner);
+        Root.Children.Add(Ui.Row(Ui.Button(L.T("当前版本", "Current version"), async () => { versions.SelectedItem = null; await selectVersion(null); }, owner), Ui.Button(L.T("刷新任务", "Refresh jobs"), Load, owner)));
         Root.Children.Add(Ui.Row(transcribe, summarize, retry));
         versions.SelectionChanged += async (_, _) => { if (!rendering && Current) { Render(); if (versions.SelectedItem is CloudJob { Status: "succeeded" } job) await owner.Run(() => selectVersion(job.Id)); } };
         Render();
@@ -51,7 +51,7 @@ internal sealed class ReviewPanel : IDisposable
         busy = true; Render();
         try { using var client = app.Account.Client(account); await Fetch(client); }
         catch (OperationCanceledException) { }
-        catch (Exception) { if (Current) { status.Text = "任务历史加载失败，请刷新重试。"; timer.Stop(); } }
+        catch (Exception) { if (Current) { status.Text = L.T("任务历史加载失败，请刷新重试。", "Couldn't load job history. Refresh to try again."); timer.Stop(); } }
         finally { busy = false; if (Current) Render(); }
     }
     public void UpdateTranscript(CloudTranscript value)
@@ -75,7 +75,7 @@ internal sealed class ReviewPanel : IDisposable
         historyLoaded = true; rendering = true;
         try { versions.ItemsSource = jobs; versions.SelectedItem = jobs.FirstOrDefault(x => x.Id == prior?.Id); }
         finally { rendering = false; }
-        status.Text = jobs.FirstOrDefault()?.Display ?? "暂无转写任务";
+        status.Text = jobs.FirstOrDefault()?.Display ?? L.T("暂无转写任务", "No transcription jobs yet");
         if (prior is not null && prior.Status != "succeeded" && versions.SelectedItem is CloudJob { Status: "succeeded" } ready) await selectVersion(ready.Id);
         else if (prior is null && wasActive && !jobs.Any(x => x.IsActive)) await selectVersion(null);
         if (!Current) return;
@@ -84,7 +84,7 @@ internal sealed class ReviewPanel : IDisposable
             var text = CloudTranscript.Parse(await client.TranscriptAsync(recording.Id, cancellation: lifetime.Token));
             if (!Current) return;
             summaryNeedsRefresh = false; summaryPending = text.SummaryStatus is "pending" or "queued" or "running";
-            status.Text = summaryPending ? "摘要正在生成…" : text.SummaryStatus == "failed" ? "摘要生成失败，可以重试。" : "摘要已更新。";
+            status.Text = summaryPending ? L.T("摘要正在生成…", "Generating summary…") : text.SummaryStatus == "failed" ? L.T("摘要生成失败，可以重试。", "Summary failed. You can try again.") : L.T("摘要已更新。", "Summary updated.");
             if (!summaryPending && versions.SelectedItem is null) await selectVersion(null);
         }
         if (!Current) return;
@@ -98,7 +98,7 @@ internal sealed class ReviewPanel : IDisposable
         try
         {
             var selectedJob = (versions.SelectedItem as CloudJob)?.Id;
-            if (!await owner.Confirm(title, message, "确认") || !Current) return;
+            if (!await owner.Confirm(title, message, L.T("确认", "Confirm")) || !Current) return;
             using var client = app.Account.Client(account);
             var latest = await client.JobsAsync(recording.Id, lifetime.Token);
             if (!Current) return;
@@ -119,7 +119,7 @@ internal sealed class ReviewPanel : IDisposable
             if (!Current) return;
             summaryPending |= operation == 1; pollUntil = DateTimeOffset.UtcNow.AddMinutes(30); await Fetch(client);
         }
-        catch (Exception) { if (Current) { timer.Stop(); status.Text = uncertain ? "请求结果未能确认。请先刷新任务历史，再决定是否重试。" : "操作未完成，请刷新后重试。"; } }
+        catch (Exception) { if (Current) { timer.Stop(); status.Text = uncertain ? L.T("请求结果未能确认。请先刷新任务历史，再决定是否重试。", "Couldn't confirm the result. Refresh job history before deciding whether to retry.") : L.T("操作未完成，请刷新后重试。", "Couldn't finish. Refresh and try again."); } }
         finally { busy = false; if (Current) Render(); }
     }
     public void Dispose() { if (disposed) return; disposed = true; timer.Stop(); lifetime.Cancel(); }

@@ -29,7 +29,7 @@ public sealed class SpeakerProfileStore(string root)
     {
         if (string.IsNullOrWhiteSpace(speaker)) throw new ArgumentException("Choose a speaker.");
         profile = profile with { Name = profile.Name.Trim(), Emoji = profile.Emoji.Trim(), Note = profile.Note?.Trim() };
-        if (profile.Name.Length is < 1 or > 100 || profile.Emoji.Length > 16 || profile.Note?.Length > 1000) throw new ArgumentException("姓名最多 100 字，图标最多 16 字，备注最多 1000 字。");
+        if (profile.Name.Length is < 1 or > 100 || profile.Emoji.Length > 16 || profile.Note?.Length > 1000) throw new ArgumentException(L.T("姓名最多 100 字，图标最多 16 字，备注最多 1000 字。", "Name up to 100 characters, icon up to 16, note up to 1000."));
         var entries = new Dictionary<string, SpeakerProfile>(Load(partition, recordingId)) { [speaker] = profile };
         var path = FilePath(partition, recordingId);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

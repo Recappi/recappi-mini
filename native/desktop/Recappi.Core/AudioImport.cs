@@ -10,7 +10,7 @@ public sealed class AudioImport(LocalRecordingStore store)
     {
         cancellation.ThrowIfCancellationRequested();
         source = Path.GetFullPath(source);
-        if (!File.Exists(source)) throw new FileNotFoundException("找不到要导入的音频。", source);
+        if (!File.Exists(source)) throw new FileNotFoundException(L.T("找不到要导入的音频。", "Couldn’t find the audio to import."), source);
         if (store.RestoreRemovedAudio(source, cancellation) is { } restored)
         {
             progress?.Report(1);
@@ -31,11 +31,11 @@ public sealed class AudioImport(LocalRecordingStore store)
                     var count = converter.Read(buffer, 0, buffer.Length);
                     if (count == 0) break;
                     bytes += count;
-                    if (bytes > uint.MaxValue - 128L) throw new IOException("音频超过本地 WAV 大小限制。");
+                    if (bytes > uint.MaxValue - 128L) throw new IOException(L.T("音频超过本地 WAV 大小限制。", "The audio exceeds the local WAV size limit."));
                     output.Write(buffer, 0, count);
                     if (reader.Length > 0) progress?.Report(Math.Clamp((double)reader.Position / reader.Length, 0, 0.99));
                 }
-                if (bytes == 0) throw new InvalidDataException("文件中没有可导入的音频。");
+                if (bytes == 0) throw new InvalidDataException(L.T("文件中没有可导入的音频。", "The file has no audio to import."));
             }
             cancellation.ThrowIfCancellationRequested();
             recording = recording with { State = RecordingState.Done, DurationMs = bytes * 1000 / 96000 };

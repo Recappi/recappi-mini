@@ -17,7 +17,7 @@ public sealed record CaptionClaim(string WebsocketUrl, string TokenType, string 
         if (!Uri.TryCreate(WebsocketUrl, UriKind.Absolute, out var uri) || !string.IsNullOrEmpty(uri.UserInfo) ||
             (uri.Scheme != "wss" && !(uri.Scheme == "ws" && uri.IsLoopback)) ||
             string.IsNullOrWhiteSpace(Token) || Token.Contains('\r') || Token.Contains('\n') ||
-            string.IsNullOrEmpty(TokenType) || !TokenType.All(char.IsAsciiLetter)) throw new InvalidDataException("字幕连接信息无效。");
+            string.IsNullOrEmpty(TokenType) || !TokenType.All(char.IsAsciiLetter)) throw new InvalidDataException(L.T("字幕连接信息无效。", "Caption connection details are invalid."));
         return uri;
     }
 }
@@ -32,7 +32,7 @@ public sealed partial class CloudClient
             : new { mode = "transcription", language = CaptionOptions.Normalize(options.Language), delay = "low", expiresAfterSeconds = 60, turnDetection = new { type = "none" } };
         using var content = JsonContent.Create(body, options: Json);
         using var response = await SendAsync(HttpMethod.Post, "/api/openai/realtime/sessions", content, timeout.Token, includeOrigin: true);
-        var claim = await response.Content.ReadFromJsonAsync<CaptionClaim>(Json, timeout.Token) ?? throw new InvalidDataException("字幕会话缺失。");
+        var claim = await response.Content.ReadFromJsonAsync<CaptionClaim>(Json, timeout.Token) ?? throw new InvalidDataException(L.T("字幕会话缺失。", "Caption session missing."));
         claim.Validate(); return claim;
     }
 }
@@ -75,7 +75,7 @@ public sealed class CaptionConnection : ICaptionConnection
         {
             var result = await socket.ReceiveAsync(buffer.AsMemory(), cancellation);
             if (result.MessageType == WebSocketMessageType.Close) return null;
-            if (result.MessageType != WebSocketMessageType.Text || message.Length + result.Count > 1024 * 1024) throw new InvalidDataException("字幕消息无效或过大。");
+            if (result.MessageType != WebSocketMessageType.Text || message.Length + result.Count > 1024 * 1024) throw new InvalidDataException(L.T("字幕消息无效或过大。", "Caption message is invalid or too large."));
             message.Write(buffer, 0, result.Count);
             if (result.EndOfMessage) break;
         }

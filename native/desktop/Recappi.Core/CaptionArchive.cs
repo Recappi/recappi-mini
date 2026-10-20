@@ -41,7 +41,7 @@ public sealed class CaptionArchive : IAsyncDisposable
             }
             catch (Exception)
             {
-                ReportError("字幕归档写入失败；本地音频仍会保留。"); pending.Writer.TryComplete();
+                ReportError(L.T("字幕归档写入失败；本地音频仍会保留。", "Couldn’t write the caption archive. Local audio is still kept.")); pending.Writer.TryComplete();
                 while (pending.Reader.TryRead(out var discarded)) Interlocked.Add(ref pendingCaptions, -discarded.Length);
             }
         });
@@ -65,7 +65,7 @@ public sealed class CaptionArchive : IAsyncDisposable
         if (count > 1024 || !pending.Writer.TryWrite(batch))
         {
             Interlocked.Add(ref pendingCaptions, -batch.Length);
-            ReportError("字幕归档未能保存全部内容；本地音频仍会保留。");
+            ReportError(L.T("字幕归档未能保存全部内容；本地音频仍会保留。", "The caption archive couldn’t save everything. Local audio is still kept."));
         }
     }
     private void ReportError(string message)

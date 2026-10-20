@@ -7,7 +7,7 @@ namespace Recappi.Core;
 
 public sealed record AskCitation(string? SegmentId, int? Index, long? StartMs, long? EndMs, string? Label, string? Speaker, string? Snippet)
 {
-    public string Display => (Label ?? Speaker ?? "引用") + (StartMs is >= 0 ? " · " + TimeSpan.FromMilliseconds(StartMs.Value).ToString(@"hh\:mm\:ss") : "") + " · " + Snippet;
+    public string Display => (Label ?? Speaker ?? L.T("引用", "Quote")) + (StartMs is >= 0 ? " · " + TimeSpan.FromMilliseconds(StartMs.Value).ToString(@"hh\:mm\:ss") : "") + " · " + Snippet;
 }
 public sealed record AskMessage(string Id, string Role, string Content, string? Status, AskCitation[]? Citations);
 public sealed record AskEvent(string Name, string? Text, AskCitation[] Citations);
@@ -29,24 +29,24 @@ public sealed partial class CloudClient
     }
     public async IAsyncEnumerable<AskEvent> AskAsync(string id, string question, bool webSearch = false, string? model = null, [EnumeratorCancellation] CancellationToken cancellation = default)
     {
-        if (string.IsNullOrWhiteSpace(question)) throw new ArgumentException("请输入问题。");
+        if (string.IsNullOrWhiteSpace(question)) throw new ArgumentException(L.T("请输入问题。", "Enter a question."));
         using var content = JsonContent.Create(new { question, webSearch, model }, options: Json);
         using var response = await SendAsync(HttpMethod.Post, RecordingPath(id) + "/ask-thread/messages", content, cancellation, "text/event-stream");
-        if (response.Content.Headers.ContentType?.MediaType != "text/event-stream") throw new InvalidDataException("问答响应格式不正确。");
+        if (response.Content.Headers.ContentType?.MediaType != "text/event-stream") throw new InvalidDataException(L.T("问答响应格式不正确。", "The Ask response was malformed."));
         using var stream = await response.Content.ReadAsStreamAsync(cancellation);
         await foreach (var frame in AskEventReader.ReadAsync(stream, cancellation))
         {
             if (frame.Name is not ("metadata" or "answer_delta" or "citation" or "done" or "error")) continue;
             using var data = JsonDocument.Parse(frame.Data);
             var value = data.RootElement;
-            if (frame.Name == "error") throw new InvalidDataException("问答生成失败，请稍后重试。");
-            var citations = frame.Name == "citation" ? new[] { value.GetProperty("citation").Deserialize<AskCitation>(Json) ?? throw new InvalidDataException("引用缺失。") } :
+            if (frame.Name == "error") throw new InvalidDataException(L.T("问答生成失败，请稍后重试。", "Couldn’t generate an answer. Try again later."));
+            var citations = frame.Name == "citation" ? new[] { value.GetProperty("citation").Deserialize<AskCitation>(Json) ?? throw new InvalidDataException(L.T("引用缺失。", "Quote missing.")) } :
                 frame.Name == "done" && value.TryGetProperty("citations", out var list) ? list.Deserialize<AskCitation[]>(Json) ?? [] : [];
             var text = value.TryGetProperty(frame.Name == "answer_delta" ? "delta" : "content", out var raw) && raw.ValueKind == JsonValueKind.String ? raw.GetString() : null;
             yield return new(frame.Name, text, citations);
             if (frame.Name == "done") yield break;
         }
-        throw new EndOfStreamException("回答连接已中断，已收到的内容可能不完整。请刷新历史后重试。");
+        throw new EndOfStreamException(L.T("回答连接已中断，已收到的内容可能不完整。请刷新历史后重试。", "The answer was interrupted and may be incomplete. Refresh the history and try again."));
     }
 }
 
@@ -75,7 +75,7 @@ public static class AskEventReader
             var body = colon < 0 ? "" : value[(colon + 1)..];
             if (body.StartsWith(' ')) body = body[1..];
             if (field == "event") name = body;
-            else if (field == "data") { data.Append(body).Append('\n'); if (data.Length > 4 * 1024 * 1024) throw new InvalidDataException("问答事件过大。"); }
+            else if (field == "data") { data.Append(body).Append('\n'); if (data.Length > 4 * 1024 * 1024) throw new InvalidDataException(L.T("问答事件过大。", "Ask event too large.")); }
             return null;
         }
         while (true)
@@ -90,7 +90,7 @@ public static class AskEventReader
                 if (ch == '\n' && previousCr) { previousCr = false; continue; }
                 previousCr = ch == '\r';
                 if (ch is '\r' or '\n') { var frame = Consume(); if (frame is not null) yield return frame; }
-                else { line.Append(ch); if (line.Length > 1024 * 1024) throw new InvalidDataException("问答行过长。"); }
+                else { line.Append(ch); if (line.Length > 1024 * 1024) throw new InvalidDataException(L.T("问答行过长。", "Ask line too long.")); }
             }
         }
         if (line.Length > 0) Consume();

@@ -92,7 +92,7 @@ public sealed class LiveCaptions : IAsyncDisposable
                             await Task.WhenAny(receive, state.Drained.Task, Task.Delay(1500, lifetime.Token));
                             if (receive.IsCompleted) await receive;
                         }
-                        else { await receive; if (Volatile.Read(ref closing) == 0) throw new IOException("字幕连接已断开。"); }
+                        else { await receive; if (Volatile.Read(ref closing) == 0) throw new IOException(L.T("字幕连接已断开。", "Caption connection lost.")); }
                     }
                     finally
                     {
@@ -101,7 +101,7 @@ public sealed class LiveCaptions : IAsyncDisposable
                         FinishTranslation(current, state);
                     }
                     if (Volatile.Read(ref closing) != 0) break;
-                    throw new IOException("字幕连接已结束。");
+                    throw new IOException(L.T("字幕连接已结束。", "Caption connection ended."));
                 }
                 catch (Exception error) when (!lifetime.IsCancellationRequested && Volatile.Read(ref closing) == 0)
                 {
@@ -114,9 +114,9 @@ public sealed class LiveCaptions : IAsyncDisposable
                         Volatile.Write(ref pendingRetry, retry);
                         Publish(new("failed", error switch
                         {
-                            CaptionUnavailableException => "当前地区无法使用实时字幕。录音继续，可在结束后转写。",
-                            CloudException { Status: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } => "字幕连接授权失败，本地录音继续。",
-                            _ => "实时字幕无法继续。本地录音不受影响。"
+                            CaptionUnavailableException => L.T("当前地区无法使用实时字幕。录音继续，可在结束后转写。", "Live captions aren’t available in your region. Recording continues; you can transcribe it afterward."),
+                            CloudException { Status: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } => L.T("字幕连接授权失败，本地录音继续。", "Caption connection wasn’t authorized. Local recording continues."),
+                            _ => L.T("实时字幕无法继续。本地录音不受影响。", "Live captions can’t continue. Local recording isn’t affected.")
                         }));
                         if (Volatile.Read(ref closing) != 0 || !await retry.Task.WaitAsync(lifetime.Token)) return;
                         while (audio.Reader.TryRead(out _)) { }
@@ -124,14 +124,14 @@ public sealed class LiveCaptions : IAsyncDisposable
                         Interlocked.Exchange(ref stopped, 0);
                         continue;
                     }
-                    Publish(new("reconnecting", "字幕连接中断，正在重连。本地录音继续。"));
+                    Publish(new("reconnecting", L.T("字幕连接中断，正在重连。本地录音继续。", "Caption connection lost. Reconnecting. Local recording continues.")));
                     Interlocked.Increment(ref retries);
                     await Task.Delay(reconnectDelays[attempt], lifetime.Token);
                 }
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception) { Publish(new("failed", "实时字幕已停止，本地录音继续。")); }
+        catch (Exception) { Publish(new("failed", L.T("实时字幕已停止，本地录音继续。", "Live captions stopped. Local recording continues."))); }
         finally
         {
             Interlocked.Exchange(ref stopped, 1);
@@ -168,7 +168,7 @@ public sealed class LiveCaptions : IAsyncDisposable
         var uncommitted = 0;
         async Task Commit()
         {
-            if (Volatile.Read(ref state.PendingCommits) + state.Awaiting.Count >= 128) throw new IOException("字幕服务未响应。");
+            if (Volatile.Read(ref state.PendingCommits) + state.Awaiting.Count >= 128) throw new IOException(L.T("字幕服务未响应。", "The caption service isn’t responding."));
             Interlocked.Increment(ref state.PendingCommits);
             await connection.SendAsync(new { type = "input_audio_buffer.commit" }, cancellation); uncommitted = 0;
         }
@@ -222,7 +222,7 @@ public sealed class LiveCaptions : IAsyncDisposable
                         if (Interlocked.CompareExchange(ref state.PendingCommits, pending - 1, pending) == pending) break;
                     if (!state.Timeline.IsTerminal(itemKey)) state.Awaiting[itemKey] = 0;
                 }
-                if (state.Awaiting.Count > 128) throw new IOException("字幕服务未响应。");
+                if (state.Awaiting.Count > 128) throw new IOException(L.T("字幕服务未响应。", "The caption service isn’t responding."));
                 CheckDrained(state);
             }
             else if (type == "conversation.item.input_audio_transcription.delta")
@@ -259,7 +259,7 @@ public sealed class LiveCaptions : IAsyncDisposable
             else if (type == "error")
             {
                 if (value.TryGetProperty("error", out var error) && CloudFields.Text(error, "code") == "unsupported_country_region_territory") throw new CaptionUnavailableException();
-                throw new IOException("字幕服务错误。");
+                throw new IOException(L.T("字幕服务错误。", "Caption service error."));
             }
         }
     }

@@ -19,7 +19,7 @@ internal sealed class OnboardingWindow : DesktopWindow
     private readonly Button back;
     private readonly Button next;
     private int index;
-    public OnboardingWindow(IDesktopHost app) : base("Recappi Mini · 使用引导", 540, 472)
+    public OnboardingWindow(IDesktopHost app) : base(L.T("Recappi Mini · 使用引导", "Recappi Mini · Welcome"), 540, 472)
     {
         this.app = app; index = Math.Clamp(app.Preferences.OnboardingStep, 0, 3);
         Error.Style = RecappiTheme.Style("RecappiError"); Error.FontSize = 12;
@@ -27,10 +27,10 @@ internal sealed class OnboardingWindow : DesktopWindow
         title.Style = RecappiTheme.Style("RecappiPageTitle"); title.FontSize = 22;
         message.Style = RecappiTheme.Style("RecappiBodySecondary"); message.FontSize = 12.5; message.MaxWidth = 380; message.LineHeight = 19;
         copy.Children.Add(title); copy.Children.Add(message);
-        back = Ui.Button("上一步", () => Move(-1), this); next = Ui.Button("下一步", () => Move(1), this);
+        back = Ui.Button(L.T("上一步", "Back"), () => Move(-1), this); next = Ui.Button(L.T("下一步", "Next"), () => Move(1), this);
         back.Style = RecappiTheme.Style("RecappiSubtleButton"); next.Style = RecappiTheme.Style("RecappiPrimaryButton");
         foreach (var button in new[] { back, next }) { button.MinHeight = 28; button.FontSize = 12; }
-        back.Content = Labeled("", "上一步"); back.HorizontalAlignment = HorizontalAlignment.Left;
+        back.Content = Labeled("", L.T("上一步", "Back")); back.HorizontalAlignment = HorizontalAlignment.Left;
         next.HorizontalAlignment = HorizontalAlignment.Right; next.MinWidth = 120;
 
         ((ScrollViewer)Content).Content = null;
@@ -45,7 +45,7 @@ internal sealed class OnboardingWindow : DesktopWindow
         foreach (var width in new[] { new GridLength(160), new GridLength(1, GridUnitType.Star), new GridLength(160) }) footer.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
         footer.Children.Add(back); Grid.SetColumn(dots, 1); footer.Children.Add(dots); Grid.SetColumn(next, 2); footer.Children.Add(next);
         Grid.SetRow(footer, 1); layout.Children.Add(footer);
-        Content = PageFrame(layout, "使用引导");
+        Content = PageFrame(layout, L.T("使用引导", "Welcome"));
         Render();
     }
     private static StackPanel Labeled(string glyph, string text)
@@ -66,13 +66,13 @@ internal sealed class OnboardingWindow : DesktopWindow
     {
         // The four macOS steps: welcome, permissions, cloud sign-in, done.
         step.Text = "";
-        title.Text = new[] { "欢迎使用 Recappi Mini", "授予权限", "登录 Recappi Cloud", "一切就绪" }[index];
+        title.Text = new[] { L.T("欢迎使用 Recappi Mini", "Welcome to Recappi Mini"), L.T("授予权限", "Grant permissions"), L.T("登录 Recappi Cloud", "Sign in to Recappi Cloud"), L.T("一切就绪", "You're all set") }[index];
         message.Text = new[]
         {
             "",
-            "Recappi 需要麦克风权限来录下你的声音；应用和系统声音无需额外授权。随时可以在 Windows 设置中撤销。",
-            "云端会保存逐字稿、摘要和音频，并在设备间同步。也可以先跳过，稍后再登录。",
-            "从录音条或系统托盘开始录音，或打开录音库浏览云端内容。"
+            L.T("Recappi 需要麦克风权限来录下你的声音；应用和系统声音无需额外授权。随时可以在 Windows 设置中撤销。", "Recappi needs microphone access to record your voice. App and system audio need no extra permission. You can revoke it anytime in Windows Settings."),
+            L.T("云端会保存逐字稿、摘要和音频，并在设备间同步。也可以先跳过，稍后再登录。", "Cloud keeps your transcripts, summaries and audio, and syncs them across devices. You can skip this and sign in later."),
+            L.T("从录音条或系统托盘开始录音，或打开录音库浏览云端内容。", "Start recording from the recording bar or the system tray, or open the Library to browse Cloud content.")
         }[index];
         stage.Children.Clear();
         var centered = index != 1;
@@ -93,7 +93,7 @@ internal sealed class OnboardingWindow : DesktopWindow
         if (index == 0)
         {
             var bullets = new StackPanel { Spacing = 10, MaxWidth = 380, HorizontalAlignment = HorizontalAlignment.Center };
-            foreach (var (glyph, text) in new[] { ("\uE9D9", "一键录制任意应用的声音"), ("\uE8A5", "自动转写并生成会议摘要"), ("\uE753", "录音在设备之间同步") })
+            foreach (var (glyph, text) in new[] { ("\uE9D9", L.T("一键录制任意应用的声音", "Record any app's audio in one click")), ("\uE8A5", L.T("自动转写并生成会议摘要", "Automatic transcripts and meeting summaries")), ("\uE753", L.T("录音在设备之间同步", "Recordings sync across devices")) })
             {
                 var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
                 var icon = RecappiTheme.Glyph(glyph, 13); icon.Style = RecappiTheme.Style("RecappiIconAccent"); icon.Width = 18;
@@ -105,7 +105,7 @@ internal sealed class OnboardingWindow : DesktopWindow
         if (index == 1) stage.Children.Add(PermissionCard());
         if (index == 2)
         {
-            var connect = Ui.Button("连接账号", () => { app.ShowAccount(); return Task.CompletedTask; }, this);
+            var connect = Ui.Button(L.T("连接账号", "Connect account"), () => { app.ShowAccount(); return Task.CompletedTask; }, this);
             connect.MinWidth = 180; connect.MinHeight = 30; connect.HorizontalAlignment = HorizontalAlignment.Center;
             stage.Children.Add(connect);
         }
@@ -118,7 +118,7 @@ internal sealed class OnboardingWindow : DesktopWindow
         }
         back.Visibility = index > 0 ? Visibility.Visible : Visibility.Collapsed;
         back.IsEnabled = index > 0;
-        next.Content = index == 2 ? "稍后再说" : index == 3 ? "开始使用" : "继续";
+        next.Content = index == 2 ? L.T("稍后再说", "Not now") : index == 3 ? L.T("开始使用", "Get started") : L.T("继续", "Continue");
         next.Style = RecappiTheme.Style(index == 2 ? "RecappiButton" : "RecappiPrimaryButton");
         next.MinHeight = 28; next.FontSize = 12; next.MinWidth = 140; next.HorizontalAlignment = HorizontalAlignment.Right;
     }
@@ -131,11 +131,11 @@ internal sealed class OnboardingWindow : DesktopWindow
         var glyph = RecappiTheme.Glyph("\uE7BA", 18); glyph.Style = RecappiTheme.Style("RecappiIconWarning"); glyph.Width = 22; glyph.VerticalAlignment = VerticalAlignment.Center;
         card.Children.Add(glyph);
         var text = new StackPanel { Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(new TextBlock { Text = "麦克风", Style = RecappiTheme.Style("RecappiBody"), FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium });
-        text.Children.Add(new TextBlock { Text = "录下你在会议和讲解中的声音。", Style = RecappiTheme.Style("RecappiBodySecondary"), FontSize = 11.5 });
+        text.Children.Add(new TextBlock { Text = L.T("麦克风", "Microphone"), Style = RecappiTheme.Style("RecappiBody"), FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.Medium });
+        text.Children.Add(new TextBlock { Text = L.T("录下你在会议和讲解中的声音。", "Records your voice in meetings and talks."), Style = RecappiTheme.Style("RecappiBodySecondary"), FontSize = 11.5 });
         Grid.SetColumn(text, 1); card.Children.Add(text);
-        var open = Ui.Button("打开设置", () => { Process.Start(new ProcessStartInfo("ms-settings:privacy-microphone") { UseShellExecute = true }); return Task.CompletedTask; }, this);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(open, "查看 Windows 麦克风权限");
+        var open = Ui.Button(L.T("打开设置", "Open Settings"), () => { Process.Start(new ProcessStartInfo("ms-settings:privacy-microphone") { UseShellExecute = true }); return Task.CompletedTask; }, this);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(open, L.T("查看 Windows 麦克风权限", "View Windows microphone access"));
         open.MinHeight = 28; open.FontSize = 12; open.MinWidth = 120; open.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(open, 2); card.Children.Add(open);
         return card;
