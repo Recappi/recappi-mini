@@ -1,5 +1,34 @@
 # Windows 商店发布与体积优化
 
+## Microsoft Store 首次提交（2026-10-20，草稿）
+
+正式产品已创建：[Recappi Mini / Partner Center](https://partner.microsoft.com/en-us/dashboard/products/9NTQ1BGFHHFT/overview)。目标为 Microsoft Store；GitHub 预览 Release 已撤回为草稿，不是本次公开发布渠道。当前桌面实现为 WinUI 3；下文旧 WPF 验证仅作历史记录。
+
+| 字段 | 正式值 |
+| --- | --- |
+| Store ID | `9NTQ1BGFHHFT` |
+| Identity Name | `pengx17.RecappiMini` |
+| Publisher | `CN=0A62AE73-FF5C-4B40-9E2B-F24486072C86` |
+| PublisherDisplayName | `pengx17` |
+| Package Family Name | `pengx17.RecappiMini_3t6r3b27cpzdr` |
+| 定价 / 地区 | 免费 / 所有可选市场 |
+| 隐私政策 | <https://recordmeet.ing/privacy> |
+
+首批 CI 二进制源提交为 `d0f210e298d38c7479b7b669c93bcfcae2956e69`；最新 main `f3d6ae0` 只补测试断言。应用二进制版本仍为 `0.1.0-preview.1`，MSIX 包版本独立为 `1.0.1.0`（`1.0.0.0` 未公开，后续候选修正商店图标尺寸）。打包命令对 x64、ARM64 分别运行：
+
+```powershell
+./scripts/build-native-msix.ps1 -PackageDirectory <verified-publish-directory> `
+  -IdentityName 'pengx17.RecappiMini' `
+  -Publisher 'CN=0A62AE73-FF5C-4B40-9E2B-F24486072C86' `
+  -PublisherDisplayName 'pengx17' -PackageVersion '1.0.1.0'
+```
+
+打包时由已有品牌图生成独立的 50px StoreLogo、44px 和 150px 图标，避免共享 256px 图片触发 WACK 的 App resources 失败。两个架构各 465 个载荷文件均经 MakeAppx 和长度/SHA256 校验。x64 通过开发注册后的 AUMID 激活，实际进程身份为 `pengx17.RecappiMini_1.0.1.0_x64__3t6r3b27cpzdr`。
+
+本机 WACK `10.0.22000.832` 的新运行总体 `PASS`、App resources `PASS`；`General metadata correctness`（WinUI / WebView2 元数据）和 `Blocked executables`（WinUI / .NET 运行库与启动 API）两项可选检查仍为 `FAIL`，不能表述为全部测试通过。每次独立运行前必须执行 `appcert.exe reset`，否则它会复用旧包路径与结果。本轮先遗漏 reset 的 `wack-1.0.1.xml` 无效，以 `build/store-msix-validation/wack-1.0.1-fresh.xml` 为准。
+
+尚未提交认证或公开：IARC 条款需发布者确认；隐私政策 §05 的“不在录制时传输音频”需与 §06 的实时字幕说明统一。开发注册与本机 WACK 不替代签名 MSIX 安装/升级/卸载/重装、默认数据目录保留、干净 Windows 和 ARM64 实机验收；这些门禁仍未完成。商店详情的英文介绍明确说明当前应用界面为简体中文。
+
 ## 历史产物保留（2026-09-16）
 
 发布与 MSIX 新增最近 3 组完整产物保留规则、显式历史清理预览、固定保留、文件锁和路径保护；旧报告原位保留并标记二进制已清理。MSIX 校验成功后默认移除本次临时 payload，开发注册使用 `-KeepStaging`。历史目录尚未执行清理，详见 [保留规则与验证](../native-artifact-retention.md)。

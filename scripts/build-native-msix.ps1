@@ -39,6 +39,26 @@ Get-ChildItem -LiteralPath $source -Force | ForEach-Object { Copy-Item -LiteralP
 $assets = Join-Path $stage 'Assets'
 [void][IO.Directory]::CreateDirectory($assets)
 Copy-Item -LiteralPath (Join-Path $repository 'native/desktop/Assets/Recappi.png') -Destination $assets
+# Each manifest logo has its own required scale-100 dimensions. A shared 256px
+# image passes MakeAppx but fails the Windows App Certification Kit resource test.
+Add-Type -AssemblyName System.Drawing
+$logo = [Drawing.Bitmap]::new((Join-Path $assets 'Recappi.png'))
+try {
+    foreach ($asset in @(
+        @{ Name = 'StoreLogo.png'; Size = 50 },
+        @{ Name = 'Square44x44Logo.png'; Size = 44 },
+        @{ Name = 'Square150x150Logo.png'; Size = 150 }
+    )) {
+        $bitmap = [Drawing.Bitmap]::new($asset.Size, $asset.Size, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $graphics = [Drawing.Graphics]::FromImage($bitmap)
+        try {
+            $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $graphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            $graphics.DrawImage($logo, 0, 0, $asset.Size, $asset.Size)
+            $bitmap.Save((Join-Path $assets $asset.Name), [Drawing.Imaging.ImageFormat]::Png)
+        } finally { $graphics.Dispose(); $bitmap.Dispose() }
+    }
+} finally { $logo.Dispose() }
 [xml]$manifest = Get-Content -LiteralPath (Join-Path $repository 'native/desktop/packaging/AppxManifest.xml') -Raw
 $manifest.Package.Identity.Name = $IdentityName
 $manifest.Package.Identity.Publisher = $Publisher
