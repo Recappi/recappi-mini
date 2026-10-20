@@ -56,7 +56,7 @@ internal static class NativePreviewCapture
         await Stage(root, "library-ask-small-light", window);
         var ask = TestApp.Field<AskPanel>(window, "ask");
         TestApp.Field<TextBlock>(ask, "history").Text = string.Join("\n\n", Enumerable.Repeat("你：出发前需要准备什么？\n回答：确认天气，准备饮水和雨衣。", 12));
-        TestApp.Field<TextBox>(ask, "question").Text = "什么时候确认路线？";
+        TestApp.Field<TextBox>(ask, "question").Text = DemoData.Enabled ? DemoData.Question : "什么时候确认路线？";
         await Stage(root, "library-ask-long-history-small-light", window);
         await TestApp.Call(ask, "Send");
         await Stage(root, "library-ask-answer-small-light", window);
@@ -168,6 +168,16 @@ internal static class NativePreviewCapture
             caption.Update(new("a", "source", "Let's confirm the route before Friday evening.", true, new("sample", 0)));
             caption.Update(new("a", "translation", "我们在周五晚上前确认好路线。", true, new("sample", 0)));
             caption.ShowWithoutActivation(); await Stage(root, "caption-short-light", caption, passiveShow: true);
+            if (DemoData.Enabled)
+            {
+                caption.Reset(true); caption.SetStatus("实时字幕");
+                caption.Update(new("demo0", "source", "Recording library comes first this quarter.", true, new("sample", 0)));
+                caption.Update(new("demo0", "translation", "这个季度录音库排在第一位。", true, new("sample", 0)));
+                caption.Update(new("demo", "source", "Let's lock the beta for Nov 18.", true, new("sample", 1)));
+                caption.Update(new("demo", "translation", "我们把公测定在 11 月 18 日。", true, new("sample", 1)));
+                await Stage(root, "caption-demo-light", caption, passiveShow: true);
+                caption.ApplyTheme("dark"); await Stage(root, "caption-demo-dark", caption, passiveShow: true); caption.ApplyTheme("light");
+            }
             caption.Update(new("a", "source", "Before we leave on Saturday morning, let's check the forecast and choose a route with enough time for breaks. Everyone should bring water, a raincoat and a little food for the day.", true, new("sample", 0)));
             caption.Update(new("a", "translation", "周六早上出发前，我们先看看天气预报，再选择一条有充足休息时间的路线。大家记得准备饮水、雨衣和少量食物。", true, new("sample", 0)));
             await Stage(root, "caption-long-light", caption, passiveShow: true);

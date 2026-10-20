@@ -33,13 +33,16 @@ internal static class LibraryPreview
             }
             if (path.EndsWith("/ask-thread/messages"))
             {
-                const string citation = """{"segmentId":"meeting","startMs":3000,"endMs":5000,"snippet":"周五晚上确认路线。"}""";
+                var citation = DemoData.Enabled ? DemoData.Citation : """{"segmentId":"meeting","startMs":3000,"endMs":5000,"snippet":"周五晚上确认路线。"}""";
                 var stream = "event: citation\ndata: {\"citation\":" + citation + "}\n\n" +
-                    "event: done\ndata: {\"content\":\"大家会在周五晚上确认最终路线。\",\"citations\":[" + citation + "]}\n\n";
+                    "event: done\ndata: {\"content\":\"" + (DemoData.Enabled ? DemoData.Answer : "大家会在周五晚上确认最终路线。") + "\",\"citations\":[" + citation + "]}\n\n";
                 return Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(stream, System.Text.Encoding.UTF8, "text/event-stream") });
             }
             if (path.EndsWith("/transcript") && skippedSummary)
                 return Task.FromResult(TestHost.Json("""{"text":"周五晚上确认路线。","summaryStatus":"skipped","summaryJson":null}"""));
+            if (path.EndsWith("get-session") && DemoData.Enabled) return Task.FromResult(TestHost.Json(DemoData.Session));
+            if (path == "/api/recordings" && DemoData.Enabled) return Task.FromResult(TestHost.Json(DemoData.Recordings));
+            if (path.EndsWith("/transcript") && DemoData.Enabled && !skippedSummary) return Task.FromResult(TestHost.Json(DemoData.Transcript));
             if (path == "/api/recordings") return Task.FromResult(TestHost.Json("""
                 {"items":[{"id":"hike","title":"周末徒步计划","status":"completed","durationMs":1240000,"createdAt":"2026-09-16T02:00:00Z"},{"id":"design","title":"设计讨论 · 录音回顾体验","status":"completed","durationMs":840000,"createdAt":"2026-09-15T02:00:00Z"}],"nextCursor":null}
                 """));
@@ -49,7 +52,7 @@ internal static class LibraryPreview
             return TestHost.DefaultResponse(request, token);
         });
         Stage("preview: signing in controlled host");
-        await host.SignIn();
+        await host.SignIn(DemoData.Enabled ? DemoData.Email : null);
         Stage("preview: constructing library");
         var window = new LibraryWindow(host);
         var done = new TaskCompletionSource(); window.Closed += (_, _) => done.TrySetResult();
@@ -108,7 +111,7 @@ internal static class LibraryPreview
                 await NativePreviewCapture.Stage(root, "library-summary-skipped-dark", window);
                 sections.SelectedItem = sections.Items[2];
                 var ask = TestApp.Field<AskPanel>(window, "ask");
-                TestApp.Field<TextBox>(ask, "question").Text = "什么时候确认路线？";
+                TestApp.Field<TextBox>(ask, "question").Text = DemoData.Enabled ? DemoData.Question : "什么时候确认路线？";
                 await TestApp.Call(ask, "Send");
                 await NativePreviewCapture.Stage(root, "library-answer-citation-dark", window);
                 window.ApplyTheme("light");

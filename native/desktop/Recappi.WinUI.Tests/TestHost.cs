@@ -29,9 +29,9 @@ internal sealed class TestHost : IDesktopHost, IAsyncDisposable
         var path = request.RequestUri!.AbsolutePath;
         return Task.FromResult(Json(path.EndsWith("get-session") ? """{"session":{},"user":{"id":"a","email":"fixture@example.test"}}""" : path.EndsWith("ask-suggestions") ? """{"suggestions":[]}""" : path.EndsWith("ask-thread") ? """{"messages":[]}""" : path.EndsWith("transcript") ? """{"text":"Fixture transcript","summary":"Fixture summary","summaryStatus":"completed","segments":[{"text":"Fixture transcript","speaker":"Speaker 1","startMs":0,"endMs":1000}]}""" : """{"items":[],"nextCursor":null}"""));
     }
-    public async Task SignIn()
+    public async Task SignIn(string? email = null)
     {
-        new AccountStore(Path.Combine(ApplicationRoot, "Account")).Save(new CloudAccount(Origin, "a", "fixture@example.test", "test-only"));
+        new AccountStore(Path.Combine(ApplicationRoot, "Account")).Save(new CloudAccount(Origin, "a", email ?? "fixture@example.test", "test-only"));
         await Account.RestoreAsync();
         if (Account.Snapshot.State != AccountState.SignedIn) throw new Exception("Test account failed to initialize.");
     }
