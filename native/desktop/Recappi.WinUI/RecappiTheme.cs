@@ -55,11 +55,16 @@ internal static class RecappiTheme
         // Live captions: a fixed dark subtitle scrim and white text in both themes.
         ("RecappiCaptionScrim", 0xB3585858, 0xB0101010),
         // Live caption pill: dark in both themes like the macOS subtitle overlay.
-        ("RecappiCaptionPill", 0xF71C1C1E, 0xF71C1C1E),
-        ("RecappiCaptionPillStroke", 0x24FFFFFF, 0x24FFFFFF),
-        ("RecappiCaptionText", 0xF5FFFFFF, 0xF5FFFFFF),
-        ("RecappiCaptionTextSecondary", 0xC7FFFFFF, 0xC7FFFFFF),
-        ("RecappiCaptionTextMuted", 0x99FFFFFF, 0x99FFFFFF),
+        ("RecappiCaptionPill", 0xF7F7F7F8, 0xF71C1C1E),
+        ("RecappiCaptionPillStroke", 0x1A000000, 0x24FFFFFF),
+        ("RecappiCaptionText", 0xF21C1C1E, 0xF5FFFFFF),
+        ("RecappiCaptionTextSecondary", 0xB31C1C1E, 0xC7FFFFFF),
+        ("RecappiCaptionTextMuted", 0x8C1C1C1E, 0x99FFFFFF),
+        // Hover controls and stream segments on the caption pill.
+        ("RecappiCaptionChrome", 0xFFFFFFFF, 0xFF2C2C2F),
+        ("RecappiCaptionChromeStroke", 0x1F000000, 0x24FFFFFF),
+        ("RecappiCaptionWash", 0x0F000000, 0x14FFFFFF),
+        ("RecappiCaptionWashStrong", 0x1F000000, 0x33FFFFFF),
         // Page windows (library, settings, account, onboarding).
         ("RecappiSurfaceWindow", 0xFFF7F7F8, 0xFF1C1C1C),
         ("RecappiSurfaceCard", 0xFFFFFFFF, 0xFF262626),
@@ -327,17 +332,17 @@ internal static class RecappiTheme
   <Setter Property='UseSystemFocusVisuals' Value='True'/>
   <Setter Property='Width' Value='22'/><Setter Property='Height' Value='22'/>
   <Setter Property='Padding' Value='0'/>
-  <Setter Property='Foreground' Value='#8CFFFFFF'/>
+  <Setter Property='Foreground' Value='{ThemeResource RecappiCaptionTextMuted}'/>
   <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ToggleButton'>
     <Grid x:Name='Root' Background='Transparent' CornerRadius='9'>
       <VisualStateManager.VisualStateGroups><VisualStateGroup x:Name='CommonStates'>
         <VisualState x:Name='Normal'/>
-        <VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='Shape.Fill' Value='#1AFFFFFF'/></VisualState.Setters></VisualState>
-        <VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='Shape.Fill' Value='#1AFFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='PointerOver'><VisualState.Setters><Setter Target='Shape.Fill' Value='{ThemeResource RecappiCaptionWash}'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='Pressed'><VisualState.Setters><Setter Target='Shape.Fill' Value='{ThemeResource RecappiCaptionWash}'/></VisualState.Setters></VisualState>
         <VisualState x:Name='Disabled'><VisualState.Setters><Setter Target='Root.Opacity' Value='0.4'/></VisualState.Setters></VisualState>
-        <VisualState x:Name='Checked'><VisualState.Setters><Setter Target='Shape.Fill' Value='#33FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
-        <VisualState x:Name='CheckedPointerOver'><VisualState.Setters><Setter Target='Shape.Fill' Value='#40FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
-        <VisualState x:Name='CheckedPressed'><VisualState.Setters><Setter Target='Shape.Fill' Value='#40FFFFFF'/><Setter Target='Presenter.Foreground' Value='#F5FFFFFF'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='Checked'><VisualState.Setters><Setter Target='Shape.Fill' Value='{ThemeResource RecappiCaptionWashStrong}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiCaptionText}'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='CheckedPointerOver'><VisualState.Setters><Setter Target='Shape.Fill' Value='{ThemeResource RecappiCaptionWashStrong}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiCaptionText}'/></VisualState.Setters></VisualState>
+        <VisualState x:Name='CheckedPressed'><VisualState.Setters><Setter Target='Shape.Fill' Value='{ThemeResource RecappiCaptionWashStrong}'/><Setter Target='Presenter.Foreground' Value='{ThemeResource RecappiCaptionText}'/></VisualState.Setters></VisualState>
         <VisualState x:Name='CheckedDisabled'><VisualState.Setters><Setter Target='Root.Opacity' Value='0.4'/></VisualState.Setters></VisualState>
       </VisualStateGroup></VisualStateManager.VisualStateGroups>
       <ContentPresenter x:Name='Presenter' Content='{TemplateBinding Content}' Foreground='{TemplateBinding Foreground}' HorizontalAlignment='Center' VerticalAlignment='Center'/>

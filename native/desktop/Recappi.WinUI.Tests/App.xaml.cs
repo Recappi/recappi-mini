@@ -82,6 +82,14 @@ public partial class TestApp : Application
         {
             await InputCalibrationPreview.Run(root); keeper.Close(); Exit(); return;
         }
+        if (commandLine.Contains("--probe-account"))
+        {
+            // Read-only check of the real saved login: prints the state, never the token.
+            var session = new AccountSession(new AccountStore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Recappi Mini", "Account")));
+            session.Changed += value => Console.WriteLine($"state={value.State} account={(value.Account is null ? "none" : "present")} message={value.Message}");
+            try { await session.RestoreAsync(); } catch (Exception error) { Console.WriteLine("error=" + error.GetType().Name + ": " + error.Message); }
+            keeper.Close(); Exit(); return;
+        }
         if (commandLine.Contains("--probe-recorder-drag"))
         {
             try { await RecorderInputProbe.DragFromControl(root); } catch (Exception error) { Console.WriteLine(error.Message); }
@@ -389,14 +397,17 @@ public partial class TestApp : Application
         try
         {
             var navigation = Field<NavigationView>(settings, "navigation"); var viewer = Field<ScrollViewer>(settings, "sectionViewer");
-            var heights = new List<int>();
+            var heights = new List<int>(); var tops = new List<int>();
             for (var i = 0; i < navigation.MenuItems.Count; i++)
             {
                 navigation.SelectedItem = navigation.MenuItems[i];
                 await Until(() => Fits(settings, viewer), $"Settings tab {i} height did not fit its content.");
                 heights.Add(settings.AppWindow.ClientSize.Height);
+                tops.Add(settings.AppWindow.Position.Y);
             }
             Check(heights.Distinct().Count() > 1, "Settings tabs did not resize the window: " + string.Join(",", heights));
+            // The header stays put: tabs grow and shrink the window downward without moving it.
+            Check(tops.Skip(1).Distinct().Count() == 1, "Settings window moved while switching tabs: " + string.Join(",", tops));
         }
         finally { settings.Close(); }
     }

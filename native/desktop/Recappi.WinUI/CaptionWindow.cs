@@ -17,7 +17,7 @@ internal sealed class CaptionWindow : DesktopWindow
     private readonly TextBlock status = Ui.Text("开始录音后显示字幕。");
     // Until the first caption arrives the panel says why it is empty instead of an empty dark box.
     private readonly TextBlock placeholder = new() { Text = "开始录音后显示字幕。", FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
-        Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(150, 255, 255, 255)), IsHitTestVisible = false };
+        IsHitTestVisible = false };
     private readonly TextBlock archiveError = Ui.Text("");
     private readonly TextBlock original = Ui.Text("", 20);
     private readonly TextBlock translation = Ui.Text("", 20);
@@ -66,7 +66,8 @@ internal sealed class CaptionWindow : DesktopWindow
         translationToggle.Click += (_, _) => showTranslation.IsChecked = translationToggle.IsChecked;
         var streams = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Padding = new Thickness(3, 2, 3, 2) };
         streams.Children.Add(originalToggle); streams.Children.Add(translationToggle);
-        var streamSurface = new Border { Child = streams, CornerRadius = new CornerRadius(11), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(20, 255, 255, 255)) };
+        var streamSurface = new Border { Child = streams, CornerRadius = new CornerRadius(11) };
+        RecappiTheme.Bind(streamSurface, "RecappiCaptionWash", brush => streamSurface.Background = brush);
         expand = Ui.IconButton("展开字幕历史", "", () => { compact.IsChecked = compact.IsChecked != true; return Task.CompletedTask; }, this);
         var option = Ui.IconButton("字幕选项", "", () => Task.CompletedTask, this);
         var settings = new StackPanel { Spacing = 8 }; foreach (var control in new UIElement[] { follow, Ui.Button("重新连接", retry, this) }) settings.Children.Add(control);
@@ -76,8 +77,11 @@ internal sealed class CaptionWindow : DesktopWindow
         var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Padding = new Thickness(5, 2, 5, 2) };
         foreach (var item in new UIElement[] { badgeSurface, streamSurface, expand, option, close }) tools.Children.Add(item);
         chrome = new Border { Child = tools, CornerRadius = new CornerRadius(14), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 44, 44, 47)), BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(36, 255, 255, 255)),
             BorderThickness = new Thickness(1), Opacity = 0, IsHitTestVisible = false };
+        // The panel follows the app theme: light pill and controls in light mode, dark in dark mode.
+        RecappiTheme.Bind(chrome, "RecappiCaptionChrome", brush => chrome.Background = brush);
+        RecappiTheme.Bind(chrome, "RecappiCaptionChromeStroke", brush => chrome.BorderBrush = brush);
+        RecappiTheme.Bind(placeholder, "RecappiCaptionTextMuted", brush => placeholder.Foreground = brush);
         var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 6, Height = 6, Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 59, 48)),
             HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 4, 0, 0), IsHitTestVisible = false };
         RecappiTheme.Pulse(dot).Begin(); idleDot = dot;
@@ -108,11 +112,16 @@ internal sealed class CaptionWindow : DesktopWindow
     private void UpdateFades() { foreach (var (scroll, mask) in fades) mask.Opacity = compact.IsChecked != true && scroll.VerticalOffset > 0 ? 1 : 0; }
     private Grid Faded(ScrollViewer scroll)
     {
-        var fade = new LinearGradientBrush { StartPoint = new(0, 0), EndPoint = new(0, 1) };
-        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xF7, 0x1C, 0x1C, 0x1E), Offset = 0 });
-        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0xF7, 0x1C, 0x1C, 0x1E), Offset = 0.35 });
-        fade.GradientStops.Add(new GradientStop { Color = Windows.UI.Color.FromArgb(0, 0x1C, 0x1C, 0x1E), Offset = 1 });
-        var mask = new Border { Height = 28, VerticalAlignment = VerticalAlignment.Top, Background = fade, IsHitTestVisible = false };
+        var mask = new Border { Height = 28, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false };
+        RecappiTheme.Bind(mask, "RecappiCaptionPill", brush =>
+        {
+            var color = ((SolidColorBrush)brush).Color; var clear = Windows.UI.Color.FromArgb(0, color.R, color.G, color.B);
+            var fade = new LinearGradientBrush { StartPoint = new(0, 0), EndPoint = new(0, 1) };
+            fade.GradientStops.Add(new GradientStop { Color = color, Offset = 0 });
+            fade.GradientStops.Add(new GradientStop { Color = color, Offset = 0.35 });
+            fade.GradientStops.Add(new GradientStop { Color = clear, Offset = 1 });
+            mask.Background = fade;
+        });
         fades.Add((scroll, mask)); scroll.ViewChanged += (_, _) => UpdateFades();
         mask.Opacity = 0;
         var host = new Grid(); host.Children.Add(scroll); host.Children.Add(mask);
@@ -141,6 +150,7 @@ internal sealed class CaptionWindow : DesktopWindow
         hovering = value;
         chrome.IsHitTestVisible = value;
         Fade(chrome, value ? 1 : 0); Fade(idleDot, value ? 0 : 1);
+        if (segments.Count == 0) Fade(placeholder, value ? 0 : 1); // The status badge repeats it while hovering.
     }
     private static void Fade(UIElement element, double to)
     {

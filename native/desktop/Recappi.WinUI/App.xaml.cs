@@ -93,6 +93,13 @@ public partial class App : Application, IDesktopHost
             {
                 if (value.State is AccountState.SignedOut or AccountState.Expired || (captionPartition is not null && value.Account?.Partition != captionPartition))
                 { Processing.CancelAll(); _ = recorder.Run(() => StopCaptions(true)); }
+                // A recording started while the saved login was still being checked: adopt the account and
+                // connect captions now instead of leaving them off for the whole recording.
+                else if (value is { State: AccountState.SignedIn, Account: { } signedIn } && Engine.Snapshot.State == RecordingState.Recording && captions is null)
+                {
+                    recordingAccount ??= signedIn; captionPartition ??= signedIn.Partition;
+                    if (recordingPreferences.CaptionsEnabled) _ = recorder.Run(RetryCaptions);
+                }
             });
             Engine.Audio += samples => Volatile.Read(ref captions)?.Append(samples);
             Engine.Level += value => { var rms = Math.Pow(10, value.RmsDb / 20); if (value.Input == "system") Volatile.Write(ref systemRms, rms); else Volatile.Write(ref microphoneRms, rms); };
@@ -223,9 +230,19 @@ public partial class App : Application, IDesktopHost
     }
     private void CreateCaptions()
     {
-        var account = Account.Snapshot.State == AccountState.SignedIn ? Account.Snapshot.Account : null;
+        var snapshot = Account.Snapshot;
+        var account = snapshot.State == AccountState.SignedIn ? snapshot.Account : null;
         if (account is null || (captionPartition is not null && captionPartition != account.Partition))
-        { captionWindow?.SetStatus("登录原账号后可连接字幕；本地录音继续保存。"); return; }
+        {
+            // Right after launch the saved login is still being checked; captions connect once it is
+            // (see Account.Changed). Only a different account needs the original one back.
+            captionWindow?.SetStatus(account is not null ? "登录原账号后可连接字幕；本地录音继续保存。"
+                : snapshot.State is AccountState.Checking ? "正在确认账号，确认后自动连接字幕…"
+                : snapshot.State is AccountState.Expired ? "登录已过期，重新连接账号后可显示字幕；本地录音继续保存。"
+                : snapshot.State is AccountState.Offline ? "云端暂时不可用，恢复后自动连接字幕；本地录音继续保存。"
+                : "连接账号后可显示实时字幕；本地录音继续保存。");
+            return;
+        }
         captionPartition ??= account.Partition;
         var options = new CaptionOptions(recordingPreferences.CaptionLanguage, recordingPreferences.TranslationLanguage);
         var stream = new LiveCaptions(options, async cancellation =>

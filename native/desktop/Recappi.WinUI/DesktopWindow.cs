@@ -77,8 +77,8 @@ internal class DesktopWindow : Window
             root.KeyboardAccelerators.Add(accelerator);
         }
     }
-    // Page windows open centred on the display the user is working on (like macOS), and stay
-    // centred while they size themselves to their content until the user moves them.
+    // Page windows open centred on the display the user is working on (like macOS); later height
+    // changes keep the top edge fixed.
     private PointInt32? centeredAt;
     private void CenterOnCursorDisplay()
     {
@@ -106,7 +106,10 @@ internal class DesktopWindow : Window
             var delta = (int)Math.Round((target - client) * scale);
             AppWindow.Resize(new SizeInt32(AppWindow.Size.Width, AppWindow.Size.Height + delta));
             if (centeredAt is { } centre && AppWindow.Position.X == centre.X && AppWindow.Position.Y == centre.Y)
-            { var moved = new PointInt32(centre.X, centre.Y - delta / 2); AppWindow.Move(moved); centeredAt = moved; }
+            { AppWindow.Move(new PointInt32(centre.X, centre.Y - delta / 2)); }
+            // Only the first fit re-centres (the opening size); after that the header stays put and the
+            // window grows or shrinks downward, so switching tabs never makes it jump.
+            centeredAt = null;
             EnsureVisible();
         };
         void Schedule(object? sender, object args) { if (!closed && !fit.IsRunning) fit.Start(); }

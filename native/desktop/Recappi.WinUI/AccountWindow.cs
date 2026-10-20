@@ -13,6 +13,8 @@ internal sealed class AccountWindow : DesktopWindow
     private readonly TextBlock code = Ui.Text("");
     private readonly TextBlock billing = Ui.Text("");
     private readonly TextBlock initial = new();
+    private readonly Microsoft.UI.Xaml.Shapes.Ellipse picture = new() { Width = 48, Height = 48, Visibility = Visibility.Collapsed };
+    private string? pictureUrl;
     private readonly Button connect;
     private readonly Button verify;
     private readonly Button cancelLogin;
@@ -36,7 +38,9 @@ internal sealed class AccountWindow : DesktopWindow
         // Identity header: initial avatar · email · connection state.
         var header = new Grid { ColumnSpacing = 14 };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new ColumnDefinition());
-        var avatar = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(24), Child = initial };
+        // Profile picture over the initial, as in the library header (initial while it loads or fails).
+        var face = new Grid(); face.Children.Add(initial); face.Children.Add(picture);
+        var avatar = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(24), Child = face };
         RecappiTheme.Bind(avatar, "RecappiAccentChipFill", brush => avatar.Background = brush);
         initial.Style = RecappiTheme.Style("RecappiStatusAccent"); initial.FontSize = 20; initial.HorizontalAlignment = HorizontalAlignment.Center;
         header.Children.Add(avatar);
@@ -122,7 +126,7 @@ internal sealed class AccountWindow : DesktopWindow
             static string Size(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.#} GB" : $"{bytes / 1048576d:0.#} MB";
             minutesMeter.Set($"{usage.MinutesUsed:0.#} / {(usage.UnlimitedMinutes ? "不限" : $"{usage.MinutesCap:0.#}")} 分钟", usage.MinutesPercent, usage.UnlimitedMinutes, !usage.UnlimitedMinutes && usage.IsOverMinutes);
             storageMeter.Set($"{Size(usage.StorageBytes)} / {(usage.UnlimitedStorage ? "不限" : Size(usage.StorageCapBytes))}", usage.StoragePercent, usage.UnlimitedStorage, !usage.UnlimitedStorage && usage.IsOverStorage);
-            resets.Text = usage.PeriodEnd is { } end ? $"额度将于 {end.ToLocalTime():M月d日} 重置" : "";
+            resets.Text = usage.PeriodEnd is { } end && end > DateTimeOffset.Now && !(usage.UnlimitedMinutes && usage.UnlimitedStorage) ? $"额度将于 {end.ToLocalTime():M月d日} 重置" : "";
             billing.Text = usage.OverLimit ? "已超出套餐额度，新的录音将无法上传处理。" : "";
             billing.Visibility = billing.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
             minutesMeter.Root.Visibility = storageMeter.Root.Visibility = Visibility.Visible;
@@ -137,9 +141,12 @@ internal sealed class AccountWindow : DesktopWindow
     private void Render()
     {
         var value = app.Account.Snapshot;
-        identity.Text = value.Account?.Email ?? "尚未登录";
+        // Name first when the account has one, with the email beside the connection state.
+        var hasName = !string.IsNullOrWhiteSpace(value.Account?.Name);
+        identity.Text = hasName ? value.Account!.Name! : value.Account?.Email ?? "尚未登录";
+        RenderPicture(value.Account?.Image);
         initial.Text = value.Account?.Email is { Length: > 0 } email ? email[..1].ToUpperInvariant() : "?";
-        state.Text = value.Message ?? value.State switch { AccountState.SignedIn => "已连接 Recappi Cloud", AccountState.SigningIn => "等待浏览器确认…", AccountState.Checking => "正在检查连接…", AccountState.Offline => "云端暂时不可用，本地录音可继续。", AccountState.Expired => "登录已过期。", _ => "可以先使用本地录音。" };
+        state.Text = (hasName && value.Account?.Email is { } shown ? shown + " · " : "") + (value.Message ?? value.State switch { AccountState.SignedIn => "已连接 Recappi Cloud", AccountState.SigningIn => "等待浏览器确认…", AccountState.Checking => "正在检查连接…", AccountState.Offline => "云端暂时不可用，本地录音可继续。", AccountState.Expired => "登录已过期。", _ => "可以先使用本地录音。" });
         if (value.State != AccountState.SigningIn) { verification = null; code.Text = ""; }
         var signingIn = value.State == AccountState.SigningIn;
         var connected = value.State == AccountState.SignedIn;
@@ -152,6 +159,19 @@ internal sealed class AccountWindow : DesktopWindow
         refresh.IsEnabled = signOut.IsEnabled = value.State != AccountState.Checking;
         usageSurface.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
         if (connected) _ = LoadUsage(); else usageFor = null;
+    }
+    private void RenderPicture(string? url)
+    {
+        if (url == pictureUrl) return;
+        pictureUrl = url;
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
+        {
+            var image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(uri) { DecodePixelWidth = 96 };
+            image.ImageOpened += (_, _) => { picture.Visibility = Visibility.Visible; initial.Visibility = Visibility.Collapsed; };
+            image.ImageFailed += (_, _) => { picture.Visibility = Visibility.Collapsed; initial.Visibility = Visibility.Visible; };
+            picture.Fill = new Microsoft.UI.Xaml.Media.ImageBrush { ImageSource = image, Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill };
+        }
+        else { picture.Visibility = Visibility.Collapsed; initial.Visibility = Visibility.Visible; }
     }
     private static void Open(Uri uri) => Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
 }
