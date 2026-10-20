@@ -423,7 +423,12 @@ internal sealed class LibraryWindow : DesktopWindow
         var email = account?.Email;
         RenderPicture(account?.Image);
         accountLabel.Text = (string.IsNullOrWhiteSpace(account?.Name) ? email ?? "尚未登录" : account!.Name) + "\n" + (!string.IsNullOrWhiteSpace(account?.Name) && email is not null ? email + " · " : "") +
-            (app.Account.Snapshot.State == AccountState.SignedIn ? "已连接云端" : app.Account.Snapshot.State == AccountState.Offline ? "离线 · 可查看已缓存内容" : "本机录音可用");
+            (app.Account.Snapshot.State switch
+            {
+                AccountState.SignedIn => "已连接云端", AccountState.Offline => "离线 · 可查看已缓存内容",
+                // An expired login still shows the name, so say it plainly instead of looking signed in.
+                AccountState.Expired => "登录已过期 · 点此重新连接", AccountState.Checking => "正在确认登录…", _ => "本机录音可用"
+            });
         accountInitial.Text = string.IsNullOrEmpty(email) ? "?" : email[..1].ToUpperInvariant();
     }
     private void RenderPicture(string? url)

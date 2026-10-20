@@ -82,6 +82,14 @@ public partial class TestApp : Application
         {
             await InputCalibrationPreview.Run(root); keeper.Close(); Exit(); return;
         }
+        if (commandLine.Contains("--probe-account"))
+        {
+            // Read-only check of the real saved login: prints the state, never the token.
+            var session = new AccountSession(new AccountStore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Recappi Mini", "Account")));
+            session.Changed += value => Console.WriteLine($"state={value.State} account={(value.Account is null ? "none" : "present")} message={value.Message}");
+            try { await session.RestoreAsync(); } catch (Exception error) { Console.WriteLine("error=" + error.GetType().Name + ": " + error.Message); }
+            keeper.Close(); Exit(); return;
+        }
         if (commandLine.Contains("--probe-recorder-drag"))
         {
             try { await RecorderInputProbe.DragFromControl(root); } catch (Exception error) { Console.WriteLine(error.Message); }

@@ -238,6 +238,7 @@ public partial class App : Application, IDesktopHost
             // (see Account.Changed). Only a different account needs the original one back.
             captionWindow?.SetStatus(account is not null ? "登录原账号后可连接字幕；本地录音继续保存。"
                 : snapshot.State is AccountState.Checking ? "正在确认账号，确认后自动连接字幕…"
+                : snapshot.State is AccountState.Expired ? "登录已过期，重新连接账号后可显示字幕；本地录音继续保存。"
                 : snapshot.State is AccountState.Offline ? "云端暂时不可用，恢复后自动连接字幕；本地录音继续保存。"
                 : "连接账号后可显示实时字幕；本地录音继续保存。");
             return;
