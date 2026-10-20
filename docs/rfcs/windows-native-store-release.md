@@ -14,20 +14,24 @@
 | 定价 / 地区 | 免费 / 所有可选市场 |
 | 隐私政策 | <https://recordmeet.ing/privacy> |
 
-首批 CI 二进制源提交为 `d0f210e298d38c7479b7b669c93bcfcae2956e69`；最新 main `f3d6ae0` 只补测试断言。应用二进制版本仍为 `0.1.0-preview.1`，MSIX 包版本独立为 `1.0.1.0`（`1.0.0.0` 未公开，后续候选修正商店图标尺寸）。打包命令对 x64、ARM64 分别运行：
+首批 CI 二进制源提交为 `d0f210e298d38c7479b7b669c93bcfcae2956e69`；最新 main `f3d6ae0` 只补测试断言。应用二进制版本仍为 `0.1.0-preview.1`，MSIX 包版本独立为 `1.0.3.0`（此前候选均未公开）。打包命令对 x64、ARM64 分别运行：
 
 ```powershell
 ./scripts/build-native-msix.ps1 -PackageDirectory <verified-publish-directory> `
   -IdentityName 'pengx17.RecappiMini' `
   -Publisher 'CN=0A62AE73-FF5C-4B40-9E2B-F24486072C86' `
-  -PublisherDisplayName 'pengx17' -PackageVersion '1.0.1.0'
+  -PublisherDisplayName 'pengx17' -PackageVersion '1.0.3.0'
 ```
 
-打包时由已有品牌图生成独立的 50px StoreLogo、44px 和 150px 图标，避免共享 256px 图片触发 WACK 的 App resources 失败。两个架构各 465 个载荷文件均经 MakeAppx 和长度/SHA256 校验。x64 通过开发注册后的 AUMID 激活，实际进程身份为 `pengx17.RecappiMini_1.0.1.0_x64__3t6r3b27cpzdr`。
+打包时由已有品牌图生成独立的 50px StoreLogo、44px 和 150px 图标，以及 14 种 target-size 的普通、unplated 和 lightunplated 图标。MakePri 将新增图标与原始 `Recappi Mini.pri` 合并，保留 WinUI 内嵌资源；只生成图标索引会导致应用启动崩溃，重复索引依赖 PRI 或原始图标又会产生 Duplicate Entry。脚本验证 `App.xbf` 嵌入资源和 28 个透明图标候选，避免重现这些问题。
 
-本机 WACK `10.0.22000.832` 的新运行总体 `PASS`、App resources `PASS`；`General metadata correctness`（WinUI / WebView2 元数据）和 `Blocked executables`（WinUI / .NET 运行库与启动 API）两项可选检查仍为 `FAIL`，不能表述为全部测试通过。每次独立运行前必须执行 `appcert.exe reset`，否则它会复用旧包路径与结果。本轮先遗漏 reset 的 `wack-1.0.1.xml` 无效，以 `build/store-msix-validation/wack-1.0.1-fresh.xml` 为准。
+两个架构各 508 个载荷文件均经 MakeAppx 和长度/SHA256 校验，Partner Center 均显示 Validated。x64 通过开发注册后的 AUMID 激活，实际进程身份为 `pengx17.RecappiMini_1.0.3.0_x64__3t6r3b27cpzdr`；已验证进程持续存活、窗口出现，并由用户确认显示效果。启动脚本增加 5 秒存活检查，不能再把激活接口返回 PID 当作启动成功。
 
-尚未提交认证或公开：IARC 条款需发布者确认；隐私政策 §05 的“不在录制时传输音频”需与 §06 的实时字幕说明统一。开发注册与本机 WACK 不替代签名 MSIX 安装/升级/卸载/重装、默认数据目录保留、干净 Windows 和 ARM64 实机验收；这些门禁仍未完成。商店详情的英文介绍明确说明当前应用界面为简体中文。
+本机 WACK `10.0.22000.832` 对 1.0.3 的新运行总体 `PASS`、App resources `PASS`；`General metadata correctness`（WinUI / WebView2 元数据）和 `Blocked executables`（WinUI / .NET 运行库与启动 API）两项可选检查仍为 `FAIL`，不能表述为全部测试通过。每次独立运行前必须执行 `appcert.exe reset`，否则它会复用旧包路径与结果。最新证据为 `build/store-msix-validation/wack-1.0.3.xml`，已核对引用的包路径。
+
+发布者已同意 IARC 条款并完成分级。隐私政策 §05 的实时字幕披露修复见 [recappi-monorepo PR #33](https://github.com/Recappi/recappi-monorepo/pull/33)，需经 CI 部署后核对线上内容。商店详情的英文介绍明确说明当前应用界面为简体中文。
+
+开发注册与本机 WACK 不替代签名 MSIX 安装/升级/卸载/重装、默认数据目录保留、干净 Windows 和 ARM64 实机验收；这些检查尚无完成证据。Partner Center 上传校验也不等于微软已通过认证。
 
 ## 历史产物保留（2026-09-16）
 

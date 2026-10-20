@@ -45,6 +45,10 @@ $launchedId = [RecappiPackageActivation]::Launch($aumid, $arguments)
 $process = Get-Process -Id $launchedId -ErrorAction Stop
 $actualIdentity = [RecappiPackageActivation]::Identity($process.Handle)
 if ($actualIdentity -ne $package.PackageFullName) { throw 'Activated process package identity mismatch.' }
+if ($process.WaitForExit(5000)) {
+    throw "Packaged app exited during startup (exit code $($process.ExitCode)); activation alone is not a successful launch."
+}
+$process.Refresh()
 $report = [ordered]@{ startedAt = [DateTimeOffset]::UtcNow.ToString('O'); processId = $launchedId; aumid = $aumid;
     packageFullName = $actualIdentity; executable = $process.Path; dataDirectory = $recordings;
     scope = 'Development registration and real package activation; not signed MSIX installation or clean environment acceptance' }
