@@ -344,7 +344,15 @@ public partial class TestApp : Application
                     foreach (var probe in new[] { new Windows.Foundation.Point(3, button.ActualHeight / 2), new Windows.Foundation.Point(button.ActualWidth / 2, 3), new Windows.Foundation.Point(button.ActualWidth - 3, button.ActualHeight / 2) })
                     {
                         var at = button.TransformToVisual(null).TransformPoint(probe);
-                        if (!Microsoft.UI.Xaml.Media.VisualTreeHelper.FindElementsInHostCoordinates(at, content).Contains(button)) { problems.Add($"{window} {name} not hit-testable at {probe}"); break; }
+                        if (!Microsoft.UI.Xaml.Media.VisualTreeHelper.FindElementsInHostCoordinates(at, content).Contains(button))
+                        {
+                            var ancestors = new List<string>();
+                            for (DependencyObject? node = button; node is not null; node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node))
+                                if (node is FrameworkElement element)
+                                    ancestors.Add($"{element.GetType().Name}:{element.Name} size={element.ActualWidth:0.#}x{element.ActualHeight:0.#} opacity={element.Opacity} hit={element.IsHitTestVisible} visibility={element.Visibility}");
+                            problems.Add($"{window} {name} not hit-testable at {probe}: {string.Join(" > ", ancestors)}");
+                            break;
+                        }
                     }
                 // Floating panels have no scroll bar strip over their controls.
                 if (button is Microsoft.UI.Xaml.Controls.Primitives.RepeatButton && window.StartsWith("recorder") | window == "captions") problems.Add($"{window} scroll bar {name}");
